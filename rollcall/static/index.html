@@ -1,0 +1,2134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RollCall — Volunteer Management</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal-50:#E1F5EE;--teal-100:#9FE1CB;--teal-200:#5DCAA5;--teal-400:#1D9E75;--teal-600:#0F6E56;--teal-800:#085041;--teal-900:#04342C;
+  --gray-50:#F7F7F5;--gray-100:#EFEFEC;--gray-200:#D9D9D4;--gray-400:#9B9B94;--gray-600:#5F5E5A;--gray-800:#2C2C28;--gray-900:#1A1A17;
+  --amber-50:#FAEEDA;--amber-200:#EF9F27;--amber-600:#854F0B;
+  --red-50:#FCEBEB;--red-200:#F09595;--red-600:#A32D2D;
+  --blue-50:#E6F1FB;--blue-200:#85B7EB;--blue-600:#185FA5;
+  --green-50:#EAF3DE;--green-200:#97C459;--green-600:#3B6D11;
+  --purple-50:#F3EEFF;--purple-400:#8B5CF6;--purple-600:#6D28D9;
+  --pink-50:#FFF0F6;--pink-400:#F472B6;--pink-600:#BE185D;
+  --bg:#FAFAF8;--surface:#FFFFFF;
+  --border:rgba(0,0,0,0.08);--border-md:rgba(0,0,0,0.14);
+  --text:#1A1A17;--text-muted:#5F5E5A;--text-hint:#9B9B94;
+  --radius:10px;--radius-lg:14px;
+  --shadow-sm:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg:0 12px 32px rgba(0,0,0,0.12),0 4px 8px rgba(0,0,0,0.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* AUTH */
+#auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--teal-800) 0%,var(--teal-600) 50%,var(--teal-400) 100%);padding:24px}
+.auth-card{background:var(--surface);border-radius:20px;padding:48px 40px;width:100%;max-width:400px;box-shadow:var(--shadow-lg)}
+.auth-logo{display:flex;align-items:center;gap:10px;margin-bottom:32px}
+.auth-logo-icon{width:44px;height:44px;background:var(--teal-400);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.auth-logo-text{font-size:26px;font-weight:600;letter-spacing:-0.5px}
+.auth-logo-sub{font-size:12px;color:var(--text-muted)}
+.auth-error{background:var(--red-50);color:var(--red-600);padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:16px;border:1px solid var(--red-200);display:none}
+.demo-accounts{margin-top:24px;padding-top:24px;border-top:1px solid var(--border)}
+.demo-btn{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border-md);border-radius:var(--radius);cursor:pointer;margin-bottom:8px;background:var(--gray-50);transition:background 0.1s;width:100%}
+.demo-btn:hover{background:var(--gray-100)}
+
+/* APP SHELL */
+#app{display:none;min-height:100vh}
+.app-layout{display:flex;min-height:100vh}
+.sidebar{width:240px;min-width:240px;background:var(--teal-800);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.sidebar-header{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.1)}
+.sidebar-logo{display:flex;align-items:center;gap:10px}
+.sidebar-logo-icon{width:36px;height:36px;background:rgba(255,255,255,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.sidebar-logo-text{color:#fff;font-size:20px;font-weight:600;letter-spacing:-0.3px}
+.sidebar-logo-sub{color:rgba(255,255,255,0.5);font-size:11px}
+.sidebar-nav{padding:16px 12px;flex:1}
+.nav-section{font-size:10px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:rgba(255,255,255,0.35);padding:12px 8px 4px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:rgba(255,255,255,0.75);cursor:pointer;font-size:14px;font-weight:400;transition:all 0.15s;margin-bottom:2px;user-select:none;text-decoration:none}
+.nav-item:hover{background:rgba(255,255,255,0.1);color:#fff}
+.nav-item.active{background:rgba(255,255,255,0.18);color:#fff;font-weight:500}
+.nav-icon{font-size:16px;width:20px;text-align:center}
+.nav-badge{margin-left:auto;background:#E24B4A;color:#fff;font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px}
+.sidebar-user{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;gap:10px}
+.user-avatar{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff;flex-shrink:0}
+.user-name{color:#fff;font-size:13px;font-weight:500}
+.user-role{color:rgba(255,255,255,0.5);font-size:11px}
+.logout-btn{margin-left:auto;color:rgba(255,255,255,0.4);cursor:pointer;font-size:18px;background:none;border:none;padding:4px;transition:color 0.15s}
+.logout-btn:hover{color:rgba(255,255,255,0.8)}
+
+/* MAIN */
+.main-content{flex:1;min-width:0;display:flex;flex-direction:column}
+.page{display:none;flex:1;flex-direction:column}
+.page.active{display:flex}
+.page-header{padding:28px 32px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.page-title{font-size:22px;font-weight:600;letter-spacing:-0.3px}
+.page-subtitle{color:var(--text-muted);font-size:14px;margin-top:3px}
+.page-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.page-body{padding:24px 32px 40px;flex:1}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
+.btn-primary{background:var(--teal-400);color:#fff}.btn-primary:hover{background:var(--teal-600)}
+.btn-secondary{background:var(--gray-100);color:var(--text);border:1px solid var(--border-md)}.btn-secondary:hover{background:var(--gray-200)}
+.btn-danger{background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200)}.btn-danger:hover{background:var(--red-200)}
+.btn-purple{background:var(--purple-50);color:var(--purple-600);border:1px solid #C4B5FD}.btn-purple:hover{background:#EDE9FE}
+.btn-sm{padding:6px 12px;font-size:13px}.btn-full{width:100%}
+
+/* FORMS */
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;color:var(--text-muted)}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:var(--surface);transition:border-color 0.15s;outline:none}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--teal-400)}
+.form-group textarea{resize:vertical;min-height:80px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-hint{font-size:12px;color:var(--text-hint);margin-top:4px}
+.form-check{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:14px}
+.form-check input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--teal-400)}
+
+/* CARD + TABLE */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden}
+.card-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-title{font-size:15px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+thead th{text-align:left;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--text-muted);padding:10px 20px;background:var(--gray-50);border-bottom:1px solid var(--border)}
+tbody tr{border-bottom:1px solid var(--border);transition:background 0.1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--gray-50)}
+tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
+
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:28px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-sm)}
+.stat-icon{font-size:22px;margin-bottom:12px}
+.stat-value{font-size:28px;font-weight:600;letter-spacing:-0.5px;line-height:1}
+.stat-label{font-size:12px;color:var(--text-muted);margin-top:4px;font-weight:500}
+.stat-card.teal{border-top:3px solid var(--teal-400)}.stat-card.amber{border-top:3px solid var(--amber-200)}
+.stat-card.red{border-top:3px solid #E24B4A}.stat-card.blue{border-top:3px solid #378ADD}
+.stat-card.purple{border-top:3px solid var(--purple-400)}
+
+/* TAGS */
+.tag{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:500;margin:2px}
+.tag-teal{background:var(--teal-50);color:var(--teal-600)}
+.tag-pink{background:var(--pink-50);color:var(--pink-600)}
+.tag-blue{background:var(--blue-50);color:var(--blue-600)}
+.tag-amber{background:var(--amber-50);color:var(--amber-600)}
+.tag-gray{background:var(--gray-100);color:var(--gray-600)}
+.tag-purple{background:var(--purple-50);color:var(--purple-600)}
+
+/* BADGES */
+.waiver-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500}
+.waiver-valid{background:var(--green-50);color:var(--green-600)}
+.waiver-expiring{background:var(--amber-50);color:var(--amber-600)}
+.waiver-expired{background:var(--red-50);color:var(--red-600)}
+.waiver-none{background:var(--gray-100);color:var(--gray-600)}
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 8px;border-radius:20px}
+.status-active{background:var(--green-50);color:var(--green-600)}
+.status-inactive{background:var(--gray-100);color:var(--gray-600)}
+
+/* VOLUNTEER */
+.volunteer-avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
+.volunteer-name-cell{display:flex;align-items:center;gap:10px}
+.volunteer-name{font-weight:500}
+.volunteer-email{font-size:12px;color:var(--text-muted)}
+
+/* SEARCH */
+.search-bar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.search-input-wrap{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1.5px solid var(--border-md);border-radius:var(--radius);padding:0 14px}
+.search-input-wrap input{border:none;outline:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);width:100%;padding:9px 0}
+.filter-select{padding:9px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:var(--surface);cursor:pointer;outline:none}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:modal-in 0.2s ease}
+.modal-lg{max-width:780px}
+@keyframes modal-in{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:16px;font-weight:600}
+.modal-close{background:var(--gray-100);border:none;cursor:pointer;width:28px;height:28px;border-radius:50%;font-size:16px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;transition:background 0.1s}
+.modal-close:hover{background:var(--gray-200)}
+.modal-body{padding:24px}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+
+/* PROFILE */
+.profile-layout{display:grid;grid-template-columns:280px 1fr;gap:24px}
+.profile-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--shadow-sm);height:fit-content}
+.profile-avatar-large{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:600;margin:0 auto 16px}
+.profile-name{font-size:18px;font-weight:600;text-align:center;margin-bottom:4px}
+
+/* TABS */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:10px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;white-space:nowrap}
+.tab:hover{color:var(--text)}.tab.active{color:var(--teal-600);border-bottom-color:var(--teal-400)}
+.tab-pane{display:none}.tab-pane.active{display:block}
+
+/* HOURS */
+.hours-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.hours-item:last-child{border-bottom:none}
+.event-name{font-weight:500;font-size:13px}.event-date{font-size:12px;color:var(--text-muted)}
+.event-hours{font-weight:600;color:var(--teal-600);margin-left:auto;font-size:13px}
+
+/* TIMELINE */
+.timeline{padding-left:16px;border-left:2px solid var(--border)}
+.timeline-item{position:relative;padding:0 0 20px 20px}
+.timeline-dot{position:absolute;left:-7px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--teal-400);border:2px solid var(--surface)}
+.timeline-item-title{font-weight:500;font-size:13px}.timeline-item-sub{font-size:12px;color:var(--text-muted);margin-top:2px}
+.timeline-item-note{font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic}
+
+/* NOTES + FILES */
+.note-item{background:var(--gray-50);border-radius:var(--radius);padding:12px 16px;margin-bottom:10px}
+.note-meta{font-size:12px;color:var(--text-hint);margin-bottom:6px}.note-content{font-size:13px;line-height:1.6}
+.file-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.file-item:last-child{border-bottom:none}
+.file-name{font-weight:500;font-size:13px}.file-size{font-size:12px;color:var(--text-muted)}
+
+/* PUNCH */
+.punch-timer{font-family:'DM Mono',monospace;font-size:18px;font-weight:500;color:var(--teal-600);letter-spacing:2px}
+.punch-status{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:var(--radius);margin-bottom:12px;font-size:13px}
+.punch-dot{width:8px;height:8px;border-radius:50%;background:var(--teal-400);animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* SUMMARY BAR */
+.summary-bar{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.summary-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 24px;box-shadow:var(--shadow-sm);min-width:140px}
+.s-value{font-size:24px;font-weight:600;letter-spacing:-0.5px}.s-label{font-size:12px;color:var(--text-muted);margin-top:2px}
+
+/* WAIVER GRID */
+.waiver-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.waiver-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-sm)}
+.waiver-card-header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.waiver-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-valid{background:var(--green-600)}.dot-expiring{background:var(--amber-200)}
+.dot-expired{background:var(--red-600)}.dot-none{background:var(--gray-400)}
+
+/* CHECKBOX TAG */
+.checkbox-group{display:flex;flex-wrap:wrap;gap:8px}
+.checkbox-tag{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1.5px solid var(--border-md);cursor:pointer;font-size:13px;transition:all 0.1s;user-select:none;background:var(--surface)}
+.checkbox-tag.checked{border-color:var(--teal-400);background:var(--teal-50);color:var(--teal-600)}
+
+/* YOUTH */
+.youth-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.youth-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;box-shadow:var(--shadow-sm);cursor:pointer;transition:box-shadow 0.15s}
+.youth-card:hover{box-shadow:var(--shadow-lg)}
+.youth-card-header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.youth-name{font-weight:600;font-size:15px}.youth-program{font-size:12px;color:var(--text-muted)}
+.guardian-item{padding:10px 0;border-bottom:1px solid var(--border)}
+.guardian-item:last-child{border-bottom:none}
+.consent-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:500;margin:2px}
+.consent-yes{background:var(--green-50);color:var(--green-600)}
+.consent-no{background:var(--red-50);color:var(--red-600)}
+
+/* EMAIL */
+.email-compose{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--shadow-sm)}
+.vol-checkbox-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background 0.1s}
+.vol-checkbox-item:hover{background:var(--gray-50)}
+.vol-checkbox-item input{width:16px;height:16px;accent-color:var(--teal-400);cursor:pointer}
+
+/* TOAST */
+.toast-container{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;gap:8px;z-index:9999}
+.toast{background:var(--gray-800);color:#fff;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;animation:toast-in 0.2s ease;display:flex;align-items:center;gap:8px}
+@keyframes toast-in{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.success{background:var(--teal-600)}.toast.error{background:#A32D2D}
+
+/* MISC */
+.empty-state{text-align:center;padding:48px 24px;color:var(--text-muted)}
+.empty-icon{font-size:40px;margin-bottom:12px}
+.action-btns{display:flex;gap:6px}
+.divider{border:none;border-top:1px solid var(--border);margin:20px 0}
+.alert-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--radius);margin-bottom:8px;font-size:13px}
+.alert-item.warning{background:var(--amber-50);border:1px solid #FAC775}
+.alert-item.danger{background:var(--red-50);border:1px solid var(--red-200)}
+.alert-action{cursor:pointer;color:var(--teal-600);font-weight:500;text-decoration:none;margin-left:auto}
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--shadow-sm)}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
+.inline-input-row{display:flex;gap:8px;margin-bottom:8px}
+.inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
+.inline-input-row input:focus{border-color:var(--teal-400)}
+.setting-item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--gray-50);border-radius:8px;margin-bottom:6px}
+.setting-item-label{font-size:13px;font-weight:500}
+.setting-item-sub{font-size:11px;color:var(--text-muted)}
+.waiver-template-body{width:100%;min-height:100px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical;outline:none}
+.waiver-template-body:focus{border-color:var(--teal-400)}
+.sign-box{border:2px solid var(--border-md);border-radius:var(--radius-lg);padding:32px;text-align:center;background:var(--gray-50);margin:16px 0}
+.sign-box h2{font-size:18px;font-weight:600;margin-bottom:8px}
+.sign-box .waiver-text{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px;text-align:left;background:var(--surface);padding:16px;border-radius:var(--radius);border:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">🎭</div>
+      <div><div class="auth-logo-text">RollCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
+    </div>
+    <h2 style="font-size:20px;font-weight:600;margin-bottom:6px">Welcome back</h2>
+    <p style="color:var(--text-muted);margin-bottom:28px;font-size:14px">Sign in to manage your theater volunteers</p>
+    <div id="auth-error" class="auth-error">Invalid email or password.</div>
+    <div class="form-group"><label>Email address</label><input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/></div>
+    <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/></div>
+    <button class="btn btn-primary btn-full" onclick="handleLogin()">Sign in</button>
+    <div class="demo-accounts">
+      <p style="font-size:12px;color:var(--text-hint);margin-bottom:12px">Quick access — demo accounts</p>
+      <button class="demo-btn" onclick="quickLogin('admin@horizonwest.org','admin123')">
+        <div><div style="font-weight:500;font-size:13px">Aria Montgomery</div><div style="font-size:11px;color:var(--text-muted)">admin@horizonwest.org</div></div>
+        <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--teal-50);color:var(--teal-600)">Admin</span>
+      </button>
+      <button class="demo-btn" onclick="quickLogin('board@horizonwest.org','board123')">
+        <div><div style="font-weight:500;font-size:13px">Marcus Chen</div><div style="font-size:11px;color:var(--text-muted)">board@horizonwest.org</div></div>
+        <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--blue-50);color:var(--blue-600)">Board</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-icon">🎭</div>
+          <div><div class="sidebar-logo-text">RollCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-section">Volunteers</div>
+        <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon">📊</span>Dashboard</div>
+        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon">👥</span>Volunteers</div>
+        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon">⏱</span>Time Tracking</div>
+        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📋</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
+        <div class="nav-section">Programs</div>
+        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
+        <div class="nav-section">Admin</div>
+        <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
+      </nav>
+      <div class="sidebar-user">
+        <div class="user-avatar" id="sidebar-avatar">?</div>
+        <div style="flex:1;min-width:0"><div class="user-name" id="sidebar-name">—</div><div class="user-role" id="sidebar-role">—</div></div>
+        <button class="logout-btn" onclick="handleLogout()">↩</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- DASHBOARD -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-header">
+          <div><div class="page-title">Dashboard</div><div class="page-subtitle">Overview of your volunteer program</div></div>
+          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
+        </div>
+        <div class="page-body">
+          <div class="stats-grid">
+            <div class="stat-card teal"><div class="stat-icon">👥</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total Volunteers</div></div>
+            <div class="stat-card blue"><div class="stat-icon">⏱</div><div class="stat-value" id="stat-hours">0</div><div class="stat-label">Total Hours Logged</div></div>
+            <div class="stat-card purple"><div class="stat-icon">🧒</div><div class="stat-value" id="stat-youth">0</div><div class="stat-label">Active Youth</div></div>
+            <div class="stat-card amber"><div class="stat-icon">⚠️</div><div class="stat-value" id="stat-waivers">0</div><div class="stat-label">Waivers Expiring</div></div>
+            <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-value" id="stat-expired">0</div><div class="stat-label">Expired Waivers</div></div>
+          </div>
+          <div style="margin-bottom:28px"><h3 style="font-size:15px;font-weight:600;margin-bottom:12px">🔔 Alerts</h3><div id="alerts-container"></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Monthly Hours</div></div>
+              <div style="padding:20px 20px 8px;display:flex;align-items:flex-end;gap:8px;height:140px" id="hours-chart"></div>
+              <div style="display:flex;padding:0 20px 16px;gap:8px" id="chart-labels"></div>
+            </div>
+            <div class="card">
+              <div class="card-header"><div class="card-title">Most Active Volunteers</div></div>
+              <table><thead><tr><th>Volunteer</th><th>Hours</th><th>Events</th></tr></thead><tbody id="top-vols-table"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VOLUNTEERS -->
+      <section class="page" id="page-volunteers">
+        <div class="page-header">
+          <div><div class="page-title">Volunteers</div><div class="page-subtitle" id="vol-count-label">Loading…</div></div>
+          <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="exportVolCSV()">⬇ Export CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="navTo('email')">✉️ Email</button>
+            <button class="btn btn-primary admin-only" onclick="openVolModal()">+ Add Volunteer</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div class="search-bar">
+            <div class="search-input-wrap"><span>🔍</span><input type="text" id="vol-search" placeholder="Search by name or email…" oninput="renderVolunteers()"></div>
+            <select class="filter-select" id="filter-status" onchange="renderVolunteers()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            <select class="filter-select" id="filter-waiver" onchange="renderVolunteers()"><option value="">All Waivers</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option><option value="none">No Waiver</option></select>
+            <select class="filter-select" id="filter-tag" onchange="renderVolunteers()"><option value="">All Interests</option></select>
+          </div>
+          <div class="card">
+            <table>
+              <thead><tr><th><input type="checkbox" id="select-all-vols" onchange="toggleSelectAll(this)" style="width:16px;height:16px;accent-color:var(--teal-400)"/></th><th>Volunteer</th><th>Phone</th><th>Interests</th><th>Waiver</th><th>Status</th><th>Hours</th><th></th></tr></thead>
+              <tbody id="vol-table-body"></tbody>
+            </table>
+          </div>
+          <div id="bulk-actions" style="display:none;margin-top:12px;display:none;align-items:center;gap:10px;padding:12px 16px;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:var(--radius)">
+            <span id="selected-count" style="font-size:13px;font-weight:500;color:var(--teal-600)">0 selected</span>
+            <button class="btn btn-secondary btn-sm" onclick="emailSelected()">✉️ Email Selected</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROFILE -->
+      <section class="page" id="page-profile">
+        <div class="page-header" id="profile-header"></div>
+        <div class="page-body"><div id="profile-content"></div></div>
+      </section>
+
+      <!-- HOURS -->
+      <section class="page" id="page-hours">
+        <div class="page-header">
+          <div><div class="page-title">Time Tracking</div><div class="page-subtitle">Log and manage volunteer time</div></div>
+          <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="exportHoursCSV()">⬇ Export CSV</button>
+            <button class="btn btn-primary admin-only" onclick="openLogTimeModal()">+ Log Time</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div class="summary-bar">
+            <div class="summary-item"><div class="s-value" id="h-total">0</div><div class="s-label">Total Hours</div></div>
+            <div class="summary-item"><div class="s-value" id="h-events">0</div><div class="s-label">Total Events</div></div>
+            <div class="summary-item"><div class="s-value" id="h-avg">0</div><div class="s-label">Avg Hrs / Volunteer</div></div>
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+            <div class="search-input-wrap" style="max-width:280px"><span>🔍</span><input type="text" id="hours-search" placeholder="Search volunteer or event…" oninput="renderHours()"></div>
+            <select class="filter-select" id="hours-filter-vol" onchange="renderHours()"><option value="">All Volunteers</option></select>
+            <select class="filter-select" id="hours-filter-event" onchange="renderHours()"><option value="">All Events</option></select>
+          </div>
+          <div class="card"><table><thead><tr><th>Volunteer</th><th>Event</th><th>Date</th><th>Hours</th><th>Role</th><th>Notes</th><th class="admin-only"></th></tr></thead><tbody id="hours-table-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- WAIVERS -->
+      <section class="page" id="page-waivers">
+        <div class="page-header"><div><div class="page-title">Waiver Management</div><div class="page-subtitle">Track volunteer waiver status</div></div></div>
+        <div class="page-body">
+          <div style="margin-bottom:20px"><select class="filter-select" id="waiver-filter" onchange="renderWaivers()"><option value="">All Waivers</option><option value="valid">✅ Valid</option><option value="expiring">⚠️ Expiring Soon</option><option value="expired">❌ Expired</option><option value="none">No Waiver</option></select></div>
+          <div class="waiver-grid" id="waivers-grid"></div>
+        </div>
+      </section>
+
+      <!-- EMAIL -->
+      <section class="page" id="page-email">
+        <div class="page-header"><div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send via Gmail</div></div></div>
+        <div class="page-body">
+          <div style="display:grid;grid-template-columns:1fr 340px;gap:20px">
+            <div class="email-compose">
+              <div class="form-group">
+                <label>Template</label>
+                <select id="email-template-select" onchange="applyEmailTemplate()">
+                  <option value="">— Start from scratch —</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Subject</label><input type="text" id="email-subject" placeholder="e.g. Reminder: Upcoming Event"/></div>
+              <div class="form-group"><label>Message</label><textarea id="email-body" style="min-height:180px" placeholder="Write your message here…&#10;&#10;Use {name} to personalize with the volunteer's name."></textarea></div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="openGmailCompose()">📧 Open in Gmail</button>
+                <button class="btn btn-secondary" onclick="copyEmailList()">📋 Copy All Emails</button>
+                <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">💾 Save as Template</button>
+              </div>
+              <div id="email-recipients-summary" style="margin-top:16px;font-size:13px;color:var(--text-muted)"></div>
+            </div>
+            <div>
+              <div class="card" style="padding:16px;margin-bottom:16px">
+                <div style="font-size:13px;font-weight:600;margin-bottom:12px">Recipients</div>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(true)">Select All</button>
+                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(false)">Clear</button>
+                </div>
+                <div id="email-vol-list" style="max-height:400px;overflow-y:auto"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- YOUTH -->
+      <section class="page" id="page-youth">
+        <div class="page-header">
+          <div><div class="page-title">Youth Program</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
+          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
+        </div>
+        <div class="page-body">
+          <div class="search-bar">
+            <div class="search-input-wrap"><span>🔍</span><input type="text" id="youth-search" placeholder="Search by name or program…" oninput="renderYouth()"></div>
+            <select class="filter-select" id="youth-filter-status" onchange="renderYouth()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            <select class="filter-select" id="youth-filter-program" onchange="renderYouth()"><option value="">All Programs</option></select>
+          </div>
+          <div class="youth-grid" id="youth-grid"></div>
+        </div>
+      </section>
+
+      <!-- YOUTH PROFILE -->
+      <section class="page" id="page-youth-profile">
+        <div class="page-header" id="youth-profile-header"></div>
+        <div class="page-body"><div id="youth-profile-content"></div></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page admin-only" id="page-settings">
+        <div class="page-header"><div><div class="page-title">Settings</div><div class="page-subtitle">System administration</div></div></div>
+        <div class="page-body">
+          <div class="settings-grid">
+
+            <!-- Interest Types -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎯 Interest Types</div>
+              <div id="interest-types-list" style="margin-bottom:16px"></div>
+              <div class="inline-input-row">
+                <input type="text" id="new-interest-name" placeholder="e.g. Costume Design"/>
+                <select id="new-interest-color" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="teal">Teal</option><option value="blue">Blue</option><option value="amber">Amber</option>
+                  <option value="pink">Pink</option><option value="purple">Purple</option><option value="gray">Gray</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="addInterestType()">Add</button>
+              </div>
+            </div>
+
+            <!-- Waiver Types -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">📋 Waiver Types</div>
+              <div id="waiver-types-list" style="margin-bottom:16px"></div>
+              <button class="btn btn-primary btn-sm" onclick="openNewWaiverTypeModal()">+ New Waiver Type</button>
+            </div>
+
+            <!-- Events -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎭 Events</div>
+              <div id="events-list" style="margin-bottom:16px"></div>
+              <div class="inline-input-row">
+                <input type="text" id="new-event-name" placeholder="Event name"/>
+                <input type="date" id="new-event-date" style="width:140px"/>
+                <button class="btn btn-primary btn-sm" onclick="addEvent()">Add</button>
+              </div>
+            </div>
+
+            <!-- Email Templates -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">✉️ Email Templates</div>
+              <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
+              <button class="btn btn-primary btn-sm" onclick="openSaveTemplateModal()">+ New Template</button>
+            </div>
+
+            <!-- Add User -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:20px">👤 Add System User</div>
+              <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
+              <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="jane@example.com"/></div>
+              <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
+              <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option></select></div>
+              <button class="btn btn-primary" onclick="createUser()">Add User</button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════════ MODALS ═══════════════ -->
+
+<!-- Volunteer Modal -->
+<div class="modal-overlay" id="modal-volunteer">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="vol-modal-title">Add Volunteer</div><button class="modal-close" onclick="closeModal('modal-volunteer')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="vol-edit-id"/>
+      <div class="form-row">
+        <div class="form-group"><label>Full Name *</label><input type="text" id="vol-name" placeholder="Jane Smith"/></div>
+        <div class="form-group"><label>Email *</label><input type="email" id="vol-email" placeholder="jane@email.com"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Phone</label><input type="text" id="vol-phone" placeholder="(555) 000-0000"/></div>
+        <div class="form-group"><label>Birthday</label><input type="date" id="vol-birthday"/></div>
+      </div>
+      <div class="form-group"><label>Status</label><select id="vol-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveVolunteer()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Log Time Modal -->
+<div class="modal-overlay" id="modal-log-time">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Log Time</div><button class="modal-close" onclick="closeModal('modal-log-time')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="lt-vol-id"/>
+      <div class="form-group" id="lt-vol-select-wrap"></div>
+      <div class="form-group">
+        <label>Event *</label>
+        <select id="lt-event-select" onchange="onEventSelect()">
+          <option value="">— Select an event or type custom —</option>
+          <option value="__custom__">✏️ Custom event name…</option>
+        </select>
+      </div>
+      <div class="form-group" id="lt-custom-event-wrap" style="display:none">
+        <label>Custom Event Name *</label>
+        <input type="text" id="lt-custom-event" placeholder="e.g. Board Meeting"/>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Date *</label><input type="date" id="lt-date"/></div>
+        <div class="form-group"><label>Hours *</label><input type="number" id="lt-hours" min="0.5" step="0.5" placeholder="e.g. 4"/></div>
+      </div>
+      <div class="form-group"><label>Role</label><input type="text" id="lt-role" placeholder="e.g. Stage Manager"/></div>
+      <div class="form-group"><label>Notes</label><textarea id="lt-notes" placeholder="Optional notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-log-time')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLogTime()">Log Time</button>
+    </div>
+  </div>
+</div>
+
+<!-- Waiver Modal -->
+<div class="modal-overlay" id="modal-waiver">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-waiver')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="waiver-vol-id"/>
+      <div class="form-group"><label>Waiver Type *</label><select id="waiver-type-select"><option value="">Loading…</option></select></div>
+      <div id="waiver-sign-link-wrap" style="margin-bottom:12px;display:none">
+        <button class="btn btn-purple btn-sm" onclick="openOnlineSignModal()">🖊 Send for Online Signing</button>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Date Signed *</label><input type="date" id="waiver-signed" oninput="autoCalcExpiry()"/></div>
+        <div class="form-group"><label>Expiry Date</label><input type="date" id="waiver-expiry"/><div class="form-hint">Auto-calculated: 1 year</div></div>
+      </div>
+      <div class="form-group"><label>Upload PDF / Document</label><input type="file" id="waiver-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="padding:8px 0;font-size:13px"/><div class="form-hint">Optional — PDF, image, or Word doc</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-waiver')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWaiver()">Save Waiver</button>
+    </div>
+  </div>
+</div>
+
+<!-- Online Sign Modal -->
+<div class="modal-overlay" id="modal-online-sign">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="online-sign-title">Sign Waiver Online</div><button class="modal-close" onclick="closeModal('modal-online-sign')">✕</button></div>
+    <div class="modal-body">
+      <div class="sign-box">
+        <div id="online-sign-waiver-name" style="font-size:16px;font-weight:600;margin-bottom:12px"></div>
+        <div class="waiver-text" id="online-sign-waiver-body"></div>
+        <div class="form-group" style="text-align:left"><label>Type Your Full Name to Sign *</label><input type="text" id="online-sign-name" placeholder="Full legal name"/></div>
+        <div style="font-size:12px;color:var(--text-muted)">By typing your name above, you agree to the terms of this waiver. Today's date: <strong id="online-sign-date"></strong></div>
+      </div>
+      <div style="background:var(--blue-50);border:1px solid var(--blue-200);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--blue-600)">
+        💡 You can also copy this link to send to the volunteer: <span id="online-sign-link" style="font-family:monospace;font-size:12px;word-break:break-all"></span>
+        <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="copySignLink()">Copy</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-online-sign')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitOnlineSign()">✍️ Sign Waiver</button>
+    </div>
+  </div>
+</div>
+
+<!-- Note Modal -->
+<div class="modal-overlay" id="modal-note">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-note')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="note-vol-id"/>
+      <div class="form-group"><label>Note *</label><textarea id="note-content" placeholder="Add an internal note…" style="min-height:120px"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-note')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveNote()">Add Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- History Modal -->
+<div class="modal-overlay" id="modal-history">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Add History Entry</div><button class="modal-close" onclick="closeModal('modal-history')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="history-vol-id"/>
+      <div class="form-group"><label>Event *</label><input type="text" id="history-event" placeholder="e.g. Mamma Mia!"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Role *</label><input type="text" id="history-role" placeholder="e.g. Stage Manager"/></div>
+        <div class="form-group"><label>Date *</label><input type="date" id="history-date"/></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="history-notes" placeholder="Optional…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-history')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveHistory()">Add Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Waiver Type Modal -->
+<div class="modal-overlay" id="modal-waiver-type">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="waiver-type-modal-title">New Waiver Type</div><button class="modal-close" onclick="closeModal('modal-waiver-type')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="wt-edit-id"/>
+      <div class="form-group"><label>Name *</label><input type="text" id="wt-name" placeholder="e.g. Photo Release"/></div>
+      <div class="form-group"><label>Description</label><input type="text" id="wt-desc" placeholder="Brief description"/></div>
+      <div class="form-group"><label>Waiver Text (for online signing)</label><textarea class="waiver-template-body" id="wt-body" placeholder="Enter the full text of the waiver that volunteers will read and sign…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-waiver-type')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWaiverType()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Email Template Modal -->
+<div class="modal-overlay" id="modal-email-template">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Save Email Template</div><button class="modal-close" onclick="closeModal('modal-email-template')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Template Name *</label><input type="text" id="et-name" placeholder="e.g. Event Reminder"/></div>
+      <div class="form-group"><label>Subject *</label><input type="text" id="et-subject" placeholder="Email subject line"/></div>
+      <div class="form-group"><label>Body *</label><textarea id="et-body" style="min-height:140px" placeholder="Use {name} for personalization…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-email-template')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEmailTemplate()">Save Template</button>
+    </div>
+  </div>
+</div>
+
+<!-- Youth Modal -->
+<div class="modal-overlay" id="modal-youth">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Youth Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="youth-edit-id"/>
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Child Information</div>
+      <div class="form-row">
+        <div class="form-group"><label>First Name *</label><input type="text" id="youth-first-name" placeholder="Emma"/></div>
+        <div class="form-group"><label>Last Name *</label><input type="text" id="youth-last-name" placeholder="Smith"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob"/></div>
+        <div class="form-group"><label>Program / Class</label><input type="text" id="youth-program" placeholder="e.g. Summer Theater Camp"/></div>
+      </div>
+      <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
+      <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
+      <div style="display:flex;gap:16px;margin-bottom:16px">
+        <label class="form-check"><input type="checkbox" id="youth-photo-consent"/> Photo / Media Release</label>
+        <label class="form-check"><input type="checkbox" id="youth-medical-consent"/> Emergency Medical Treatment Consent</label>
+      </div>
+      <hr class="divider"/>
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Primary Guardian</div>
+      <div class="form-row">
+        <div class="form-group"><label>Guardian Name *</label><input type="text" id="youth-guardian-name" placeholder="Maria Smith"/></div>
+        <div class="form-group"><label>Relationship</label><input type="text" id="youth-guardian-rel" placeholder="Mother, Father, Guardian…"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Phone *</label><input type="text" id="youth-guardian-phone" placeholder="(555) 000-0000"/></div>
+        <div class="form-group"><label>Email</label><input type="email" id="youth-guardian-email" placeholder="parent@email.com"/></div>
+      </div>
+      <hr class="divider"/>
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Emergency Contact</div>
+      <div class="form-row">
+        <div class="form-group"><label>Name *</label><input type="text" id="youth-emergency-name" placeholder="Grandma Rosa"/></div>
+        <div class="form-group"><label>Relationship</label><input type="text" id="youth-emergency-rel" placeholder="Grandmother, Uncle…"/></div>
+      </div>
+      <div class="form-group"><label>Phone *</label><input type="text" id="youth-emergency-phone" placeholder="(555) 000-0000"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-youth')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYouth()">Save Participant</button>
+    </div>
+  </div>
+</div>
+
+<!-- Youth Waiver Modal -->
+<div class="modal-overlay" id="modal-youth-waiver">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="youth-waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-youth-waiver')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="yw-youth-id"/>
+      <div class="form-group"><label>Waiver Type *</label><select id="yw-type-select"></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>Date Signed *</label><input type="date" id="yw-signed" oninput="autoCalcYouthExpiry()"/></div>
+        <div class="form-group"><label>Expiry Date</label><input type="date" id="yw-expiry"/></div>
+      </div>
+      <div class="form-group"><label>Signed By (Guardian Name)</label><input type="text" id="yw-signed-by" placeholder="Parent/Guardian name"/></div>
+      <div class="form-group"><label>Upload Document</label><input type="file" id="yw-file" accept=".pdf,.jpg,.jpeg,.png" style="padding:8px 0;font-size:13px"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-youth-waiver')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYouthWaiver()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+let currentUser = null
+let volunteers = []
+let allHours = []
+let allEvents = []
+let interestTypes = []
+let waiverTypes = []
+let emailTemplates = []
+let allYouth = []
+let currentVolId = null
+let currentYouthId = null
+let punchSessions = {}
+let selectedVolIds = new Set()
+let onlineSignVolId = null
+let onlineSignWaiverTypeId = null
+
+const AVATAR_COLORS = [
+  ['#E1F5EE','#085041'],['#E6F1FB','#0C447C'],['#FAEEDA','#633806'],
+  ['#FBEAF0','#72243E'],['#EAF3DE','#27500A'],['#FCEBEB','#791F1F'],
+  ['#F3EEFF','#5B21B6'],['#FFF0F6','#BE185D']
+]
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════════════════════
+function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
+function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
+function formatDate(d){
+  if(!d) return '—'
+  const dt = new Date(d+'T00:00:00')
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+}
+function calcAge(dob){
+  if(!dob) return null
+  const d = new Date(dob), now = new Date()
+  let age = now.getFullYear()-d.getFullYear()
+  if(now.getMonth()<d.getMonth()||(now.getMonth()===d.getMonth()&&now.getDate()<d.getDate())) age--
+  return age
+}
+function waiverStatus(v){
+  return v.waiver_status || 'none'
+}
+function waiverBadgeHTML(s){
+  const m={valid:['waiver-valid','✅ Valid'],expiring:['waiver-expiring','⚠️ Expiring'],expired:['waiver-expired','❌ Expired'],none:['waiver-none','— None']}
+  const [cls,label]=m[s||'none']
+  return `<span class="waiver-badge ${cls}">${label}</span>`
+}
+function tagHTML(name,color='gray'){
+  return `<span class="tag tag-${color||'gray'}">${name}</span>`
+}
+function interestTagHTML(interestName){
+  const it = interestTypes.find(t=>t.name===interestName)
+  return tagHTML(interestName, it?.color||'gray')
+}
+function avatarHTML(name,size=34){
+  const [bg,col]=avatarColors(name)
+  return `<div class="volunteer-avatar" style="width:${size}px;height:${size}px;background:${bg};color:${col};font-size:${Math.floor(size*.35)}px">${initials(name)}</div>`
+}
+function toast(msg,type=''){
+  const c=document.getElementById('toast-container')
+  const t=document.createElement('div'); t.className='toast '+type; t.textContent=msg
+  c.appendChild(t); setTimeout(()=>t.remove(),3000)
+}
+function openModal(id){document.getElementById(id).classList.add('open')}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+function switchTab(el,tabId){
+  el.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('active'))
+  el.classList.add('active')
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'))
+  document.getElementById(tabId)?.classList.add('active')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  API
+// ═══════════════════════════════════════════════════════════════
+async function api(path,method='GET',body=null){
+  const opts={method,credentials:'include',headers:{}}
+  if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}
+  const res=await fetch(path,opts)
+  return res.json()
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════════
+async function handleLogin(){
+  const email=document.getElementById('login-email').value.trim()
+  const pw=document.getElementById('login-password').value
+  const data=await api('/api/auth/login','POST',{email,password:pw})
+  if(data.error){document.getElementById('auth-error').style.display='block'}
+  else loginSuccess(data)
+}
+function quickLogin(email,pw){
+  document.getElementById('login-email').value=email
+  document.getElementById('login-password').value=pw
+  handleLogin()
+}
+function loginSuccess(user){
+  currentUser=user
+  document.getElementById('auth-screen').style.display='none'
+  document.getElementById('app').style.display='block'
+  document.getElementById('auth-error').style.display='none'
+  document.getElementById('sidebar-avatar').textContent=initials(user.name)
+  document.getElementById('sidebar-name').textContent=user.name
+  document.getElementById('sidebar-role').textContent=user.role==='admin'?'Administrator':'Board Member'
+  applyRoleUI()
+  loadAllData()
+  navTo('dashboard')
+}
+async function handleLogout(){
+  await api('/api/auth/logout','POST')
+  currentUser=null
+  document.getElementById('app').style.display='none'
+  document.getElementById('auth-screen').style.display='flex'
+  document.getElementById('login-email').value=''
+  document.getElementById('login-password').value=''
+}
+function applyRoleUI(){
+  const isAdmin=currentUser?.role==='admin'
+  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'':'none')
+}
+window.addEventListener('DOMContentLoaded',async()=>{
+  const data=await api('/api/auth/me')
+  if(data.user) loginSuccess(data.user)
+  document.getElementById('login-password').addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin()})
+  document.getElementById('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin()})
+})
+
+// ═══════════════════════════════════════════════════════════════
+//  NAV
+// ═══════════════════════════════════════════════════════════════
+function navTo(page,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'))
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  const pg=document.getElementById('page-'+page)
+  if(pg) pg.classList.add('active')
+  if(el) el.classList.add('active')
+  else document.querySelectorAll('.nav-item').forEach(n=>{
+    if(n.textContent.trim().toLowerCase().replace(/\s+/g,'-').startsWith(page.replace('_','-'))) n.classList.add('active')
+  })
+  if(page==='dashboard') renderDashboard()
+  if(page==='volunteers') renderVolunteers()
+  if(page==='hours') renderHours()
+  if(page==='waivers') renderWaivers()
+  if(page==='email') renderEmailPage()
+  if(page==='youth') renderYouth()
+  if(page==='settings') loadSettings()
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LOAD DATA
+// ═══════════════════════════════════════════════════════════════
+async function loadAllData(){
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth]=await Promise.all([
+    api('/api/volunteers'),api('/api/hours'),api('/api/events'),
+    api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
+    api('/api/youth')
+  ])
+  volunteers=vols; allHours=hrs; allEvents=events
+  interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates; allYouth=youth
+  populateHoursFilters()
+  populateInterestFilter()
+  buildInterestCheckboxes()
+  populateWaiverTypeSelects()
+  populateEmailTemplates()
+  populateYouthFilters()
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════════════════════════
+async function renderDashboard(){
+  const d=await api('/api/dashboard')
+  document.getElementById('stat-total').textContent=d.total_volunteers
+  document.getElementById('stat-hours').textContent=d.total_hours
+  document.getElementById('stat-youth').textContent=d.total_youth
+  document.getElementById('stat-waivers').textContent=d.expiring_waivers
+  document.getElementById('stat-expired').textContent=d.expired_waivers
+  const badge=document.getElementById('waiver-badge')
+  const bc=d.expiring_waivers+d.expired_waivers
+  badge.textContent=bc; badge.style.display=bc>0?'':'none'
+  const ac=document.getElementById('alerts-container')
+  if(!d.alerts.length){
+    ac.innerHTML=`<div style="padding:12px 0;color:var(--text-muted);font-size:13px">✅ No alerts at this time</div>`
+  } else {
+    ac.innerHTML=d.alerts.map(a=>`
+      <div class="alert-item ${a.type}">
+        <span>${a.type==='warning'?'⚠️':'❌'}</span>
+        <div style="flex:1"><strong>${a.name}</strong> — ${a.msg}</div>
+        <a class="alert-action" onclick="openProfile('${a.id}')">View →</a>
+      </div>`).join('')
+  }
+  const maxH=Math.max(...d.monthly_hours.map(m=>m.total),1)
+  document.getElementById('hours-chart').innerHTML=d.monthly_hours.map(m=>`
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+      <div style="font-size:10px;color:var(--text-muted)">${m.total||''}</div>
+      <div style="width:100%;background:var(--teal-400);border-radius:4px 4px 0 0;height:${Math.max(4,(m.total/maxH)*80)}px"></div>
+    </div>`).join('')
+  document.getElementById('chart-labels').innerHTML=d.monthly_hours.map(m=>`
+    <div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">${m.label}</div>`).join('')
+  document.getElementById('top-vols-table').innerHTML=!d.top_volunteers.length
+    ?`<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:20px">No data yet</td></tr>`
+    :d.top_volunteers.map(v=>`
+      <tr>
+        <td><div class="volunteer-name-cell">${avatarHTML(v.name,28)}<span onclick="openProfile('${v.id}')" style="cursor:pointer;font-weight:500">${v.name}</span></div></td>
+        <td style="font-weight:600;color:var(--teal-600)">${v.total_hours}h</td>
+        <td style="color:var(--text-muted)">${v.total_events}</td>
+      </tr>`).join('')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  VOLUNTEERS
+// ═══════════════════════════════════════════════════════════════
+function populateInterestFilter(){
+  const sel=document.getElementById('filter-tag')
+  if(!sel) return
+  const cur=sel.value
+  sel.innerHTML='<option value="">All Interests</option>'+interestTypes.map(t=>`<option value="${t.name}">${t.name}</option>`).join('')
+  sel.value=cur
+}
+
+function renderVolunteers(){
+  const search=document.getElementById('vol-search').value.toLowerCase()
+  const fs=document.getElementById('filter-status').value
+  const fw=document.getElementById('filter-waiver').value
+  const ft=document.getElementById('filter-tag').value
+  let filtered=volunteers.filter(v=>{
+    if(search&&!v.name.toLowerCase().includes(search)&&!v.email.toLowerCase().includes(search)) return false
+    if(fs&&v.status!==fs) return false
+    if(fw&&waiverStatus(v)!==fw) return false
+    const interests=JSON.parse(v.interests||'[]')
+    if(ft&&!interests.includes(ft)) return false
+    return true
+  })
+  document.getElementById('vol-count-label').textContent=`${filtered.length} of ${volunteers.length} volunteers`
+  const tbody=document.getElementById('vol-table-body')
+  if(!filtered.length){
+    tbody.innerHTML=`<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">🔎</div><p>No volunteers found</p><span>Try adjusting your search or filters</span></div></td></tr>`
+    return
+  }
+  tbody.innerHTML=filtered.map(v=>{
+    const interests=JSON.parse(v.interests||'[]')
+    const checked=selectedVolIds.has(v.id)
+    return `<tr>
+      <td><input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''} onchange="toggleVolSelect('${v.id}',this.checked)"/></td>
+      <td><div class="volunteer-name-cell">${avatarHTML(v.name)}<div><div class="volunteer-name">${v.name}</div><div class="volunteer-email">${v.email}</div></div></div></td>
+      <td style="color:var(--text-muted)">${v.phone||'—'}</td>
+      <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
+      <td>${waiverBadgeHTML(waiverStatus(v))}</td>
+      <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
+      <td style="font-weight:600;color:var(--teal-600)">${v.total_hours||0}h</td>
+      <td><div class="action-btns">
+        <button class="btn btn-secondary btn-sm" onclick="openProfile('${v.id}')">View</button>
+        <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email">✉️</a>
+      </div></td>
+    </tr>`
+  }).join('')
+  updateBulkActions()
+}
+
+function toggleVolSelect(id,checked){
+  if(checked) selectedVolIds.add(id)
+  else selectedVolIds.delete(id)
+  updateBulkActions()
+}
+function toggleSelectAll(cb){
+  const rows=document.querySelectorAll('#vol-table-body input[type=checkbox]')
+  rows.forEach(r=>{ r.checked=cb.checked; const id=r.closest('tr').querySelector('button').getAttribute('onclick').match(/'([^']+)'/)[1]; if(cb.checked) selectedVolIds.add(id); else selectedVolIds.delete(id); })
+  updateBulkActions()
+}
+function updateBulkActions(){
+  const ba=document.getElementById('bulk-actions')
+  const sc=document.getElementById('selected-count')
+  if(selectedVolIds.size>0){ba.style.display='flex';sc.textContent=`${selectedVolIds.size} selected`}
+  else ba.style.display='none'
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PROFILE
+// ═══════════════════════════════════════════════════════════════
+async function openProfile(volId){
+  currentVolId=volId
+  const v=await api(`/api/volunteers/${volId}`)
+  const isAdmin=currentUser?.role==='admin'
+  const [bg,col]=avatarColors(v.name)
+  const interests=JSON.parse(v.interests||'[]')
+  document.getElementById('profile-header').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('volunteers')">← Back</button>
+      <div><div class="page-title">${v.name}</div><div class="page-subtitle">${v.email}</div></div>
+    </div>
+    ${isAdmin?`<div class="page-actions">
+      <a href="mailto:${v.email}" class="btn btn-secondary btn-sm">✉️ Email</a>
+      <button class="btn btn-secondary btn-sm" onclick="openEditVolModal('${v.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteVol('${v.id}')">Delete</button>
+    </div>`:''}`
+
+  document.getElementById('profile-content').innerHTML=`
+    <div class="profile-layout">
+      <div class="profile-card">
+        <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(v.name)}</div>
+        <div class="profile-name">${v.name}</div>
+        <div style="text-align:center;margin-bottom:16px"><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></div>
+        <hr class="divider"/>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
+          <div>📧 <a href="mailto:${v.email}" style="color:var(--teal-600)">${v.email}</a></div>
+          ${v.phone?`<div>📞 ${v.phone}</div>`:''}
+          ${v.birthday?`<div>🎂 ${formatDate(v.birthday)}</div>`:''}
+        </div>
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Interests</div>
+          <div>${interests.map(i=>interestTagHTML(i)).join('')||'<span style="color:var(--text-hint);font-size:13px">None</span>'}</div>
+        </div>
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Waivers</div>
+          ${waiverBadgeHTML(v.waiver_status)}
+          <div style="margin-top:8px">
+            ${(v.waivers||[]).map(w=>`
+              <div style="font-size:12px;padding:6px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
+                <div style="font-weight:500">${w.type_name}</div>
+                <div style="color:var(--text-muted)">Signed: ${formatDate(w.signed_date)}</div>
+                ${w.expiry_date?`<div style="color:var(--text-muted)">Expires: ${formatDate(w.expiry_date)}</div>`:''}
+                ${w.signed_via==='online'?`<div style="color:var(--teal-600);font-size:11px">✍️ Signed online by ${w.signed_name||'volunteer'}</div>`:''}
+                ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
+                ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 6px;font-size:11px;margin-left:4px" onclick="deleteWaiverRecord('${w.id}','${v.id}')">✕</button>`:''}
+              </div>`).join('')}
+          </div>
+          ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openWaiverModal('${v.id}')">+ Add Waiver</button>`:''}
+        </div>
+        <hr class="divider"/>
+        <div style="text-align:center"><div style="font-size:24px;font-weight:700;color:var(--teal-600)">${v.total_hours}h</div><div style="font-size:12px;color:var(--text-muted)">Total Hours</div></div>
+        ${isAdmin?`
+        <hr class="divider"/>
+        <div id="log-time-area-${v.id}">
+          <button class="btn btn-primary btn-sm btn-full" onclick="openLogTimeModal('${v.id}')">⏱ Log Time</button>
+          <div style="margin-top:8px"><button class="btn btn-secondary btn-sm btn-full" onclick="startLiveTimer('${v.id}')">▶ Start Live Timer</button></div>
+        </div>
+        <div id="punch-area-${v.id}" style="display:none">
+          <div class="punch-status"><div class="punch-dot"></div>Timer running — <span class="punch-timer" id="timer-${v.id}">00:00:00</span></div>
+          <button class="btn btn-danger btn-sm btn-full" onclick="stopLiveTimer('${v.id}')">⏹ Stop & Log Time</button>
+        </div>`:''}
+      </div>
+      <div>
+        <div class="card" style="padding:20px 20px 0">
+          <div class="tabs">
+            <div class="tab active" onclick="switchTab(this,'tab-hours')">Time (${(v.hours||[]).length})</div>
+            <div class="tab" onclick="switchTab(this,'tab-history')">History</div>
+            <div class="tab" onclick="switchTab(this,'tab-notes')">Notes (${(v.notes||[]).length})</div>
+            <div class="tab" onclick="switchTab(this,'tab-files')">Files (${(v.files||[]).length})</div>
+          </div>
+          <div style="padding:0 0 20px">
+            <div class="tab-pane active" id="tab-hours">
+              ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
+              ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':
+                (v.hours||[]).map(h=>`
+                <div class="hours-item">
+                  <span style="font-size:18px">🎭</span>
+                  <div><div class="event-name">${h.event}</div><div class="event-date">${formatDate(h.date)}${h.role?' · '+h.role:''}</div></div>
+                  <div class="event-hours">${h.hours}h</div>
+                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteHours('${h.id}','${v.id}')">✕</button>`:''}
+                </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="tab-history">
+              ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
+              ${!(v.history||[]).length?'<div style="color:var(--text-muted);font-size:13px">No history recorded</div>':
+                `<div class="timeline">${(v.history||[]).map(h=>`
+                <div class="timeline-item">
+                  <div class="timeline-dot"></div>
+                  <div class="timeline-item-title">${h.event}</div>
+                  <div class="timeline-item-sub">${h.role} · ${formatDate(h.date)}</div>
+                  ${h.notes?`<div class="timeline-item-note">${h.notes}</div>`:''}
+                </div>`).join('')}</div>`}
+            </div>
+            <div class="tab-pane" id="tab-notes">
+              ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openNoteModal('${v.id}')">+ Add Note</button></div>`:''}
+              ${!(v.notes||[]).length?'<div style="color:var(--text-muted);font-size:13px">No notes yet</div>':
+                (v.notes||[]).map(n=>`
+                <div class="note-item">
+                  <div class="note-meta">📝 ${n.author} · ${formatDate((n.created_at||'').split('T')[0])}</div>
+                  <div class="note-content">${n.content}</div>
+                </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="tab-files">
+              ${isAdmin?`<div style="margin-bottom:16px"><label class="btn btn-primary btn-sm" style="cursor:pointer">+ Attach File<input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display:none" onchange="attachFile(event,'${v.id}')"/></label></div>`:''}
+              ${!(v.files||[]).length?'<div style="color:var(--text-muted);font-size:13px">No files attached</div>':
+                (v.files||[]).map(f=>`
+                <div class="file-item">
+                  <span style="font-size:24px">${f.type==='pdf'?'📄':'🖼'}</span>
+                  <div><div class="file-name">${f.name}</div><div class="file-size">${f.size} · ${formatDate(f.date)}</div></div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`
+  navTo('profile')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LIVE TIMER (replaces punch in/out)
+// ═══════════════════════════════════════════════════════════════
+function startLiveTimer(volId){
+  if(punchSessions[volId]){toast('Timer already running!','error');return}
+  punchSessions[volId]={start:Date.now()}
+  const logArea=document.getElementById(`log-time-area-${volId}`)
+  const punchArea=document.getElementById(`punch-area-${volId}`)
+  if(logArea) logArea.style.display='none'
+  if(punchArea) punchArea.style.display='block'
+  punchSessions[volId].interval=setInterval(()=>{
+    const elapsed=Math.floor((Date.now()-punchSessions[volId].start)/1000)
+    const h=String(Math.floor(elapsed/3600)).padStart(2,'0')
+    const m=String(Math.floor((elapsed%3600)/60)).padStart(2,'0')
+    const s=String(elapsed%60).padStart(2,'0')
+    const el=document.getElementById(`timer-${volId}`)
+    if(el) el.textContent=`${h}:${m}:${s}`
+  },1000)
+  toast('Timer started!','success')
+}
+
+function stopLiveTimer(volId){
+  if(!punchSessions[volId]){toast('No timer running','error');return}
+  const elapsed=(Date.now()-punchSessions[volId].start)/3600000
+  const hrs=Math.max(0.5,Math.round(elapsed*2)/2)
+  clearInterval(punchSessions[volId].interval)
+  delete punchSessions[volId]
+  // Pre-fill the log time modal with the elapsed hours
+  openLogTimeModal(volId,hrs)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LOG TIME MODAL
+// ═══════════════════════════════════════════════════════════════
+function populateHoursFilters(){
+  const sel=document.getElementById('hours-filter-vol')
+  if(sel){
+    const cur=sel.value
+    sel.innerHTML='<option value="">All Volunteers</option>'+volunteers.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+    sel.value=cur
+  }
+  const esel=document.getElementById('hours-filter-event')
+  if(esel){
+    const cur=esel.value
+    const eventNames=[...new Set(allHours.map(h=>h.event))].sort()
+    esel.innerHTML='<option value="">All Events</option>'+eventNames.map(e=>`<option value="${e}">${e}</option>`).join('')
+    esel.value=cur
+  }
+  // Populate log time event dropdown
+  const ltsel=document.getElementById('lt-event-select')
+  if(ltsel){
+    const cur=ltsel.value
+    ltsel.innerHTML=`<option value="">— Select an event or type custom —</option>${allEvents.map(e=>`<option value="${e.name}" data-id="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')}<option value="__custom__">✏️ Custom event name…</option>`
+    if(cur) ltsel.value=cur
+  }
+}
+
+function onEventSelect(){
+  const sel=document.getElementById('lt-event-select')
+  const wrap=document.getElementById('lt-custom-event-wrap')
+  if(sel.value==='__custom__') wrap.style.display='block'
+  else wrap.style.display='none'
+}
+
+function openLogTimeModal(volId,prefillHours=null){
+  document.getElementById('lt-vol-id').value=volId||''
+  document.getElementById('lt-date').value=new Date().toISOString().split('T')[0]
+  document.getElementById('lt-hours').value=prefillHours||''
+  document.getElementById('lt-role').value=''
+  document.getElementById('lt-notes').value=''
+  document.getElementById('lt-custom-event-wrap').style.display='none'
+  const wrap=document.getElementById('lt-vol-select-wrap')
+  if(volId){
+    const v=volunteers.find(v=>v.id===volId)
+    wrap.innerHTML=`<div class="form-group"><label>Volunteer</label><input value="${v?.name||''}" disabled style="background:var(--gray-50);color:var(--text-muted)"/></div>`
+  } else {
+    wrap.innerHTML=`<div class="form-group"><label>Volunteer *</label><select id="lt-vol-select">${volunteers.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')}</select></div>`
+  }
+  populateHoursFilters()
+  openModal('modal-log-time')
+}
+
+async function saveLogTime(){
+  const volId=document.getElementById('lt-vol-id').value||document.getElementById('lt-vol-select')?.value
+  const eventSel=document.getElementById('lt-event-select')
+  let eventName=eventSel.value==='__custom__'?document.getElementById('lt-custom-event').value.trim():eventSel.value
+  const eventId=eventSel.options[eventSel.selectedIndex]?.dataset?.id||null
+  const date=document.getElementById('lt-date').value
+  const hours=parseFloat(document.getElementById('lt-hours').value)
+  if(!volId||!eventName||!date||!hours){toast('Please fill all required fields','error');return}
+  const res=await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date,hours,role:document.getElementById('lt-role').value.trim(),notes:document.getElementById('lt-notes').value.trim()})
+  if(res.error){toast(res.error,'error');return}
+  toast('Time logged!','success')
+  closeModal('modal-log-time')
+  await loadAllData()
+  renderHours()
+  renderDashboard()
+  if(currentVolId===volId) openProfile(volId)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HOURS PAGE
+// ═══════════════════════════════════════════════════════════════
+function renderHours(){
+  const search=document.getElementById('hours-search').value.toLowerCase()
+  const filterVol=document.getElementById('hours-filter-vol').value
+  const filterEvent=document.getElementById('hours-filter-event').value
+  let filtered=allHours.filter(h=>{
+    if(search&&!h.volunteer_name?.toLowerCase().includes(search)&&!h.event?.toLowerCase().includes(search)) return false
+    if(filterVol&&h.volunteer_id!==filterVol) return false
+    if(filterEvent&&h.event!==filterEvent) return false
+    return true
+  })
+  const total=filtered.reduce((s,h)=>s+(h.hours||0),0)
+  const events=new Set(filtered.map(h=>h.event)).size
+  const vols=new Set(filtered.map(h=>h.volunteer_id)).size
+  document.getElementById('h-total').textContent=total
+  document.getElementById('h-events').textContent=events
+  document.getElementById('h-avg').textContent=vols>0?(total/vols).toFixed(1):0
+  const isAdmin=currentUser?.role==='admin'
+  const tbody=document.getElementById('hours-table-body')
+  if(!filtered.length){
+    tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">⏱</div><p>No time logged yet</p></div></td></tr>`
+    return
+  }
+  tbody.innerHTML=filtered.map(h=>`<tr>
+    <td><div class="volunteer-name-cell">${avatarHTML(h.volunteer_name||'',28)}<span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500">${h.volunteer_name||'—'}</span></div></td>
+    <td style="font-weight:500">${h.event}</td>
+    <td style="color:var(--text-muted)">${formatDate(h.date)}</td>
+    <td style="font-weight:600;color:var(--teal-600)">${h.hours}h</td>
+    <td style="color:var(--text-muted)">${h.role||'—'}</td>
+    <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.notes||'—'}</td>
+    ${isAdmin?`<td><button class="btn btn-danger btn-sm" onclick="deleteHoursGlobal('${h.id}')">✕</button></td>`:'<td></td>'}
+  </tr>`).join('')
+}
+
+async function deleteHours(hId,volId){
+  if(!confirm('Delete this time entry?')) return
+  await api(`/api/hours/${hId}`,'DELETE')
+  toast('Entry deleted')
+  await loadAllData()
+  openProfile(volId)
+}
+async function deleteHoursGlobal(hId){
+  if(!confirm('Delete this time entry?')) return
+  await api(`/api/hours/${hId}`,'DELETE')
+  toast('Entry deleted')
+  await loadAllData()
+  renderHours()
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  WAIVERS
+// ═══════════════════════════════════════════════════════════════
+function populateWaiverTypeSelects(){
+  const opts=waiverTypes.length?waiverTypes.map(t=>`<option value="${t.id}">${t.name}</option>`).join(''):'<option value="">No waiver types</option>'
+  const sel=document.getElementById('waiver-type-select')
+  if(sel) sel.innerHTML=opts
+  const ywsel=document.getElementById('yw-type-select')
+  if(ywsel) ywsel.innerHTML=opts
+}
+
+function renderWaivers(){
+  const filter=document.getElementById('waiver-filter').value
+  let filtered=filter?volunteers.filter(v=>waiverStatus(v)===filter):volunteers
+  const dotClass={valid:'dot-valid',expiring:'dot-expiring',expired:'dot-expired',none:'dot-none'}
+  const labelMap={valid:'✅ Valid',expiring:'⚠️ Expiring Soon',expired:'❌ Expired',none:'No Waiver'}
+  const isAdmin=currentUser?.role==='admin'
+  document.getElementById('waivers-grid').innerHTML=filtered.map(v=>{
+    const s=waiverStatus(v)
+    const waiverList=(v.waivers||[]).slice(0,3).map(w=>`<div style="font-size:11px;color:var(--text-muted)">${w.type_name} — ${formatDate(w.signed_date)}</div>`).join('')
+    return `<div class="waiver-card">
+      <div class="waiver-card-header">
+        ${avatarHTML(v.name,38)}
+        <div>
+          <div style="font-weight:500;font-size:14px;color:var(--teal-600);cursor:pointer" onclick="openProfile('${v.id}')">${v.name}</div>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+            <div class="waiver-status-dot ${dotClass[s]}"></div>
+            <span style="font-size:12px;color:var(--text-muted)">${labelMap[s]}</span>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:12px;margin-bottom:12px;line-height:1.8">${waiverList||'<span style="color:var(--text-muted)">No waivers on file</span>'}</div>
+      ${isAdmin?`<button class="btn btn-secondary btn-sm btn-full" onclick="openWaiverModal('${v.id}')">+ Add Waiver</button>`:''}
+    </div>`
+  }).join('')
+}
+
+function openWaiverModal(volId){
+  document.getElementById('waiver-vol-id').value=volId
+  document.getElementById('waiver-signed').value=new Date().toISOString().split('T')[0]
+  document.getElementById('waiver-expiry').value=''
+  document.getElementById('waiver-file').value=''
+  const v=volunteers.find(v=>v.id===volId)
+  document.getElementById('waiver-modal-title').textContent=`Add Waiver — ${v?.name||''}`
+  document.getElementById('waiver-sign-link-wrap').style.display='block'
+  autoCalcExpiry()
+  openModal('modal-waiver')
+}
+
+function autoCalcExpiry(){
+  const signed=document.getElementById('waiver-signed').value
+  if(signed){const d=new Date(signed);d.setFullYear(d.getFullYear()+1);document.getElementById('waiver-expiry').value=d.toISOString().split('T')[0]}
+}
+
+async function saveWaiver(){
+  const volId=document.getElementById('waiver-vol-id').value
+  const typeId=document.getElementById('waiver-type-select').value
+  const signed=document.getElementById('waiver-signed').value
+  const expiry=document.getElementById('waiver-expiry').value
+  const fileInput=document.getElementById('waiver-file')
+  if(!typeId){toast('Please select a waiver type','error');return}
+  if(!signed){toast('Signed date is required','error');return}
+  const formData=new FormData()
+  formData.append('waiver_type_id',typeId)
+  formData.append('signed_date',signed)
+  if(expiry) formData.append('expiry_date',expiry)
+  if(fileInput.files[0]) formData.append('file',fileInput.files[0])
+  const res=await fetch(`/api/volunteers/${volId}/waivers`,{method:'POST',credentials:'include',body:formData})
+  const data=await res.json()
+  if(data.error){toast(data.error,'error');return}
+  toast('Waiver saved!','success')
+  closeModal('modal-waiver')
+  await loadAllData()
+  renderWaivers()
+  renderDashboard()
+  if(currentVolId===volId) openProfile(volId)
+}
+
+async function deleteWaiverRecord(wid,volId){
+  if(!confirm('Delete this waiver record?')) return
+  await api(`/api/waivers/${wid}`,'DELETE')
+  toast('Waiver deleted')
+  await loadAllData()
+  if(currentVolId===volId) openProfile(volId)
+}
+
+// Online signing
+function openOnlineSignModal(){
+  const volId=document.getElementById('waiver-vol-id').value
+  const typeId=document.getElementById('waiver-type-select').value
+  if(!typeId){toast('Select a waiver type first','error');return}
+  onlineSignVolId=volId
+  onlineSignWaiverTypeId=typeId
+  const wt=waiverTypes.find(t=>t.id===typeId)
+  const v=volunteers.find(v=>v.id===volId)
+  document.getElementById('online-sign-title').textContent=`Sign: ${wt?.name||''} — ${v?.name||''}`
+  document.getElementById('online-sign-waiver-name').textContent=wt?.name||''
+  document.getElementById('online-sign-waiver-body').textContent=wt?.template_body||'No waiver text defined. Go to Settings → Waiver Types to add text.'
+  document.getElementById('online-sign-name').value=v?.name||''
+  document.getElementById('online-sign-date').textContent=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+  const link=`${window.location.origin}/sign?vol=${volId}&wt=${typeId}`
+  document.getElementById('online-sign-link').textContent=link
+  openModal('modal-online-sign')
+}
+function copySignLink(){
+  const link=document.getElementById('online-sign-link').textContent
+  navigator.clipboard.writeText(link).then(()=>toast('Link copied!','success'))
+}
+async function submitOnlineSign(){
+  const name=document.getElementById('online-sign-name').value.trim()
+  if(!name){toast('Please type your full name','error');return}
+  const res=await api('/api/sign-waiver','POST',{volunteer_id:onlineSignVolId,waiver_type_id:onlineSignWaiverTypeId,signed_name:name})
+  if(res.error){toast(res.error,'error');return}
+  toast('Waiver signed!','success')
+  closeModal('modal-online-sign')
+  closeModal('modal-waiver')
+  await loadAllData()
+  renderWaivers()
+  if(currentVolId===onlineSignVolId) openProfile(onlineSignVolId)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EMAIL
+// ═══════════════════════════════════════════════════════════════
+function populateEmailTemplates(){
+  const sel=document.getElementById('email-template-select')
+  if(sel) sel.innerHTML=`<option value="">— Start from scratch —</option>`+emailTemplates.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')
+}
+
+function renderEmailPage(){
+  populateEmailTemplates()
+  const list=document.getElementById('email-vol-list')
+  if(!list) return
+  list.innerHTML=volunteers.map(v=>`
+    <div class="vol-checkbox-item">
+      <input type="checkbox" id="ecb-${v.id}" ${selectedVolIds.has(v.id)?'checked':''} onchange="toggleEmailVol('${v.id}',this.checked)"/>
+      <div>${avatarHTML(v.name,28)}</div>
+      <label for="ecb-${v.id}" style="cursor:pointer;flex:1"><div style="font-weight:500;font-size:13px">${v.name}</div><div style="font-size:11px;color:var(--text-muted)">${v.email}</div></label>
+    </div>`).join('')
+  updateEmailSummary()
+  renderEmailTemplatesSettings()
+}
+
+function toggleEmailVol(id,checked){
+  if(checked) selectedVolIds.add(id)
+  else selectedVolIds.delete(id)
+  updateEmailSummary()
+}
+function selectAllEmailVols(checked){
+  volunteers.forEach(v=>{
+    if(checked) selectedVolIds.add(v.id)
+    else selectedVolIds.delete(v.id)
+    const cb=document.getElementById(`ecb-${v.id}`)
+    if(cb) cb.checked=checked
+  })
+  updateEmailSummary()
+}
+function updateEmailSummary(){
+  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
+  document.getElementById('email-recipients-summary').textContent=`Will send to ${sel.length} volunteer${sel.length!==1?'s':''}`
+}
+
+function applyEmailTemplate(){
+  const id=document.getElementById('email-template-select').value
+  const t=emailTemplates.find(t=>t.id===id)
+  if(!t) return
+  document.getElementById('email-subject').value=t.subject
+  document.getElementById('email-body').value=t.body
+}
+
+function openGmailCompose(){
+  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
+  const emails=sel.map(v=>v.email).join(',')
+  const subject=encodeURIComponent(document.getElementById('email-subject').value||'')
+  const body=encodeURIComponent(document.getElementById('email-body').value||'')
+  const url=`https://mail.google.com/mail/?view=cm&bcc=${encodeURIComponent(emails)}&su=${subject}&body=${body}`
+  window.open(url,'_blank')
+}
+
+function copyEmailList(){
+  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
+  const emails=sel.map(v=>v.email).join(', ')
+  navigator.clipboard.writeText(emails).then(()=>toast(`Copied ${sel.length} email addresses!`,'success'))
+}
+
+function emailSelected(){
+  navTo('email')
+}
+
+function openSaveTemplateModal(){
+  document.getElementById('et-name').value=''
+  document.getElementById('et-subject').value=document.getElementById('email-subject')?.value||''
+  document.getElementById('et-body').value=document.getElementById('email-body')?.value||''
+  openModal('modal-email-template')
+}
+
+async function saveEmailTemplate(){
+  const name=document.getElementById('et-name').value.trim()
+  const subject=document.getElementById('et-subject').value.trim()
+  const body=document.getElementById('et-body').value.trim()
+  if(!name||!subject||!body){toast('All fields required','error');return}
+  const res=await api('/api/email-templates','POST',{name,subject,body})
+  if(res.error){toast(res.error,'error');return}
+  emailTemplates.push(res)
+  populateEmailTemplates()
+  renderEmailTemplatesSettings()
+  closeModal('modal-email-template')
+  toast('Template saved!','success')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH PROGRAM
+// ═══════════════════════════════════════════════════════════════
+function populateYouthFilters(){
+  const sel=document.getElementById('youth-filter-program')
+  if(!sel) return
+  const programs=[...new Set(allYouth.map(y=>y.program).filter(Boolean))].sort()
+  sel.innerHTML='<option value="">All Programs</option>'+programs.map(p=>`<option value="${p}">${p}</option>`).join('')
+}
+
+function renderYouth(){
+  const search=document.getElementById('youth-search').value.toLowerCase()
+  const fs=document.getElementById('youth-filter-status').value
+  const fp=document.getElementById('youth-filter-program').value
+  let filtered=allYouth.filter(y=>{
+    const name=`${y.first_name} ${y.last_name}`.toLowerCase()
+    if(search&&!name.includes(search)&&!(y.program||'').toLowerCase().includes(search)) return false
+    if(fs&&y.status!==fs) return false
+    if(fp&&y.program!==fp) return false
+    return true
+  })
+  document.getElementById('youth-count-label').textContent=`${filtered.length} of ${allYouth.length} participants`
+  const grid=document.getElementById('youth-grid')
+  if(!filtered.length){
+    grid.innerHTML=`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🧒</div><p>No participants found</p></div></div>`
+    return
+  }
+  grid.innerHTML=filtered.map(y=>{
+    const age=calcAge(y.dob)
+    const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]
+    const [bg,col]=avatarColors(y.first_name+y.last_name)
+    return `<div class="youth-card" onclick="openYouthProfile('${y.id}')">
+      <div class="youth-card-header">
+        <div class="volunteer-avatar" style="width:44px;height:44px;background:${bg};color:${col};font-size:16px">${initials(y.first_name+' '+y.last_name)}</div>
+        <div>
+          <div class="youth-name">${y.first_name} ${y.last_name}</div>
+          <div class="youth-program">${y.program||'No program assigned'}</div>
+          ${age?`<div style="font-size:12px;color:var(--text-muted)">Age ${age}</div>`:''}
+        </div>
+        <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}" style="margin-left:auto">${y.status==='active'?'● Active':'○ Inactive'}</span>
+      </div>
+      ${primary?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">👤 ${primary.name} (${primary.relationship}) · ${primary.phone}</div>`:''}
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${y.photo_consent?'<span class="consent-badge consent-yes">📸 Photo</span>':'<span class="consent-badge consent-no">📸 No Photo</span>'}
+        ${y.medical_consent?'<span class="consent-badge consent-yes">🏥 Medical</span>':'<span class="consent-badge consent-no">🏥 No Medical</span>'}
+        ${y.allergies&&y.allergies!=='None'?`<span class="tag tag-amber" style="font-size:11px">⚠️ ${y.allergies}</span>`:''}
+      </div>
+    </div>`
+  }).join('')
+}
+
+async function openYouthProfile(yid){
+  currentYouthId=yid
+  const y=await api(`/api/youth/${yid}`)
+  const isAdmin=currentUser?.role==='admin'
+  const age=calcAge(y.dob)
+  const [bg,col]=avatarColors(y.first_name+y.last_name)
+
+  document.getElementById('youth-profile-header').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('youth')">← Back</button>
+      <div><div class="page-title">${y.first_name} ${y.last_name}</div><div class="page-subtitle">${y.program||'No program'}</div></div>
+    </div>
+    ${isAdmin?`<div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="openEditYouthModal('${y.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteYouth('${y.id}')">Delete</button>
+    </div>`:''}`
+
+  document.getElementById('youth-profile-content').innerHTML=`
+    <div class="profile-layout">
+      <div class="profile-card">
+        <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(y.first_name+' '+y.last_name)}</div>
+        <div class="profile-name">${y.first_name} ${y.last_name}</div>
+        <div style="text-align:center;margin-bottom:16px">
+          <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}">${y.status==='active'?'● Active':'○ Inactive'}</span>
+        </div>
+        <hr class="divider"/>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+          ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?` (Age ${age})`:''}` :''}
+          ${y.program?`<div>🎭 ${y.program}</div>`:''}
+        </div>
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Consents</div>
+          ${y.photo_consent?'<span class="consent-badge consent-yes">📸 Photo Release</span>':'<span class="consent-badge consent-no">📸 No Photo Release</span>'}
+          ${y.medical_consent?'<span class="consent-badge consent-yes" style="display:block;margin-top:4px">🏥 Medical Treatment</span>':'<span class="consent-badge consent-no" style="display:block;margin-top:4px">🏥 No Medical Consent</span>'}
+        </div>
+        ${y.allergies&&y.allergies!=='None'?`
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--amber-600);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠️ Allergies</div>
+          <div style="font-size:13px;font-weight:500;color:var(--amber-600)">${y.allergies}</div>
+        </div>`:''}
+        ${y.medical_notes?`
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
+          <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>
+        </div>`:''}
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Waivers</div>
+          ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No waivers on file</div>':
+            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:5px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
+              <div style="font-weight:500">${w.type_name}</div>
+              <div style="color:var(--text-muted)">Signed: ${formatDate(w.signed_date)}${w.signed_by?' by '+w.signed_by:''}</div>
+              ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
+            </div>`).join('')}
+          ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openYouthWaiverModal('${y.id}')">+ Add Waiver</button>`:''}
+        </div>
+      </div>
+      <div>
+        <div class="card" style="padding:20px 20px 0">
+          <div class="tabs">
+            <div class="tab active" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
+            <div class="tab" onclick="switchTab(this,'ytab-emergency')">Emergency Contacts</div>
+          </div>
+          <div style="padding:0 0 20px">
+            <div class="tab-pane active" id="ytab-guardians">
+              ${!(y.guardians||[]).length?'<div style="color:var(--text-muted);font-size:13px">No guardians on file</div>':
+                (y.guardians||[]).map(g=>`
+                <div class="guardian-item">
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <div>
+                      <div style="font-weight:500;font-size:14px">${g.name} ${g.is_primary?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:10px">Primary</span>':''}</div>
+                      <div style="font-size:12px;color:var(--text-muted)">${g.relationship}</div>
+                    </div>
+                    ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteGuardian('${g.id}','${y.id}')">✕</button>`:''}
+                  </div>
+                  <div style="font-size:13px;margin-top:6px;display:flex;gap:16px">
+                    ${g.phone?`<span>📞 ${g.phone}</span>`:''}
+                    ${g.email?`<span>📧 <a href="mailto:${g.email}" style="color:var(--teal-600)">${g.email}</a></span>`:''}
+                  </div>
+                </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="ytab-emergency">
+              ${!(y.emergency_contacts||[]).length?'<div style="color:var(--text-muted);font-size:13px">No emergency contacts on file</div>':
+                (y.emergency_contacts||[]).map(e=>`
+                <div class="guardian-item">
+                  <div style="font-weight:500;font-size:14px">${e.name}</div>
+                  <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
+                  <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`
+
+  navTo('youth-profile')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+}
+
+function openYouthModal(){
+  document.getElementById('youth-modal-title').textContent='Add Youth Participant'
+  document.getElementById('youth-edit-id').value=''
+  ;['youth-first-name','youth-last-name','youth-program','youth-medical','youth-allergies',
+    'youth-guardian-name','youth-guardian-rel','youth-guardian-phone','youth-guardian-email',
+    'youth-emergency-name','youth-emergency-rel','youth-emergency-phone'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value=''
+  })
+  document.getElementById('youth-dob').value=''
+  document.getElementById('youth-status').value='active'
+  document.getElementById('youth-photo-consent').checked=false
+  document.getElementById('youth-medical-consent').checked=false
+  openModal('modal-youth')
+}
+
+async function openEditYouthModal(yid){
+  const y=await api(`/api/youth/${yid}`)
+  document.getElementById('youth-modal-title').textContent='Edit Participant'
+  document.getElementById('youth-edit-id').value=y.id
+  document.getElementById('youth-first-name').value=y.first_name||''
+  document.getElementById('youth-last-name').value=y.last_name||''
+  document.getElementById('youth-dob').value=y.dob||''
+  document.getElementById('youth-program').value=y.program||''
+  document.getElementById('youth-status').value=y.status||'active'
+  document.getElementById('youth-medical').value=y.medical_notes||''
+  document.getElementById('youth-allergies').value=y.allergies||''
+  document.getElementById('youth-photo-consent').checked=!!y.photo_consent
+  document.getElementById('youth-medical-consent').checked=!!y.medical_consent
+  const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]||{}
+  document.getElementById('youth-guardian-name').value=primary.name||''
+  document.getElementById('youth-guardian-rel').value=primary.relationship||''
+  document.getElementById('youth-guardian-phone').value=primary.phone||''
+  document.getElementById('youth-guardian-email').value=primary.email||''
+  const ec=y.emergency_contacts?.[0]||{}
+  document.getElementById('youth-emergency-name').value=ec.name||''
+  document.getElementById('youth-emergency-rel').value=ec.relationship||''
+  document.getElementById('youth-emergency-phone').value=ec.phone||''
+  openModal('modal-youth')
+}
+
+async function saveYouth(){
+  const editId=document.getElementById('youth-edit-id').value
+  const first=document.getElementById('youth-first-name').value.trim()
+  const last=document.getElementById('youth-last-name').value.trim()
+  const guardianName=document.getElementById('youth-guardian-name').value.trim()
+  const guardianPhone=document.getElementById('youth-guardian-phone').value.trim()
+  const emergencyName=document.getElementById('youth-emergency-name').value.trim()
+  const emergencyPhone=document.getElementById('youth-emergency-phone').value.trim()
+  if(!first||!last){toast('First and last name are required','error');return}
+  if(!guardianName||!guardianPhone){toast('Primary guardian name and phone are required','error');return}
+  if(!emergencyName||!emergencyPhone){toast('Emergency contact name and phone are required','error');return}
+  const data={
+    first_name:first, last_name:last,
+    dob:document.getElementById('youth-dob').value,
+    program:document.getElementById('youth-program').value.trim(),
+    status:document.getElementById('youth-status').value,
+    medical_notes:document.getElementById('youth-medical').value.trim(),
+    allergies:document.getElementById('youth-allergies').value.trim()||'None',
+    photo_consent:document.getElementById('youth-photo-consent').checked,
+    medical_consent:document.getElementById('youth-medical-consent').checked,
+    guardians:[{name:guardianName,relationship:document.getElementById('youth-guardian-rel').value.trim(),phone:guardianPhone,email:document.getElementById('youth-guardian-email').value.trim(),is_primary:true}],
+    emergency_name:emergencyName,
+    emergency_relationship:document.getElementById('youth-emergency-rel').value.trim(),
+    emergency_phone:emergencyPhone
+  }
+  let res
+  if(editId) res=await api(`/api/youth/${editId}`,'PUT',data)
+  else res=await api('/api/youth','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  toast(editId?'Participant updated!':'Participant added!','success')
+  closeModal('modal-youth')
+  const freshYouth=await api('/api/youth')
+  allYouth=freshYouth
+  populateYouthFilters()
+  renderYouth()
+  if(editId&&currentYouthId===editId) openYouthProfile(editId)
+}
+
+async function deleteYouth(yid){
+  const y=allYouth.find(y=>y.id===yid)
+  if(!confirm(`Delete ${y?.first_name} ${y?.last_name}? This cannot be undone.`)) return
+  await api(`/api/youth/${yid}`,'DELETE')
+  toast('Participant deleted')
+  allYouth=await api('/api/youth')
+  navTo('youth')
+  renderYouth()
+}
+
+async function deleteGuardian(gid,yid){
+  if(!confirm('Remove this guardian?')) return
+  await api(`/api/youth/guardians/${gid}`,'DELETE')
+  toast('Guardian removed')
+  openYouthProfile(yid)
+}
+
+function openYouthWaiverModal(yid){
+  document.getElementById('yw-youth-id').value=yid
+  document.getElementById('yw-signed').value=new Date().toISOString().split('T')[0]
+  document.getElementById('yw-expiry').value=''
+  document.getElementById('yw-signed-by').value=''
+  document.getElementById('yw-file').value=''
+  autoCalcYouthExpiry()
+  const y=allYouth.find(y=>y.id===yid)
+  document.getElementById('youth-waiver-modal-title').textContent=`Add Waiver — ${y?.first_name||''} ${y?.last_name||''}`
+  openModal('modal-youth-waiver')
+}
+
+function autoCalcYouthExpiry(){
+  const signed=document.getElementById('yw-signed').value
+  if(signed){const d=new Date(signed);d.setFullYear(d.getFullYear()+1);document.getElementById('yw-expiry').value=d.toISOString().split('T')[0]}
+}
+
+async function saveYouthWaiver(){
+  const yid=document.getElementById('yw-youth-id').value
+  const typeId=document.getElementById('yw-type-select').value
+  const signed=document.getElementById('yw-signed').value
+  if(!typeId||!signed){toast('Waiver type and signed date are required','error');return}
+  const formData=new FormData()
+  formData.append('waiver_type_id',typeId)
+  formData.append('signed_date',signed)
+  const expiry=document.getElementById('yw-expiry').value
+  if(expiry) formData.append('expiry_date',expiry)
+  const signedBy=document.getElementById('yw-signed-by').value.trim()
+  if(signedBy) formData.append('signed_by',signedBy)
+  const f=document.getElementById('yw-file').files[0]
+  if(f) formData.append('file',f)
+  const res=await fetch(`/api/youth/${yid}/waivers`,{method:'POST',credentials:'include',body:formData})
+  const data=await res.json()
+  if(data.error){toast(data.error,'error');return}
+  toast('Waiver saved!','success')
+  closeModal('modal-youth-waiver')
+  allYouth=await api('/api/youth')
+  openYouthProfile(yid)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  VOLUNTEER CRUD
+// ═══════════════════════════════════════════════════════════════
+function buildInterestCheckboxes(){
+  const wrap=document.getElementById('interests-checkboxes')
+  if(!wrap) return
+  wrap.innerHTML=interestTypes.map(t=>
+    `<label class="checkbox-tag" onclick="toggleCheckTag(this)" style="border-color:var(--border-md)">
+      <input type="checkbox" value="${t.name}" style="display:none">${t.name}
+    </label>`).join('')
+}
+function toggleCheckTag(el){const cb=el.querySelector('input');cb.checked=!cb.checked;el.classList.toggle('checked',cb.checked)}
+function getCheckedInterests(){return[...document.querySelectorAll('#interests-checkboxes input:checked')].map(c=>c.value)}
+function setCheckedInterests(interests){
+  document.querySelectorAll('#interests-checkboxes .checkbox-tag').forEach(el=>{
+    const cb=el.querySelector('input');const checked=interests.includes(cb.value);cb.checked=checked;el.classList.toggle('checked',checked)
+  })
+}
+
+function openVolModal(){
+  document.getElementById('vol-modal-title').textContent='Add Volunteer'
+  document.getElementById('vol-edit-id').value=''
+  ;['vol-name','vol-email','vol-phone'].forEach(id=>document.getElementById(id).value='')
+  document.getElementById('vol-birthday').value=''
+  document.getElementById('vol-status').value='active'
+  setCheckedInterests([])
+  openModal('modal-volunteer')
+}
+function openEditVolModal(volId){
+  const v=volunteers.find(v=>v.id===volId)
+  if(!v) return
+  document.getElementById('vol-modal-title').textContent='Edit Volunteer'
+  document.getElementById('vol-edit-id').value=v.id
+  document.getElementById('vol-name').value=v.name
+  document.getElementById('vol-email').value=v.email
+  document.getElementById('vol-phone').value=v.phone||''
+  document.getElementById('vol-birthday').value=v.birthday||''
+  document.getElementById('vol-status').value=v.status
+  setCheckedInterests(JSON.parse(v.interests||'[]'))
+  openModal('modal-volunteer')
+}
+async function saveVolunteer(){
+  const name=document.getElementById('vol-name').value.trim()
+  const email=document.getElementById('vol-email').value.trim()
+  if(!name||!email){toast('Name and email are required','error');return}
+  const editId=document.getElementById('vol-edit-id').value
+  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests()}
+  if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
+  else await api('/api/volunteers','POST',data)
+  toast(editId?'Volunteer updated!':'Volunteer added!','success')
+  closeModal('modal-volunteer')
+  await loadAllData()
+  renderVolunteers()
+  if(editId&&currentVolId===editId) openProfile(editId)
+}
+async function deleteVol(volId){
+  const v=volunteers.find(v=>v.id===volId)
+  if(!confirm(`Delete ${v?.name}? This cannot be undone.`)) return
+  await api(`/api/volunteers/${volId}`,'DELETE')
+  toast('Volunteer deleted')
+  await loadAllData()
+  navTo('volunteers')
+  renderVolunteers()
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  NOTES + HISTORY + FILES
+// ═══════════════════════════════════════════════════════════════
+function openNoteModal(volId){document.getElementById('note-vol-id').value=volId;document.getElementById('note-content').value='';openModal('modal-note')}
+async function saveNote(){
+  const volId=document.getElementById('note-vol-id').value
+  const content=document.getElementById('note-content').value.trim()
+  if(!content){toast('Note cannot be empty','error');return}
+  await api(`/api/volunteers/${volId}/notes`,'POST',{content})
+  toast('Note added','success')
+  closeModal('modal-note')
+  await loadAllData()
+  openProfile(volId)
+}
+function openHistoryModal(volId){
+  document.getElementById('history-vol-id').value=volId
+  ;['history-event','history-role','history-notes'].forEach(id=>document.getElementById(id).value='')
+  document.getElementById('history-date').value=new Date().toISOString().split('T')[0]
+  openModal('modal-history')
+}
+async function saveHistory(){
+  const volId=document.getElementById('history-vol-id').value
+  const event=document.getElementById('history-event').value.trim()
+  const role=document.getElementById('history-role').value.trim()
+  const date=document.getElementById('history-date').value
+  if(!event||!role||!date){toast('Event, role, and date are required','error');return}
+  await api(`/api/volunteers/${volId}/history`,'POST',{event,role,date,notes:document.getElementById('history-notes').value.trim()})
+  toast('Entry added','success')
+  closeModal('modal-history')
+  openProfile(volId)
+}
+async function attachFile(e,volId){
+  const file=e.target.files[0]; if(!file) return
+  const ext=file.name.split('.').pop().toLowerCase()
+  const type=ext==='pdf'?'pdf':'image'
+  const size=(file.size/1024).toFixed(0)+' KB'
+  await api(`/api/volunteers/${volId}/files`,'POST',{name:file.name,size,type})
+  toast('File attached!','success')
+  openProfile(volId)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════════════════════
+async function loadSettings(){
+  const [itypes,wtypes,events,etemplates]=await Promise.all([
+    api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates')
+  ])
+  interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates
+  renderInterestTypesSettings()
+  renderWaiverTypesSettings()
+  renderEventsSettings()
+  renderEmailTemplatesSettings()
+  populateWaiverTypeSelects()
+  populateInterestFilter()
+  buildInterestCheckboxes()
+}
+
+// Interest types
+function renderInterestTypesSettings(){
+  const el=document.getElementById('interest-types-list')
+  if(!el) return
+  if(!interestTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No interest types yet</div>';return}
+  el.innerHTML=interestTypes.map(t=>`
+    <div class="setting-item">
+      <div><div class="setting-item-label">${tagHTML(t.name,t.color)} ${t.name}</div></div>
+      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">✕</button>
+    </div>`).join('')
+}
+async function addInterestType(){
+  const name=document.getElementById('new-interest-name').value.trim()
+  const color=document.getElementById('new-interest-color').value
+  if(!name){toast('Name is required','error');return}
+  const res=await api('/api/interest-types','POST',{name,color})
+  if(res.error){toast(res.error,'error');return}
+  interestTypes.push(res)
+  document.getElementById('new-interest-name').value=''
+  renderInterestTypesSettings()
+  populateInterestFilter()
+  buildInterestCheckboxes()
+  toast('Interest type added!','success')
+}
+async function deleteInterestType(tid){
+  if(!confirm('Delete this interest type?')) return
+  await api(`/api/interest-types/${tid}`,'DELETE')
+  interestTypes=interestTypes.filter(t=>t.id!==tid)
+  renderInterestTypesSettings()
+  populateInterestFilter()
+  buildInterestCheckboxes()
+  toast('Deleted')
+}
+
+// Waiver types
+function renderWaiverTypesSettings(){
+  const el=document.getElementById('waiver-types-list')
+  if(!el) return
+  if(!waiverTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No waiver types yet</div>';return}
+  el.innerHTML=waiverTypes.map(t=>`
+    <div class="setting-item">
+      <div><div class="setting-item-label">${t.name}</div>${t.description?`<div class="setting-item-sub">${t.description}</div>`:''}</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditWaiverTypeModal('${t.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteWaiverType('${t.id}')">✕</button>
+      </div>
+    </div>`).join('')
+}
+function openNewWaiverTypeModal(){
+  document.getElementById('waiver-type-modal-title').textContent='New Waiver Type'
+  document.getElementById('wt-edit-id').value=''
+  ;['wt-name','wt-desc','wt-body'].forEach(id=>document.getElementById(id).value='')
+  openModal('modal-waiver-type')
+}
+function openEditWaiverTypeModal(tid){
+  const t=waiverTypes.find(t=>t.id===tid)
+  if(!t) return
+  document.getElementById('waiver-type-modal-title').textContent='Edit Waiver Type'
+  document.getElementById('wt-edit-id').value=t.id
+  document.getElementById('wt-name').value=t.name||''
+  document.getElementById('wt-desc').value=t.description||''
+  document.getElementById('wt-body').value=t.template_body||''
+  openModal('modal-waiver-type')
+}
+async function saveWaiverType(){
+  const editId=document.getElementById('wt-edit-id').value
+  const name=document.getElementById('wt-name').value.trim()
+  const description=document.getElementById('wt-desc').value.trim()
+  const template_body=document.getElementById('wt-body').value.trim()
+  if(!name){toast('Name is required','error');return}
+  let res
+  if(editId) res=await api(`/api/waiver-types/${editId}`,'PUT',{name,description,template_body})
+  else res=await api('/api/waiver-types','POST',{name,description,template_body})
+  if(res.error){toast(res.error,'error');return}
+  if(editId) waiverTypes=waiverTypes.map(t=>t.id===editId?res:t)
+  else waiverTypes.push(res)
+  renderWaiverTypesSettings()
+  populateWaiverTypeSelects()
+  closeModal('modal-waiver-type')
+  toast(editId?'Waiver type updated!':'Waiver type created!','success')
+}
+async function deleteWaiverType(tid){
+  if(!confirm('Delete this waiver type? All associated waivers will also be deleted.')) return
+  await api(`/api/waiver-types/${tid}`,'DELETE')
+  waiverTypes=waiverTypes.filter(t=>t.id!==tid)
+  renderWaiverTypesSettings()
+  populateWaiverTypeSelects()
+  toast('Deleted')
+}
+
+// Events
+function renderEventsSettings(){
+  const el=document.getElementById('events-list')
+  if(!el) return
+  if(!allEvents.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No events yet</div>';return}
+  el.innerHTML=allEvents.map(e=>`
+    <div class="setting-item">
+      <div><div class="setting-item-label">${e.name}</div>${e.event_date?`<div class="setting-item-sub">${formatDate(e.event_date)}</div>`:''}</div>
+      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEvent('${e.id}')">✕</button>
+    </div>`).join('')
+}
+async function addEvent(){
+  const name=document.getElementById('new-event-name').value.trim()
+  const event_date=document.getElementById('new-event-date').value
+  if(!name){toast('Event name is required','error');return}
+  const res=await api('/api/events','POST',{name,event_date})
+  if(res.error){toast(res.error,'error');return}
+  allEvents.unshift(res)
+  document.getElementById('new-event-name').value=''
+  document.getElementById('new-event-date').value=''
+  renderEventsSettings()
+  populateHoursFilters()
+  toast('Event added!','success')
+}
+async function deleteEvent(eid){
+  if(!confirm('Delete this event?')) return
+  await api(`/api/events/${eid}`,'DELETE')
+  allEvents=allEvents.filter(e=>e.id!==eid)
+  renderEventsSettings()
+  populateHoursFilters()
+  toast('Deleted')
+}
+
+// Email templates settings
+function renderEmailTemplatesSettings(){
+  const el=document.getElementById('email-templates-settings-list')
+  if(!el) return
+  if(!emailTemplates.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No templates yet</div>';return}
+  el.innerHTML=emailTemplates.map(t=>`
+    <div class="setting-item">
+      <div><div class="setting-item-label">${t.name}</div><div class="setting-item-sub">${t.subject}</div></div>
+      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEmailTemplateById('${t.id}')">✕</button>
+    </div>`).join('')
+}
+async function deleteEmailTemplateById(tid){
+  await api(`/api/email-templates/${tid}`,'DELETE')
+  emailTemplates=emailTemplates.filter(t=>t.id!==tid)
+  populateEmailTemplates()
+  renderEmailTemplatesSettings()
+  toast('Template deleted')
+}
+
+// Add user
+async function createUser(){
+  const name=document.getElementById('new-user-name').value.trim()
+  const email=document.getElementById('new-user-email').value.trim()
+  const password=document.getElementById('new-user-password').value
+  const role=document.getElementById('new-user-role').value
+  if(!name||!email||!password){toast('All fields required','error');return}
+  const res=await api('/api/users','POST',{name,email,password,role})
+  if(res.error){toast(res.error,'error');return}
+  toast('User created!','success')
+  ;['new-user-name','new-user-email','new-user-password'].forEach(id=>document.getElementById(id).value='')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EXPORT
+// ═══════════════════════════════════════════════════════════════
+function exportVolCSV(){
+  const rows=[['Name','Email','Phone','Birthday','Status','Interests','Waiver Status','Total Hours']]
+  volunteers.forEach(v=>rows.push([v.name,v.email,v.phone||'',v.birthday||'',v.status,JSON.parse(v.interests||'[]').join('; '),waiverStatus(v),v.total_hours||0]))
+  downloadCSV('rollcall_volunteers.csv',rows)
+}
+function exportHoursCSV(){
+  const rows=[['Volunteer','Event','Date','Hours','Role','Notes']]
+  allHours.forEach(h=>rows.push([h.volunteer_name||'',h.event,h.date,h.hours,h.role||'',h.notes||'']))
+  downloadCSV('rollcall_hours.csv',rows)
+}
+function downloadCSV(filename,rows){
+  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')
+  const a=document.createElement('a')
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}))
+  a.download=filename; a.click()
+  toast(`Exported ${filename}`,'success')
+}
+</script>
+</body>
+</html>

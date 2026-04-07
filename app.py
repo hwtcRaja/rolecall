@@ -154,8 +154,42 @@ def init_db():
         submitted_at TIMESTAMP DEFAULT NOW(),
         status TEXT DEFAULT 'pending')""")
 
+    # event required waivers
+    c.execute("""CREATE TABLE IF NOT EXISTS event_waivers (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
+        UNIQUE(event_id, waiver_type_id))""")
+
+    # production required waivers
+    c.execute("""CREATE TABLE IF NOT EXISTS production_waivers (
+        id TEXT PRIMARY KEY,
+        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+        waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
+        UNIQUE(production_id, waiver_type_id))""")
+
+    # volunteer emergency contacts
+    c.execute("""CREATE TABLE IF NOT EXISTS volunteer_emergency_contacts (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        relationship TEXT,
+        phone TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # pending profile updates (kiosk)
+    c.execute("""CREATE TABLE IF NOT EXISTS pending_profile_updates (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        field_name TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT NOT NULL,
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        status TEXT DEFAULT 'pending')""")
+
     # Run migrations in separate try blocks so failures don't roll back table creation
     for col_sql in [
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
@@ -384,6 +418,7 @@ def get_volunteer(vol_id):
     vol['notes']   = fetchall(conn, 'SELECT * FROM notes WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
     vol['history'] = fetchall(conn, 'SELECT * FROM volunteer_history WHERE volunteer_id=%s ORDER BY date DESC', (vol_id,))
     vol['files']   = fetchall(conn, 'SELECT * FROM volunteer_files WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
+    vol['emergency_contacts'] = fetchall(conn, 'SELECT * FROM volunteer_emergency_contacts WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
     vol['productions'] = fetchall(conn, '''SELECT pm.*, p.name as production_name, p.production_type,
         p.start_date, p.end_date, p.status as production_status
         FROM production_members pm JOIN productions p ON pm.production_id=p.id
@@ -1254,5 +1289,253 @@ def pending_hours_count():
     if err: return err
     conn = get_db()
     count = fetchone(conn, "SELECT COUNT(*) as c FROM pending_hours WHERE status='pending'")['c']
+    conn.close()
+    return jsonify({'count': count})
+
+# ─────────────────────────────────────────────
+#  WAIVER TYPE REQUIRED FLAG
+# ─────────────────────────────────────────────
+
+@app.route('/api/waiver-types/<tid>/toggle-required', methods=['POST'])
+def toggle_waiver_required(tid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    wt = fetchone(conn, 'SELECT COALESCE(required_all,FALSE) as required_all FROM waiver_types WHERE id=%s', (tid,))
+    if not wt: conn.close(); return jsonify({'error': 'Not found'}), 404
+    new_val = not wt['required_all']
+    execute(conn, 'UPDATE waiver_types SET required_all=%s WHERE id=%s', (new_val, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'required_all': new_val})
+
+# ─────────────────────────────────────────────
+#  EVENT / PRODUCTION REQUIRED WAIVERS
+# ─────────────────────────────────────────────
+
+@app.route('/api/events/<eid>/waivers', methods=['POST'])
+def add_event_waiver(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO event_waivers (id,event_id,waiver_type_id) VALUES (%s,%s,%s)',
+                (rid, eid, d['waiver_type_id']))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Already assigned'}), 400
+    row = fetchone(conn, 'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/<eid>/waivers/<wid>', methods=['DELETE'])
+def remove_event_waiver(eid, wid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_waivers WHERE id=%s AND event_id=%s', (wid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/waivers', methods=['POST'])
+def add_production_waiver(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO production_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
+                (rid, pid, d['waiver_type_id']))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Already assigned'}), 400
+    row = fetchone(conn, 'SELECT pw.*, wt.name as waiver_name FROM production_waivers pw JOIN waiver_types wt ON pw.waiver_type_id=wt.id WHERE pw.id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
+def remove_production_waiver(pid, wid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_waivers WHERE id=%s AND production_id=%s', (wid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  KIOSK WAIVER CHECK
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/waiver-check')
+def kiosk_waiver_check():
+    vol_id   = request.args.get('volunteer_id')
+    event_id = request.args.get('event_id')
+    prod_id  = request.args.get('production_id')
+    if not vol_id: return jsonify({'error': 'volunteer_id required'}), 400
+
+    conn = get_db()
+    today = date.today()
+
+    # Get all volunteer's current valid waivers
+    signed = fetchall(conn,
+        'SELECT waiver_type_id, expiry_date, signed_date FROM volunteer_waivers WHERE volunteer_id=%s ORDER BY signed_date DESC',
+        (vol_id,))
+    # Build dict: waiver_type_id -> best status
+    waiver_status = {}
+    for w in signed:
+        wid = w['waiver_type_id']
+        if wid in waiver_status: continue  # already have a more recent one
+        if not w['expiry_date']:
+            waiver_status[wid] = 'valid'
+        else:
+            exp = datetime.strptime(w['expiry_date'], '%Y-%m-%d').date()
+            diff = (exp - today).days
+            if diff < 0: waiver_status[wid] = 'expired'
+            elif diff < 30: waiver_status[wid] = 'expiring'
+            else: waiver_status[wid] = 'valid'
+
+    # Collect required waiver type IDs
+    required_ids = set()
+
+    # Level 1 — required for all
+    all_required = fetchall(conn, "SELECT id FROM waiver_types WHERE COALESCE(required_all,FALSE)=TRUE")
+    for r in all_required:
+        required_ids.add(r['id'])
+
+    # Level 2 — event specific
+    if event_id:
+        event_req = fetchall(conn, 'SELECT waiver_type_id FROM event_waivers WHERE event_id=%s', (event_id,))
+        for r in event_req:
+            required_ids.add(r['waiver_type_id'])
+
+    # Level 2 — production specific
+    if prod_id:
+        prod_req = fetchall(conn, 'SELECT waiver_type_id FROM production_waivers WHERE production_id=%s', (prod_id,))
+        for r in prod_req:
+            required_ids.add(r['waiver_type_id'])
+
+    # Build issues list
+    issues = []
+    for wt_id in required_ids:
+        wt = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (wt_id,))
+        if not wt: continue
+        status = waiver_status.get(wt_id, 'missing')
+        if status in ('missing', 'expired', 'expiring'):
+            issues.append({
+                'waiver_type_id': wt_id,
+                'name': wt['name'],
+                'description': wt['description'],
+                'template_body': wt['template_body'],
+                'status': status,
+                'can_sign_online': bool(wt['template_body'])
+            })
+
+    conn.close()
+    return jsonify({'issues': issues, 'all_clear': len(issues) == 0})
+
+# ─────────────────────────────────────────────
+#  KIOSK WAIVER SIGN
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/sign-waiver', methods=['POST'])
+def kiosk_sign_waiver():
+    d = request.json
+    vol_id         = d.get('volunteer_id')
+    waiver_type_id = d.get('waiver_type_id')
+    signed_name    = d.get('signed_name', '').strip()
+    if not vol_id or not waiver_type_id or not signed_name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    today = date.today().isoformat()
+    exp   = date(date.today().year + 1, date.today().month, date.today().day).isoformat()
+    wid   = str(uuid.uuid4())
+    conn  = get_db()
+    vol = fetchone(conn, "SELECT name FROM volunteers WHERE id=%s", (vol_id,))
+    if not vol: conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
+    execute(conn,
+        "INSERT INTO volunteer_waivers (id,volunteer_id,waiver_type_id,signed_date,expiry_date,signed_name,signed_via,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,'kiosk',%s)",
+        (wid, vol_id, waiver_type_id, today, exp, signed_name, 'Kiosk self-sign'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  PENDING PROFILE UPDATES
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/update-profile', methods=['POST'])
+def kiosk_update_profile():
+    d = request.json
+    vol_id = d.get('volunteer_id')
+    updates = d.get('updates', [])  # list of {field_name, old_value, new_value}
+    if not vol_id or not updates:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    vol = fetchone(conn, "SELECT id FROM volunteers WHERE id=%s AND status='active'", (vol_id,))
+    if not vol: conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
+    for u in updates:
+        execute(conn,
+            "INSERT INTO pending_profile_updates (id,volunteer_id,field_name,old_value,new_value) VALUES (%s,%s,%s,%s,%s)",
+            (str(uuid.uuid4()), vol_id, u['field_name'], u.get('old_value',''), u['new_value']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-profile-updates')
+def get_pending_profile_updates():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn,
+        "SELECT pu.*, v.name as volunteer_name FROM pending_profile_updates pu JOIN volunteers v ON pu.volunteer_id=v.id WHERE pu.status='pending' ORDER BY pu.submitted_at DESC")
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/pending-profile-updates/<uid>/approve', methods=['POST'])
+def approve_profile_update(uid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    pu = fetchone(conn, 'SELECT * FROM pending_profile_updates WHERE id=%s', (uid,))
+    if not pu: conn.close(); return jsonify({'error': 'Not found'}), 404
+
+    field = pu['field_name']
+    new_val = pu['new_value']
+
+    if field == 'phone':
+        execute(conn, 'UPDATE volunteers SET phone=%s WHERE id=%s', (new_val, pu['volunteer_id']))
+    elif field == 'interests':
+        execute(conn, 'UPDATE volunteers SET interests=%s WHERE id=%s', (new_val, pu['volunteer_id']))
+    elif field == 'emergency_contact':
+        try:
+            ec = json.loads(new_val)
+            # Delete old and insert new
+            execute(conn, 'DELETE FROM volunteer_emergency_contacts WHERE volunteer_id=%s', (pu['volunteer_id'],))
+            execute(conn,
+                'INSERT INTO volunteer_emergency_contacts (id,volunteer_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
+                (str(uuid.uuid4()), pu['volunteer_id'], ec.get('name',''), ec.get('relationship',''), ec.get('phone','')))
+        except Exception:
+            pass
+
+    execute(conn, "UPDATE pending_profile_updates SET status='approved' WHERE id=%s", (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-profile-updates/<uid>/reject', methods=['POST'])
+def reject_profile_update(uid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE pending_profile_updates SET status='rejected' WHERE id=%s", (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-profile-updates/count')
+def pending_profile_updates_count():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    count = fetchone(conn, "SELECT COUNT(*) as c FROM pending_profile_updates WHERE status='pending'")['c']
     conn.close()
     return jsonify({'count': count})

@@ -885,7 +885,7 @@ function quickLogin(email,pw){
   document.getElementById('login-password').value=pw
   handleLogin()
 }
-function loginSuccess(user){
+async function loginSuccess(user){
   currentUser=user
   document.getElementById('auth-screen').style.display='none'
   document.getElementById('app').style.display='block'
@@ -894,7 +894,7 @@ function loginSuccess(user){
   document.getElementById('sidebar-name').textContent=user.name
   document.getElementById('sidebar-role').textContent=user.role==='admin'?'Administrator':'Board Member'
   applyRoleUI()
-  loadAllData()
+  await loadAllData()
   navTo('dashboard')
 }
 async function handleLogout(){

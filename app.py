@@ -9,7 +9,7 @@ from datetime import datetime, date
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__, static_folder='static')
-app.secret_key = 'rollcall-secret-key-change-in-production'
+app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
 
 DB_PATH = 'rollcall.db'
@@ -1055,4 +1055,4 @@ if __name__ == '__main__':
     init_db()
     print('\n🎭 RollCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)

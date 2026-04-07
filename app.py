@@ -108,17 +108,20 @@ def init_db():
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
         description TEXT, created_at TIMESTAMP DEFAULT NOW())''')
 
-    # Add emergency contact fields to volunteer_waivers
-    try:
-        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_name TEXT')
-        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_phone TEXT')
-        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_relationship TEXT')
-        conn.commit()
-    except Exception:
-        conn.rollback()
-
-
     conn.commit()
+
+    # Run migrations in separate try blocks so failures don't roll back table creation
+    for col_sql in [
+        "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
+        "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
+        "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
+    ]:
+        try:
+            c.execute(col_sql)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
     conn.close()
 
 # ─────────────────────────────────────────────
@@ -916,11 +919,15 @@ def create_user():
     return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
 #  RUN
 # ─────────────────────────────────────────────
 
+
+init_db()
+
 if __name__ == '__main__':
-    init_db()
-    print('\n🎭 RollCall is running!')
+    print('\n🎭 RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)

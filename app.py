@@ -141,6 +141,19 @@ def init_db():
     # add active column to users
     conn.commit()
 
+    # pending hours (kiosk submissions awaiting approval)
+    c.execute("""CREATE TABLE IF NOT EXISTS pending_hours (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        event TEXT NOT NULL,
+        event_id TEXT,
+        date TEXT NOT NULL,
+        hours REAL NOT NULL,
+        role TEXT,
+        notes TEXT,
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        status TEXT DEFAULT 'pending')""")
+
     # Run migrations in separate try blocks so failures don't roll back table creation
     for col_sql in [
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
@@ -1135,3 +1148,111 @@ if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+
+# ─────────────────────────────────────────────
+#  KIOSK
+# ─────────────────────────────────────────────
+
+@app.route('/kiosk')
+def kiosk_page():
+    return send_from_directory('static', 'kiosk.html')
+
+@app.route('/api/kiosk/volunteers')
+def kiosk_volunteers():
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 2:
+        return jsonify([])
+    conn = get_db()
+    vols = fetchall(conn,
+        "SELECT id, name, email, phone FROM volunteers WHERE status='active' AND LOWER(name) LIKE %s ORDER BY name LIMIT 10",
+        (f'%{q}%',))
+    conn.close()
+    return jsonify(vols)
+
+@app.route('/api/kiosk/events')
+def kiosk_events():
+    conn = get_db()
+    today = date.today().isoformat()
+    week_ago = (date.today().replace(day=max(1, date.today().day - 7))).isoformat()
+    events = fetchall(conn,
+        "SELECT * FROM events WHERE event_date >= %s AND event_date <= %s ORDER BY event_date DESC",
+        (week_ago, today))
+    no_date = fetchall(conn, "SELECT * FROM events WHERE event_date IS NULL ORDER BY name")
+    conn.close()
+    return jsonify(events + no_date)
+
+@app.route('/api/kiosk/submit', methods=['POST'])
+def kiosk_submit():
+    d = request.json
+    if not d.get('volunteer_id') or not d.get('event') or not d.get('hours'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    try:
+        hours = float(d['hours'])
+        if hours <= 0 or hours > 24:
+            return jsonify({'error': 'Hours must be between 0.5 and 24'}), 400
+    except Exception:
+        return jsonify({'error': 'Invalid hours value'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    vol = fetchone(conn, "SELECT id, name FROM volunteers WHERE id=%s AND status='active'", (d['volunteer_id'],))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Volunteer not found'}), 404
+    execute(conn,
+        "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, d['volunteer_id'], d['event'], d.get('event_id'),
+         date.today().isoformat(), hours, d.get('role',''), d.get('notes','')))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'volunteer_name': vol['name']})
+
+# ─────────────────────────────────────────────
+#  PENDING HOURS
+# ─────────────────────────────────────────────
+
+@app.route('/api/pending-hours')
+def get_pending_hours():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn,
+        "SELECT ph.*, v.name as volunteer_name, v.email as volunteer_email FROM pending_hours ph JOIN volunteers v ON ph.volunteer_id=v.id WHERE ph.status='pending' ORDER BY ph.submitted_at DESC")
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/pending-hours/<pid>/approve', methods=['POST'])
+def approve_hours(pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    ph = fetchone(conn, 'SELECT * FROM pending_hours WHERE id=%s', (pid,))
+    if not ph:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    hid = str(uuid.uuid4())
+    execute(conn,
+        "INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (hid, ph['volunteer_id'], ph['event'], ph['event_id'], ph['date'], ph['hours'], ph['role'], ph['notes']))
+    execute(conn, "UPDATE pending_hours SET status='approved' WHERE id=%s", (pid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-hours/<pid>/reject', methods=['POST'])
+def reject_hours(pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE pending_hours SET status='rejected' WHERE id=%s", (pid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-hours/count')
+def pending_hours_count():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    count = fetchone(conn, "SELECT COUNT(*) as c FROM pending_hours WHERE status='pending'")['c']
+    conn.close()
+    return jsonify({'count': count})

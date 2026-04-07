@@ -411,6 +411,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Volunteers</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon">📊</span>Dashboard</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon">👥</span>Volunteers</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events</div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon">⏱</span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📋</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
@@ -502,6 +503,50 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- HOURS -->
+      <!-- EVENTS -->
+      <section class="page" id="page-events">
+        <div class="page-header">
+          <div><div class="page-title">Events</div><div class="page-subtitle" id="events-page-subtitle">Loading…</div></div>
+          <div class="page-actions">
+            <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:var(--radius);padding:3px">
+              <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')">📅 Calendar</button>
+              <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">☰ List</button>
+            </div>
+            <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
+            <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select>
+            <button class="btn btn-primary admin-only" onclick="openEventModal()">+ New Event</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <!-- Calendar View -->
+          <div id="ev-calendar-view">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <button class="btn btn-secondary btn-sm" onclick="calNav(-1)">← Prev</button>
+              <div style="font-size:18px;font-weight:700;letter-spacing:-0.3px" id="cal-month-label"></div>
+              <button class="btn btn-secondary btn-sm" onclick="calNav(1)">Next →</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:2px">
+              ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">${d}</div>`).join('')}
+            </div>
+            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
+          </div>
+          <!-- List View -->
+          <div id="ev-list-view" style="display:none">
+            <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+              <div class="search-input-wrap" style="max-width:300px"><span>🔍</span><input type="text" id="ev-search" placeholder="Search events…" oninput="renderEventsPage()"/></div>
+              <select class="filter-select" id="ev-filter-month" onchange="renderEventsPage()"><option value="">All Months</option></select>
+            </div>
+            <div id="ev-list-container"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- EVENT DETAIL -->
+      <section class="page" id="page-event-detail">
+        <div class="page-header" id="event-detail-header"></div>
+        <div class="page-body"><div id="event-detail-content"></div></div>
+      </section>
+
       <section class="page" id="page-hours">
         <div class="page-header">
           <div><div class="page-title">Time Tracking</div><div class="page-subtitle">Log and manage volunteer time</div></div>
@@ -716,6 +761,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
             </div>
 
+            <!-- Event Types -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">📅 Event Types</div>
+              <div id="event-types-list" style="margin-bottom:16px"></div>
+              <div class="inline-input-row">
+                <input type="text" id="new-event-type-name" placeholder="e.g. Tech Rehearsal"/>
+                <select id="new-event-type-color" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="teal">Teal</option><option value="blue">Blue</option><option value="amber">Amber</option>
+                  <option value="pink">Pink</option><option value="purple">Purple</option><option value="green">Green</option><option value="gray">Gray</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="addEventType()">Add</button>
+              </div>
+            </div>
+
             <!-- ELIC Management -->
             <div class="settings-section" style="grid-column:1/-1">
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎬 ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
@@ -912,21 +971,36 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- New Waiver Type Modal -->
 <!-- Edit Event Modal -->
 <div class="modal-overlay" id="modal-edit-event">
-  <div class="modal">
-    <div class="modal-header"><div class="modal-title">Edit Event</div><button class="modal-close" onclick="closeModal('modal-edit-event')">✕</button></div>
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="event-modal-title">New Event</div><button class="modal-close" onclick="closeModal('modal-edit-event')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="edit-event-id"/>
-      <div class="form-group"><label>Event Name *</label><input type="text" id="edit-event-name" placeholder="Event name"/></div>
       <div class="form-row">
-        <div class="form-group"><label>Date</label><input type="date" id="edit-event-date"/></div>
-        <div class="form-group"><label>Start Time</label><input type="time" id="edit-event-start"/></div>
+        <div class="form-group"><label>Event Name *</label><input type="text" id="edit-event-name" placeholder="e.g. Opening Night Rehearsal"/></div>
+        <div class="form-group"><label>Type</label><select id="edit-event-type"><option value="">— Select type —</option></select></div>
       </div>
-      <div class="form-group"><label>End Time</label><input type="time" id="edit-event-end"/></div>
-      <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="Optional…"></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>Start Date</label><input type="date" id="edit-event-date"/></div>
+        <div class="form-group"><label>End Date</label><input type="date" id="edit-event-end-date"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Start Time</label><input type="time" id="edit-event-start"/></div>
+        <div class="form-group"><label>End Time</label><input type="time" id="edit-event-end"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Location / Venue</label><input type="text" id="edit-event-location" placeholder="e.g. HWTC Main Stage"/></div>
+        <div class="form-group"><label>Room / Space</label><input type="text" id="edit-event-room" placeholder="e.g. Black Box, Rehearsal Hall"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Production (optional)</label><select id="edit-event-production"><option value="">— Standalone event —</option></select></div>
+        <div class="form-group"><label>Expected Volunteers</label><input type="number" id="edit-event-volunteers" min="1" placeholder="e.g. 12"/></div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
+      <div class="form-group"><label>Internal Notes</label><textarea id="edit-event-notes" placeholder="Notes for staff/admins only…"></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveEditEvent()">Save</button>
+      <button class="btn btn-primary" onclick="saveEditEvent()">Save Event</button>
     </div>
   </div>
 </div>
@@ -1139,6 +1213,11 @@ let allProductions = []
 let currentProdId = null
 let allElics = []
 let allChecklistItems = []
+let allEventTypes = []
+let calYear = new Date().getFullYear()
+let calMonth = new Date().getMonth()
+let eventsView = "calendar"
+let currentEventId = null
 let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
@@ -1279,6 +1358,7 @@ function navTo(page,el){
   if(page==='waivers') renderWaivers()
   if(page==='email') renderEmailPage()
   if(page==='productions') renderProductions()
+  if(page==='events') renderEventsPage()
   if(page==='pending') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
@@ -1289,14 +1369,14 @@ function navTo(page,el){
 //  LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
-  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData]=await Promise.all([
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData,evTypes]=await Promise.all([
     api('/api/volunteers'),api('/api/hours'),api('/api/events'),
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
-    api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics')
+    api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics'),api('/api/event-types')
   ])
   volunteers=vols; allHours=hrs; allEvents=events
   interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates
-  allYouth=youth; allPrograms=programs; allProductions=prods; allElics=elicsData
+  allYouth=youth; allPrograms=programs; allProductions=prods; allElics=elicsData; allEventTypes=evTypes
   populateHoursFilters()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -2391,12 +2471,12 @@ async function attachFile(e,volId){
 //  SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
-  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems]=await Promise.all([
+  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,evTypes]=await Promise.all([
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
-    api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items')
+    api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/event-types')
   ])
   interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
-  allElics=elicsData; allChecklistItems=clItems
+  allElics=elicsData; allChecklistItems=clItems; allEventTypes=evTypes
   renderInterestTypesSettings()
   renderWaiverTypesSettings()
   renderEventsSettings()
@@ -2405,6 +2485,7 @@ async function loadSettings(){
   renderUsersManagement(users)
   renderElicsSettings()
   renderChecklistSettings()
+  renderEventTypesSettings()
   populateElicVolSelect()
   populateWaiverTypeSelects()
   populateInterestFilter()
@@ -3317,7 +3398,8 @@ async function removeProductionWaiver(prodId, waiverRowId){
 
 
 // ─── EVENT EDIT / WAIVER MGMT ───
-function openEditEventModal(eid){
+function openEditEventModal(eid){ openEventModal(eid) }
+function _old_openEditEventModal(eid){
   const e=allEvents.find(e=>e.id===eid)
   if(!e) return
   document.getElementById('edit-event-id').value=e.id
@@ -3576,6 +3658,398 @@ async function loadEventLogs(){
             </div>`).join('')}
         </div>`:''}
     </div>`).join('')
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENTS PAGE
+// ═══════════════════════════════════════════════════════════════
+
+const TYPE_COLORS = {
+  teal:['#E8F4F8','#145466'], blue:['#E6F1FB','#185FA5'],
+  amber:['#FAEEDA','#854F0B'], pink:['#FFF0F6','#BE185D'],
+  purple:['#F3EEFF','#6D28D9'], gray:['#EFEFEC','#5F5E5A'],
+  green:['#EAF3DE','#3B6D11'], red:['#FCEBEB','#A32D2D']
+}
+const STATUS_COLORS = {
+  draft:['#EFEFEC','#5F5E5A','Draft'],
+  open:['#EAF6F1','#2D9E6B','🟢 Open'],
+  closed:['#F4F4F4','#9B9B94','Closed']
+}
+
+function setEventsView(v){
+  eventsView=v
+  document.getElementById('ev-calendar-view').style.display=v==='calendar'?'block':'none'
+  document.getElementById('ev-list-view').style.display=v==='list'?'block':'none'
+  const calBtn=document.getElementById('ev-view-calendar')
+  const listBtn=document.getElementById('ev-view-list')
+  if(calBtn){calBtn.style.background=v==='calendar'?'var(--surface)':'transparent';calBtn.style.color=v==='calendar'?'var(--text)':'var(--text-muted)'}
+  if(listBtn){listBtn.style.background=v==='list'?'var(--surface)':'transparent';listBtn.style.color=v==='list'?'var(--text)':'var(--text-muted)'}
+  renderEventsPage()
+}
+
+function populateEventsFilters(){
+  const sel=document.getElementById('ev-filter-type')
+  if(sel){
+    const cur=sel.value
+    sel.innerHTML='<option value="">All Types</option>'+allEventTypes.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')
+    sel.value=cur
+  }
+  // Month filter for list view
+  const msel=document.getElementById('ev-filter-month')
+  if(msel){
+    const months=[...new Set(allEvents.filter(e=>e.event_date).map(e=>e.event_date.substring(0,7)))].sort().reverse()
+    msel.innerHTML='<option value="">All Months</option>'+months.map(m=>{
+      const d=new Date(m+'-01');return`<option value="${m}">${d.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</option>`
+    }).join('')
+  }
+}
+
+function filterEvents(){
+  const filterType=document.getElementById('ev-filter-type')?.value||''
+  const filterStatus=document.getElementById('ev-filter-status')?.value||''
+  return allEvents.filter(e=>{
+    if(filterType&&e.event_type_id!==filterType) return false
+    if(filterStatus&&(e.status||'draft')!==filterStatus) return false
+    return true
+  })
+}
+
+function renderEventsPage(){
+  populateEventsFilters()
+  const filtered=filterEvents()
+  document.getElementById('events-page-subtitle').textContent=`${filtered.length} event${filtered.length!==1?'s':''}`
+  if(eventsView==='calendar') renderCalendar(filtered)
+  else renderEventsList(filtered)
+}
+
+// ── CALENDAR ──
+function calNav(dir){
+  calMonth+=dir
+  if(calMonth>11){calMonth=0;calYear++}
+  if(calMonth<0){calMonth=11;calYear--}
+  renderEventsPage()
+}
+
+function renderCalendar(events){
+  const label=new Date(calYear,calMonth,1).toLocaleDateString('en-US',{month:'long',year:'numeric'})
+  document.getElementById('cal-month-label').textContent=label
+  const firstDay=new Date(calYear,calMonth,1).getDay()
+  const daysInMonth=new Date(calYear,calMonth+1,0).getDate()
+  const today=new Date().toISOString().split('T')[0]
+
+  // Build event map by date
+  const byDate={}
+  events.forEach(e=>{
+    if(!e.event_date) return
+    if(!byDate[e.event_date]) byDate[e.event_date]=[]
+    byDate[e.event_date].push(e)
+  })
+
+  let cells=''
+  // Empty cells for first row
+  for(let i=0;i<firstDay;i++) cells+=`<div style="min-height:100px;background:var(--gray-50);border-radius:8px;opacity:0.4"></div>`
+
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    const isToday=dateStr===today
+    const dayEvents=byDate[dateStr]||[]
+    cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:8px;cursor:default">
+      <div style="font-size:13px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
+      ${dayEvents.slice(0,3).map(e=>{
+        const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+        return`<div onclick="openEventDetail('${e.id}')" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4">${e.name}</div>`
+      }).join('')}
+      ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
+    </div>`
+  }
+
+  // Fill remaining cells
+  const total=firstDay+daysInMonth
+  const remaining=(7-total%7)%7
+  for(let i=0;i<remaining;i++) cells+=`<div style="min-height:100px;background:var(--gray-50);border-radius:8px;opacity:0.4"></div>`
+
+  document.getElementById('cal-grid').innerHTML=cells
+}
+
+// ── LIST VIEW ──
+function renderEventsList(events){
+  const search=document.getElementById('ev-search')?.value.toLowerCase()||''
+  const filterMonth=document.getElementById('ev-filter-month')?.value||''
+  let filtered=events.filter(e=>{
+    if(search&&!e.name.toLowerCase().includes(search)&&!(e.location||'').toLowerCase().includes(search)) return false
+    if(filterMonth&&e.event_date&&!e.event_date.startsWith(filterMonth)) return false
+    return true
+  })
+
+  const container=document.getElementById('ev-list-container')
+  if(!filtered.length){
+    container.innerHTML='<div class="empty-state"><div class="empty-icon">📅</div><p>No events found</p></div>'
+    return
+  }
+
+  // Group by month
+  const byMonth={}
+  const noDate=[]
+  filtered.forEach(e=>{
+    if(!e.event_date){noDate.push(e);return}
+    const m=e.event_date.substring(0,7)
+    if(!byMonth[m]) byMonth[m]=[]
+    byMonth[m].push(e)
+  })
+
+  const isAdmin=currentUser?.role==='admin'
+  let out=''
+  Object.keys(byMonth).sort().reverse().forEach(m=>{
+    const label=new Date(m+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'})
+    out+=`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);padding:12px 0 8px">${label}</div>`
+    out+=byMonth[m].map(e=>eventListRow(e,isAdmin)).join('')
+  })
+  if(noDate.length){
+    out+=`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);padding:12px 0 8px">No Date Set</div>`
+    out+=noDate.map(e=>eventListRow(e,isAdmin)).join('')
+  }
+  container.innerHTML=out
+}
+
+function eventListRow(e,isAdmin){
+  const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+  const timeStr=e.start_time?fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):''):'All day'
+  return`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow 0.15s" onclick="openEventDetail('${e.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
+    <div style="width:4px;align-self:stretch;background:${tcol};border-radius:2px;flex-shrink:0"></div>
+    <div style="width:52px;text-align:center;flex-shrink:0">
+      ${e.event_date?`<div style="font-size:20px;font-weight:800;color:var(--teal-dark);line-height:1">${parseInt(e.event_date.split('-')[2])}</div><div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase">${new Date(e.event_date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>`:'<div style="font-size:11px;color:var(--text-hint)">TBD</div>'}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:15px;font-weight:600;margin-bottom:3px">${e.name}</div>
+      <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">
+        <span>⏰ ${timeStr}</span>
+        ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
+        ${e.production_name?`<span>🎭 ${e.production_name}</span>`:''}
+        ${(e.elics||[]).length?`<span>🎬 ${e.elics.map(el=>el.volunteer_name).join(', ')}</span>`:''}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+      <span style="font-size:11px;background:${tbg};color:${tcol};padding:3px 8px;border-radius:10px;font-weight:600">${e.event_type_name||'Event'}</span>
+      <span style="font-size:11px;background:${sbg};color:${scol};padding:3px 8px;border-radius:10px;font-weight:600">${slabel}</span>
+    </div>
+  </div>`
+}
+
+// ── EVENT DETAIL ──
+function openEventDetail(eid){
+  currentEventId=eid
+  const e=allEvents.find(e=>e.id===eid)
+  if(!e) return
+  const isAdmin=currentUser?.role==='admin'
+  const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+
+  document.getElementById('event-detail-header').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('events')">← Back</button>
+      <div>
+        <div class="page-title">${e.name}</div>
+        <div class="page-subtitle">${e.event_type_name||'Event'}${e.event_date?' · '+formatDate(e.event_date):''}</div>
+      </div>
+    </div>
+    ${isAdmin?`<div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="openEventModal('${e.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteEventFull('${e.id}')">Delete</button>
+    </div>`:''}`
+
+  const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:`From ${fmtTime(e.start_time)}`):'Time TBD'
+  const reqWaivers=e.required_waivers||[]
+  const elics=e.elics||[]
+
+  document.getElementById('event-detail-content').innerHTML=`
+    <div style="display:grid;grid-template-columns:260px 1fr;gap:24px">
+      <div class="profile-card">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:44px;margin-bottom:8px">📅</div>
+          <span style="background:${tbg};color:${tcol};padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700">${e.event_type_name||'Event'}</span>
+          <span style="background:${sbg};color:${scol};padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;margin-left:6px">${slabel}</span>
+        </div>
+        <hr class="divider"/>
+        <div style="font-size:13px;display:flex;flex-direction:column;gap:8px;color:var(--text-muted)">
+          ${e.event_date?`<div>📅 <strong style="color:var(--text)">${formatDate(e.event_date)}</strong>${e.end_date&&e.end_date!==e.event_date?' → '+formatDate(e.end_date):''}</div>`:''}
+          <div>⏰ <strong style="color:var(--text)">${timeStr}</strong></div>
+          ${e.location?`<div>📍 ${e.location}${e.room?' <span style="color:var(--text-hint)">·</span> '+e.room:''}</div>`:''}
+          ${e.production_name?`<div>🎭 <a onclick="openProductionDetail('${e.production_id}')" style="color:var(--teal-600);cursor:pointer">${e.production_name}</a></div>`:''}
+          ${e.expected_volunteers?`<div>👥 ${e.expected_volunteers} expected volunteers</div>`:''}
+        </div>
+        ${e.description?`<hr class="divider"/><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.description}</div>`:''}
+        ${e.notes&&isAdmin?`<hr class="divider"/><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-hint);margin-bottom:4px">Staff Notes</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.notes}</div>`:''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <!-- ELICs -->
+        <div class="card" style="padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:600">🎬 Event Leads (ELICs)</div>
+          </div>
+          ${!elics.length?'<div style="color:var(--text-muted);font-size:13px">No ELICs assigned yet</div>':
+            elics.map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+              ${avatarHTML(a.volunteer_name,32)}
+              <div><div style="font-weight:500">${a.volunteer_name}</div><div style="font-size:12px;color:var(--text-muted)">${a.is_master?'Master ELIC':'Event ELIC'}</div></div>
+              ${isAdmin?`<button class="btn btn-danger btn-sm" style="margin-left:auto;padding:3px 8px;font-size:11px" onclick="removeEventElicUI('${e.id}','${a.assignment_id}');openEventDetail('${e.id}')">✕</button>`:''}
+            </div>`).join('')}
+          ${isAdmin?`<div style="margin-top:12px"><select onchange="addEventElicUI('${e.id}',this);setTimeout(()=>openEventDetail('${e.id}'),300)" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%">
+            <option value="">+ Assign ELIC</option>
+            ${allElics.filter(el=>el.active&&!elics.find(a=>a.elic_id===el.id)).map(el=>`<option value="${el.id}">${el.volunteer_name}${el.is_master?' ★':''}</option>`).join('')}
+          </select></div>`:''}
+        </div>
+        <!-- Required Waivers -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:600;margin-bottom:14px">📋 Required Waivers</div>
+          ${!reqWaivers.length?'<div style="color:var(--text-muted);font-size:13px">No additional waivers required</div>':
+            reqWaivers.map(w=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:14px">${w.waiver_name}</span>
+              ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="removeEventWaiverUI('${e.id}','${w.id}');setTimeout(()=>openEventDetail('${e.id}'),300)">✕</button>`:''}
+            </div>`).join('')}
+          ${isAdmin?`<div style="margin-top:12px"><select onchange="addEventWaiverUI('${e.id}',this);setTimeout(()=>openEventDetail('${e.id}'),300)" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%">
+            <option value="">+ Add required waiver</option>
+            ${waiverTypes.filter(wt=>!reqWaivers.find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
+          </select></div>`:''}
+        </div>
+        <!-- Volunteer Hours for this event -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:600;margin-bottom:14px">⏱ Hours Logged</div>
+          ${(()=>{
+            const eventHours=allHours.filter(h=>h.event_id===e.id||h.event===e.name)
+            if(!eventHours.length) return '<div style="color:var(--text-muted);font-size:13px">No hours logged for this event yet</div>'
+            const total=eventHours.reduce((s,h)=>s+(h.hours||0),0)
+            return`<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">${eventHours.length} volunteer${eventHours.length!==1?'s':''} · ${total}h total</div>`+
+              eventHours.map(h=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+                ${avatarHTML(h.volunteer_name||'',28)}
+                <span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500;flex:1">${h.volunteer_name}</span>
+                ${h.role?`<span style="color:var(--text-muted)">${h.role}</span>`:''}
+                <span style="font-weight:700;color:var(--teal-600)">${h.hours}h</span>
+              </div>`).join('')
+          })()}
+        </div>
+      </div>
+    </div>`
+
+  navTo('event-detail')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  document.querySelectorAll('.nav-item').forEach(n=>{if(n.textContent.includes('Events')) n.classList.add('active')})
+}
+
+// ── EVENT MODAL (create + edit) ──
+function populateEventModal(){
+  const etSel=document.getElementById('edit-event-type')
+  if(etSel) etSel.innerHTML='<option value="">— Select type —</option>'+allEventTypes.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')
+  const pSel=document.getElementById('edit-event-production')
+  if(pSel) pSel.innerHTML='<option value="">— Standalone event —</option>'+allProductions.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+}
+
+function openEventModal(eid=null){
+  populateEventModal()
+  if(!eid){
+    document.getElementById('event-modal-title').textContent='New Event'
+    document.getElementById('edit-event-id').value=''
+    ;['edit-event-name','edit-event-date','edit-event-end-date','edit-event-start','edit-event-end',
+      'edit-event-location','edit-event-room','edit-event-desc','edit-event-notes'].forEach(id=>{
+      const el=document.getElementById(id);if(el)el.value=''
+    })
+    document.getElementById('edit-event-type').value=''
+    document.getElementById('edit-event-production').value=''
+    document.getElementById('edit-event-volunteers').value=''
+  } else {
+    const e=allEvents.find(e=>e.id===eid)
+    if(!e) return
+    document.getElementById('event-modal-title').textContent='Edit Event'
+    document.getElementById('edit-event-id').value=e.id
+    document.getElementById('edit-event-name').value=e.name||''
+    document.getElementById('edit-event-date').value=e.event_date||''
+    document.getElementById('edit-event-end-date').value=e.end_date||''
+    document.getElementById('edit-event-start').value=e.start_time||''
+    document.getElementById('edit-event-end').value=e.end_time||''
+    document.getElementById('edit-event-type').value=e.event_type_id||''
+    document.getElementById('edit-event-location').value=e.location||''
+    document.getElementById('edit-event-room').value=e.room||''
+    document.getElementById('edit-event-production').value=e.production_id||''
+    document.getElementById('edit-event-volunteers').value=e.expected_volunteers||''
+    document.getElementById('edit-event-desc').value=e.description||''
+    document.getElementById('edit-event-notes').value=e.notes||''
+  }
+  openModal('modal-edit-event')
+}
+
+async function saveEditEvent(){
+  const eid=document.getElementById('edit-event-id').value
+  const name=document.getElementById('edit-event-name').value.trim()
+  if(!name){toast('Event name is required','error');return}
+  const data={
+    name,
+    event_date:document.getElementById('edit-event-date').value||null,
+    end_date:document.getElementById('edit-event-end-date').value||null,
+    start_time:document.getElementById('edit-event-start').value||null,
+    end_time:document.getElementById('edit-event-end').value||null,
+    event_type_id:document.getElementById('edit-event-type').value||null,
+    location:document.getElementById('edit-event-location').value.trim(),
+    room:document.getElementById('edit-event-room').value.trim(),
+    production_id:document.getElementById('edit-event-production').value||null,
+    expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
+    description:document.getElementById('edit-event-desc').value.trim(),
+    notes:document.getElementById('edit-event-notes').value.trim()
+  }
+  let res
+  if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
+  else res=await api('/api/events','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
+  else allEvents.unshift(res)
+  closeModal('modal-edit-event')
+  populateHoursFilters()
+  renderEventsSettings()
+  renderEventsPage()
+  toast(eid?'Event updated!':'Event created!','success')
+  if(eid&&currentEventId===eid) openEventDetail(eid)
+}
+
+async function deleteEventFull(eid){
+  const e=allEvents.find(e=>e.id===eid)
+  if(!confirm(`Delete "${e?.name}"? This cannot be undone.`)) return
+  await api(`/api/events/${eid}`,'DELETE')
+  allEvents=allEvents.filter(e=>e.id!==eid)
+  toast('Event deleted')
+  populateHoursFilters()
+  renderEventsSettings()
+  navTo('events')
+}
+
+// Also add event types to settings
+function renderEventTypesSettings(){
+  const el=document.getElementById('event-types-list')
+  if(!el) return
+  if(!allEventTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No event types yet</div>';return}
+  el.innerHTML=allEventTypes.map(t=>`
+    <div class="setting-item">
+      <div class="setting-item-label">${tagHTML(t.name,t.color)} ${t.name}</div>
+      <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventType('${t.id}')">✕</button>
+    </div>`).join('')
+}
+
+async function addEventType(){
+  const name=document.getElementById('new-event-type-name').value.trim()
+  const color=document.getElementById('new-event-type-color').value
+  if(!name){toast('Name required','error');return}
+  const res=await api('/api/event-types','POST',{name,color})
+  if(res.error){toast(res.error,'error');return}
+  allEventTypes.push(res)
+  document.getElementById('new-event-type-name').value=''
+  renderEventTypesSettings()
+  toast('Event type added!','success')
+}
+
+async function deleteEventType(tid){
+  if(!confirm('Delete this event type?')) return
+  await api(`/api/event-types/${tid}`,'DELETE')
+  allEventTypes=allEventTypes.filter(t=>t.id!==tid)
+  renderEventTypesSettings()
+  toast('Deleted')
 }
 
 </script>

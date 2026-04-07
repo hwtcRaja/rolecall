@@ -283,7 +283,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="sidebar-logo-icon">🎭</div>
-          <div><div class="sidebar-logo-text">RoleCall</div><div class="sidebar-logo-sub">Horizon West Theater Company</div></div>
+          <div><div class="sidebar-logo-text">RoleCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
         </div>
       </div>
       <nav class="sidebar-nav">
@@ -294,6 +294,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📋</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
         <div class="nav-section">Programs</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
@@ -310,7 +311,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- DASHBOARD -->
       <section class="page active" id="page-dashboard">
         <div class="page-header">
-          <div><div class="page-title">Dashboard</div><div class="page-subtitle">Overview of HWTC Volunteers</div></div>
+          <div><div class="page-title">Dashboard</div><div class="page-subtitle">Overview of your volunteer program</div></div>
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
         </div>
         <div class="page-body">
@@ -440,6 +441,32 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </section>
 
+      <!-- PRODUCTIONS -->
+      <section class="page" id="page-productions">
+        <div class="page-header">
+          <div><div class="page-title">Productions</div><div class="page-subtitle" id="productions-count-label">Loading…</div></div>
+          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openProductionModal()">+ New Production</button></div>
+        </div>
+        <div class="page-body">
+          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+            <select class="filter-select" id="productions-filter-status" onchange="renderProductions()">
+              <option value="">All Statuses</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div id="productions-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:20px"></div>
+        </div>
+      </section>
+
+      <!-- PRODUCTION DETAIL -->
+      <section class="page" id="page-production-detail">
+        <div class="page-header" id="production-detail-header"></div>
+        <div class="page-body"><div id="production-detail-content"></div></div>
+      </section>
+
       <!-- YOUTH -->
       <section class="page" id="page-youth">
         <div class="page-header">
@@ -525,6 +552,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
               <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option></select></div>
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
+            </div>
+
+            <!-- User Management -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users</div>
+              <div id="users-management-list"></div>
             </div>
 
           </div>
@@ -782,6 +815,95 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- Production Modal -->
+<div class="modal-overlay" id="modal-production">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="production-modal-title">New Production</div><button class="modal-close" onclick="closeModal('modal-production')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="prod-edit-id"/>
+      <div class="form-group"><label>Production Name *</label><input type="text" id="prod-name" placeholder="e.g. The Wizard of Oz"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Type</label>
+          <select id="prod-type">
+            <option value="musical">Musical</option>
+            <option value="play">Play</option>
+            <option value="showcase">Showcase</option>
+            <option value="concert">Concert</option>
+            <option value="event">Special Event</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Status</label>
+          <select id="prod-status">
+            <option value="upcoming">Upcoming</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Start Date</label><input type="date" id="prod-start"/></div>
+        <div class="form-group"><label>End Date</label><input type="date" id="prod-end"/></div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="prod-desc" placeholder="Brief description…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-production')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProduction()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Production Member Modal -->
+<div class="modal-overlay" id="modal-prod-member">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Add Member</div><button class="modal-close" onclick="closeModal('modal-prod-member')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="pm-prod-id"/>
+      <input type="hidden" id="pm-edit-id"/>
+      <div class="form-group"><label>Volunteer *</label>
+        <select id="pm-volunteer-select"><option value="">— Select volunteer —</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Role *</label><input type="text" id="pm-role" placeholder="e.g. Director, Actor, Stage Manager"/></div>
+        <div class="form-group"><label>Department</label><input type="text" id="pm-dept" placeholder="e.g. Cast, Crew, Front of House"/></div>
+      </div>
+      <div class="form-group"><label>Status</label>
+        <select id="pm-status">
+          <option value="confirmed">Confirmed</option>
+          <option value="pending">Pending</option>
+          <option value="dropped">Dropped</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="pm-notes" placeholder="Optional notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-prod-member')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProdMember()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Youth Enroll Modal -->
+<div class="modal-overlay" id="modal-youth-enroll">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="enroll-modal-title">Enroll in Program</div><button class="modal-close" onclick="closeModal('modal-youth-enroll')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="enroll-youth-id"/>
+      <div class="form-group"><label>Program *</label>
+        <select id="enroll-program-select"><option value="">— Select program —</option></select>
+      </div>
+      <div class="form-group"><label>Enrolled Date</label><input type="date" id="enroll-date"/></div>
+      <div class="form-group"><label>Notes</label><input type="text" id="enroll-notes" placeholder="Optional…"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-youth-enroll')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEnrollment()">Enroll</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-container" id="toast-container"></div>
 
 <script>
@@ -797,6 +919,8 @@ let waiverTypes = []
 let emailTemplates = []
 let allYouth = []
 let allPrograms = []
+let allProductions = []
+let currentProdId = null
 let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
@@ -933,6 +1057,7 @@ function navTo(page,el){
   if(page==='hours') renderHours()
   if(page==='waivers') renderWaivers()
   if(page==='email') renderEmailPage()
+  if(page==='productions') renderProductions()
   if(page==='youth') renderYouth()
   if(page==='settings') loadSettings()
 }
@@ -941,13 +1066,14 @@ function navTo(page,el){
 //  LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
-  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs]=await Promise.all([
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods]=await Promise.all([
     api('/api/volunteers'),api('/api/hours'),api('/api/events'),
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
-    api('/api/youth'),api('/api/youth-programs')
+    api('/api/youth'),api('/api/youth-programs'),api('/api/productions')
   ])
   volunteers=vols; allHours=hrs; allEvents=events
-  interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates; allYouth=youth; allPrograms=programs
+  interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates
+  allYouth=youth; allPrograms=programs; allProductions=prods
   populateHoursFilters()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -955,6 +1081,7 @@ async function loadAllData(){
   populateEmailTemplates()
   populateYouthFilters()
   populateProgramsDropdown()
+  populateProdVolSelect()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1673,11 +1800,27 @@ async function openYouthProfile(yid){
       <div>
         <div class="card" style="padding:20px 20px 0">
           <div class="tabs">
-            <div class="tab active" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
+            <div class="tab active" onclick="switchTab(this,'ytab-programs')">Programs (${(y.enrollments||[]).length})</div>
+            <div class="tab" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-emergency')">Emergency Contacts</div>
           </div>
           <div style="padding:0 0 20px">
-            <div class="tab-pane active" id="ytab-guardians">
+            <div class="tab-pane active" id="ytab-programs">
+              ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openEnrollModal('${y.id}')">+ Enroll in Program</button></div>`:''}
+              ${!(y.enrollments||[]).length?'<div style="color:var(--text-muted);font-size:13px">Not enrolled in any programs</div>':
+                (y.enrollments||[]).map(e=>`
+                <div class="guardian-item">
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <div>
+                      <div style="font-weight:500;font-size:14px">${e.program_name}</div>
+                      ${e.enrolled_date?`<div style="font-size:12px;color:var(--text-muted)">Enrolled ${formatDate(e.enrolled_date)}</div>`:''}
+                      ${e.notes?`<div style="font-size:12px;color:var(--text-muted)">${e.notes}</div>`:''}
+                    </div>
+                    ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="unenrollYouth('${e.id}','${y.id}')">✕</button>`:''}
+                  </div>
+                </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="ytab-guardians">
               ${!(y.guardians||[]).length?'<div style="color:var(--text-muted);font-size:13px">No guardians on file</div>':
                 (y.guardians||[]).map(g=>`
                 <div class="guardian-item">
@@ -1957,8 +2100,9 @@ async function attachFile(e,volId){
 //  SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
-  const [itypes,wtypes,events,etemplates,programs]=await Promise.all([
-    api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),api('/api/youth-programs')
+  const [itypes,wtypes,events,etemplates,programs,users]=await Promise.all([
+    api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
+    api('/api/youth-programs'),api('/api/users')
   ])
   interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
   renderInterestTypesSettings()
@@ -1966,6 +2110,7 @@ async function loadSettings(){
   renderEventsSettings()
   renderYouthProgramsSettings()
   renderEmailTemplatesSettings()
+  renderUsersManagement(users)
   populateWaiverTypeSelects()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -2188,6 +2333,355 @@ function downloadCSV(filename,rows){
   a.download=filename; a.click()
   toast(`Exported ${filename}`,'success')
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  PRODUCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+const PROD_STATUS_COLORS = {
+  upcoming: ['#E8F4F8','#145466'],
+  in_progress: ['#EAF3DE','#3B6D11'],
+  completed: ['#EFEFEC','#5F5E5A'],
+  cancelled: ['#FCEBEB','#A32D2D']
+}
+const PROD_STATUS_LABELS = {
+  upcoming: 'Upcoming', in_progress: 'In Progress',
+  completed: 'Completed', cancelled: 'Cancelled'
+}
+const PROD_TYPE_LABELS = {
+  musical:'Musical',play:'Play',showcase:'Showcase',
+  concert:'Concert',event:'Special Event',other:'Other'
+}
+
+function populateProdVolSelect(){
+  const sel=document.getElementById('pm-volunteer-select')
+  if(!sel) return
+  sel.innerHTML='<option value="">— Select volunteer —</option>'+
+    volunteers.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+}
+
+function renderProductions(){
+  const filter=document.getElementById('productions-filter-status')?.value||''
+  let filtered=filter?allProductions.filter(p=>p.status===filter):allProductions
+  document.getElementById('productions-count-label').textContent=`${filtered.length} production${filtered.length!==1?'s':''}`
+  const grid=document.getElementById('productions-grid')
+  const isAdmin=currentUser?.role==='admin'
+  if(!filtered.length){
+    grid.innerHTML=`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🎭</div><p>No productions yet</p>${isAdmin?'<button class="btn btn-primary" onclick="openProductionModal()" style="margin-top:12px">+ New Production</button>':''}</div></div>`
+    return
+  }
+  grid.innerHTML=filtered.map(p=>{
+    const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
+    const memberCount=p.members?.length||0
+    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}')">
+      <div style="padding:20px 20px 16px;border-bottom:3px solid ${col}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <div style="font-size:16px;font-weight:600">${p.name}</div>
+          <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
+        ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
+      </div>
+      <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:13px;color:var(--text-muted)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
+        <div style="display:flex;gap:6px">
+          ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEditProductionModal('${p.id}')">Edit</button>`:''}
+          ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>`:''}
+        </div>
+      </div>
+    </div>`
+  }).join('')
+}
+
+function openProductionDetail(prodId){
+  currentProdId=prodId
+  const p=allProductions.find(p=>p.id===prodId)
+  if(!p) return
+  const isAdmin=currentUser?.role==='admin'
+  const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
+
+  document.getElementById('production-detail-header').innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('productions')">← Back</button>
+      <div>
+        <div class="page-title">${p.name}</div>
+        <div class="page-subtitle">${PROD_TYPE_LABELS[p.production_type]||p.production_type} · <span style="color:${col}">${PROD_STATUS_LABELS[p.status]}</span></div>
+      </div>
+    </div>
+    ${isAdmin?`<div class="page-actions">
+      <button class="btn btn-secondary btn-sm" onclick="openEditProductionModal('${p.id}')">Edit Production</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>
+    </div>`:''}`
+
+  // Group members by department
+  const members=p.members||[]
+  const byDept={}
+  members.forEach(m=>{
+    const d=m.department||'General'
+    if(!byDept[d]) byDept[d]=[]
+    byDept[d].push(m)
+  })
+  const memberStatusColors={confirmed:'var(--green-600)',pending:'var(--amber-600)',dropped:'var(--text-hint)'}
+
+  document.getElementById('production-detail-content').innerHTML=`
+    <div style="display:grid;grid-template-columns:220px 1fr;gap:24px">
+      <div class="profile-card">
+        <div style="font-size:48px;text-align:center;margin-bottom:12px">🎭</div>
+        <div style="text-align:center;margin-bottom:16px">
+          <span style="background:${bg};color:${col};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600">${PROD_STATUS_LABELS[p.status]}</span>
+        </div>
+        <hr class="divider"/>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
+          <div>🎬 ${PROD_TYPE_LABELS[p.production_type]||p.production_type}</div>
+          ${p.start_date?`<div>📅 ${formatDate(p.start_date)}</div>`:''}
+          ${p.end_date?`<div>🏁 ${formatDate(p.end_date)}</div>`:''}
+          ${p.description?`<div style="margin-top:8px">${p.description}</div>`:''}
+        </div>
+        <hr class="divider"/>
+        <div style="text-align:center">
+          <div style="font-size:28px;font-weight:700;color:var(--teal-600)">${members.length}</div>
+          <div style="font-size:12px;color:var(--text-muted)">Total Members</div>
+        </div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <div style="font-size:15px;font-weight:600">Cast & Crew</div>
+          ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>`:''}
+        </div>
+        ${!members.length?'<div style="color:var(--text-muted);font-size:13px">No members added yet</div>':
+          Object.entries(byDept).map(([dept,mems])=>`
+            <div style="margin-bottom:20px">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">${dept}</div>
+              ${mems.map(m=>`
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                  ${avatarHTML(m.volunteer_name,36)}
+                  <div style="flex:1">
+                    <div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${m.volunteer_id}')">${m.volunteer_name}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">${m.role}</div>
+                  </div>
+                  <span style="font-size:11px;font-weight:500;color:${memberStatusColors[m.status]||'var(--text-muted)'}">${m.status}</span>
+                  ${isAdmin?`<div style="display:flex;gap:4px">
+                    <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal('${m.id}','${p.id}')">Edit</button>
+                    <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember('${m.id}','${p.id}')">✕</button>
+                  </div>`:''}
+                </div>`).join('')}
+            </div>`).join('')}
+      </div>
+    </div>`
+
+  navTo('production-detail')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+}
+
+function openProductionModal(){
+  document.getElementById('production-modal-title').textContent='New Production'
+  document.getElementById('prod-edit-id').value=''
+  ;['prod-name','prod-desc'].forEach(id=>document.getElementById(id).value='')
+  document.getElementById('prod-start').value=''
+  document.getElementById('prod-end').value=''
+  document.getElementById('prod-type').value='musical'
+  document.getElementById('prod-status').value='upcoming'
+  openModal('modal-production')
+}
+
+function openEditProductionModal(pid){
+  const p=allProductions.find(p=>p.id===pid)
+  if(!p) return
+  document.getElementById('production-modal-title').textContent='Edit Production'
+  document.getElementById('prod-edit-id').value=p.id
+  document.getElementById('prod-name').value=p.name||''
+  document.getElementById('prod-desc').value=p.description||''
+  document.getElementById('prod-start').value=p.start_date||''
+  document.getElementById('prod-end').value=p.end_date||''
+  document.getElementById('prod-type').value=p.production_type||'musical'
+  document.getElementById('prod-status').value=p.status||'upcoming'
+  openModal('modal-production')
+}
+
+async function saveProduction(){
+  const name=document.getElementById('prod-name').value.trim()
+  if(!name){toast('Production name is required','error');return}
+  const editId=document.getElementById('prod-edit-id').value
+  const data={
+    name, production_type:document.getElementById('prod-type').value,
+    status:document.getElementById('prod-status').value,
+    start_date:document.getElementById('prod-start').value||null,
+    end_date:document.getElementById('prod-end').value||null,
+    description:document.getElementById('prod-desc').value.trim()
+  }
+  let res
+  if(editId) res=await api(`/api/productions/${editId}`,'PUT',data)
+  else res=await api('/api/productions','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  if(editId){
+    allProductions=allProductions.map(p=>p.id===editId?{...res,members:p.members}:p)
+  } else {
+    res.members=[]
+    allProductions.unshift(res)
+  }
+  closeModal('modal-production')
+  toast(editId?'Production updated!':'Production created!','success')
+  renderProductions()
+  if(editId&&currentProdId===editId) openProductionDetail(editId)
+}
+
+async function deleteProduction(pid){
+  const p=allProductions.find(p=>p.id===pid)
+  if(!confirm(`Delete "${p?.name}"? This cannot be undone.`)) return
+  await api(`/api/productions/${pid}`,'DELETE')
+  allProductions=allProductions.filter(p=>p.id!==pid)
+  toast('Production deleted')
+  renderProductions()
+  if(currentProdId===pid) navTo('productions')
+}
+
+function openAddMemberModal(prodId){
+  document.getElementById('pm-prod-id').value=prodId
+  document.getElementById('pm-edit-id').value=''
+  document.getElementById('pm-role').value=''
+  document.getElementById('pm-dept').value=''
+  document.getElementById('pm-notes').value=''
+  document.getElementById('pm-status').value='confirmed'
+  populateProdVolSelect()
+  openModal('modal-prod-member')
+}
+
+function openEditMemberModal(mid,prodId){
+  const p=allProductions.find(p=>p.id===prodId)
+  const m=p?.members?.find(m=>m.id===mid)
+  if(!m) return
+  document.getElementById('pm-prod-id').value=prodId
+  document.getElementById('pm-edit-id').value=mid
+  document.getElementById('pm-role').value=m.role||''
+  document.getElementById('pm-dept').value=m.department||''
+  document.getElementById('pm-notes').value=m.notes||''
+  document.getElementById('pm-status').value=m.status||'confirmed'
+  populateProdVolSelect()
+  document.getElementById('pm-volunteer-select').value=m.volunteer_id
+  openModal('modal-prod-member')
+}
+
+async function saveProdMember(){
+  const prodId=document.getElementById('pm-prod-id').value
+  const editId=document.getElementById('pm-edit-id').value
+  const volId=document.getElementById('pm-volunteer-select').value
+  const role=document.getElementById('pm-role').value.trim()
+  if(!editId&&!volId){toast('Please select a volunteer','error');return}
+  if(!role){toast('Role is required','error');return}
+  const data={
+    volunteer_id:volId, role,
+    department:document.getElementById('pm-dept').value.trim(),
+    status:document.getElementById('pm-status').value,
+    notes:document.getElementById('pm-notes').value.trim()
+  }
+  let res
+  if(editId) res=await api(`/api/productions/members/${editId}`,'PUT',data)
+  else res=await api(`/api/productions/${prodId}/members`,'POST',data)
+  if(res.error){toast(res.error,'error');return}
+  // Update local state
+  const prod=allProductions.find(p=>p.id===prodId)
+  if(prod){
+    if(editId) prod.members=prod.members.map(m=>m.id===editId?res:m)
+    else prod.members=[...(prod.members||[]),res]
+  }
+  closeModal('modal-prod-member')
+  toast(editId?'Member updated!':'Member added!','success')
+  openProductionDetail(prodId)
+}
+
+async function removeMember(mid,prodId){
+  if(!confirm('Remove this member from the production?')) return
+  await api(`/api/productions/members/${mid}`,'DELETE')
+  const prod=allProductions.find(p=>p.id===prodId)
+  if(prod) prod.members=prod.members.filter(m=>m.id!==mid)
+  toast('Member removed')
+  openProductionDetail(prodId)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH PROGRAM ENROLLMENTS
+// ═══════════════════════════════════════════════════════════════
+
+function openEnrollModal(yid){
+  document.getElementById('enroll-youth-id').value=yid
+  document.getElementById('enroll-date').value=new Date().toISOString().split('T')[0]
+  document.getElementById('enroll-notes').value=''
+  const y=allYouth.find(y=>y.id===yid)
+  document.getElementById('enroll-modal-title').textContent=`Enroll ${y?.first_name||''} in Program`
+  // Populate program select, excluding already enrolled
+  const enrolled=(y?.enrollments||[]).map(e=>e.program_id)
+  const sel=document.getElementById('enroll-program-select')
+  sel.innerHTML='<option value="">— Select program —</option>'+
+    allPrograms.filter(p=>!enrolled.includes(p.id)).map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+  openModal('modal-youth-enroll')
+}
+
+async function saveEnrollment(){
+  const yid=document.getElementById('enroll-youth-id').value
+  const programId=document.getElementById('enroll-program-select').value
+  if(!programId){toast('Please select a program','error');return}
+  const res=await api(`/api/youth/${yid}/enrollments`,'POST',{
+    program_id:programId,
+    enrolled_date:document.getElementById('enroll-date').value,
+    notes:document.getElementById('enroll-notes').value.trim()
+  })
+  if(res.error){toast(res.error,'error');return}
+  // Update local youth enrollments
+  const y=allYouth.find(y=>y.id===yid)
+  if(y){ if(!y.enrollments) y.enrollments=[]; y.enrollments.push(res) }
+  closeModal('modal-youth-enroll')
+  toast('Enrolled!','success')
+  openYouthProfile(yid)
+}
+
+async function unenrollYouth(eid,yid){
+  if(!confirm('Remove from this program?')) return
+  await api(`/api/youth/enrollments/${eid}`,'DELETE')
+  const y=allYouth.find(y=>y.id===yid)
+  if(y) y.enrollments=y.enrollments.filter(e=>e.id!==eid)
+  toast('Removed from program')
+  openYouthProfile(yid)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  USER MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+function renderUsersManagement(users){
+  const el=document.getElementById('users-management-list')
+  if(!el) return
+  el.innerHTML=`<table style="width:100%">
+    <thead><tr>
+      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Name</th>
+      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Email</th>
+      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Role</th>
+      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Status</th>
+      <th style="background:var(--gray-50);border-bottom:1px solid var(--border)"></th>
+    </tr></thead>
+    <tbody>
+      ${users.map(u=>`
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 12px;font-weight:500">${u.name}</td>
+          <td style="padding:10px 12px;color:var(--text-muted);font-size:13px">${u.email}</td>
+          <td style="padding:10px 12px"><span style="font-size:12px;padding:2px 8px;border-radius:20px;background:${u.role==='admin'?'var(--teal-50)':'var(--blue-50)'};color:${u.role==='admin'?'var(--teal-600)':'var(--blue-600)'}">${u.role==='admin'?'Admin':'Board'}</span></td>
+          <td style="padding:10px 12px"><span style="font-size:12px;padding:2px 8px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'}">${u.active!==false?'Active':'Inactive'}</span></td>
+          <td style="padding:10px 12px;text-align:right">
+            ${u.id!==currentUser?.id?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:'<span style="font-size:12px;color:var(--text-hint)">You</span>'}
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`
+}
+
+async function toggleUser(uid,currentlyActive){
+  const action=currentlyActive?'deactivate':'activate'
+  if(!confirm(`Are you sure you want to ${action} this user?`)) return
+  const res=await api(`/api/users/${uid}/toggle`,'POST')
+  if(res.error){toast(res.error,'error');return}
+  toast(`User ${res.active?'activated':'deactivated'}`,res.active?'success':'')
+  loadSettings()
+}
+
 </script>
 </body>
 </html>

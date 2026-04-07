@@ -760,7 +760,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div class="form-row">
         <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob"/></div>
-        <div class="form-group"><label>Program / Class</label><select id="youth-program"><option value="">— Select a program —</option></select></div>
+        <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply. You can also enroll from their profile later.</div></div>
       </div>
       <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
       <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -1283,14 +1283,7 @@ async function openProfile(volId){
             </div>
             <div class="tab-pane" id="tab-history">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
-              ${!(v.history||[]).length?'<div style="color:var(--text-muted);font-size:13px">No history recorded</div>':
-                `<div class="timeline">${(v.history||[]).map(h=>`
-                <div class="timeline-item">
-                  <div class="timeline-dot"></div>
-                  <div class="timeline-item-title">${h.event}</div>
-                  <div class="timeline-item-sub">${h.role} · ${formatDate(h.date)}</div>
-                  ${h.notes?`<div class="timeline-item-note">${h.notes}</div>`:''}
-                </div>`).join('')}</div>`}
+              ${buildActivityTimeline(v)}
             </div>
             <div class="tab-pane" id="tab-notes">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openNoteModal('${v.id}')">+ Add Note</button></div>`:''}
@@ -1692,8 +1685,24 @@ async function saveEmailTemplate(){
 function populateYouthFilters(){
   const sel=document.getElementById('youth-filter-program')
   if(!sel) return
-  const programs=[...new Set(allYouth.map(y=>y.program).filter(Boolean))].sort()
-  sel.innerHTML='<option value="">All Programs</option>'+programs.map(p=>`<option value="${p}">${p}</option>`).join('')
+  sel.innerHTML='<option value="">All Programs</option>'+allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+}
+
+function buildYouthProgramCheckboxes(selectedIds=[]){
+  const wrap=document.getElementById('youth-programs-checkboxes')
+  if(!wrap) return
+  if(!allPrograms.length){
+    wrap.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No programs defined yet. Add them in Settings.</div>'
+    return
+  }
+  wrap.innerHTML=allPrograms.map(p=>`
+    <label class="checkbox-tag ${selectedIds.includes(p.id)?'checked':''}" onclick="toggleCheckTag(this)" style="margin:3px">
+      <input type="checkbox" value="${p.id}" ${selectedIds.includes(p.id)?'checked':''} style="display:none">${p.name}
+    </label>`).join('')
+}
+
+function getCheckedYouthPrograms(){
+  return [...document.querySelectorAll('#youth-programs-checkboxes input:checked')].map(c=>c.value)
 }
 
 function renderYouth(){
@@ -1702,27 +1711,46 @@ function renderYouth(){
   const fp=document.getElementById('youth-filter-program').value
   let filtered=allYouth.filter(y=>{
     const name=`${y.first_name} ${y.last_name}`.toLowerCase()
-    if(search&&!name.includes(search)&&!(y.program||'').toLowerCase().includes(search)) return false
+    const programNames=(y.enrollments||[]).map(e=>e.program_name||'').join(' ').toLowerCase()
+    if(search&&!name.includes(search)&&!programNames.includes(search)) return false
     if(fs&&y.status!==fs) return false
-    if(fp&&y.program!==fp) return false
+    if(fp&&!(y.enrollments||[]).find(e=>e.program_id===fp)) return false
     return true
   })
   document.getElementById('youth-count-label').textContent=`${filtered.length} of ${allYouth.length} participants`
+
+  // Summary stats when filtering by program
+  let summaryHTML=''
+  if(fp){
+    const progName=allPrograms.find(p=>p.id===fp)?.name||''
+    const withAllergies=filtered.filter(y=>y.allergies&&y.allergies!=='None').length
+    const withPhoto=filtered.filter(y=>y.photo_consent).length
+    const withMedical=filtered.filter(y=>y.medical_consent).length
+    summaryHTML=`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="summary-item"><div class="s-value">${filtered.length}</div><div class="s-label">In ${progName}</div></div>
+      <div class="summary-item"><div class="s-value">${withPhoto}</div><div class="s-label">Photo Consent</div></div>
+      <div class="summary-item"><div class="s-value">${withMedical}</div><div class="s-label">Medical Consent</div></div>
+      ${withAllergies?`<div class="summary-item" style="border-top-color:var(--amber-200)"><div class="s-value" style="color:var(--amber-600)">${withAllergies}</div><div class="s-label">Have Allergies</div></div>`:''}
+      <button class="btn btn-secondary btn-sm" style="align-self:center" onclick="exportYouthCSV(${JSON.stringify(fp)})">⬇ Export List</button>
+    </div>`
+  }
+
   const grid=document.getElementById('youth-grid')
   if(!filtered.length){
-    grid.innerHTML=`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🧒</div><p>No participants found</p></div></div>`
+    grid.innerHTML=summaryHTML+`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🧒</div><p>No participants found</p></div></div>`
     return
   }
-  grid.innerHTML=filtered.map(y=>{
+  grid.innerHTML=summaryHTML+filtered.map(y=>{
     const age=calcAge(y.dob)
     const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]
     const [bg,col]=avatarColors(y.first_name+y.last_name)
+    const enrolledPrograms=(y.enrollments||[]).map(e=>e.program_name).filter(Boolean)
     return `<div class="youth-card" onclick="openYouthProfile('${y.id}')">
       <div class="youth-card-header">
         <div class="volunteer-avatar" style="width:44px;height:44px;background:${bg};color:${col};font-size:16px">${initials(y.first_name+' '+y.last_name)}</div>
         <div>
           <div class="youth-name">${y.first_name} ${y.last_name}</div>
-          <div class="youth-program">${y.program||'No program assigned'}</div>
+          <div class="youth-program">${enrolledPrograms.length?enrolledPrograms.join(', '):'No programs'}</div>
           ${age?`<div style="font-size:12px;color:var(--text-muted)">Age ${age}</div>`:''}
         </div>
         <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}" style="margin-left:auto">${y.status==='active'?'● Active':'○ Inactive'}</span>
@@ -1735,6 +1763,25 @@ function renderYouth(){
       </div>
     </div>`
   }).join('')
+}
+
+function exportYouthCSV(programId){
+  const prog=allPrograms.find(p=>p.id===programId)
+  const filtered=allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===programId))
+  const rows=[['Name','Age','Allergies','Medical Notes','Photo Consent','Medical Consent','Guardian','Guardian Phone','Guardian Email','Emergency Contact','Emergency Phone']]
+  filtered.forEach(y=>{
+    const age=calcAge(y.dob)||''
+    const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]||{}
+    const ec=y.emergency_contacts?.[0]||{}
+    rows.push([
+      `${y.first_name} ${y.last_name}`, age, y.allergies||'',
+      y.medical_notes||'',
+      y.photo_consent?'Yes':'No', y.medical_consent?'Yes':'No',
+      primary.name||'', primary.phone||'', primary.email||'',
+      ec.name||'', ec.phone||''
+    ])
+  })
+  downloadCSV(`rolecall_${(prog?.name||'youth').replace(/\s+/g,'_')}.csv`, rows)
 }
 
 async function openYouthProfile(yid){
@@ -1858,7 +1905,7 @@ async function openYouthProfile(yid){
 function openYouthModal(){
   document.getElementById('youth-modal-title').textContent='Add Youth Participant'
   document.getElementById('youth-edit-id').value=''
-  ;['youth-first-name','youth-last-name','youth-program','youth-medical','youth-allergies',
+  ;['youth-first-name','youth-last-name','youth-medical','youth-allergies',
     'youth-guardian-name','youth-guardian-rel','youth-guardian-phone','youth-guardian-email',
     'youth-emergency-name','youth-emergency-rel','youth-emergency-phone'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value=''
@@ -1867,6 +1914,7 @@ function openYouthModal(){
   document.getElementById('youth-status').value='active'
   document.getElementById('youth-photo-consent').checked=false
   document.getElementById('youth-medical-consent').checked=false
+  buildYouthProgramCheckboxes([])
   openModal('modal-youth')
 }
 
@@ -1877,7 +1925,6 @@ async function openEditYouthModal(yid){
   document.getElementById('youth-first-name').value=y.first_name||''
   document.getElementById('youth-last-name').value=y.last_name||''
   document.getElementById('youth-dob').value=y.dob||''
-  document.getElementById('youth-program').value=y.program||''
   document.getElementById('youth-status').value=y.status||'active'
   document.getElementById('youth-medical').value=y.medical_notes||''
   document.getElementById('youth-allergies').value=y.allergies||''
@@ -1892,6 +1939,8 @@ async function openEditYouthModal(yid){
   document.getElementById('youth-emergency-name').value=ec.name||''
   document.getElementById('youth-emergency-rel').value=ec.relationship||''
   document.getElementById('youth-emergency-phone').value=ec.phone||''
+  const enrolledIds=(y.enrollments||[]).map(e=>e.program_id)
+  buildYouthProgramCheckboxes(enrolledIds)
   openModal('modal-youth')
 }
 
@@ -1906,10 +1955,10 @@ async function saveYouth(){
   if(!first||!last){toast('First and last name are required','error');return}
   if(!guardianName||!guardianPhone){toast('Primary guardian name and phone are required','error');return}
   if(!emergencyName||!emergencyPhone){toast('Emergency contact name and phone are required','error');return}
+  const selectedProgramIds=getCheckedYouthPrograms()
   const data={
     first_name:first, last_name:last,
     dob:document.getElementById('youth-dob').value,
-    program:document.getElementById('youth-program').value.trim(),
     status:document.getElementById('youth-status').value,
     medical_notes:document.getElementById('youth-medical').value.trim(),
     allergies:document.getElementById('youth-allergies').value.trim()||'None',
@@ -1924,6 +1973,25 @@ async function saveYouth(){
   if(editId) res=await api(`/api/youth/${editId}`,'PUT',data)
   else res=await api('/api/youth','POST',data)
   if(res.error){toast(res.error,'error');return}
+
+  const yid=res.id||editId
+  // Sync enrollments: add newly checked, remove unchecked
+  const freshY=await api(`/api/youth/${yid}`)
+  const currentEnrolled=(freshY.enrollments||[]).map(e=>({id:e.id,program_id:e.program_id}))
+  const currentIds=currentEnrolled.map(e=>e.program_id)
+  // Add new
+  for(const pid of selectedProgramIds){
+    if(!currentIds.includes(pid)){
+      await api(`/api/youth/${yid}/enrollments`,'POST',{program_id:pid,enrolled_date:new Date().toISOString().split('T')[0]})
+    }
+  }
+  // Remove deselected
+  for(const e of currentEnrolled){
+    if(!selectedProgramIds.includes(e.program_id)){
+      await api(`/api/youth/enrollments/${e.id}`,'DELETE')
+    }
+  }
+
   toast(editId?'Participant updated!':'Participant added!','success')
   closeModal('modal-youth')
   const freshYouth=await api('/api/youth')
@@ -2256,7 +2324,7 @@ function populateProgramsDropdown(){
   const sel=document.getElementById('youth-program')
   if(!sel) return
   const cur=sel.value
-  sel.innerHTML='<option value="">— Select a program —</option>'+allPrograms.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')+'<option value="__custom__">✏️ Other / type manually…</option>'
+  sel.innerHTML='<option value="">— Select a program —</option>'+allPrograms.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')
   if(cur) sel.value=cur
 }
 
@@ -2680,6 +2748,106 @@ async function toggleUser(uid,currentlyActive){
   if(res.error){toast(res.error,'error');return}
   toast(`User ${res.active?'activated':'deactivated'}`,res.active?'success':'')
   loadSettings()
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  UNIFIED ACTIVITY TIMELINE
+// ═══════════════════════════════════════════════════════════════
+
+function buildActivityTimeline(v){
+  const entries = []
+
+  // Hours / time logged entries
+  ;(v.hours||[]).forEach(h=>{
+    entries.push({
+      date: h.date,
+      type: 'hours',
+      icon: '⏱',
+      dotColor: 'var(--teal-400)',
+      title: h.event,
+      sub: `${h.hours}h logged${h.role?' · '+h.role:''}`,
+      note: h.notes||'',
+      badge: `${h.hours}h`,
+      badgeColor: 'var(--teal-600)'
+    })
+  })
+
+  // Productions
+  ;(v.productions||[]).forEach(p=>{
+    const typeLabel = {musical:'Musical',play:'Play',showcase:'Showcase',concert:'Concert',event:'Special Event',other:'Other'}[p.production_type]||p.production_type
+    const dateStr = p.start_date ? (p.end_date&&p.end_date!==p.start_date ? p.start_date+'|'+p.end_date : p.start_date) : null
+    const statusColors = {upcoming:'var(--teal-400)',in_progress:'var(--green-600)',completed:'var(--gray-400)',cancelled:'var(--red-600)'}
+    entries.push({
+      date: p.start_date||p.created_at||'',
+      type: 'production',
+      icon: '🎭',
+      dotColor: statusColors[p.production_status]||'var(--purple-400)',
+      title: p.production_name,
+      sub: `${typeLabel} · ${p.role}${p.department?' · '+p.department:''}`,
+      note: p.notes||'',
+      badge: p.production_status,
+      badgeColor: statusColors[p.production_status]||'var(--purple-600)',
+      dateStr
+    })
+  })
+
+  // Manual history entries
+  ;(v.history||[]).forEach(h=>{
+    entries.push({
+      date: h.date,
+      type: 'history',
+      icon: '📌',
+      dotColor: 'var(--amber-200)',
+      title: h.event,
+      sub: `${h.role} · ${formatDate(h.date)}`,
+      note: h.notes||''
+    })
+  })
+
+  if(!entries.length) return '<div style="color:var(--text-muted);font-size:13px">No activity recorded yet</div>'
+
+  // Sort by date descending
+  entries.sort((a,b)=>{
+    const da=a.date?new Date(a.date):new Date(0)
+    const db=b.date?new Date(b.date):new Date(0)
+    return db-da
+  })
+
+  // Group by year
+  const byYear = {}
+  entries.forEach(e=>{
+    const yr = e.date ? new Date(e.date).getFullYear() : 'Unknown'
+    if(!byYear[yr]) byYear[yr]=[]
+    byYear[yr].push(e)
+  })
+
+  const typeLabels = {hours:'Time Logged', production:'Production', history:'Event'}
+  const typeBg = {hours:'var(--teal-50)', production:'var(--purple-50)', history:'var(--amber-50)'}
+  const typeColor = {hours:'var(--teal-600)', production:'var(--purple-600)', history:'var(--amber-600)'}
+
+  return Object.entries(byYear).map(([yr,items])=>`
+    <div style="margin-bottom:24px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-hint);margin-bottom:12px">${yr}</div>
+      <div class="timeline">
+        ${items.map(e=>`
+          <div class="timeline-item">
+            <div class="timeline-dot" style="background:${e.dotColor}"></div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                  <span style="font-size:13px">${e.icon}</span>
+                  <span class="timeline-item-title">${e.title}</span>
+                  <span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:${typeBg[e.type]};color:${typeColor[e.type]}">${typeLabels[e.type]}</span>
+                </div>
+                <div class="timeline-item-sub">${e.sub}</div>
+                ${e.note?`<div class="timeline-item-note">${e.note}</div>`:''}
+              </div>
+              ${e.badge?`<span style="font-size:11px;font-weight:600;color:${e.badgeColor};white-space:nowrap">${e.badge}</span>`:''}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`).join('')
 }
 
 </script>

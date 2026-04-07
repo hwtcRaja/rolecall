@@ -177,6 +177,67 @@ def init_db():
         phone TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # ELICs (approved event leads)
+    c.execute("""CREATE TABLE IF NOT EXISTS elics (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        pin TEXT NOT NULL,
+        is_master BOOLEAN DEFAULT FALSE,
+        active BOOLEAN DEFAULT TRUE,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(volunteer_id))""")
+
+    # event ELIC assignment
+    c.execute("""CREATE TABLE IF NOT EXISTS event_elics (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        elic_id TEXT NOT NULL REFERENCES elics(id) ON DELETE CASCADE,
+        UNIQUE(event_id, elic_id))""")
+
+    # checklist template items
+    c.execute("""CREATE TABLE IF NOT EXISTS checklist_items (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        item_type TEXT NOT NULL DEFAULT 'checkbox',
+        required BOOLEAN DEFAULT TRUE,
+        sort_order INTEGER DEFAULT 0,
+        hint TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # event open/close log
+    c.execute("""CREATE TABLE IF NOT EXISTS event_logs (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        elic_id TEXT NOT NULL REFERENCES elics(id),
+        action TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT NOW(),
+        notes TEXT)""")
+
+    # closing checklist responses
+    c.execute("""CREATE TABLE IF NOT EXISTS event_checklist_responses (
+        id TEXT PRIMARY KEY,
+        event_log_id TEXT NOT NULL REFERENCES event_logs(id) ON DELETE CASCADE,
+        checklist_item_id TEXT,
+        label TEXT NOT NULL,
+        item_type TEXT NOT NULL,
+        response TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # seed default checklist items
+    default_items = [
+        (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
+        (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),
+        (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, ''),
+        (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors'),
+        (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms'),
+        (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, ''),
+        (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred'),
+        (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know'),
+    ]
+    for item in default_items:
+        c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
+
     # pending profile updates (kiosk)
     c.execute("""CREATE TABLE IF NOT EXISTS pending_profile_updates (
         id TEXT PRIMARY KEY,
@@ -192,6 +253,7 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
@@ -370,6 +432,12 @@ def get_events():
     for e in events:
         e['required_waivers'] = fetchall(conn,
             'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (e['id'],))
+        e['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
+            el.is_master, v.name as volunteer_name
+            FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
+            JOIN volunteers v ON el.volunteer_id=v.id
+            WHERE ee.event_id=%s""", (e['id'],))
+        e['status'] = e.get('status') or 'draft'
     conn.close()
     return jsonify(events)
 
@@ -1229,33 +1297,11 @@ def kiosk_volunteers():
 
 @app.route('/api/kiosk/events')
 def kiosk_events():
+    # Only return events that have been opened by an ELIC
     conn = get_db()
-    now = datetime.now()
-    today = now.date().isoformat()
-    now_time = now.strftime('%H:%M')
-    all_events = fetchall(conn, "SELECT * FROM events WHERE event_date IS NOT NULL ORDER BY event_date DESC")
-    no_date = fetchall(conn, "SELECT * FROM events WHERE event_date IS NULL ORDER BY name")
-
-    visible = []
-    for e in all_events:
-        if e['event_date'] != today:
-            continue
-        # If event has start/end times, apply 90-min window
-        if e.get('start_time') and e.get('end_time'):
-            # Calculate window: start_time - 90min to end_time + 90min
-            from datetime import timedelta
-            start_dt = datetime.strptime(f"{e['event_date']} {e['start_time']}", '%Y-%m-%d %H:%M')
-            end_dt   = datetime.strptime(f"{e['event_date']} {e['end_time']}",   '%Y-%m-%d %H:%M')
-            window_start = start_dt - timedelta(minutes=90)
-            window_end   = end_dt   + timedelta(minutes=90)
-            if window_start <= now <= window_end:
-                visible.append(e)
-        else:
-            # No time set — show all day
-            visible.append(e)
-
+    events = fetchall(conn, "SELECT * FROM events WHERE status='open' ORDER BY event_date DESC NULLS LAST")
     conn.close()
-    return jsonify(visible + no_date)
+    return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])
 def kiosk_submit():
@@ -1580,3 +1626,255 @@ def pending_profile_updates_count():
     count = fetchone(conn, "SELECT COUNT(*) as c FROM pending_profile_updates WHERE status='pending'")['c']
     conn.close()
     return jsonify({'count': count})
+
+# ─────────────────────────────────────────────
+#  ELICS
+# ─────────────────────────────────────────────
+
+@app.route('/api/elics')
+def get_elics():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    elics = fetchall(conn, '''SELECT e.*, v.name as volunteer_name, v.phone as volunteer_phone
+        FROM elics e JOIN volunteers v ON e.volunteer_id=v.id ORDER BY v.name''')
+    conn.close()
+    return jsonify(elics)
+
+@app.route('/api/elics', methods=['POST'])
+def create_elic():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('volunteer_id') or not d.get('pin'):
+        return jsonify({'error': 'Volunteer and PIN are required'}), 400
+    if len(str(d['pin'])) != 4 or not str(d['pin']).isdigit():
+        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
+    eid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO elics (id,volunteer_id,pin,is_master,active,notes) VALUES (%s,%s,%s,%s,%s,%s)',
+                (eid, d['volunteer_id'], d['pin'], d.get('is_master', False), True, d.get('notes','')))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'This volunteer is already an ELIC'}), 400
+    row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name FROM elics e
+        JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/elics/<eid>', methods=['PUT'])
+def update_elic(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if d.get('pin') and (len(str(d['pin'])) != 4 or not str(d['pin']).isdigit()):
+        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE elics SET pin=%s,is_master=%s,active=%s,notes=%s WHERE id=%s',
+            (d['pin'], d.get('is_master', False), d.get('active', True), d.get('notes',''), eid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name FROM elics e
+        JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/elics/<eid>', methods=['DELETE'])
+def delete_elic(eid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM elics WHERE id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  EVENT ELIC ASSIGNMENTS
+# ─────────────────────────────────────────────
+
+@app.route('/api/events/<evid>/elics', methods=['POST'])
+def assign_event_elic(evid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s)',
+                (rid, evid, d['elic_id']))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Already assigned'}), 400
+    row = fetchone(conn, '''SELECT ee.*, e.volunteer_id, v.name as volunteer_name
+        FROM event_elics ee JOIN elics e ON ee.elic_id=e.id
+        JOIN volunteers v ON e.volunteer_id=v.id WHERE ee.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/<evid>/elics/<rid>', methods=['DELETE'])
+def remove_event_elic(evid, rid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_elics WHERE id=%s AND event_id=%s', (rid, evid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  CHECKLIST TEMPLATE
+# ─────────────────────────────────────────────
+
+@app.route('/api/checklist-items')
+def get_checklist_items():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, created_at')
+    conn.close()
+    return jsonify(items)
+
+@app.route('/api/checklist-items', methods=['POST'])
+def create_checklist_item():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    cid = str(uuid.uuid4())
+    conn = get_db()
+    max_order = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0)+1 as n FROM checklist_items')['n']
+    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)',
+            (cid, d['label'], d.get('item_type','checkbox'), d.get('required', True), max_order, d.get('hint','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/checklist-items/<cid>', methods=['PUT'])
+def update_checklist_item(cid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE checklist_items SET label=%s,item_type=%s,required=%s,hint=%s WHERE id=%s',
+            (d['label'], d.get('item_type','checkbox'), d.get('required',True), d.get('hint',''), cid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/checklist-items/<cid>', methods=['DELETE'])
+def delete_checklist_item(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM checklist_items WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  EVENT LOGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/event-logs')
+def get_event_logs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    logs = fetchall(conn, '''SELECT el.*, e.name as event_name, e.event_date,
+        v.name as elic_name
+        FROM event_logs el
+        JOIN events e ON el.event_id=e.id
+        JOIN elics ec ON el.elic_id=ec.id
+        JOIN volunteers v ON ec.volunteer_id=v.id
+        ORDER BY el.timestamp DESC LIMIT 100''')
+    for log in logs:
+        if log['action'] == 'close':
+            log['checklist'] = fetchall(conn,
+                'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY created_at', (log['id'],))
+    conn.close()
+    return jsonify(logs)
+
+# ─────────────────────────────────────────────
+#  KIOSK ELIC FLOW
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/elic-login', methods=['POST'])
+def kiosk_elic_login():
+    d = request.json
+    pin = str(d.get('pin', '')).strip()
+    if len(pin) != 4:
+        return jsonify({'error': 'Invalid PIN'}), 401
+    conn = get_db()
+    elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name, v.phone as volunteer_phone
+        FROM elics e JOIN volunteers v ON e.volunteer_id=v.id
+        WHERE e.pin=%s AND e.active=TRUE''', (pin,))
+    if not elic:
+        conn.close()
+        return jsonify({'error': 'Invalid PIN. Please try again or see an administrator.'}), 401
+    # Get assigned events (or all if master)
+    if elic['is_master']:
+        events = fetchall(conn, '''SELECT e.*, el.id as log_id, el.action as current_status
+            FROM events e
+            LEFT JOIN LATERAL (
+                SELECT id, action FROM event_logs
+                WHERE event_id=e.id ORDER BY timestamp DESC LIMIT 1
+            ) el ON true
+            ORDER BY e.event_date DESC NULLS LAST''')
+    else:
+        events = fetchall(conn, '''SELECT e.*, el2.id as log_id, el2.action as current_status
+            FROM event_elics ee
+            JOIN events e ON ee.event_id=e.id
+            JOIN elics ec ON ee.elic_id=ec.id
+            LEFT JOIN LATERAL (
+                SELECT id, action FROM event_logs
+                WHERE event_id=e.id ORDER BY timestamp DESC LIMIT 1
+            ) el2 ON true
+            WHERE ec.id=%s
+            ORDER BY e.event_date DESC NULLS LAST''', (elic['id'],))
+    conn.close()
+    return jsonify({'elic': elic, 'events': events})
+
+@app.route('/api/kiosk/open-event', methods=['POST'])
+def kiosk_open_event():
+    d = request.json
+    elic_id  = d.get('elic_id')
+    event_id = d.get('event_id')
+    if not elic_id or not event_id:
+        return jsonify({'error': 'Missing fields'}), 400
+    lid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, "INSERT INTO event_logs (id,event_id,elic_id,action) VALUES (%s,%s,%s,'open')",
+            (lid, event_id, elic_id))
+    execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'log_id': lid})
+
+@app.route('/api/kiosk/close-event', methods=['POST'])
+def kiosk_close_event():
+    d = request.json
+    elic_id   = d.get('elic_id')
+    event_id  = d.get('event_id')
+    responses = d.get('responses', [])
+    if not elic_id or not event_id:
+        return jsonify({'error': 'Missing fields'}), 400
+    lid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, "INSERT INTO event_logs (id,event_id,elic_id,action) VALUES (%s,%s,%s,'close')",
+            (lid, event_id, elic_id))
+    execute(conn, "UPDATE events SET status='closed' WHERE id=%s", (event_id,))
+    for r in responses:
+        execute(conn,
+            'INSERT INTO event_checklist_responses (id,event_log_id,checklist_item_id,label,item_type,response) VALUES (%s,%s,%s,%s,%s,%s)',
+            (str(uuid.uuid4()), lid, r.get('item_id',''), r['label'], r['item_type'], r.get('response','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/event-status/<event_id>')
+def kiosk_event_status(event_id):
+    conn = get_db()
+    evt = fetchone(conn, "SELECT status FROM events WHERE id=%s", (event_id,))
+    conn.close()
+    if not evt: return jsonify({'error': 'Not found'}), 404
+    return jsonify({'status': evt['status'] or 'draft'})
+

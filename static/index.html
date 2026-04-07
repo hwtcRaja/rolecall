@@ -666,13 +666,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             </div>
 
             <!-- Events -->
-            <div class="settings-section">
+            <div class="settings-section" style="grid-column:1/-1">
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎭 Events</div>
               <div id="events-list" style="margin-bottom:16px"></div>
-              <div class="inline-input-row">
-                <input type="text" id="new-event-name" placeholder="Event name"/>
-                <input type="date" id="new-event-date" style="width:140px"/>
-                <button class="btn btn-primary btn-sm" onclick="addEvent()">Add</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Event Name *</div><input type="text" id="new-event-name" placeholder="e.g. Spring Showcase" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <div style="min-width:140px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Date</div><input type="date" id="new-event-date" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <div style="min-width:110px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Start Time</div><input type="time" id="new-event-start" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <div style="min-width:110px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">End Time</div><input type="time" id="new-event-end" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <button class="btn btn-primary btn-sm" onclick="addEvent()" style="height:36px;align-self:flex-end">Add</button>
               </div>
             </div>
 
@@ -864,6 +866,27 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 </div>
 
 <!-- New Waiver Type Modal -->
+<!-- Edit Event Modal -->
+<div class="modal-overlay" id="modal-edit-event">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Edit Event</div><button class="modal-close" onclick="closeModal('modal-edit-event')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-event-id"/>
+      <div class="form-group"><label>Event Name *</label><input type="text" id="edit-event-name" placeholder="Event name"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Date</label><input type="date" id="edit-event-date"/></div>
+        <div class="form-group"><label>Start Time</label><input type="time" id="edit-event-start"/></div>
+      </div>
+      <div class="form-group"><label>End Time</label><input type="time" id="edit-event-end"/></div>
+      <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="Optional…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditEvent()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-waiver-type">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="waiver-type-modal-title">New Waiver Type</div><button class="modal-close" onclick="closeModal('modal-waiver-type')">✕</button></div>
@@ -2438,21 +2461,46 @@ function renderEventsSettings(){
   const el=document.getElementById('events-list')
   if(!el) return
   if(!allEvents.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No events yet</div>';return}
-  el.innerHTML=allEvents.map(e=>`
-    <div class="setting-item">
-      <div><div class="setting-item-label">${e.name}</div>${e.event_date?`<div class="setting-item-sub">${formatDate(e.event_date)}</div>`:''}</div>
-      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEvent('${e.id}')">✕</button>
-    </div>`).join('')
+  el.innerHTML=allEvents.map(e=>{
+    const timeStr=e.start_time&&e.end_time?` · ${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:(e.start_time?` · from ${fmtTime(e.start_time)}`:' · All day')
+    const reqWaivers=(e.required_waivers||[])
+    return `<div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px">${e.name}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${e.event_date?formatDate(e.event_date)+''+timeStr:'No date set'}</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditEventModal('${e.id}')">Edit</button>
+          <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEvent('${e.id}')">✕</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Required Waivers:</span>
+        ${reqWaivers.length?reqWaivers.map(w=>`<span style="font-size:11px;background:var(--red-50);color:var(--red-600);padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px">${w.waiver_name}<button onclick="removeEventWaiverUI('${e.id}','${w.id}')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:12px;padding:0 0 0 2px">×</button></span>`).join(''):'<span style="font-size:11px;color:var(--text-hint)">None</span>'}
+        <select onchange="addEventWaiverUI('${e.id}',this)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit;cursor:pointer">
+          <option value="">+ Add required waiver</option>
+          ${waiverTypes.filter(wt=>!(reqWaivers||[]).find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>`
+  }).join('')
+}
+
+function fmtTime(t){
+  if(!t) return ''
+  try{const [h,m]=t.split(':');const hr=parseInt(h);return `${hr>12?hr-12:hr||12}:${m}${hr>=12?'pm':'am'}`}catch{return t}
 }
 async function addEvent(){
   const name=document.getElementById('new-event-name').value.trim()
   const event_date=document.getElementById('new-event-date').value
+  const start_time=document.getElementById('new-event-start').value||null
+  const end_time=document.getElementById('new-event-end').value||null
   if(!name){toast('Event name is required','error');return}
-  const res=await api('/api/events','POST',{name,event_date})
+  const res=await api('/api/events','POST',{name,event_date,start_time,end_time})
   if(res.error){toast(res.error,'error');return}
   allEvents.unshift(res)
-  document.getElementById('new-event-name').value=''
-  document.getElementById('new-event-date').value=''
+  ;['new-event-name','new-event-date','new-event-start','new-event-end'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   renderEventsSettings()
   populateHoursFilters()
   toast('Event added!','success')
@@ -2664,9 +2712,19 @@ function openProductionDetail(prodId){
           ${p.description?`<div style="margin-top:8px">${p.description}</div>`:''}
         </div>
         <hr class="divider"/>
-        <div style="text-align:center">
+        <div style="text-align:center;margin-bottom:16px">
           <div style="font-size:28px;font-weight:700;color:var(--teal-600)">${members.length}</div>
           <div style="font-size:12px;color:var(--text-muted)">Total Members</div>
+        </div>
+        <hr class="divider"/>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Required Waivers</div>
+          ${(p.required_waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-hint)">None assigned</div>':
+            (p.required_waivers||[]).map(w=>`<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">${w.waiver_name}${isAdmin?`<button onclick="removeProdWaiverUI('${p.id}','${w.id}')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>`:''}  </div>`).join('')}
+          ${isAdmin?`<select onchange="addProdWaiverUI('${p.id}',this)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;cursor:pointer;margin-top:4px;width:100%">
+            <option value="">+ Add required waiver</option>
+            ${waiverTypes.filter(wt=>!(p.required_waivers||[]).find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
+          </select>`:''}
         </div>
       </div>
       <div class="card" style="padding:20px">
@@ -3193,6 +3251,79 @@ async function addProductionWaiver(prodId, waiverTypeId){
 
 async function removeProductionWaiver(prodId, waiverRowId){
   await api(`/api/productions/${prodId}/waivers/${waiverRowId}`,'DELETE')
+}
+
+
+// ─── EVENT EDIT / WAIVER MGMT ───
+function openEditEventModal(eid){
+  const e=allEvents.find(e=>e.id===eid)
+  if(!e) return
+  document.getElementById('edit-event-id').value=e.id
+  document.getElementById('edit-event-name').value=e.name||''
+  document.getElementById('edit-event-date').value=e.event_date||''
+  document.getElementById('edit-event-start').value=e.start_time||''
+  document.getElementById('edit-event-end').value=e.end_time||''
+  document.getElementById('edit-event-desc').value=e.description||''
+  openModal('modal-edit-event')
+}
+
+async function saveEditEvent(){
+  const eid=document.getElementById('edit-event-id').value
+  const name=document.getElementById('edit-event-name').value.trim()
+  if(!name){toast('Event name is required','error');return}
+  const res=await api(`/api/events/${eid}`,'PUT',{
+    name,
+    event_date:document.getElementById('edit-event-date').value||null,
+    start_time:document.getElementById('edit-event-start').value||null,
+    end_time:document.getElementById('edit-event-end').value||null,
+    description:document.getElementById('edit-event-desc').value.trim()
+  })
+  if(res.error){toast(res.error,'error');return}
+  allEvents=allEvents.map(e=>e.id===eid?res:e)
+  closeModal('modal-edit-event')
+  renderEventsSettings()
+  populateHoursFilters()
+  toast('Event updated!','success')
+}
+
+async function addEventWaiverUI(eid, sel){
+  const wtid=sel.value
+  if(!wtid){return}
+  sel.value=''
+  const res=await addEventWaiver(eid, wtid)
+  if(!res) return
+  const evt=allEvents.find(e=>e.id===eid)
+  if(evt){ if(!evt.required_waivers) evt.required_waivers=[]; evt.required_waivers.push(res) }
+  renderEventsSettings()
+  toast('Waiver added to event','success')
+}
+
+async function removeEventWaiverUI(eid, wid){
+  await removeEventWaiver(eid, wid)
+  const evt=allEvents.find(e=>e.id===eid)
+  if(evt) evt.required_waivers=(evt.required_waivers||[]).filter(w=>w.id!==wid)
+  renderEventsSettings()
+  toast('Removed')
+}
+
+async function addProdWaiverUI(pid, sel){
+  const wtid=sel.value
+  if(!wtid) return
+  sel.value=''
+  const res=await addProductionWaiver(pid, wtid)
+  if(!res) return
+  const prod=allProductions.find(p=>p.id===pid)
+  if(prod){ if(!prod.required_waivers) prod.required_waivers=[]; prod.required_waivers.push(res) }
+  openProductionDetail(pid)
+  toast('Waiver added to production','success')
+}
+
+async function removeProdWaiverUI(pid, wid){
+  await removeProductionWaiver(pid, wid)
+  const prod=allProductions.find(p=>p.id===pid)
+  if(prod) prod.required_waivers=(prod.required_waivers||[]).filter(w=>w.id!==wid)
+  openProductionDetail(pid)
+  toast('Removed')
 }
 
 </script>

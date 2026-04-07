@@ -177,6 +177,23 @@ def init_db():
         phone TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # event types (customizable)
+    c.execute("""CREATE TABLE IF NOT EXISTS event_types (
+        id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+        color TEXT DEFAULT 'blue',
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # seed default event types
+    for et in [
+        (str(__import__('uuid').uuid4()), 'Rehearsal', 'amber'),
+        (str(__import__('uuid').uuid4()), 'Performance', 'teal'),
+        (str(__import__('uuid').uuid4()), 'Meeting', 'blue'),
+        (str(__import__('uuid').uuid4()), 'Build Day', 'pink'),
+        (str(__import__('uuid').uuid4()), 'Strike', 'purple'),
+        (str(__import__('uuid').uuid4()), 'Other', 'gray'),
+    ]:
+        c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", et)
+
     # ELICs (approved event leads)
     c.execute("""CREATE TABLE IF NOT EXISTS elics (
         id TEXT PRIMARY KEY,
@@ -253,7 +270,14 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_type_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS location TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS room TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS production_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_volunteers INTEGER",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
@@ -428,7 +452,13 @@ def get_events():
     err = require_auth()
     if err: return err
     conn = get_db()
-    events = fetchall(conn, 'SELECT * FROM events ORDER BY event_date DESC NULLS LAST')
+    events = fetchall(conn, '''SELECT e.*,
+        et.name as event_type_name, et.color as event_type_color,
+        p.name as production_name
+        FROM events e
+        LEFT JOIN event_types et ON e.event_type_id=et.id
+        LEFT JOIN productions p ON e.production_id=p.id
+        ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
             'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (e['id'],))
@@ -448,11 +478,20 @@ def create_event():
     d = request.json
     eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO events (id,name,event_date,start_time,end_time,description) VALUES (%s,%s,%s,%s,%s,%s)',
-            (eid, d['name'], d.get('event_date') or None, d.get('start_time') or None, d.get('end_time') or None, d.get('description','')))
+    execute(conn, '''INSERT INTO events
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,expected_volunteers,description,notes,status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft')''',
+        (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
+         d.get('start_time') or None, d.get('end_time') or None,
+         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('production_id') or None, d.get('expected_volunteers') or None,
+         d.get('description',''), d.get('notes','')))
     conn.commit()
-    row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
-    row['required_waivers'] = []
+    row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
+        p.name as production_name FROM events e
+        LEFT JOIN event_types et ON e.event_type_id=et.id
+        LEFT JOIN productions p ON e.production_id=p.id WHERE e.id=%s''', (eid,))
+    row['required_waivers'] = []; row['elics'] = []
     conn.close()
     return jsonify(row)
 
@@ -462,12 +501,24 @@ def update_event(eid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE events SET name=%s,event_date=%s,start_time=%s,end_time=%s,description=%s WHERE id=%s',
-            (d['name'], d.get('event_date') or None, d.get('start_time') or None, d.get('end_time') or None, d.get('description',''), eid))
+    execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
+        event_type_id=%s,location=%s,room=%s,production_id=%s,expected_volunteers=%s,description=%s,notes=%s WHERE id=%s''',
+        (d['name'], d.get('event_date') or None, d.get('end_date') or None,
+         d.get('start_time') or None, d.get('end_time') or None,
+         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('production_id') or None, d.get('expected_volunteers') or None,
+         d.get('description',''), d.get('notes',''), eid))
     conn.commit()
-    row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
+        p.name as production_name FROM events e
+        LEFT JOIN event_types et ON e.event_type_id=et.id
+        LEFT JOIN productions p ON e.production_id=p.id WHERE e.id=%s''', (eid,))
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
+    row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
+        el.is_master, v.name as volunteer_name FROM event_elics ee
+        JOIN elics el ON ee.elic_id=el.id JOIN volunteers v ON el.volunteer_id=v.id
+        WHERE ee.event_id=%s""", (eid,))
     conn.close()
     return jsonify(row)
 
@@ -1626,6 +1677,47 @@ def pending_profile_updates_count():
     count = fetchone(conn, "SELECT COUNT(*) as c FROM pending_profile_updates WHERE status='pending'")['c']
     conn.close()
     return jsonify({'count': count})
+
+# ─────────────────────────────────────────────
+#  EVENT TYPES
+# ─────────────────────────────────────────────
+
+@app.route('/api/event-types')
+def get_event_types():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    types = fetchall(conn, 'SELECT * FROM event_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/event-types', methods=['POST'])
+def create_event_type():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('name','').strip(): return jsonify({'error': 'Name required'}), 400
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s)',
+                (tid, d['name'].strip(), d.get('color','blue')))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Event type already exists'}), 400
+    row = fetchone(conn, 'SELECT * FROM event_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/event-types/<tid>', methods=['DELETE'])
+def delete_event_type(tid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_types WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
 #  ELICS

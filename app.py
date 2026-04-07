@@ -13,7 +13,10 @@ app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+# Railway uses postgres:// but psycopg2 requires postgresql://
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -181,6 +184,25 @@ def get_waiver_summary(conn, vol_id):
 @app.route('/')
 def index():
     return send_from_directory('static', 'index.html')
+@app.route('/api/debug')
+def debug():
+    try:
+        conn = get_db()
+        tables = fetchall(conn, "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
+        counts = {}
+        for t in tables:
+            name = t['table_name']
+            try:
+                row = fetchone(conn, f'SELECT COUNT(*) as c FROM "{name}"')
+                counts[name] = row['c']
+            except:
+                counts[name] = 'error'
+        conn.close()
+        return jsonify({'status': 'ok', 'db_url_set': bool(DATABASE_URL), 'tables': counts})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e), 'db_url_set': bool(DATABASE_URL)})
+
+
 
 # ─────────────────────────────────────────────
 #  AUTH

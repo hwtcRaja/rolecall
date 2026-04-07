@@ -134,16 +134,25 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
+def serialize_row(r):
+    out = {}
+    for k, v in r.items():
+        if isinstance(v, (datetime, date)):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
 def fetchall(conn, sql, params=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
         c.execute(sql, params)
-        return [dict(r) for r in c.fetchall()]
+        return [serialize_row(r) for r in c.fetchall()]
 
 def fetchone(conn, sql, params=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
         c.execute(sql, params)
         r = c.fetchone()
-        return dict(r) if r else None
+        return serialize_row(r) if r else None
 
 def execute(conn, sql, params=()):
     with conn.cursor() as c:

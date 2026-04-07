@@ -418,7 +418,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
         <div class="nav-section">Admin</div>
-        <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Hours<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
+        <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
@@ -619,13 +619,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- PENDING HOURS -->
       <section class="page admin-only" id="page-pending">
         <div class="page-header">
-          <div><div class="page-title">Pending Hours</div><div class="page-subtitle">Volunteer-submitted time awaiting approval</div></div>
+          <div><div class="page-title">Pending Approvals</div><div class="page-subtitle">Review volunteer-submitted hours and profile updates</div></div>
           <div class="page-actions">
             <a href="/kiosk" target="_blank" class="btn btn-secondary btn-sm">🖥 Open Kiosk →</a>
           </div>
         </div>
         <div class="page-body">
-          <div id="pending-hours-list"></div>
+          <div class="tabs" style="margin-bottom:20px">
+            <div class="tab active" onclick="switchTab(this,'pending-tab-hours')">⏱ Hours <span id="pending-hours-count" style="background:var(--red-50);color:var(--red-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px"></span></div>
+            <div class="tab" onclick="switchTab(this,'pending-tab-profiles')">👤 Profile Updates <span id="pending-profile-count" style="background:var(--blue-50);color:var(--blue-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px"></span></div>
+          </div>
+          <div class="tab-pane active" id="pending-tab-hours">
+            <div id="pending-hours-list"></div>
+          </div>
+          <div class="tab-pane" id="pending-tab-profiles">
+            <div id="pending-profiles-list"></div>
+          </div>
         </div>
       </section>
 
@@ -2369,9 +2378,14 @@ function renderWaiverTypesSettings(){
   if(!el) return
   if(!waiverTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No waiver types yet</div>';return}
   el.innerHTML=waiverTypes.map(t=>`
-    <div class="setting-item">
-      <div><div class="setting-item-label">${t.name}</div>${t.description?`<div class="setting-item-sub">${t.description}</div>`:''}</div>
-      <div style="display:flex;gap:6px">
+    <div class="setting-item" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:1;min-width:150px">
+        <div class="setting-item-label">${t.name}</div>
+        ${t.description?`<div class="setting-item-sub">${t.description}</div>`:''}
+        ${t.required_all?'<span style="font-size:10px;font-weight:700;background:var(--red-50);color:var(--red-600);padding:2px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:0.5px">Required for All</span>':''}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm ${t.required_all?'btn-danger':'btn-secondary'}" style="padding:4px 8px;font-size:11px" onclick="toggleWaiverRequired('${t.id}')">${t.required_all?'★ Required':'☆ Set Required'}</button>
         <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditWaiverTypeModal('${t.id}')">Edit</button>
         <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteWaiverType('${t.id}')">✕</button>
       </div>
@@ -3019,8 +3033,19 @@ function closeMobileNav(){
 // ═══════════════════════════════════════════════════════════════
 
 async function loadPendingHours(){
-  const rows=await api('/api/pending-hours')
-  updatePendingBadge(rows.length)
+  const [rows, profileRows]=await Promise.all([
+    api('/api/pending-hours'),
+    api('/api/pending-profile-updates')
+  ])
+  const total=rows.length+profileRows.length
+  updatePendingBadge(total)
+  // Update tab counts
+  const hc=document.getElementById('pending-hours-count')
+  const pc=document.getElementById('pending-profile-count')
+  if(hc) hc.textContent=rows.length||''
+  if(pc) pc.textContent=profileRows.length||''
+  // Render profile updates
+  renderPendingProfileUpdates(profileRows)
   const el=document.getElementById('pending-hours-list')
   if(!el) return
   if(!rows.length){
@@ -3075,9 +3100,99 @@ async function rejectHours(pid){
 
 async function pollPendingCount(){
   if(currentUser?.role==='admin'){
-    const data=await api('/api/pending-hours/count')
-    if(data.count!==undefined) updatePendingBadge(data.count)
+    const [h,p]=await Promise.all([
+      api('/api/pending-hours/count'),
+      api('/api/pending-profile-updates/count')
+    ])
+    const total=(h.count||0)+(p.count||0)
+    updatePendingBadge(total)
   }
+}
+
+
+// ─── PENDING PROFILE UPDATES ───
+function renderPendingProfileUpdates(rows){
+  const el=document.getElementById('pending-profiles-list')
+  if(!el) return
+  if(!rows.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div><p>No pending profile updates</p></div>`
+    return
+  }
+  // Group by volunteer
+  const byVol={}
+  rows.forEach(r=>{
+    if(!byVol[r.volunteer_id]) byVol[r.volunteer_id]={name:r.volunteer_name,id:r.volunteer_id,updates:[]}
+    byVol[r.volunteer_id].updates.push(r)
+  })
+  const fieldLabels={phone:'Phone Number',interests:'Interests',emergency_contact:'Emergency Contact'}
+  el.innerHTML=Object.values(byVol).map(v=>`
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        ${avatarHTML(v.name,36)}
+        <div style="font-weight:600;font-size:15px">${v.name}</div>
+      </div>
+      ${v.updates.map(u=>`
+        <div style="padding:12px;background:var(--gray-50);border-radius:var(--radius);margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div style="flex:1">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">${fieldLabels[u.field_name]||u.field_name}</div>
+            ${u.old_value?`<div style="font-size:12px;color:var(--text-hint);text-decoration:line-through;margin-bottom:2px">${u.field_name==='interests'?JSON.parse(u.old_value||'[]').join(', '):u.field_name==='emergency_contact'?formatECDisplay(u.old_value):u.old_value}</div>`:''}
+            <div style="font-size:14px;font-weight:500;color:var(--text)">${u.field_name==='interests'?JSON.parse(u.new_value||'[]').join(', '):u.field_name==='emergency_contact'?formatECDisplay(u.new_value):u.new_value}</div>
+            <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Submitted ${formatDate((u.submitted_at||'').split('T')[0])}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-primary btn-sm" onclick="approveProfileUpdate('${u.id}')">✅ Approve</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectProfileUpdate('${u.id}')">✕</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('')
+}
+
+function formatECDisplay(val){
+  try{const e=JSON.parse(val);return `${e.name||''} (${e.relationship||''}) ${e.phone||''}`}catch{return val}
+}
+
+async function approveProfileUpdate(uid){
+  await api(`/api/pending-profile-updates/${uid}/approve`,'POST')
+  toast('Update approved!','success')
+  await loadAllData()
+  loadPendingHours()
+}
+
+async function rejectProfileUpdate(uid){
+  if(!confirm('Reject this profile update?')) return
+  await api(`/api/pending-profile-updates/${uid}/reject`,'POST')
+  toast('Update rejected')
+  loadPendingHours()
+}
+
+// ─── WAIVER REQUIRED TOGGLE ───
+async function toggleWaiverRequired(tid){
+  const res=await api(`/api/waiver-types/${tid}/toggle-required`,'POST')
+  if(res.error){toast(res.error,'error');return}
+  waiverTypes=waiverTypes.map(t=>t.id===tid?{...t,required_all:res.required_all}:t)
+  renderWaiverTypesSettings()
+  toast(res.required_all?'Marked as required for all':'Removed required flag')
+}
+
+// ─── EVENT / PRODUCTION REQUIRED WAIVERS ───
+async function addEventWaiver(eventId, waiverTypeId){
+  const res=await api(`/api/events/${eventId}/waivers`,'POST',{waiver_type_id:waiverTypeId})
+  if(res.error){toast(res.error,'error');return null}
+  return res
+}
+
+async function removeEventWaiver(eventId, waiverRowId){
+  await api(`/api/events/${eventId}/waivers/${waiverRowId}`,'DELETE')
+}
+
+async function addProductionWaiver(prodId, waiverTypeId){
+  const res=await api(`/api/productions/${prodId}/waivers`,'POST',{waiver_type_id:waiverTypeId})
+  if(res.error){toast(res.error,'error');return null}
+  return res
+}
+
+async function removeProductionWaiver(prodId, waiverRowId){
+  await api(`/api/productions/${prodId}/waivers/${waiverRowId}`,'DELETE')
 }
 
 </script>

@@ -3,413 +3,655 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>RoleCall Kiosk — Horizon West Theater Company</title>
+<title>RoleCall — Horizon West Theater Company</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
-  --teal:#1b708d;--teal-dark:#0d3d4d;--teal-light:#E8F4F8;
+  --teal:#1b708d;--teal-dark:#0d3d4d;--teal-light:#E8F4F8;--teal-mid:#145466;
   --text:#1A1A17;--muted:#5F5E5A;--hint:#9B9B94;
-  --border:rgba(0,0,0,0.1);--surface:#fff;--bg:#F5F7F8;
-  --green:#2D9E6B;--red:#C0392B;--amber:#D4830A;
-  --radius:16px;--radius-lg:24px;
-  --shadow:0 4px 24px rgba(0,0,0,0.08);
-  --shadow-lg:0 12px 48px rgba(0,0,0,0.14);
+  --border:rgba(0,0,0,0.1);--surface:#fff;--bg:#F4F7F9;
+  --green:#2D9E6B;--green-light:#EAF6F1;
+  --red:#C0392B;--red-light:#FEF2F2;
+  --amber:#D4830A;--amber-light:#FEF8EC;
+  --purple:#6D28D9;--purple-light:#F3EEFF;
+  --radius:16px;--radius-lg:24px;--radius-xl:32px;
+  --shadow:0 4px 24px rgba(0,0,0,0.08);--shadow-lg:0 16px 56px rgba(0,0,0,0.16);
 }
 html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;-webkit-font-smoothing:antialiased}
 
 /* ── SCREENS ── */
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;transition:opacity 0.3s,transform 0.3s}
-.screen.hidden{opacity:0;pointer-events:none;transform:scale(0.97)}
-
-/* ── IDLE SCREEN ── */
-#screen-idle{background:linear-gradient(160deg,var(--teal-dark) 0%,var(--teal) 100%);cursor:pointer;user-select:none}
-.idle-logo{width:200px;height:200px;border-radius:32px;object-fit:cover;box-shadow:0 8px 40px rgba(0,0,0,0.3);margin-bottom:36px}
-.idle-title{font-size:48px;font-weight:700;color:#fff;letter-spacing:-1px;margin-bottom:8px}
-.idle-org{font-size:20px;color:rgba(255,255,255,0.65);font-weight:400;margin-bottom:60px}
-.idle-tap{display:flex;flex-direction:column;align-items:center;gap:10px}
-.idle-tap-btn{background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);border:2px solid rgba(255,255,255,0.3);color:#fff;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:600;padding:20px 56px;border-radius:60px;cursor:pointer;transition:all 0.2s;letter-spacing:0.2px}
-.idle-tap-btn:hover,.idle-tap-btn:active{background:rgba(255,255,255,0.25);transform:scale(1.02)}
-.idle-tap-sub{color:rgba(255,255,255,0.45);font-size:14px}
-.idle-clock{position:absolute;top:32px;right:40px;color:rgba(255,255,255,0.5);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
-.admin-link{position:absolute;bottom:24px;right:32px;color:rgba(255,255,255,0.3);font-size:13px;text-decoration:none;transition:color 0.2s}
-.admin-link:hover{color:rgba(255,255,255,0.6)}
-
-/* ── SEARCH SCREEN ── */
-#screen-search{background:var(--bg);justify-content:flex-start;padding-top:60px}
-.screen-header{text-align:center;margin-bottom:40px}
-.screen-title{font-size:32px;font-weight:700;letter-spacing:-0.5px;color:var(--teal-dark)}
-.screen-sub{font-size:17px;color:var(--muted);margin-top:6px}
-.search-box-wrap{width:100%;max-width:640px;position:relative;margin-bottom:24px}
-.search-box{width:100%;padding:22px 24px 22px 64px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:500;border:2.5px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;transition:border-color 0.2s;box-shadow:var(--shadow)}
-.search-box:focus{border-color:var(--teal)}
-.search-icon{position:absolute;left:22px;top:50%;transform:translateY(-50%);font-size:24px;pointer-events:none}
-.search-hint{font-size:15px;color:var(--hint);margin-bottom:20px}
-.vol-results{width:100%;max-width:640px;display:flex;flex-direction:column;gap:12px;max-height:420px;overflow-y:auto}
-.vol-card{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:all 0.15s;box-shadow:var(--shadow)}
-.vol-card:hover,.vol-card:active{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px);box-shadow:var(--shadow-lg)}
-.vol-avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0}
-.vol-info{flex:1}.vol-name{font-size:20px;font-weight:600}.vol-email{font-size:14px;color:var(--muted);margin-top:2px}
-.vol-arrow{font-size:22px;color:var(--hint)}
-.no-results{text-align:center;padding:32px;color:var(--muted);font-size:16px}
-
-/* ── EVENT SCREEN ── */
-#screen-event{background:var(--bg);justify-content:flex-start;padding-top:60px}
-.selected-vol-badge{display:flex;align-items:center;gap:12px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);padding:14px 20px;margin-bottom:32px;max-width:640px;width:100%}
-.selected-vol-name{font-size:17px;font-weight:600;color:var(--teal-dark)}
-.selected-vol-sub{font-size:13px;color:var(--muted)}
-.event-grid{width:100%;max-width:640px;display:grid;grid-template-columns:1fr 1fr;gap:12px;max-height:400px;overflow-y:auto}
-.event-btn{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius);padding:20px;text-align:left;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;box-shadow:var(--shadow)}
-.event-btn:hover,.event-btn:active{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px)}
-.event-btn-name{font-size:17px;font-weight:600;color:var(--text)}
-.event-btn-date{font-size:13px;color:var(--muted);margin-top:4px}
-.no-events{text-align:center;padding:40px;color:var(--muted);font-size:16px;max-width:480px}
-
-/* ── HOURS SCREEN ── */
-#screen-hours{background:var(--bg);justify-content:center}
-.hours-card{background:var(--surface);border-radius:var(--radius-lg);padding:48px;max-width:520px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
-.hours-vol-name{font-size:22px;font-weight:700;color:var(--teal-dark);margin-bottom:4px}
-.hours-event-name{font-size:16px;color:var(--muted);margin-bottom:36px}
-.hours-label{font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:16px}
-.hours-display{font-size:80px;font-weight:700;color:var(--teal);letter-spacing:-2px;line-height:1;margin-bottom:8px;font-variant-numeric:tabular-nums}
-.hours-unit{font-size:18px;color:var(--muted);margin-bottom:32px}
-.hours-btns{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
-.hours-btn{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);padding:16px;font-family:'DM Sans',sans-serif;font-size:20px;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--text)}
-.hours-btn:hover,.hours-btn:active{background:var(--teal-light);border-color:var(--teal);color:var(--teal-dark)}
-.hours-btn.wide{grid-column:span 2}
-.hours-btn.del{color:var(--red)}
-.hours-btn.del:hover{background:#FEF2F2;border-color:var(--red)}
-.role-input{width:100%;padding:14px 18px;font-family:'DM Sans',sans-serif;font-size:16px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:24px;outline:none;transition:border-color 0.2s;text-align:center}
-.role-input:focus{border-color:var(--teal)}
-.submit-btn{width:100%;padding:20px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px}
-.submit-btn:hover{background:var(--teal-dark)}
-.submit-btn:disabled{background:var(--hint);cursor:not-allowed}
-
-/* ── CONFIRM SCREEN ── */
-#screen-confirm{background:var(--bg)}
-.confirm-card{background:var(--surface);border-radius:var(--radius-lg);padding:60px 48px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
-.confirm-icon{font-size:72px;margin-bottom:20px}
-.confirm-title{font-size:32px;font-weight:700;color:var(--teal-dark);margin-bottom:8px}
-.confirm-sub{font-size:17px;color:var(--muted);margin-bottom:12px}
-.confirm-detail{font-size:15px;color:var(--hint);margin-bottom:40px}
-.confirm-progress{width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
-.confirm-progress-bar{height:100%;background:var(--teal);border-radius:3px;transition:width 0.1s linear}
-.confirm-reset-btn{margin-top:20px;background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;cursor:pointer;text-decoration:underline}
-
-/* ── BACK BTN ── */
-.back-btn{position:absolute;top:28px;left:28px;background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:10px 20px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;transition:all 0.15s;box-shadow:var(--shadow)}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;transition:opacity 0.25s,transform 0.25s;overflow-y:auto}
+.screen.hidden{opacity:0;pointer-events:none;transform:scale(0.98)}
+.back-btn{position:absolute;top:24px;left:24px;background:rgba(255,255,255,0.9);border:2px solid var(--border);border-radius:var(--radius);padding:10px 18px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;transition:all 0.15s;box-shadow:var(--shadow);z-index:10}
 .back-btn:hover{border-color:var(--teal);color:var(--teal)}
-.step-indicator{position:absolute;top:32px;right:32px;font-size:14px;color:var(--hint);font-weight:500}
+.step-pill{position:absolute;top:28px;right:28px;background:rgba(255,255,255,0.85);padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;color:var(--muted);box-shadow:var(--shadow);z-index:10}
+.screen-heading{text-align:center;margin-bottom:32px}
+.screen-title{font-size:30px;font-weight:700;letter-spacing:-0.5px;color:var(--teal-dark)}
+.screen-sub{font-size:16px;color:var(--muted);margin-top:6px}
+.content-wrap{width:100%;max-width:680px;display:flex;flex-direction:column;align-items:center}
 
-/* ── KEYBOARD OVERLAY for search ── */
-.kiosk-note{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--hint)}
+/* ── IDLE ── */
+#screen-idle{background:linear-gradient(155deg,var(--teal-dark) 0%,var(--teal) 60%,#2594b0 100%);cursor:pointer}
+.idle-logo{width:180px;height:180px;border-radius:28px;object-fit:cover;box-shadow:0 12px 48px rgba(0,0,0,0.35);margin-bottom:28px}
+.idle-title{font-size:52px;font-weight:800;color:#fff;letter-spacing:-1.5px;margin-bottom:6px}
+.idle-org{font-size:18px;color:rgba(255,255,255,0.6);margin-bottom:52px;font-weight:400}
+.idle-btn{background:rgba(255,255,255,0.18);backdrop-filter:blur(12px);border:2px solid rgba(255,255,255,0.35);color:#fff;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:600;padding:22px 64px;border-radius:60px;cursor:pointer;letter-spacing:0.2px;transition:all 0.2s}
+.idle-btn:hover{background:rgba(255,255,255,0.28);transform:scale(1.02)}
+.idle-sub{color:rgba(255,255,255,0.45);font-size:14px;margin-top:14px}
+.idle-services{display:flex;gap:20px;margin-top:28px}
+.idle-service{color:rgba(255,255,255,0.55);font-size:13px;display:flex;align-items:center;gap:5px}
+.idle-clock{position:absolute;top:28px;right:32px;color:rgba(255,255,255,0.5);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums;z-index:5}
+.admin-link{position:absolute;bottom:24px;right:28px;color:rgba(255,255,255,0.3);font-size:13px;text-decoration:none;transition:color 0.2s;z-index:5}
+.admin-link:hover{color:rgba(255,255,255,0.65)}
+
+/* ── SEARCH ── */
+#screen-search{background:var(--bg)}
+.search-wrap{position:relative;width:100%;max-width:640px;margin-bottom:20px}
+.search-box{width:100%;padding:22px 24px 22px 68px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:500;border:2.5px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;transition:border-color 0.2s;box-shadow:var(--shadow)}
+.search-box:focus{border-color:var(--teal)}
+.search-icon{position:absolute;left:22px;top:50%;transform:translateY(-50%);font-size:26px;pointer-events:none}
+.vol-list{width:100%;max-width:640px;display:flex;flex-direction:column;gap:10px;max-height:380px;overflow-y:auto}
+.vol-card{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius);padding:18px 22px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:all 0.15s;box-shadow:var(--shadow)}
+.vol-card:active,.vol-card:hover{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px);box-shadow:var(--shadow-lg)}
+.vol-avatar{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;flex-shrink:0}
+.vol-name{font-size:20px;font-weight:600}.vol-email{font-size:13px;color:var(--muted);margin-top:2px}
+.hint-text{font-size:15px;color:var(--hint);margin-bottom:16px;text-align:center}
+
+/* ── WAIVER CHECK ── */
+#screen-waiver-check{background:var(--bg)}
+.waiver-issue-card{width:100%;max-width:640px;background:var(--surface);border:2px solid var(--border);border-radius:var(--radius-lg);padding:28px;box-shadow:var(--shadow);margin-bottom:16px}
+.waiver-status-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px}
+.tag-expired{background:var(--red-light);color:var(--red)}
+.tag-missing{background:var(--amber-light);color:var(--amber)}
+.tag-expiring{background:var(--amber-light);color:var(--amber)}
+.waiver-issue-name{font-size:20px;font-weight:700;margin-bottom:4px}
+.waiver-issue-desc{font-size:14px;color:var(--muted);margin-bottom:16px}
+.waiver-sign-btn{background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 28px;font-family:'DM Sans',sans-serif;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.15s}
+.waiver-sign-btn:hover{background:var(--teal-dark)}
+.waiver-skip-btn{background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;cursor:pointer;padding:8px 16px;text-decoration:underline;margin-left:8px}
+.all-clear-card{background:var(--green-light);border:2px solid #86EFAD;border-radius:var(--radius-lg);padding:28px;text-align:center;width:100%;max-width:640px}
+
+/* ── WAIVER SIGN ── */
+#screen-waiver-sign{background:var(--bg)}
+.waiver-text-box{width:100%;max-width:640px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:24px;font-size:14px;line-height:1.8;color:var(--muted);white-space:pre-wrap;max-height:280px;overflow-y:auto;margin-bottom:24px;box-shadow:var(--shadow)}
+.sign-name-input{width:100%;max-width:640px;padding:18px 22px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:500;border:2.5px solid var(--border);border-radius:var(--radius);background:var(--surface);outline:none;transition:border-color 0.2s;text-align:center;box-shadow:var(--shadow);margin-bottom:16px}
+.sign-name-input:focus{border-color:var(--teal)}
+.sign-submit-btn{width:100%;max-width:640px;padding:20px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;cursor:pointer;transition:all 0.15s}
+.sign-submit-btn:disabled{background:var(--hint);cursor:not-allowed}
+.sign-submit-btn:hover:not(:disabled){background:var(--teal-dark)}
+
+/* ── MAIN MENU ── */
+#screen-menu{background:var(--bg)}
+.selected-vol-bar{display:flex;align-items:center;gap:12px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);padding:14px 20px;margin-bottom:36px;width:100%;max-width:640px;box-shadow:var(--shadow)}
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;width:100%;max-width:640px}
+.menu-btn{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius-lg);padding:32px 24px;text-align:center;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;gap:12px}
+.menu-btn:active,.menu-btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.menu-btn.primary{border-color:var(--teal);background:var(--teal-light)}.menu-btn.primary:hover{background:#d4ecf3}
+.menu-btn.green{border-color:#86EFAD;background:var(--green-light)}.menu-btn.green:hover{background:#d1fae5}
+.menu-btn.purple{border-color:#C4B5FD;background:var(--purple-light)}.menu-btn.purple:hover{background:#ede9fe}
+.menu-btn.amber{border-color:#FCD34D;background:var(--amber-light)}.menu-btn.amber:hover{background:#fef3c7}
+.menu-icon{font-size:44px;line-height:1}
+.menu-label{font-size:18px;font-weight:700;color:var(--teal-dark)}
+.menu-desc{font-size:13px;color:var(--muted)}
+
+/* ── EVENTS ── */
+#screen-event{background:var(--bg)}
+.event-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:640px;max-height:440px;overflow-y:auto}
+.event-btn{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius);padding:20px;text-align:left;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;box-shadow:var(--shadow)}
+.event-btn:hover{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px)}
+.event-name{font-size:16px;font-weight:600}.event-date{font-size:13px;color:var(--muted);margin-top:4px}
+
+/* ── HOURS ── */
+#screen-hours{background:var(--bg)}
+.hours-card{background:var(--surface);border-radius:var(--radius-lg);padding:44px;max-width:520px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.hours-context{font-size:15px;color:var(--muted);margin-bottom:28px}
+.hours-context strong{color:var(--teal-dark)}
+.hours-display{font-size:88px;font-weight:800;color:var(--teal);letter-spacing:-3px;line-height:1;font-variant-numeric:tabular-nums}
+.hours-unit{font-size:18px;color:var(--muted);margin-bottom:32px;margin-top:4px}
+.hours-btns{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
+.hbtn{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);padding:16px;font-family:'DM Sans',sans-serif;font-size:20px;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--text)}
+.hbtn:hover{background:var(--teal-light);border-color:var(--teal);color:var(--teal-dark)}
+.hbtn.del{color:var(--red)}.hbtn.del:hover{background:var(--red-light);border-color:var(--red)}
+.role-inp{width:100%;padding:14px 18px;font-family:'DM Sans',sans-serif;font-size:16px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:20px;outline:none;transition:border-color 0.2s;text-align:center}
+.role-inp:focus{border-color:var(--teal)}
+.submit-btn{width:100%;padding:20px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;cursor:pointer;transition:all 0.15s}
+.submit-btn:disabled{background:var(--hint);cursor:not-allowed}
+.submit-btn:hover:not(:disabled){background:var(--teal-dark)}
+
+/* ── UPDATE INFO ── */
+#screen-update{background:var(--bg)}
+.update-card{background:var(--surface);border-radius:var(--radius-lg);padding:40px;max-width:580px;width:100%;box-shadow:var(--shadow-lg)}
+.update-section{margin-bottom:28px;padding-bottom:28px;border-bottom:1px solid var(--border)}
+.update-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.update-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:10px}
+.update-input{width:100%;padding:14px 18px;font-family:'DM Sans',sans-serif;font-size:18px;border:2px solid var(--border);border-radius:var(--radius);outline:none;transition:border-color 0.2s;background:var(--surface)}
+.update-input:focus{border-color:var(--teal)}
+.interest-grid{display:flex;flex-wrap:wrap;gap:8px}
+.interest-chip{padding:10px 18px;border:2.5px solid var(--border);border-radius:30px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;transition:all 0.15s;background:var(--surface);color:var(--text)}
+.interest-chip.selected{border-color:var(--teal);background:var(--teal-light);color:var(--teal-dark);font-weight:600}
+.update-submit-btn{width:100%;padding:18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:18px;font-weight:700;cursor:pointer;margin-top:24px;transition:all 0.15s}
+.update-submit-btn:hover{background:var(--teal-dark)}
+
+/* ── CONFIRM ── */
+#screen-confirm{background:var(--bg)}
+.confirm-card{background:var(--surface);border-radius:var(--radius-xl);padding:60px 48px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.confirm-icon{font-size:80px;margin-bottom:20px;line-height:1}
+.confirm-title{font-size:34px;font-weight:800;color:var(--teal-dark);margin-bottom:8px;letter-spacing:-0.5px}
+.confirm-sub{font-size:17px;color:var(--muted);margin-bottom:10px}
+.confirm-note{font-size:14px;color:var(--hint);margin-bottom:40px}
+.confirm-bar-wrap{width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.confirm-bar{height:100%;background:var(--teal);border-radius:3px;transition:width 0.1s linear}
+.confirm-done-btn{margin-top:20px;background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
 <body>
 
-<!-- IDLE SCREEN -->
+<!-- ── IDLE ── -->
 <div class="screen" id="screen-idle" onclick="startFlow()">
   <div id="idle-clock" class="idle-clock"></div>
-  <img src="/static/images/logo.jpg" alt="Horizon West Theater Company" class="idle-logo"/>
+  <img src="/static/images/logo.jpg" alt="HWTC" class="idle-logo"/>
   <div class="idle-title">RoleCall</div>
   <div class="idle-org">Horizon West Theater Company</div>
-  <div class="idle-tap">
-    <button class="idle-tap-btn">⏱ Submit Your Hours</button>
-    <div class="idle-tap-sub">Tap anywhere to get started</div>
+  <button class="idle-btn">Volunteer Check-In</button>
+  <div class="idle-sub">Tap anywhere to get started</div>
+  <div class="idle-services">
+    <div class="idle-service">⏱ Log Hours</div>
+    <div class="idle-service">📋 Sign Waivers</div>
+    <div class="idle-service">👤 Update Info</div>
   </div>
   <a href="/" class="admin-link" onclick="event.stopPropagation()">Admin Login →</a>
 </div>
 
-<!-- SEARCH SCREEN -->
+<!-- ── VOLUNTEER SEARCH ── -->
 <div class="screen hidden" id="screen-search">
   <button class="back-btn" onclick="goIdle()">← Back</button>
-  <div class="step-indicator">Step 1 of 3</div>
-  <div class="screen-header">
+  <div class="step-pill">Step 1 of 3</div>
+  <div class="screen-heading">
     <div class="screen-title">Who are you?</div>
-    <div class="screen-sub">Search your name to get started</div>
+    <div class="screen-sub">Type your name to find your profile</div>
   </div>
-  <div class="search-box-wrap">
+  <div class="search-wrap">
     <span class="search-icon">🔍</span>
-    <input class="search-box" id="vol-search" type="text" placeholder="Type your name…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="searchVolunteers()"/>
+    <input class="search-box" id="vol-search" type="text" placeholder="Start typing your name…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="searchVols()"/>
   </div>
-  <div class="search-hint" id="search-hint">Type at least 2 characters</div>
-  <div class="vol-results" id="vol-results"></div>
+  <div class="hint-text" id="search-hint">Type at least 2 characters</div>
+  <div class="vol-list" id="vol-list"></div>
 </div>
 
-<!-- EVENT SCREEN -->
-<div class="screen hidden" id="screen-event">
+<!-- ── WAIVER CHECK ── -->
+<div class="screen hidden" id="screen-waiver-check">
   <button class="back-btn" onclick="goSearch()">← Back</button>
-  <div class="step-indicator">Step 2 of 3</div>
-  <div class="screen-header">
+  <div class="step-pill">Step 2 of 3</div>
+  <div class="screen-heading">
+    <div class="screen-title" id="wc-title">Checking Your Waivers…</div>
+    <div class="screen-sub" id="wc-sub"></div>
+  </div>
+  <div id="waiver-check-content" style="width:100%;max-width:640px;display:flex;flex-direction:column;align-items:center"></div>
+</div>
+
+<!-- ── WAIVER SIGN ── -->
+<div class="screen hidden" id="screen-waiver-sign">
+  <button class="back-btn" onclick="backToWaiverCheck()">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title" id="ws-waiver-name"></div>
+    <div class="screen-sub">Read carefully and sign below</div>
+  </div>
+  <div class="waiver-text-box" id="ws-waiver-body"></div>
+  <input class="sign-name-input" id="ws-sign-name" type="text" placeholder="Type your full legal name to sign" oninput="updateSignBtn()"/>
+  <div style="font-size:13px;color:var(--hint);margin-bottom:16px;width:100%;max-width:640px;text-align:center">By signing, you agree to the terms above. Today: <strong id="ws-date"></strong></div>
+  <button class="sign-submit-btn" id="ws-submit-btn" onclick="submitWaiverSign()" disabled>✍️ Sign Waiver</button>
+</div>
+
+<!-- ── MAIN MENU ── -->
+<div class="screen hidden" id="screen-menu">
+  <button class="back-btn" onclick="goSearch()">← Change</button>
+  <div class="selected-vol-bar">
+    <div id="menu-vol-avatar" style="width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0"></div>
+    <div>
+      <div style="font-weight:700;font-size:17px;color:var(--teal-dark)" id="menu-vol-name"></div>
+      <div style="font-size:13px;color:var(--muted)">What would you like to do?</div>
+    </div>
+  </div>
+  <div class="menu-grid">
+    <button class="menu-btn primary" onclick="goEventSelect()">
+      <div class="menu-icon">⏱</div>
+      <div class="menu-label">Log Hours</div>
+      <div class="menu-desc">Submit time for an event</div>
+    </button>
+    <button class="menu-btn green" id="menu-waiver-btn" onclick="goWaiverCheck(true)">
+      <div class="menu-icon">📋</div>
+      <div class="menu-label">Sign Waivers</div>
+      <div class="menu-desc" id="menu-waiver-desc">Review your waivers</div>
+    </button>
+    <button class="menu-btn purple" onclick="goUpdateInfo()">
+      <div class="menu-icon">👤</div>
+      <div class="menu-label">Update Info</div>
+      <div class="menu-desc">Phone, interests, emergency contact</div>
+    </button>
+    <button class="menu-btn amber" onclick="goIdle()">
+      <div class="menu-icon">✓</div>
+      <div class="menu-label">Done</div>
+      <div class="menu-desc">Return to start screen</div>
+    </button>
+  </div>
+</div>
+
+<!-- ── EVENT SELECT ── -->
+<div class="screen hidden" id="screen-event">
+  <button class="back-btn" onclick="showScreen('screen-menu')">← Back</button>
+  <div class="step-pill">Log Hours</div>
+  <div class="screen-heading">
     <div class="screen-title">Which event?</div>
     <div class="screen-sub">Select the event you volunteered for</div>
   </div>
-  <div class="selected-vol-badge" id="selected-vol-badge">
-    <div id="selected-vol-avatar" class="vol-avatar" style="width:44px;height:44px;font-size:16px"></div>
-    <div>
-      <div class="selected-vol-name" id="selected-vol-name"></div>
-      <div class="selected-vol-sub">Volunteering today · <span id="today-date"></span></div>
-    </div>
-  </div>
   <div class="event-grid" id="event-grid"></div>
-  <div class="no-events hidden" id="no-events">
+  <div id="no-events" class="hidden" style="text-align:center;padding:40px;color:var(--muted);max-width:480px">
     <div style="font-size:40px;margin-bottom:12px">📅</div>
     <div style="font-weight:600;margin-bottom:6px">No current events</div>
-    <div>There are no events scheduled for today. Please see an administrator.</div>
+    <div>There are no events scheduled right now. Please see an administrator.</div>
   </div>
 </div>
 
-<!-- HOURS SCREEN -->
+<!-- ── HOURS INPUT ── -->
 <div class="screen hidden" id="screen-hours">
-  <button class="back-btn" onclick="goEvent()">← Back</button>
-  <div class="step-indicator">Step 3 of 3</div>
+  <button class="back-btn" onclick="showScreen('screen-event')">← Back</button>
   <div class="hours-card">
-    <div class="hours-vol-name" id="hours-vol-name"></div>
-    <div class="hours-event-name" id="hours-event-name"></div>
-    <div class="hours-label">Hours Volunteered</div>
-    <div class="hours-display" id="hours-display">0</div>
+    <div class="hours-context">Logging time for <strong id="h-event-name"></strong></div>
+    <div class="hours-display" id="h-display">0</div>
     <div class="hours-unit">hours</div>
     <div class="hours-btns">
-      <button class="hours-btn" onclick="addHours(0.5)">+½</button>
-      <button class="hours-btn" onclick="addHours(1)">+1</button>
-      <button class="hours-btn" onclick="addHours(2)">+2</button>
-      <button class="hours-btn" onclick="addHours(3)">+3</button>
-      <button class="hours-btn" onclick="addHours(4)">+4</button>
-      <button class="hours-btn" onclick="addHours(5)">+5</button>
-      <button class="hours-btn" onclick="addHours(6)">+6</button>
-      <button class="hours-btn del" onclick="clearHours()">Clear</button>
+      <button class="hbtn" onclick="addH(0.5)">+½</button>
+      <button class="hbtn" onclick="addH(1)">+1</button>
+      <button class="hbtn" onclick="addH(2)">+2</button>
+      <button class="hbtn" onclick="addH(3)">+3</button>
+      <button class="hbtn" onclick="addH(4)">+4</button>
+      <button class="hbtn" onclick="addH(5)">+5</button>
+      <button class="hbtn" onclick="addH(6)">+6</button>
+      <button class="hbtn del" onclick="clearH()">Clear</button>
     </div>
-    <input class="role-input" id="role-input" type="text" placeholder="Your role (optional) — e.g. Usher, Set Crew"/>
-    <button class="submit-btn" id="submit-btn" onclick="submitHours()" disabled>Submit Hours</button>
+    <input class="role-inp" id="h-role" type="text" placeholder="Your role (optional) — e.g. Usher, Set Crew"/>
+    <button class="submit-btn" id="h-submit" onclick="submitHours()" disabled>Submit Hours</button>
   </div>
 </div>
 
-<!-- CONFIRM SCREEN -->
+<!-- ── UPDATE INFO ── -->
+<div class="screen hidden" id="screen-update">
+  <button class="back-btn" onclick="showScreen('screen-menu')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title">Update Your Info</div>
+    <div class="screen-sub">Changes will be reviewed by an admin before taking effect</div>
+  </div>
+  <div class="update-card">
+    <div class="update-section">
+      <div class="update-label">Phone Number</div>
+      <input class="update-input" id="u-phone" type="tel" placeholder="(555) 000-0000"/>
+    </div>
+    <div class="update-section">
+      <div class="update-label">Interests</div>
+      <div class="interest-grid" id="u-interests"></div>
+    </div>
+    <div class="update-section">
+      <div class="update-label">Emergency Contact</div>
+      <input class="update-input" id="u-ec-name" type="text" placeholder="Contact name" style="margin-bottom:10px"/>
+      <input class="update-input" id="u-ec-rel" type="text" placeholder="Relationship (e.g. Spouse, Parent)" style="margin-bottom:10px"/>
+      <input class="update-input" id="u-ec-phone" type="tel" placeholder="Contact phone"/>
+    </div>
+    <button class="update-submit-btn" onclick="submitUpdate()">Submit for Approval</button>
+  </div>
+</div>
+
+<!-- ── CONFIRM ── -->
 <div class="screen hidden" id="screen-confirm">
   <div class="confirm-card">
-    <div class="confirm-icon">✅</div>
-    <div class="confirm-title">Hours Submitted!</div>
-    <div class="confirm-sub" id="confirm-sub"></div>
-    <div class="confirm-detail">Your time will be reviewed and approved by an administrator.</div>
-    <div class="confirm-progress"><div class="confirm-progress-bar" id="confirm-bar" style="width:100%"></div></div>
-    <button class="confirm-reset-btn" onclick="goIdle()">Done — return to start</button>
+    <div class="confirm-icon" id="c-icon">✅</div>
+    <div class="confirm-title" id="c-title">Done!</div>
+    <div class="confirm-sub" id="c-sub"></div>
+    <div class="confirm-note" id="c-note"></div>
+    <div class="confirm-bar-wrap"><div class="confirm-bar" id="c-bar" style="width:100%"></div></div>
+    <button class="confirm-done-btn" onclick="showScreen('screen-menu')">← Back to menu</button>
   </div>
 </div>
 
 <script>
 // ── STATE ──
-let selectedVol = null
-let selectedEvent = null
-let currentHours = 0
+let selVol = null
+let selEvent = null
+let curHours = 0
+let waiverIssues = []
+let curWaiverIdx = 0
+let signingWaiver = null
+let allInterestTypes = []
 let resetTimer = null
 let idleTimer = null
-const RESET_DELAY = 12000 // 12 seconds after confirm
-const IDLE_DELAY = 90000  // 90 seconds idle → back to idle screen
+const RESET_MS = 12000
+const IDLE_MS  = 120000
 
-// ── UTILS ──
-const AVATAR_COLORS = [
+// ── AVATAR COLORS ──
+const AV_COLORS = [
   ['#E8F4F8','#0d3d4d'],['#E6F1FB','#0C447C'],['#FAEEDA','#633806'],
   ['#FBEAF0','#72243E'],['#EAF3DE','#27500A'],['#F3EEFF','#5B21B6'],
   ['#FFF0F6','#BE185D'],['#FCEBEB','#791F1F']
 ]
-function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
-function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
-function formatDate(d){
-  if(!d) return ''
-  return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
-}
-function show(id){ document.getElementById(id).classList.remove('hidden') }
-function hide(id){ document.getElementById(id).classList.add('hidden') }
+function avColors(n){ return AV_COLORS[((n||'').charCodeAt(0)||0)%AV_COLORS.length] }
+function initials(n){ return (n||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
+function fmtDate(d){ if(!d)return ''; return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }
+
+// ── SCREEN CONTROL ──
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'))
-  show(id)
+  document.getElementById(id).classList.remove('hidden')
   resetIdleTimer()
 }
-
-// ── CLOCK ──
-function updateClock(){
-  const now=new Date()
-  document.getElementById('idle-clock').textContent=now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})+' · '+now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
-}
-setInterval(updateClock,1000)
-updateClock()
-
-// ── IDLE TIMER ──
 function resetIdleTimer(){
   clearTimeout(idleTimer)
-  if(document.getElementById('screen-idle').classList.contains('hidden')){
-    idleTimer=setTimeout(()=>{ goIdle() }, IDLE_DELAY)
+  if(!document.getElementById('screen-idle').classList.contains('hidden') === false){
+    idleTimer = setTimeout(goIdle, IDLE_MS)
   }
 }
-document.addEventListener('touchstart', resetIdleTimer)
+document.addEventListener('touchstart', resetIdleTimer, {passive:true})
 document.addEventListener('click', resetIdleTimer)
 
-// ── FLOW ──
+// ── CLOCK ──
+function tick(){
+  const now = new Date()
+  document.getElementById('idle-clock').textContent =
+    now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) + '  ·  ' +
+    now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+}
+setInterval(tick, 1000); tick()
+
+// ── IDLE / START ──
 function startFlow(){
-  selectedVol=null; selectedEvent=null; currentHours=0
-  updateHoursDisplay()
-  document.getElementById('vol-search').value=''
-  document.getElementById('vol-results').innerHTML=''
-  document.getElementById('search-hint').textContent='Type at least 2 characters'
+  selVol = null; selEvent = null; curHours = 0
+  document.getElementById('vol-search').value = ''
+  document.getElementById('vol-list').innerHTML = ''
+  document.getElementById('search-hint').textContent = 'Type at least 2 characters'
   showScreen('screen-search')
   setTimeout(()=>document.getElementById('vol-search').focus(), 300)
 }
-
 function goIdle(){
-  clearTimeout(resetTimer); clearTimeout(idleTimer)
+  clearTimeout(resetTimer)
   showScreen('screen-idle')
+  clearTimeout(idleTimer)
 }
-
 function goSearch(){
   showScreen('screen-search')
   setTimeout(()=>document.getElementById('vol-search').focus(), 300)
 }
 
-function goEvent(){
-  showScreen('screen-event')
-  loadEvents()
-}
-
-// ── VOLUNTEER SEARCH ──
-let searchTimeout=null
-function searchVolunteers(){
-  const q=document.getElementById('vol-search').value.trim()
-  clearTimeout(searchTimeout)
-  if(q.length<2){
-    document.getElementById('search-hint').textContent='Type at least 2 characters'
-    document.getElementById('vol-results').innerHTML=''
-    return
-  }
-  document.getElementById('search-hint').textContent='Searching…'
-  searchTimeout=setTimeout(async()=>{
-    const res=await fetch(`/api/kiosk/volunteers?q=${encodeURIComponent(q)}`)
-    const vols=await res.json()
-    renderVolResults(vols)
+// ── VOL SEARCH ──
+let searchTmt = null
+function searchVols(){
+  const q = document.getElementById('vol-search').value.trim()
+  clearTimeout(searchTmt)
+  if(q.length < 2){ document.getElementById('search-hint').textContent='Type at least 2 characters'; document.getElementById('vol-list').innerHTML=''; return }
+  document.getElementById('search-hint').textContent = 'Searching…'
+  searchTmt = setTimeout(async ()=>{
+    const r = await fetch(`/api/kiosk/volunteers?q=${encodeURIComponent(q)}`)
+    const vols = await r.json()
+    const list = document.getElementById('vol-list')
+    if(!vols.length){ document.getElementById('search-hint').textContent='No volunteers found'; list.innerHTML='<div style="text-align:center;padding:28px;color:var(--muted)">No one found. Please see an administrator.</div>'; return }
+    document.getElementById('search-hint').textContent = `${vols.length} found — tap your name`
+    list.innerHTML = vols.map(v=>{
+      const [bg,col] = avColors(v.name)
+      return `<div class="vol-card" onclick='selectVol(${JSON.stringify(v)})'>
+        <div class="vol-avatar" style="background:${bg};color:${col}">${initials(v.name)}</div>
+        <div><div class="vol-name">${v.name}</div>${v.email?`<div class="vol-email">${v.email}</div>`:''}</div>
+        <div style="margin-left:auto;font-size:22px;color:var(--hint)">→</div>
+      </div>`
+    }).join('')
   }, 250)
 }
 
-function renderVolResults(vols){
-  const container=document.getElementById('vol-results')
-  if(!vols.length){
-    document.getElementById('search-hint').textContent='No volunteers found'
-    container.innerHTML=`<div class="no-results">No one found matching that name.<br>Please see an administrator.</div>`
+async function selectVol(vol){
+  selVol = vol
+  // Load interest types
+  const ir = await fetch('/api/interest-types')
+  allInterestTypes = await ir.json()
+  // Go to waiver check
+  await goWaiverCheck(false)
+}
+
+// ── WAIVER CHECK ──
+async function goWaiverCheck(fromMenu=false){
+  showScreen('screen-waiver-check')
+  document.getElementById('wc-title').textContent = 'Checking Your Waivers…'
+  document.getElementById('wc-sub').textContent = ''
+  document.getElementById('waiver-check-content').innerHTML = '<div style="font-size:40px;text-align:center;padding:40px">⏳</div>'
+
+  const r = await fetch(`/api/kiosk/waiver-check?volunteer_id=${selVol.id}`)
+  const data = await r.json()
+  waiverIssues = data.issues || []
+
+  const content = document.getElementById('waiver-check-content')
+
+  if(data.all_clear){
+    document.getElementById('wc-title').textContent = fromMenu ? 'Your Waivers' : '✅ All Clear!'
+    document.getElementById('wc-sub').textContent = fromMenu ? 'All waivers are current' : 'Your waivers are up to date'
+    content.innerHTML = `
+      <div class="all-clear-card">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <div style="font-size:20px;font-weight:700;color:var(--green);margin-bottom:6px">All Waivers Current</div>
+        <div style="font-size:15px;color:var(--muted);margin-bottom:20px">No action needed</div>
+        <button onclick="${fromMenu?'showScreen(\'screen-menu\')':'goMenu()'}" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 32px;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer">
+          ${fromMenu?'← Back to Menu':'Continue →'}
+        </button>
+      </div>`
+    // Update menu badge
+    updateMenuWaiverBtn(0)
     return
   }
-  document.getElementById('search-hint').textContent=`${vols.length} found — tap your name`
-  container.innerHTML=vols.map(v=>{
-    const [bg,col]=avatarColors(v.name)
-    return `<div class="vol-card" onclick="selectVolunteer(${JSON.stringify(v).replace(/"/g,'&quot;')})">
-      <div class="vol-avatar" style="background:${bg};color:${col}">${initials(v.name)}</div>
-      <div class="vol-info">
-        <div class="vol-name">${v.name}</div>
-        ${v.email?`<div class="vol-email">${v.email}</div>`:''}
+
+  // Show issues
+  document.getElementById('wc-title').textContent = `${waiverIssues.length} Waiver${waiverIssues.length>1?'s':''} Need${waiverIssues.length===1?'s':''} Attention`
+  document.getElementById('wc-sub').textContent = fromMenu ? 'Tap to sign any waiver below' : 'Please review before continuing'
+  updateMenuWaiverBtn(waiverIssues.length)
+
+  content.innerHTML = waiverIssues.map((w,i)=>`
+    <div class="waiver-issue-card">
+      <div class="waiver-status-tag ${w.status==='expired'?'tag-expired':w.status==='missing'?'tag-missing':'tag-expiring'}">
+        ${w.status==='expired'?'❌ Expired':w.status==='missing'?'⚠️ Missing':'⚠️ Expiring Soon'}
       </div>
-      <div class="vol-arrow">→</div>
-    </div>`
-  }).join('')
+      <div class="waiver-issue-name">${w.name}</div>
+      ${w.description?`<div class="waiver-issue-desc">${w.description}</div>`:''}
+      ${w.can_sign_online
+        ?`<button class="waiver-sign-btn" onclick="startSignWaiver(${i})">✍️ Sign Now</button>`
+        :`<div style="font-size:13px;color:var(--muted);padding:10px 0">This waiver requires an uploaded document. Please see an administrator.</div>`}
+      ${fromMenu?'':`<button class="waiver-skip-btn" onclick="skipWaiver()">Skip for now</button>`}
+    </div>`).join('') +
+    `<button onclick="${fromMenu?'showScreen(\'screen-menu\')':'goMenu()'}" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 32px;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px;width:100%;max-width:640px">
+      ${fromMenu?'← Back to Menu':'Continue to Check-In →'}
+    </button>`
 }
 
-function selectVolunteer(vol){
-  selectedVol=vol
-  // Set up event screen
-  const [bg,col]=avatarColors(vol.name)
-  document.getElementById('selected-vol-avatar').style.background=bg
-  document.getElementById('selected-vol-avatar').style.color=col
-  document.getElementById('selected-vol-avatar').textContent=initials(vol.name)
-  document.getElementById('selected-vol-name').textContent=vol.name
-  document.getElementById('today-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
-  showScreen('screen-event')
-  loadEvents()
-}
-
-// ── EVENTS ──
-async function loadEvents(){
-  const res=await fetch('/api/kiosk/events')
-  const events=await res.json()
-  const grid=document.getElementById('event-grid')
-  const noEvents=document.getElementById('no-events')
-  if(!events.length){
-    grid.innerHTML=''; grid.style.display='none'
-    noEvents.classList.remove('hidden')
-    return
+function updateMenuWaiverBtn(count){
+  const btn = document.getElementById('menu-waiver-btn')
+  const desc = document.getElementById('menu-waiver-desc')
+  if(!btn) return
+  if(count > 0){
+    btn.style.borderColor = '#FCA5A5'
+    btn.style.background = '#FEF2F2'
+    if(desc) desc.textContent = `${count} waiver${count>1?'s':''} need attention`
+  } else {
+    btn.style.borderColor = '#86EFAD'
+    btn.style.background = 'var(--green-light)'
+    if(desc) desc.textContent = 'All waivers current'
   }
-  noEvents.classList.add('hidden')
-  grid.style.display='grid'
-  grid.innerHTML=events.map(e=>`
-    <button class="event-btn" onclick="selectEvent(${JSON.stringify(e).replace(/"/g,'&quot;')})">
-      <div class="event-btn-name">${e.name}</div>
-      ${e.event_date?`<div class="event-btn-date">📅 ${formatDate(e.event_date)}</div>`:'<div class="event-btn-date" style="color:var(--teal)">● Ongoing</div>'}
+}
+
+function skipWaiver(){ goMenu() }
+
+function startSignWaiver(idx){
+  signingWaiver = waiverIssues[idx]
+  document.getElementById('ws-waiver-name').textContent = signingWaiver.name
+  document.getElementById('ws-waiver-body').textContent = signingWaiver.template_body || 'No waiver text on file.'
+  document.getElementById('ws-sign-name').value = selVol.name
+  document.getElementById('ws-date').textContent = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+  updateSignBtn()
+  showScreen('screen-waiver-sign')
+}
+
+function backToWaiverCheck(){ showScreen('screen-waiver-check') }
+function updateSignBtn(){
+  const name = document.getElementById('ws-sign-name').value.trim()
+  document.getElementById('ws-submit-btn').disabled = name.length < 2
+}
+
+async function submitWaiverSign(){
+  const name = document.getElementById('ws-sign-name').value.trim()
+  if(!name){ return }
+  const btn = document.getElementById('ws-submit-btn')
+  btn.disabled = true; btn.textContent = 'Signing…'
+  const r = await fetch('/api/kiosk/sign-waiver',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({volunteer_id:selVol.id, waiver_type_id:signingWaiver.waiver_type_id, signed_name:name})
+  })
+  const d = await r.json()
+  if(d.error){ btn.disabled=false; btn.textContent='✍️ Sign Waiver'; alert(d.error); return }
+  // Remove from issues list
+  waiverIssues = waiverIssues.filter(w=>w.waiver_type_id!==signingWaiver.waiver_type_id)
+  btn.textContent='✍️ Sign Waiver'
+  showConfirm('📋','Waiver Signed!',`${signingWaiver.name} has been signed successfully.`,'You can sign additional waivers or continue.', ()=>showScreen('screen-waiver-check'))
+}
+
+// ── MENU ──
+function goMenu(){
+  const [bg,col] = avColors(selVol.name)
+  document.getElementById('menu-vol-avatar').style.background = bg
+  document.getElementById('menu-vol-avatar').style.color = col
+  document.getElementById('menu-vol-avatar').textContent = initials(selVol.name)
+  document.getElementById('menu-vol-name').textContent = selVol.name
+  // Check waiver count from cached issues
+  updateMenuWaiverBtn(waiverIssues.length)
+  showScreen('screen-menu')
+}
+
+// ── EVENT SELECT ──
+async function goEventSelect(){
+  showScreen('screen-event')
+  const r = await fetch('/api/kiosk/events')
+  const events = await r.json()
+  const grid = document.getElementById('event-grid')
+  const noEvt = document.getElementById('no-events')
+  if(!events.length){
+    grid.innerHTML=''; grid.style.display='none'; noEvt.classList.remove('hidden'); return
+  }
+  noEvt.classList.add('hidden'); grid.style.display='grid'
+  grid.innerHTML = events.map(e=>`
+    <button class="event-btn" onclick='selectEvent(${JSON.stringify(e)})'>
+      <div class="event-name">${e.name}</div>
+      ${e.event_date?`<div class="event-date">📅 ${fmtDate(e.event_date)}</div>`:'<div class="event-date" style="color:var(--teal)">● Ongoing</div>'}
     </button>`).join('')
 }
 
 function selectEvent(evt){
-  selectedEvent=evt
-  document.getElementById('hours-vol-name').textContent=selectedVol.name
-  document.getElementById('hours-event-name').textContent=evt.name
-  document.getElementById('role-input').value=''
-  currentHours=0
-  updateHoursDisplay()
+  selEvent = evt
+  document.getElementById('h-event-name').textContent = evt.name
+  curHours = 0; updHoursDisplay()
+  document.getElementById('h-role').value = ''
   showScreen('screen-hours')
 }
 
-// ── HOURS INPUT ──
-function addHours(n){
-  currentHours=Math.min(24, Math.round((currentHours+n)*2)/2)
-  updateHoursDisplay()
-}
-function clearHours(){
-  currentHours=0
-  updateHoursDisplay()
-}
-function updateHoursDisplay(){
-  document.getElementById('hours-display').textContent=currentHours%1===0?currentHours:currentHours.toFixed(1)
-  document.getElementById('submit-btn').disabled=currentHours<=0
+// ── HOURS ──
+function addH(n){ curHours = Math.min(24, Math.round((curHours+n)*2)/2); updHoursDisplay() }
+function clearH(){ curHours = 0; updHoursDisplay() }
+function updHoursDisplay(){
+  document.getElementById('h-display').textContent = curHours%1===0 ? curHours : curHours.toFixed(1)
+  document.getElementById('h-submit').disabled = curHours <= 0
 }
 
-// ── SUBMIT ──
 async function submitHours(){
-  const btn=document.getElementById('submit-btn')
-  btn.disabled=true
-  btn.textContent='Submitting…'
-  try{
-    const res=await fetch('/api/kiosk/submit',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        volunteer_id:selectedVol.id,
-        event:selectedEvent.name,
-        event_id:selectedEvent.id,
-        hours:currentHours,
-        role:document.getElementById('role-input').value.trim(),
-      })
+  const btn = document.getElementById('h-submit')
+  btn.disabled=true; btn.textContent='Submitting…'
+  const r = await fetch('/api/kiosk/submit',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      volunteer_id:selVol.id, event:selEvent.name, event_id:selEvent.id,
+      hours:curHours, role:document.getElementById('h-role').value.trim()
     })
-    const data=await res.json()
-    if(data.error){
-      btn.disabled=false; btn.textContent='Submit Hours'
-      alert(data.error); return
-    }
-    // Show confirm screen
-    document.getElementById('confirm-sub').textContent=`${currentHours} hour${currentHours!==1?'s':''} for "${selectedEvent.name}" submitted successfully`
-    showScreen('screen-confirm')
-    startResetTimer()
-  }catch(e){
-    btn.disabled=false; btn.textContent='Submit Hours'
-    alert('Submission failed. Please try again.')
-  }
+  })
+  const d = await r.json()
+  btn.textContent='Submit Hours'
+  if(d.error){ btn.disabled=false; alert(d.error); return }
+  showConfirm('✅','Hours Submitted!',
+    `${curHours} hour${curHours!==1?'s':''} for "${selEvent.name}"`,
+    'Your time will be reviewed and approved by an administrator.',
+    ()=>showScreen('screen-menu'))
 }
 
-// ── AUTO RESET ──
-function startResetTimer(){
-  clearTimeout(resetTimer)
-  const bar=document.getElementById('confirm-bar')
-  const start=Date.now()
-  bar.style.transition='none'
-  bar.style.width='100%'
-  requestAnimationFrame(()=>{
-    bar.style.transition=`width ${RESET_DELAY}ms linear`
-    bar.style.width='0%'
+// ── UPDATE INFO ──
+async function goUpdateInfo(){
+  // Pre-fill with current volunteer data
+  const r = await fetch(`/api/volunteers/${selVol.id}`)
+  const vol = await r.json()
+  document.getElementById('u-phone').value = vol.phone || ''
+
+  // Build interests
+  let selectedInterests = []
+  try { selectedInterests = JSON.parse(vol.interests || '[]') } catch{}
+  const grid = document.getElementById('u-interests')
+  grid.innerHTML = allInterestTypes.map(it=>`
+    <div class="interest-chip ${selectedInterests.includes(it.name)?'selected':''}"
+      onclick="toggleInterest(this,'${it.name}')">${it.name}</div>`).join('')
+
+  // Emergency contact
+  const ec = vol.emergency_contacts?.[0] || {}
+  document.getElementById('u-ec-name').value = ec.name || ''
+  document.getElementById('u-ec-rel').value = ec.relationship || ''
+  document.getElementById('u-ec-phone').value = ec.phone || ''
+
+  showScreen('screen-update')
+}
+
+function toggleInterest(el, name){
+  el.classList.toggle('selected')
+}
+
+async function submitUpdate(){
+  const updates = []
+  const phone = document.getElementById('u-phone').value.trim()
+  const interests = [...document.querySelectorAll('#u-interests .interest-chip.selected')].map(el=>el.textContent.trim())
+  const ecName = document.getElementById('u-ec-name').value.trim()
+  const ecRel = document.getElementById('u-ec-rel').value.trim()
+  const ecPhone = document.getElementById('u-ec-phone').value.trim()
+
+  if(phone) updates.push({field_name:'phone', new_value:phone})
+  if(interests.length) updates.push({field_name:'interests', new_value:JSON.stringify(interests)})
+  if(ecName && ecPhone) updates.push({field_name:'emergency_contact', new_value:JSON.stringify({name:ecName,relationship:ecRel,phone:ecPhone})})
+
+  if(!updates.length){ alert('No changes to submit.'); return }
+
+  const r = await fetch('/api/kiosk/update-profile',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({volunteer_id:selVol.id, updates})
   })
-  resetTimer=setTimeout(()=>goIdle(), RESET_DELAY)
+  const d = await r.json()
+  if(d.error){ alert(d.error); return }
+
+  showConfirm('👤','Updates Submitted!',
+    `${updates.length} update${updates.length>1?'s':''} submitted for review`,
+    'An administrator will review and apply your changes.',
+    ()=>showScreen('screen-menu'))
+}
+
+// ── CONFIRM ──
+function showConfirm(icon, title, sub, note, onBack){
+  document.getElementById('c-icon').textContent = icon
+  document.getElementById('c-title').textContent = title
+  document.getElementById('c-sub').textContent = sub
+  document.getElementById('c-note').textContent = note
+  const bar = document.getElementById('c-bar')
+  bar.style.transition='none'; bar.style.width='100%'
+  requestAnimationFrame(()=>{ bar.style.transition=`width ${RESET_MS}ms linear`; bar.style.width='0%' })
+
+  // Done btn
+  const doneBtn = document.querySelector('.confirm-done-btn')
+  doneBtn.onclick = onBack || (()=>showScreen('screen-menu'))
+
+  showScreen('screen-confirm')
+  clearTimeout(resetTimer)
+  resetTimer = setTimeout(()=>{ if(onBack) onBack(); else showScreen('screen-menu') }, RESET_MS)
 }
 </script>
 </body>

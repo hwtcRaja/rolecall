@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RollCall — Volunteer Management</title>
+<title>RoleCall — Volunteer Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --teal-50:#E1F5EE;--teal-100:#9FE1CB;--teal-200:#5DCAA5;--teal-400:#1D9E75;--teal-600:#0F6E56;--teal-800:#085041;--teal-900:#04342C;
+  --teal-50:#E8F4F8;--teal-100:#A8D4E0;--teal-200:#5AADC2;--teal-400:#1b708d;--teal-600:#145466;--teal-800:#0d3d4d;--teal-900:#082830;
   --gray-50:#F7F7F5;--gray-100:#EFEFEC;--gray-200:#D9D9D4;--gray-400:#9B9B94;--gray-600:#5F5E5A;--gray-800:#2C2C28;--gray-900:#1A1A17;
   --amber-50:#FAEEDA;--amber-200:#EF9F27;--amber-600:#854F0B;
   --red-50:#FCEBEB;--red-200:#F09595;--red-600:#A32D2D;
@@ -265,7 +265,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="auth-card">
     <div class="auth-logo">
       <div class="auth-logo-icon">🎭</div>
-      <div><div class="auth-logo-text">RollCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
+      <div><div class="auth-logo-text">RoleCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
     </div>
     <h2 style="font-size:20px;font-weight:600;margin-bottom:6px">Welcome back</h2>
     <p style="color:var(--text-muted);margin-bottom:28px;font-size:14px">Sign in to manage your theater volunteers</p>
@@ -273,18 +273,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="form-group"><label>Email address</label><input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/></div>
     <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/></div>
     <button class="btn btn-primary btn-full" onclick="handleLogin()">Sign in</button>
-    <div class="demo-accounts">
-      <p style="font-size:12px;color:var(--text-hint);margin-bottom:12px">Quick access — demo accounts</p>
-      <button class="demo-btn" onclick="quickLogin('admin@horizonwest.org','admin123')">
-        <div><div style="font-weight:500;font-size:13px">Aria Montgomery</div><div style="font-size:11px;color:var(--text-muted)">admin@horizonwest.org</div></div>
-        <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--teal-50);color:var(--teal-600)">Admin</span>
-      </button>
-      <button class="demo-btn" onclick="quickLogin('board@horizonwest.org','board123')">
-        <div><div style="font-weight:500;font-size:13px">Marcus Chen</div><div style="font-size:11px;color:var(--text-muted)">board@horizonwest.org</div></div>
-        <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--blue-50);color:var(--blue-600)">Board</span>
-      </button>
     </div>
-  </div>
 </div>
 
 <!-- APP -->
@@ -294,7 +283,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="sidebar-logo-icon">🎭</div>
-          <div><div class="sidebar-logo-text">RollCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
+          <div><div class="sidebar-logo-text">RoleCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
         </div>
       </div>
       <nav class="sidebar-nav">
@@ -511,6 +500,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               </div>
             </div>
 
+            <!-- Youth Programs -->
+            <div class="settings-section">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🧒 Youth Programs</div>
+              <div id="youth-programs-list" style="margin-bottom:16px"></div>
+              <div class="inline-input-row">
+                <input type="text" id="new-program-name" placeholder="e.g. Summer Theater Camp"/>
+                <button class="btn btn-primary btn-sm" onclick="addYouthProgram()">Add</button>
+              </div>
+            </div>
+
             <!-- Email Templates -->
             <div class="settings-section">
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">✉️ Email Templates</div>
@@ -609,6 +608,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Expiry Date</label><input type="date" id="waiver-expiry"/><div class="form-hint">Auto-calculated: 1 year</div></div>
       </div>
       <div class="form-group"><label>Upload PDF / Document</label><input type="file" id="waiver-file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="padding:8px 0;font-size:13px"/><div class="form-hint">Optional — PDF, image, or Word doc</div></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0"/>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Emergency Contact (Optional)</div>
+      <div class="form-row">
+        <div class="form-group"><label>Contact Name</label><input type="text" id="waiver-ec-name" placeholder="e.g. Jane Smith"/></div>
+        <div class="form-group"><label>Relationship</label><input type="text" id="waiver-ec-rel" placeholder="e.g. Spouse, Parent"/></div>
+      </div>
+      <div class="form-group"><label>Contact Phone</label><input type="text" id="waiver-ec-phone" placeholder="(555) 000-0000"/></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-waiver')">Cancel</button>
@@ -721,7 +727,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div class="form-row">
         <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob"/></div>
-        <div class="form-group"><label>Program / Class</label><input type="text" id="youth-program" placeholder="e.g. Summer Theater Camp"/></div>
+        <div class="form-group"><label>Program / Class</label><select id="youth-program"><option value="">— Select a program —</option></select></div>
       </div>
       <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
       <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -790,6 +796,7 @@ let interestTypes = []
 let waiverTypes = []
 let emailTemplates = []
 let allYouth = []
+let allPrograms = []
 let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
@@ -934,19 +941,20 @@ function navTo(page,el){
 //  LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
-  const [vols,hrs,events,itypes,wtypes,etemplates,youth]=await Promise.all([
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs]=await Promise.all([
     api('/api/volunteers'),api('/api/hours'),api('/api/events'),
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
-    api('/api/youth')
+    api('/api/youth'),api('/api/youth-programs')
   ])
   volunteers=vols; allHours=hrs; allEvents=events
-  interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates; allYouth=youth
+  interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates; allYouth=youth; allPrograms=programs
   populateHoursFilters()
   populateInterestFilter()
   buildInterestCheckboxes()
   populateWaiverTypeSelects()
   populateEmailTemplates()
   populateYouthFilters()
+  populateProgramsDropdown()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1106,6 +1114,7 @@ async function openProfile(volId){
                 <div style="color:var(--text-muted)">Signed: ${formatDate(w.signed_date)}</div>
                 ${w.expiry_date?`<div style="color:var(--text-muted)">Expires: ${formatDate(w.expiry_date)}</div>`:''}
                 ${w.signed_via==='online'?`<div style="color:var(--teal-600);font-size:11px">✍️ Signed online by ${w.signed_name||'volunteer'}</div>`:''}
+                ${w.emergency_contact_name?`<div style="font-size:11px;color:var(--text-muted)">🚨 Emergency: ${w.emergency_contact_name}${w.emergency_contact_relationship?' ('+w.emergency_contact_relationship+')':''} ${w.emergency_contact_phone||''}</div>`:''}
                 ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
                 ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 6px;font-size:11px;margin-left:4px" onclick="deleteWaiverRecord('${w.id}','${v.id}')">✕</button>`:''}
               </div>`).join('')}
@@ -1375,6 +1384,9 @@ function openWaiverModal(volId){
   document.getElementById('waiver-signed').value=new Date().toISOString().split('T')[0]
   document.getElementById('waiver-expiry').value=''
   document.getElementById('waiver-file').value=''
+  document.getElementById('waiver-ec-name').value=''
+  document.getElementById('waiver-ec-phone').value=''
+  document.getElementById('waiver-ec-rel').value=''
   const v=volunteers.find(v=>v.id===volId)
   document.getElementById('waiver-modal-title').textContent=`Add Waiver — ${v?.name||''}`
   document.getElementById('waiver-sign-link-wrap').style.display='block'
@@ -1400,6 +1412,12 @@ async function saveWaiver(){
   formData.append('signed_date',signed)
   if(expiry) formData.append('expiry_date',expiry)
   if(fileInput.files[0]) formData.append('file',fileInput.files[0])
+  const ecName=document.getElementById('waiver-ec-name').value.trim()
+  const ecPhone=document.getElementById('waiver-ec-phone').value.trim()
+  const ecRel=document.getElementById('waiver-ec-rel').value.trim()
+  if(ecName) formData.append('emergency_contact_name',ecName)
+  if(ecPhone) formData.append('emergency_contact_phone',ecPhone)
+  if(ecRel) formData.append('emergency_contact_relationship',ecRel)
   const res=await fetch(`/api/volunteers/${volId}/waivers`,{method:'POST',credentials:'include',body:formData})
   const data=await res.json()
   if(data.error){toast(data.error,'error');return}
@@ -1433,8 +1451,6 @@ function openOnlineSignModal(){
   document.getElementById('online-sign-waiver-body').textContent=wt?.template_body||'No waiver text defined. Go to Settings → Waiver Types to add text.'
   document.getElementById('online-sign-name').value=v?.name||''
   document.getElementById('online-sign-date').textContent=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
-  const link=`${window.location.origin}/sign?vol=${volId}&wt=${typeId}`
-  document.getElementById('online-sign-link').textContent=link
   openModal('modal-online-sign')
 }
 function copySignLink(){
@@ -1941,17 +1957,19 @@ async function attachFile(e,volId){
 //  SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
-  const [itypes,wtypes,events,etemplates]=await Promise.all([
-    api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates')
+  const [itypes,wtypes,events,etemplates,programs]=await Promise.all([
+    api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),api('/api/youth-programs')
   ])
-  interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates
+  interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
   renderInterestTypesSettings()
   renderWaiverTypesSettings()
   renderEventsSettings()
+  renderYouthProgramsSettings()
   renderEmailTemplatesSettings()
   populateWaiverTypeSelects()
   populateInterestFilter()
   buildInterestCheckboxes()
+  populateProgramsDropdown()
 }
 
 // Interest types
@@ -2088,6 +2106,47 @@ function renderEmailTemplatesSettings(){
       <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEmailTemplateById('${t.id}')">✕</button>
     </div>`).join('')
 }
+// Youth Programs
+function populateProgramsDropdown(){
+  const sel=document.getElementById('youth-program')
+  if(!sel) return
+  const cur=sel.value
+  sel.innerHTML='<option value="">— Select a program —</option>'+allPrograms.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')+'<option value="__custom__">✏️ Other / type manually…</option>'
+  if(cur) sel.value=cur
+}
+
+function renderYouthProgramsSettings(){
+  const el=document.getElementById('youth-programs-list')
+  if(!el) return
+  if(!allPrograms.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No programs yet</div>';return}
+  el.innerHTML=allPrograms.map(p=>`
+    <div class="setting-item">
+      <div><div class="setting-item-label">${p.name}</div>${p.description?`<div class="setting-item-sub">${p.description}</div>`:''}</div>
+      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteYouthProgram('${p.id}')">✕</button>
+    </div>`).join('')
+}
+
+async function addYouthProgram(){
+  const name=document.getElementById('new-program-name').value.trim()
+  if(!name){toast('Program name is required','error');return}
+  const res=await api('/api/youth-programs','POST',{name})
+  if(res.error){toast(res.error,'error');return}
+  allPrograms.push(res)
+  document.getElementById('new-program-name').value=''
+  renderYouthProgramsSettings()
+  populateProgramsDropdown()
+  toast('Program added!','success')
+}
+
+async function deleteYouthProgram(pid){
+  if(!confirm('Delete this program?')) return
+  await api(`/api/youth-programs/${pid}`,'DELETE')
+  allPrograms=allPrograms.filter(p=>p.id!==pid)
+  renderYouthProgramsSettings()
+  populateProgramsDropdown()
+  toast('Deleted')
+}
+
 async function deleteEmailTemplateById(tid){
   await api(`/api/email-templates/${tid}`,'DELETE')
   emailTemplates=emailTemplates.filter(t=>t.id!==tid)
@@ -2115,12 +2174,12 @@ async function createUser(){
 function exportVolCSV(){
   const rows=[['Name','Email','Phone','Birthday','Status','Interests','Waiver Status','Total Hours']]
   volunteers.forEach(v=>rows.push([v.name,v.email,v.phone||'',v.birthday||'',v.status,JSON.parse(v.interests||'[]').join('; '),waiverStatus(v),v.total_hours||0]))
-  downloadCSV('rollcall_volunteers.csv',rows)
+  downloadCSV('rolecall_volunteers.csv',rows)
 }
 function exportHoursCSV(){
   const rows=[['Volunteer','Event','Date','Hours','Role','Notes']]
   allHours.forEach(h=>rows.push([h.volunteer_name||'',h.event,h.date,h.hours,h.role||'',h.notes||'']))
-  downloadCSV('rollcall_hours.csv',rows)
+  downloadCSV('rolecall_hours.csv',rows)
 }
 function downloadCSV(filename,rows){
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')

@@ -418,6 +418,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
         <div class="nav-section">Admin</div>
+        <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
@@ -616,6 +617,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-body"><div id="youth-profile-content"></div></div>
       </section>
 
+      <!-- EVENT LOGS -->
+      <section class="page admin-only" id="page-event-logs">
+        <div class="page-header">
+          <div><div class="page-title">Event Logs</div><div class="page-subtitle">ELIC open/close records and closing checklists</div></div>
+        </div>
+        <div class="page-body">
+          <div id="event-logs-list"></div>
+        </div>
+      </section>
+
       <!-- PENDING HOURS -->
       <section class="page admin-only" id="page-pending">
         <div class="page-header">
@@ -703,6 +714,39 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
               <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option></select></div>
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
+            </div>
+
+            <!-- ELIC Management -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎬 ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
+              <div id="elics-list" style="margin-bottom:16px"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-elic-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
+                <div style="min-width:100px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">4-Digit PIN *</div><input type="text" id="new-elic-pin" maxlength="4" placeholder="e.g. 1234" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <div style="display:flex;align-items:flex-end;gap:6px">
+                  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-master" style="accent-color:var(--teal-400)"/> Master ELIC</label>
+                  <button class="btn btn-primary btn-sm" onclick="addElic()">Add ELIC</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Closing Checklist -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">✅ Closing Checklist Template</div>
+              <div id="checklist-items-list" style="margin-bottom:16px"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <div style="flex:2;min-width:180px"><input type="text" id="new-cl-label" placeholder="e.g. Stage left clear?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <select id="new-cl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="checkbox">Checkbox</option>
+                  <option value="text">Text / Notes</option>
+                  <option value="rating">1–5 Rating</option>
+                </select>
+                <div style="display:flex;align-items:flex-end;gap:6px">
+                  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+                  <button class="btn btn-primary btn-sm" onclick="addChecklistItem()">Add Item</button>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
             </div>
 
             <!-- User Management -->
@@ -1093,6 +1137,8 @@ let allYouth = []
 let allPrograms = []
 let allProductions = []
 let currentProdId = null
+let allElics = []
+let allChecklistItems = []
 let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
@@ -1234,6 +1280,7 @@ function navTo(page,el){
   if(page==='email') renderEmailPage()
   if(page==='productions') renderProductions()
   if(page==='pending') loadPendingHours()
+  if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
   if(page==='settings') loadSettings()
 }
@@ -1242,14 +1289,14 @@ function navTo(page,el){
 //  LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
-  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods]=await Promise.all([
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData]=await Promise.all([
     api('/api/volunteers'),api('/api/hours'),api('/api/events'),
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
-    api('/api/youth'),api('/api/youth-programs'),api('/api/productions')
+    api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics')
   ])
   volunteers=vols; allHours=hrs; allEvents=events
   interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates
-  allYouth=youth; allPrograms=programs; allProductions=prods
+  allYouth=youth; allPrograms=programs; allProductions=prods; allElics=elicsData
   populateHoursFilters()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -2344,17 +2391,21 @@ async function attachFile(e,volId){
 //  SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
-  const [itypes,wtypes,events,etemplates,programs,users]=await Promise.all([
+  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems]=await Promise.all([
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
-    api('/api/youth-programs'),api('/api/users')
+    api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items')
   ])
   interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
+  allElics=elicsData; allChecklistItems=clItems
   renderInterestTypesSettings()
   renderWaiverTypesSettings()
   renderEventsSettings()
   renderYouthProgramsSettings()
   renderEmailTemplatesSettings()
   renderUsersManagement(users)
+  renderElicsSettings()
+  renderChecklistSettings()
+  populateElicVolSelect()
   populateWaiverTypeSelects()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -2464,16 +2515,27 @@ function renderEventsSettings(){
   el.innerHTML=allEvents.map(e=>{
     const timeStr=e.start_time&&e.end_time?` · ${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:(e.start_time?` · from ${fmtTime(e.start_time)}`:' · All day')
     const reqWaivers=(e.required_waivers||[])
+    const assignedElics=(e.elics||[])
+    const statusColors={draft:'var(--gray-400)',open:'var(--green-600)',closed:'var(--text-hint)'}
+    const statusLabels={draft:'Draft',open:'🟢 Open',closed:'Closed'}
     return `<div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:8px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
-          <div style="font-weight:600;font-size:14px">${e.name}</div>
+          <div style="font-weight:600;font-size:14px">${e.name} <span style="font-size:11px;font-weight:600;color:${statusColors[e.status||'draft']}">${statusLabels[e.status||'draft']}</span></div>
           <div style="font-size:12px;color:var(--text-muted)">${e.event_date?formatDate(e.event_date)+''+timeStr:'No date set'}</div>
         </div>
         <div style="display:flex;gap:4px">
           <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditEventModal('${e.id}')">Edit</button>
           <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEvent('${e.id}')">✕</button>
         </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:600;color:var(--text-muted)">ELICs:</span>
+        ${assignedElics.length?assignedElics.map(a=>`<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px">${a.is_master?'★ ':''}${a.volunteer_name}<button onclick="removeEventElicUI('${e.id}','${a.assignment_id}')" style="background:none;border:none;cursor:pointer;color:var(--teal-600);font-size:12px;padding:0 0 0 2px">×</button></span>`).join(''):'<span style="font-size:11px;color:var(--text-hint)">None assigned</span>'}
+        <select onchange="addEventElicUI('${e.id}',this)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit;cursor:pointer">
+          <option value="">+ Assign ELIC</option>
+          ${allElics.filter(el=>el.active&&!(assignedElics||[]).find(a=>a.elic_id===el.id)).map(el=>`<option value="${el.id}">${el.volunteer_name}${el.is_master?' ★':''}</option>`).join('')}
+        </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Required Waivers:</span>
@@ -3324,6 +3386,196 @@ async function removeProdWaiverUI(pid, wid){
   if(prod) prod.required_waivers=(prod.required_waivers||[]).filter(w=>w.id!==wid)
   openProductionDetail(pid)
   toast('Removed')
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  ELIC MANAGEMENT (admin)
+// ═══════════════════════════════════════════════════════════════
+
+function populateElicVolSelect(){
+  const sel=document.getElementById('new-elic-vol')
+  if(!sel) return
+  const existing=new Set(allElics.map(e=>e.volunteer_id))
+  sel.innerHTML='<option value="">— Select volunteer —</option>'+
+    volunteers.filter(v=>v.status==='active'&&!existing.has(v.id)).map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+}
+
+function renderElicsSettings(){
+  const el=document.getElementById('elics-list')
+  if(!el) return
+  if(!allElics.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No ELICs yet</div>';return}
+  el.innerHTML=allElics.map(e=>`
+    <div class="setting-item">
+      <div>
+        <div class="setting-item-label">${e.volunteer_name} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}</div>
+        <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
+        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">✕</button>
+      </div>
+    </div>`).join('')
+}
+
+async function addElic(){
+  const volId=document.getElementById('new-elic-vol').value
+  const pin=document.getElementById('new-elic-pin').value.trim()
+  const isMaster=document.getElementById('new-elic-master').checked
+  if(!volId||!pin){toast('Volunteer and PIN are required','error');return}
+  const res=await api('/api/elics','POST',{volunteer_id:volId,pin,is_master:isMaster})
+  if(res.error){toast(res.error,'error');return}
+  allElics.push(res)
+  document.getElementById('new-elic-pin').value=''
+  document.getElementById('new-elic-master').checked=false
+  renderElicsSettings()
+  populateElicVolSelect()
+  renderEventsSettings()
+  toast('ELIC added!','success')
+}
+
+async function toggleElicActive(eid,currently){
+  const e=allElics.find(e=>e.id===eid)
+  if(!e) return
+  const res=await api(`/api/elics/${eid}`,'PUT',{...e,active:!currently})
+  if(res.error){toast(res.error,'error');return}
+  allElics=allElics.map(e=>e.id===eid?res:e)
+  renderElicsSettings()
+  toast(res.active?'ELIC activated':'ELIC deactivated')
+}
+
+async function deleteElic(eid){
+  if(!confirm('Remove this ELIC? They will lose all ELIC privileges.')) return
+  await api(`/api/elics/${eid}`,'DELETE')
+  allElics=allElics.filter(e=>e.id!==eid)
+  renderElicsSettings()
+  populateElicVolSelect()
+  renderEventsSettings()
+  toast('ELIC removed')
+}
+
+async function addEventElicUI(evid, sel){
+  const elicId=sel.value
+  if(!elicId) return
+  sel.value=''
+  const res=await api(`/api/events/${evid}/elics`,'POST',{elic_id:elicId})
+  if(res.error){toast(res.error,'error');return}
+  const evt=allEvents.find(e=>e.id===evid)
+  if(evt){ if(!evt.elics) evt.elics=[]; evt.elics.push(res) }
+  renderEventsSettings()
+  toast('ELIC assigned to event','success')
+}
+
+async function removeEventElicUI(evid, rid){
+  await api(`/api/events/${evid}/elics/${rid}`,'DELETE')
+  const evt=allEvents.find(e=>e.id===evid)
+  if(evt) evt.elics=(evt.elics||[]).filter(a=>a.assignment_id!==rid)
+  renderEventsSettings()
+  toast('ELIC removed from event')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CHECKLIST TEMPLATE (admin)
+// ═══════════════════════════════════════════════════════════════
+
+function renderChecklistSettings(){
+  const el=document.getElementById('checklist-items-list')
+  if(!el) return
+  if(!allChecklistItems.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet</div>';return}
+  const typeIcon={checkbox:'☑️',text:'📝',rating:'⭐'}
+  el.innerHTML=allChecklistItems.map(item=>`
+    <div class="setting-item" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:13px;font-weight:500">${typeIcon[item.item_type]||'☑️'} ${item.label}</div>
+        ${item.hint?`<div style="font-size:11px;color:var(--text-hint)">${item.hint}</div>`:''}
+        <div style="font-size:11px;margin-top:2px"><span style="color:${item.required?'var(--red-600)':'var(--text-hint)'}">${item.required?'Required':'Optional'}</span> · ${item.item_type}</div>
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditChecklistItem('${item.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteChecklistItem('${item.id}')">✕</button>
+      </div>
+    </div>`).join('')
+}
+
+async function addChecklistItem(){
+  const label=document.getElementById('new-cl-label').value.trim()
+  const item_type=document.getElementById('new-cl-type').value
+  const required=document.getElementById('new-cl-required').checked
+  if(!label){toast('Label is required','error');return}
+  const res=await api('/api/checklist-items','POST',{label,item_type,required})
+  if(res.error){toast(res.error,'error');return}
+  allChecklistItems.push(res)
+  document.getElementById('new-cl-label').value=''
+  renderChecklistSettings()
+  toast('Item added!','success')
+}
+
+async function deleteChecklistItem(cid){
+  if(!confirm('Delete this checklist item?')) return
+  await api(`/api/checklist-items/${cid}`,'DELETE')
+  allChecklistItems=allChecklistItems.filter(i=>i.id!==cid)
+  renderChecklistSettings()
+  toast('Deleted')
+}
+
+function openEditChecklistItem(cid){
+  const item=allChecklistItems.find(i=>i.id===cid)
+  if(!item) return
+  const label=prompt('Label:',item.label)
+  if(!label) return
+  const hint=prompt('Hint/prompt (optional):',item.hint||'')
+  saveChecklistItem(cid,{...item,label,hint:hint||''})
+}
+
+async function saveChecklistItem(cid, data){
+  const res=await api(`/api/checklist-items/${cid}`,'PUT',data)
+  if(res.error){toast(res.error,'error');return}
+  allChecklistItems=allChecklistItems.map(i=>i.id===cid?res:i)
+  renderChecklistSettings()
+  toast('Updated!','success')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT LOGS (admin)
+// ═══════════════════════════════════════════════════════════════
+
+async function loadEventLogs(){
+  const logs=await api('/api/event-logs')
+  const el=document.getElementById('event-logs-list')
+  if(!el) return
+  if(!logs.length){
+    el.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><p>No event logs yet</p><span>Logs appear when ELICs open or close events from the kiosk</span></div>'
+    return
+  }
+  const actionColors={open:'var(--green-600)',close:'var(--teal-600)'}
+  const actionLabels={open:'🟢 Opened',close:'🔒 Closed'}
+  const typeIcon={checkbox:'☑️',text:'📝',rating:'⭐'}
+  el.innerHTML=logs.map(log=>`
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:${log.checklist?.length?'16px':'0'}">
+        <div>
+          <div style="font-size:16px;font-weight:600">${log.event_name}</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:2px">${log.event_date?formatDate(log.event_date):''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:13px;font-weight:600;color:${actionColors[log.action]||'var(--text-muted)'}">${actionLabels[log.action]||log.action}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${log.elic_name}</div>
+          <div style="font-size:11px;color:var(--text-hint)">${formatDate((log.timestamp||'').split('T')[0])} ${(log.timestamp||'').split('T')[1]?.substring(0,5)||''}</div>
+        </div>
+      </div>
+      ${log.checklist?.length?`
+        <hr class="divider" style="margin:12px 0"/>
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Closing Checklist</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          ${log.checklist.map(r=>`
+            <div style="background:var(--gray-50);border-radius:8px;padding:10px 12px">
+              <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">${typeIcon[r.item_type]||'☑️'} ${r.label}</div>
+              <div style="font-size:13px;font-weight:500;color:${r.response==='true'||r.response==='yes'?'var(--green-600)':r.response==='false'||r.response==='no'?'var(--red-600)':'var(--text)'}">${
+                r.item_type==='checkbox'?(r.response==='true'?'✅ Done':'❌ Not done'):(r.response||'—')
+              }</div>
+            </div>`).join('')}
+        </div>`:''}
+    </div>`).join('')
 }
 
 </script>

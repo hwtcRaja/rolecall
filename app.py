@@ -108,6 +108,37 @@ def init_db():
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
         description TEXT, created_at TIMESTAMP DEFAULT NOW())''')
 
+    # youth program enrollments (many-to-many)
+    c.execute('''CREATE TABLE IF NOT EXISTS youth_program_enrollments (
+        id TEXT PRIMARY KEY,
+        youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+        program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+        enrolled_date TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(youth_id, program_id))''')
+
+    # productions
+    c.execute('''CREATE TABLE IF NOT EXISTS productions (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL,
+        production_type TEXT DEFAULT 'show',
+        start_date TEXT, end_date TEXT,
+        description TEXT, status TEXT DEFAULT 'upcoming',
+        created_at TIMESTAMP DEFAULT NOW())''')
+
+    # production members (volunteers in a production)
+    c.execute('''CREATE TABLE IF NOT EXISTS production_members (
+        id TEXT PRIMARY KEY,
+        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        department TEXT,
+        status TEXT DEFAULT 'confirmed',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(production_id, volunteer_id))''')
+
+    # add active column to users
     conn.commit()
 
     # Run migrations in separate try blocks so failures don't roll back table creation
@@ -115,6 +146,8 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
     ]:
         try:
             c.execute(col_sql)
@@ -219,6 +252,7 @@ def login():
     user = fetchone(conn, 'SELECT * FROM users WHERE email=%s AND password_hash=%s', (d['email'], pw_hash))
     conn.close()
     if not user: return jsonify({'error': 'Invalid email or password'}), 401
+    if not user.get('active', True): return jsonify({'error': 'Your account has been deactivated. Contact an administrator.'}), 403
     session['user_id'] = user['id']
     session['user_name'] = user['name']
     session['role'] = user['role']
@@ -713,6 +747,8 @@ def get_youth():
         y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (y['id'],))
         y['waivers'] = fetchall(conn,
             'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (y['id'],))
+        y['enrollments'] = fetchall(conn,
+            'SELECT e.*, p.name as program_name FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (y['id'],))
     conn.close()
     return jsonify(youth)
 
@@ -727,6 +763,8 @@ def get_youth_participant(yid):
     y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
+    y['enrollments'] = fetchall(conn,
+        'SELECT e.*, p.name as program_name FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (yid,))
     conn.close()
     return jsonify(y)
 
@@ -918,7 +956,169 @@ def create_user():
     conn.close()
     return jsonify({'ok': True})
 
+
 # ─────────────────────────────────────────────
+#  PRODUCTIONS
+# ─────────────────────────────────────────────
+
+@app.route('/api/productions')
+def get_productions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prods = fetchall(conn, 'SELECT * FROM productions ORDER BY start_date DESC NULLS LAST')
+    for p in prods:
+        p['members'] = fetchall(conn, '''
+            SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+            FROM production_members pm
+            JOIN volunteers v ON pm.volunteer_id=v.id
+            WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
+    conn.close()
+    return jsonify(prods)
+
+@app.route('/api/productions', methods=['POST'])
+def create_production():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO productions (id,name,production_type,start_date,end_date,description,status) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (pid, d['name'], d.get('production_type','show'), d.get('start_date') or None,
+             d.get('end_date') or None, d.get('description',''), d.get('status','upcoming')))
+    conn.commit()
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    prod['members'] = []
+    conn.close()
+    return jsonify(prod)
+
+@app.route('/api/productions/<pid>', methods=['PUT'])
+def update_production(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,start_date=%s,end_date=%s,description=%s,status=%s WHERE id=%s',
+            (d['name'], d.get('production_type','show'), d.get('start_date') or None,
+             d.get('end_date') or None, d.get('description',''), d.get('status','upcoming'), pid))
+    conn.commit()
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    prod['members'] = fetchall(conn, '''
+        SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY pm.role''', (pid,))
+    conn.close()
+    return jsonify(prod)
+
+@app.route('/api/productions/<pid>', methods=['DELETE'])
+def delete_production(pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM productions WHERE id=%s', (pid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/members', methods=['POST'])
+def add_production_member(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO production_members (id,production_id,volunteer_id,role,department,status,notes) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (mid, pid, d['volunteer_id'], d['role'], d.get('department',''), d.get('status','confirmed'), d.get('notes','')))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'This volunteer is already in this production'}), 400
+    row = fetchone(conn, '''SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id WHERE pm.id=%s''', (mid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/members/<mid>', methods=['PUT'])
+def update_production_member(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE production_members SET role=%s,department=%s,status=%s,notes=%s WHERE id=%s',
+            (d['role'], d.get('department',''), d.get('status','confirmed'), d.get('notes',''), mid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id WHERE pm.id=%s''', (mid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/members/<mid>', methods=['DELETE'])
+def remove_production_member(mid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_members WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  YOUTH PROGRAM ENROLLMENTS
+# ─────────────────────────────────────────────
+
+@app.route('/api/youth/<yid>/enrollments', methods=['POST'])
+def enroll_youth(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    eid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes) VALUES (%s,%s,%s,%s,%s)',
+                (eid, yid, d['program_id'], d.get('enrolled_date') or date.today().isoformat(), d.get('notes','')))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Already enrolled in this program'}), 400
+    row = fetchone(conn, '''SELECT e.*, p.name as program_name FROM youth_program_enrollments e
+        JOIN youth_programs p ON e.program_id=p.id WHERE e.id=%s''', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/enrollments/<eid>', methods=['DELETE'])
+def unenroll_youth(eid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  USER MANAGEMENT
+# ─────────────────────────────────────────────
+
+@app.route('/api/users')
+def get_users():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    users = fetchall(conn, 'SELECT id,name,email,role,COALESCE(active,TRUE) as active FROM users ORDER BY name')
+    conn.close()
+    return jsonify(users)
+
+@app.route('/api/users/<uid>/toggle', methods=['POST'])
+def toggle_user(uid):
+    err = require_admin()
+    if err: return err
+    if uid == session['user_id']:
+        return jsonify({'error': 'Cannot deactivate your own account'}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT COALESCE(active,TRUE) as active FROM users WHERE id=%s', (uid,))
+    if not user: conn.close(); return jsonify({'error': 'Not found'}), 404
+    new_active = not user['active']
+    execute(conn, 'UPDATE users SET active=%s WHERE id=%s', (new_active, uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'active': new_active})
 
 # ─────────────────────────────────────────────
 #  RUN

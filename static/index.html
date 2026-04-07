@@ -418,6 +418,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
         <div class="nav-section">Admin</div>
+        <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Hours<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
@@ -613,6 +614,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth-profile">
         <div class="page-header" id="youth-profile-header"></div>
         <div class="page-body"><div id="youth-profile-content"></div></div>
+      </section>
+
+      <!-- PENDING HOURS -->
+      <section class="page admin-only" id="page-pending">
+        <div class="page-header">
+          <div><div class="page-title">Pending Hours</div><div class="page-subtitle">Volunteer-submitted time awaiting approval</div></div>
+          <div class="page-actions">
+            <a href="/kiosk" target="_blank" class="btn btn-secondary btn-sm">🖥 Open Kiosk →</a>
+          </div>
+        </div>
+        <div class="page-body">
+          <div id="pending-hours-list"></div>
+        </div>
       </section>
 
       <!-- SETTINGS -->
@@ -1146,6 +1160,8 @@ async function loginSuccess(user){
   applyRoleUI()
   await loadAllData()
   navTo('dashboard')
+  pollPendingCount()
+  setInterval(pollPendingCount, 60000)
 }
 async function handleLogout(){
   await api('/api/auth/logout','POST')
@@ -1185,6 +1201,7 @@ function navTo(page,el){
   if(page==='waivers') renderWaivers()
   if(page==='email') renderEmailPage()
   if(page==='productions') renderProductions()
+  if(page==='pending') loadPendingHours()
   if(page==='youth') renderYouth()
   if(page==='settings') loadSettings()
 }
@@ -2994,6 +3011,73 @@ function closeMobileNav(){
   sidebar.classList.remove('open')
   overlay.classList.remove('open')
   document.body.style.overflow=''
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PENDING HOURS
+// ═══════════════════════════════════════════════════════════════
+
+async function loadPendingHours(){
+  const rows=await api('/api/pending-hours')
+  updatePendingBadge(rows.length)
+  const el=document.getElementById('pending-hours-list')
+  if(!el) return
+  if(!rows.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div><p>No pending hours</p><span>All submitted time has been reviewed</span></div>`
+    return
+  }
+  el.innerHTML=`<div class="card">
+    <table>
+      <thead><tr>
+        <th>Volunteer</th><th>Event</th><th>Date</th><th>Hours</th><th>Role</th><th>Submitted</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td><div class="volunteer-name-cell">${avatarHTML(r.volunteer_name,28)}<span onclick="openProfile('${r.volunteer_id}')" style="cursor:pointer;font-weight:500">${r.volunteer_name}</span></div></td>
+          <td style="font-weight:500">${r.event}</td>
+          <td style="color:var(--text-muted)">${formatDate(r.date)}</td>
+          <td><span style="font-weight:700;color:var(--teal-600);font-size:16px">${r.hours}h</span></td>
+          <td style="color:var(--text-muted)">${r.role||'—'}</td>
+          <td style="color:var(--text-muted);font-size:12px">${formatDate((r.submitted_at||'').split('T')[0])}</td>
+          <td>
+            <div class="action-btns">
+              <button class="btn btn-primary btn-sm" onclick="approveHours('${r.id}')">✅ Approve</button>
+              <button class="btn btn-danger btn-sm" onclick="rejectHours('${r.id}')">✕ Reject</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`
+}
+
+function updatePendingBadge(count){
+  const badge=document.getElementById('pending-badge')
+  if(!badge) return
+  badge.textContent=count
+  badge.style.display=count>0?'':'none'
+}
+
+async function approveHours(pid){
+  await api(`/api/pending-hours/${pid}/approve`,'POST')
+  toast('Hours approved and added!','success')
+  await loadAllData()
+  loadPendingHours()
+}
+
+async function rejectHours(pid){
+  if(!confirm('Reject and delete this time submission?')) return
+  await api(`/api/pending-hours/${pid}/reject`,'POST')
+  toast('Submission rejected')
+  loadPendingHours()
+}
+
+async function pollPendingCount(){
+  if(currentUser?.role==='admin'){
+    const data=await api('/api/pending-hours/count')
+    if(data.count!==undefined) updatePendingBadge(data.count)
+  }
 }
 
 </script>

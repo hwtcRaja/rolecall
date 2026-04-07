@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>RoleCall Kiosk — Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --teal:#1b708d;--teal-dark:#0d3d4d;--teal-light:#E8F4F8;
+  --text:#1A1A17;--muted:#5F5E5A;--hint:#9B9B94;
+  --border:rgba(0,0,0,0.1);--surface:#fff;--bg:#F5F7F8;
+  --green:#2D9E6B;--red:#C0392B;--amber:#D4830A;
+  --radius:16px;--radius-lg:24px;
+  --shadow:0 4px 24px rgba(0,0,0,0.08);
+  --shadow-lg:0 12px 48px rgba(0,0,0,0.14);
+}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;-webkit-font-smoothing:antialiased}
+
+/* ── SCREENS ── */
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;transition:opacity 0.3s,transform 0.3s}
+.screen.hidden{opacity:0;pointer-events:none;transform:scale(0.97)}
+
+/* ── IDLE SCREEN ── */
+#screen-idle{background:linear-gradient(160deg,var(--teal-dark) 0%,var(--teal) 100%);cursor:pointer;user-select:none}
+.idle-logo{width:200px;height:200px;border-radius:32px;object-fit:cover;box-shadow:0 8px 40px rgba(0,0,0,0.3);margin-bottom:36px}
+.idle-title{font-size:48px;font-weight:700;color:#fff;letter-spacing:-1px;margin-bottom:8px}
+.idle-org{font-size:20px;color:rgba(255,255,255,0.65);font-weight:400;margin-bottom:60px}
+.idle-tap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.idle-tap-btn{background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);border:2px solid rgba(255,255,255,0.3);color:#fff;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:600;padding:20px 56px;border-radius:60px;cursor:pointer;transition:all 0.2s;letter-spacing:0.2px}
+.idle-tap-btn:hover,.idle-tap-btn:active{background:rgba(255,255,255,0.25);transform:scale(1.02)}
+.idle-tap-sub{color:rgba(255,255,255,0.45);font-size:14px}
+.idle-clock{position:absolute;top:32px;right:40px;color:rgba(255,255,255,0.5);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
+.admin-link{position:absolute;bottom:24px;right:32px;color:rgba(255,255,255,0.3);font-size:13px;text-decoration:none;transition:color 0.2s}
+.admin-link:hover{color:rgba(255,255,255,0.6)}
+
+/* ── SEARCH SCREEN ── */
+#screen-search{background:var(--bg);justify-content:flex-start;padding-top:60px}
+.screen-header{text-align:center;margin-bottom:40px}
+.screen-title{font-size:32px;font-weight:700;letter-spacing:-0.5px;color:var(--teal-dark)}
+.screen-sub{font-size:17px;color:var(--muted);margin-top:6px}
+.search-box-wrap{width:100%;max-width:640px;position:relative;margin-bottom:24px}
+.search-box{width:100%;padding:22px 24px 22px 64px;font-family:'DM Sans',sans-serif;font-size:22px;font-weight:500;border:2.5px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);outline:none;transition:border-color 0.2s;box-shadow:var(--shadow)}
+.search-box:focus{border-color:var(--teal)}
+.search-icon{position:absolute;left:22px;top:50%;transform:translateY(-50%);font-size:24px;pointer-events:none}
+.search-hint{font-size:15px;color:var(--hint);margin-bottom:20px}
+.vol-results{width:100%;max-width:640px;display:flex;flex-direction:column;gap:12px;max-height:420px;overflow-y:auto}
+.vol-card{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:all 0.15s;box-shadow:var(--shadow)}
+.vol-card:hover,.vol-card:active{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px);box-shadow:var(--shadow-lg)}
+.vol-avatar{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0}
+.vol-info{flex:1}.vol-name{font-size:20px;font-weight:600}.vol-email{font-size:14px;color:var(--muted);margin-top:2px}
+.vol-arrow{font-size:22px;color:var(--hint)}
+.no-results{text-align:center;padding:32px;color:var(--muted);font-size:16px}
+
+/* ── EVENT SCREEN ── */
+#screen-event{background:var(--bg);justify-content:flex-start;padding-top:60px}
+.selected-vol-badge{display:flex;align-items:center;gap:12px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);padding:14px 20px;margin-bottom:32px;max-width:640px;width:100%}
+.selected-vol-name{font-size:17px;font-weight:600;color:var(--teal-dark)}
+.selected-vol-sub{font-size:13px;color:var(--muted)}
+.event-grid{width:100%;max-width:640px;display:grid;grid-template-columns:1fr 1fr;gap:12px;max-height:400px;overflow-y:auto}
+.event-btn{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius);padding:20px;text-align:left;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;box-shadow:var(--shadow)}
+.event-btn:hover,.event-btn:active{border-color:var(--teal);background:var(--teal-light);transform:translateY(-1px)}
+.event-btn-name{font-size:17px;font-weight:600;color:var(--text)}
+.event-btn-date{font-size:13px;color:var(--muted);margin-top:4px}
+.no-events{text-align:center;padding:40px;color:var(--muted);font-size:16px;max-width:480px}
+
+/* ── HOURS SCREEN ── */
+#screen-hours{background:var(--bg);justify-content:center}
+.hours-card{background:var(--surface);border-radius:var(--radius-lg);padding:48px;max-width:520px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.hours-vol-name{font-size:22px;font-weight:700;color:var(--teal-dark);margin-bottom:4px}
+.hours-event-name{font-size:16px;color:var(--muted);margin-bottom:36px}
+.hours-label{font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:16px}
+.hours-display{font-size:80px;font-weight:700;color:var(--teal);letter-spacing:-2px;line-height:1;margin-bottom:8px;font-variant-numeric:tabular-nums}
+.hours-unit{font-size:18px;color:var(--muted);margin-bottom:32px}
+.hours-btns{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
+.hours-btn{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);padding:16px;font-family:'DM Sans',sans-serif;font-size:20px;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--text)}
+.hours-btn:hover,.hours-btn:active{background:var(--teal-light);border-color:var(--teal);color:var(--teal-dark)}
+.hours-btn.wide{grid-column:span 2}
+.hours-btn.del{color:var(--red)}
+.hours-btn.del:hover{background:#FEF2F2;border-color:var(--red)}
+.role-input{width:100%;padding:14px 18px;font-family:'DM Sans',sans-serif;font-size:16px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:24px;outline:none;transition:border-color 0.2s;text-align:center}
+.role-input:focus{border-color:var(--teal)}
+.submit-btn{width:100%;padding:20px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:20px;font-weight:700;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px}
+.submit-btn:hover{background:var(--teal-dark)}
+.submit-btn:disabled{background:var(--hint);cursor:not-allowed}
+
+/* ── CONFIRM SCREEN ── */
+#screen-confirm{background:var(--bg)}
+.confirm-card{background:var(--surface);border-radius:var(--radius-lg);padding:60px 48px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.confirm-icon{font-size:72px;margin-bottom:20px}
+.confirm-title{font-size:32px;font-weight:700;color:var(--teal-dark);margin-bottom:8px}
+.confirm-sub{font-size:17px;color:var(--muted);margin-bottom:12px}
+.confirm-detail{font-size:15px;color:var(--hint);margin-bottom:40px}
+.confirm-progress{width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.confirm-progress-bar{height:100%;background:var(--teal);border-radius:3px;transition:width 0.1s linear}
+.confirm-reset-btn{margin-top:20px;background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;cursor:pointer;text-decoration:underline}
+
+/* ── BACK BTN ── */
+.back-btn{position:absolute;top:28px;left:28px;background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:10px 20px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;transition:all 0.15s;box-shadow:var(--shadow)}
+.back-btn:hover{border-color:var(--teal);color:var(--teal)}
+.step-indicator{position:absolute;top:32px;right:32px;font-size:14px;color:var(--hint);font-weight:500}
+
+/* ── KEYBOARD OVERLAY for search ── */
+.kiosk-note{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--hint)}
+</style>
+</head>
+<body>
+
+<!-- IDLE SCREEN -->
+<div class="screen" id="screen-idle" onclick="startFlow()">
+  <div id="idle-clock" class="idle-clock"></div>
+  <img src="/static/images/logo.jpg" alt="Horizon West Theater Company" class="idle-logo"/>
+  <div class="idle-title">RoleCall</div>
+  <div class="idle-org">Horizon West Theater Company</div>
+  <div class="idle-tap">
+    <button class="idle-tap-btn">⏱ Submit Your Hours</button>
+    <div class="idle-tap-sub">Tap anywhere to get started</div>
+  </div>
+  <a href="/" class="admin-link" onclick="event.stopPropagation()">Admin Login →</a>
+</div>
+
+<!-- SEARCH SCREEN -->
+<div class="screen hidden" id="screen-search">
+  <button class="back-btn" onclick="goIdle()">← Back</button>
+  <div class="step-indicator">Step 1 of 3</div>
+  <div class="screen-header">
+    <div class="screen-title">Who are you?</div>
+    <div class="screen-sub">Search your name to get started</div>
+  </div>
+  <div class="search-box-wrap">
+    <span class="search-icon">🔍</span>
+    <input class="search-box" id="vol-search" type="text" placeholder="Type your name…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="searchVolunteers()"/>
+  </div>
+  <div class="search-hint" id="search-hint">Type at least 2 characters</div>
+  <div class="vol-results" id="vol-results"></div>
+</div>
+
+<!-- EVENT SCREEN -->
+<div class="screen hidden" id="screen-event">
+  <button class="back-btn" onclick="goSearch()">← Back</button>
+  <div class="step-indicator">Step 2 of 3</div>
+  <div class="screen-header">
+    <div class="screen-title">Which event?</div>
+    <div class="screen-sub">Select the event you volunteered for</div>
+  </div>
+  <div class="selected-vol-badge" id="selected-vol-badge">
+    <div id="selected-vol-avatar" class="vol-avatar" style="width:44px;height:44px;font-size:16px"></div>
+    <div>
+      <div class="selected-vol-name" id="selected-vol-name"></div>
+      <div class="selected-vol-sub">Volunteering today · <span id="today-date"></span></div>
+    </div>
+  </div>
+  <div class="event-grid" id="event-grid"></div>
+  <div class="no-events hidden" id="no-events">
+    <div style="font-size:40px;margin-bottom:12px">📅</div>
+    <div style="font-weight:600;margin-bottom:6px">No current events</div>
+    <div>There are no events scheduled for today. Please see an administrator.</div>
+  </div>
+</div>
+
+<!-- HOURS SCREEN -->
+<div class="screen hidden" id="screen-hours">
+  <button class="back-btn" onclick="goEvent()">← Back</button>
+  <div class="step-indicator">Step 3 of 3</div>
+  <div class="hours-card">
+    <div class="hours-vol-name" id="hours-vol-name"></div>
+    <div class="hours-event-name" id="hours-event-name"></div>
+    <div class="hours-label">Hours Volunteered</div>
+    <div class="hours-display" id="hours-display">0</div>
+    <div class="hours-unit">hours</div>
+    <div class="hours-btns">
+      <button class="hours-btn" onclick="addHours(0.5)">+½</button>
+      <button class="hours-btn" onclick="addHours(1)">+1</button>
+      <button class="hours-btn" onclick="addHours(2)">+2</button>
+      <button class="hours-btn" onclick="addHours(3)">+3</button>
+      <button class="hours-btn" onclick="addHours(4)">+4</button>
+      <button class="hours-btn" onclick="addHours(5)">+5</button>
+      <button class="hours-btn" onclick="addHours(6)">+6</button>
+      <button class="hours-btn del" onclick="clearHours()">Clear</button>
+    </div>
+    <input class="role-input" id="role-input" type="text" placeholder="Your role (optional) — e.g. Usher, Set Crew"/>
+    <button class="submit-btn" id="submit-btn" onclick="submitHours()" disabled>Submit Hours</button>
+  </div>
+</div>
+
+<!-- CONFIRM SCREEN -->
+<div class="screen hidden" id="screen-confirm">
+  <div class="confirm-card">
+    <div class="confirm-icon">✅</div>
+    <div class="confirm-title">Hours Submitted!</div>
+    <div class="confirm-sub" id="confirm-sub"></div>
+    <div class="confirm-detail">Your time will be reviewed and approved by an administrator.</div>
+    <div class="confirm-progress"><div class="confirm-progress-bar" id="confirm-bar" style="width:100%"></div></div>
+    <button class="confirm-reset-btn" onclick="goIdle()">Done — return to start</button>
+  </div>
+</div>
+
+<script>
+// ── STATE ──
+let selectedVol = null
+let selectedEvent = null
+let currentHours = 0
+let resetTimer = null
+let idleTimer = null
+const RESET_DELAY = 12000 // 12 seconds after confirm
+const IDLE_DELAY = 90000  // 90 seconds idle → back to idle screen
+
+// ── UTILS ──
+const AVATAR_COLORS = [
+  ['#E8F4F8','#0d3d4d'],['#E6F1FB','#0C447C'],['#FAEEDA','#633806'],
+  ['#FBEAF0','#72243E'],['#EAF3DE','#27500A'],['#F3EEFF','#5B21B6'],
+  ['#FFF0F6','#BE185D'],['#FCEBEB','#791F1F']
+]
+function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
+function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
+function formatDate(d){
+  if(!d) return ''
+  return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+}
+function show(id){ document.getElementById(id).classList.remove('hidden') }
+function hide(id){ document.getElementById(id).classList.add('hidden') }
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'))
+  show(id)
+  resetIdleTimer()
+}
+
+// ── CLOCK ──
+function updateClock(){
+  const now=new Date()
+  document.getElementById('idle-clock').textContent=now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})+' · '+now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+}
+setInterval(updateClock,1000)
+updateClock()
+
+// ── IDLE TIMER ──
+function resetIdleTimer(){
+  clearTimeout(idleTimer)
+  if(document.getElementById('screen-idle').classList.contains('hidden')){
+    idleTimer=setTimeout(()=>{ goIdle() }, IDLE_DELAY)
+  }
+}
+document.addEventListener('touchstart', resetIdleTimer)
+document.addEventListener('click', resetIdleTimer)
+
+// ── FLOW ──
+function startFlow(){
+  selectedVol=null; selectedEvent=null; currentHours=0
+  updateHoursDisplay()
+  document.getElementById('vol-search').value=''
+  document.getElementById('vol-results').innerHTML=''
+  document.getElementById('search-hint').textContent='Type at least 2 characters'
+  showScreen('screen-search')
+  setTimeout(()=>document.getElementById('vol-search').focus(), 300)
+}
+
+function goIdle(){
+  clearTimeout(resetTimer); clearTimeout(idleTimer)
+  showScreen('screen-idle')
+}
+
+function goSearch(){
+  showScreen('screen-search')
+  setTimeout(()=>document.getElementById('vol-search').focus(), 300)
+}
+
+function goEvent(){
+  showScreen('screen-event')
+  loadEvents()
+}
+
+// ── VOLUNTEER SEARCH ──
+let searchTimeout=null
+function searchVolunteers(){
+  const q=document.getElementById('vol-search').value.trim()
+  clearTimeout(searchTimeout)
+  if(q.length<2){
+    document.getElementById('search-hint').textContent='Type at least 2 characters'
+    document.getElementById('vol-results').innerHTML=''
+    return
+  }
+  document.getElementById('search-hint').textContent='Searching…'
+  searchTimeout=setTimeout(async()=>{
+    const res=await fetch(`/api/kiosk/volunteers?q=${encodeURIComponent(q)}`)
+    const vols=await res.json()
+    renderVolResults(vols)
+  }, 250)
+}
+
+function renderVolResults(vols){
+  const container=document.getElementById('vol-results')
+  if(!vols.length){
+    document.getElementById('search-hint').textContent='No volunteers found'
+    container.innerHTML=`<div class="no-results">No one found matching that name.<br>Please see an administrator.</div>`
+    return
+  }
+  document.getElementById('search-hint').textContent=`${vols.length} found — tap your name`
+  container.innerHTML=vols.map(v=>{
+    const [bg,col]=avatarColors(v.name)
+    return `<div class="vol-card" onclick="selectVolunteer(${JSON.stringify(v).replace(/"/g,'&quot;')})">
+      <div class="vol-avatar" style="background:${bg};color:${col}">${initials(v.name)}</div>
+      <div class="vol-info">
+        <div class="vol-name">${v.name}</div>
+        ${v.email?`<div class="vol-email">${v.email}</div>`:''}
+      </div>
+      <div class="vol-arrow">→</div>
+    </div>`
+  }).join('')
+}
+
+function selectVolunteer(vol){
+  selectedVol=vol
+  // Set up event screen
+  const [bg,col]=avatarColors(vol.name)
+  document.getElementById('selected-vol-avatar').style.background=bg
+  document.getElementById('selected-vol-avatar').style.color=col
+  document.getElementById('selected-vol-avatar').textContent=initials(vol.name)
+  document.getElementById('selected-vol-name').textContent=vol.name
+  document.getElementById('today-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+  showScreen('screen-event')
+  loadEvents()
+}
+
+// ── EVENTS ──
+async function loadEvents(){
+  const res=await fetch('/api/kiosk/events')
+  const events=await res.json()
+  const grid=document.getElementById('event-grid')
+  const noEvents=document.getElementById('no-events')
+  if(!events.length){
+    grid.innerHTML=''; grid.style.display='none'
+    noEvents.classList.remove('hidden')
+    return
+  }
+  noEvents.classList.add('hidden')
+  grid.style.display='grid'
+  grid.innerHTML=events.map(e=>`
+    <button class="event-btn" onclick="selectEvent(${JSON.stringify(e).replace(/"/g,'&quot;')})">
+      <div class="event-btn-name">${e.name}</div>
+      ${e.event_date?`<div class="event-btn-date">📅 ${formatDate(e.event_date)}</div>`:'<div class="event-btn-date" style="color:var(--teal)">● Ongoing</div>'}
+    </button>`).join('')
+}
+
+function selectEvent(evt){
+  selectedEvent=evt
+  document.getElementById('hours-vol-name').textContent=selectedVol.name
+  document.getElementById('hours-event-name').textContent=evt.name
+  document.getElementById('role-input').value=''
+  currentHours=0
+  updateHoursDisplay()
+  showScreen('screen-hours')
+}
+
+// ── HOURS INPUT ──
+function addHours(n){
+  currentHours=Math.min(24, Math.round((currentHours+n)*2)/2)
+  updateHoursDisplay()
+}
+function clearHours(){
+  currentHours=0
+  updateHoursDisplay()
+}
+function updateHoursDisplay(){
+  document.getElementById('hours-display').textContent=currentHours%1===0?currentHours:currentHours.toFixed(1)
+  document.getElementById('submit-btn').disabled=currentHours<=0
+}
+
+// ── SUBMIT ──
+async function submitHours(){
+  const btn=document.getElementById('submit-btn')
+  btn.disabled=true
+  btn.textContent='Submitting…'
+  try{
+    const res=await fetch('/api/kiosk/submit',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        volunteer_id:selectedVol.id,
+        event:selectedEvent.name,
+        event_id:selectedEvent.id,
+        hours:currentHours,
+        role:document.getElementById('role-input').value.trim(),
+      })
+    })
+    const data=await res.json()
+    if(data.error){
+      btn.disabled=false; btn.textContent='Submit Hours'
+      alert(data.error); return
+    }
+    // Show confirm screen
+    document.getElementById('confirm-sub').textContent=`${currentHours} hour${currentHours!==1?'s':''} for "${selectedEvent.name}" submitted successfully`
+    showScreen('screen-confirm')
+    startResetTimer()
+  }catch(e){
+    btn.disabled=false; btn.textContent='Submit Hours'
+    alert('Submission failed. Please try again.')
+  }
+}
+
+// ── AUTO RESET ──
+function startResetTimer(){
+  clearTimeout(resetTimer)
+  const bar=document.getElementById('confirm-bar')
+  const start=Date.now()
+  bar.style.transition='none'
+  bar.style.width='100%'
+  requestAnimationFrame(()=>{
+    bar.style.transition=`width ${RESET_DELAY}ms linear`
+    bar.style.width='0%'
+  })
+  resetTimer=setTimeout(()=>goIdle(), RESET_DELAY)
+}
+</script>
+</body>
+</html>

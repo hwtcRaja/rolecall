@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RoleCall — Volunteer Management</title>
+<title>RoleCall — Horizon West Theater Company</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -256,6 +256,124 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .sign-box{border:2px solid var(--border-md);border-radius:var(--radius-lg);padding:32px;text-align:center;background:var(--gray-50);margin:16px 0}
 .sign-box h2{font-size:18px;font-weight:600;margin-bottom:8px}
 .sign-box .waiver-text{font-size:13px;color:var(--text-muted);line-height:1.9;margin-bottom:20px;text-align:left;background:var(--surface);padding:20px 24px;border-radius:var(--radius);border:1px solid var(--border);white-space:pre-wrap;max-height:320px;overflow-y:auto}
+
+/* ─── MOBILE TOPBAR ─── */
+.mobile-topbar{display:none;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--teal-800);color:#fff;position:sticky;top:0;z-index:100}
+.mobile-menu-btn{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:4px 8px;line-height:1}
+.mobile-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:199}
+.mobile-overlay.open{display:block}
+
+@media(max-width:768px){
+  /* Show mobile topbar, hide on desktop */
+  .mobile-topbar{display:flex}
+
+  /* Sidebar becomes a slide-in drawer */
+  .sidebar{
+    position:fixed;top:0;left:0;height:100vh;z-index:200;
+    transform:translateX(-100%);transition:transform 0.25s ease;
+    width:260px;min-width:260px
+  }
+  .sidebar.open{transform:translateX(0)}
+
+  /* Main content takes full width */
+  .app-layout{flex-direction:column}
+  .main-content{min-height:calc(100vh - 48px)}
+
+  /* Page padding */
+  .page-header{padding:16px 16px 0;flex-wrap:wrap;gap:10px}
+  .page-body{padding:16px 16px 32px}
+  .page-title{font-size:18px}
+
+  /* Page actions wrap below title on small screens */
+  .page-actions{flex-wrap:wrap}
+
+  /* Stats grid: 2 columns on mobile */
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+
+  /* Dashboard bottom grid: stack */
+  .stats-grid + div > div[style*="grid-template-columns:1fr 1fr"]{display:flex!important;flex-direction:column!important}
+
+  /* Profile layout: stack sidebar below content */
+  .profile-layout{grid-template-columns:1fr!important;gap:16px}
+  .profile-card{order:-1}
+
+  /* Form rows: single column */
+  .form-row{grid-template-columns:1fr!important}
+
+  /* Settings grid: single column */
+  .settings-grid{grid-template-columns:1fr!important}
+
+  /* Email page layout: stack */
+  div[style*="grid-template-columns:1fr 340px"]{display:flex!important;flex-direction:column-reverse!important}
+
+  /* Tables: horizontal scroll */
+  .card{overflow-x:auto}
+  table{min-width:520px}
+
+  /* Modal: full screen on mobile */
+  .modal-overlay{padding:0;align-items:flex-end}
+  .modal{border-radius:var(--radius-lg) var(--radius-lg) 0 0;max-height:92vh;width:100%;max-width:100%}
+  .modal-lg{max-width:100%}
+
+  /* Tabs: scroll horizontally */
+  .tabs{overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
+  .tab{white-space:nowrap;flex-shrink:0}
+
+  /* Search bar: wrap nicely */
+  .search-bar{flex-direction:column}
+  .search-input-wrap{max-width:100%!important}
+  .filter-select{width:100%}
+
+  /* Summary bar: wrap */
+  .summary-bar{flex-wrap:wrap}
+  .summary-item{flex:1;min-width:120px}
+
+  /* Youth + waiver + productions grids: single column */
+  .youth-grid{grid-template-columns:1fr!important}
+  .waiver-grid{grid-template-columns:1fr!important}
+  #productions-grid{grid-template-columns:1fr!important}
+
+  /* Toast: bottom left on mobile, full width */
+  .toast-container{right:12px;left:12px;bottom:16px}
+
+  /* Volunteer table: hide less important columns */
+  #vol-table-body tr td:nth-child(3),
+  #vol-table-body tr td:nth-child(4),
+  thead tr th:nth-child(3),
+  thead tr th:nth-child(4){display:none}
+
+  /* Hours table: hide notes column */
+  #hours-table-body tr td:nth-child(6),
+  #hours-table-body tr td:nth-child(7){display:none}
+
+  /* Bulk actions bar */
+  #bulk-actions{flex-wrap:wrap}
+
+  /* Profile card: remove sticky side panel behavior */
+  .profile-card{height:auto!important}
+
+  /* Production detail layout */
+  div[style*="grid-template-columns:220px 1fr"]{display:flex!important;flex-direction:column!important}
+
+  /* Page-specific padding fixes */
+  .auth-card{padding:32px 24px}
+
+  /* Inline style grid overrides for dashboard */
+  [style*="display:grid;grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+}
+
+@media(max-width:480px){
+  /* Even tighter: stats 2-col, bigger touch targets */
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+  .stat-card{padding:14px}
+  .stat-value{font-size:22px}
+  .btn{min-height:40px}
+  .nav-item{padding:11px 10px}
+  .page-title{font-size:16px}
+  .modal-body{padding:16px}
+  .modal-header{padding:14px 16px}
+  .modal-footer{padding:12px 16px}
+}
 </style>
 </head>
 <body>
@@ -263,12 +381,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-card">
-    <div class="auth-logo">
-      <div class="auth-logo-icon">🎭</div>
-      <div><div class="auth-logo-text">RoleCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
+    <div style="text-align:center;margin-bottom:24px">
+      <img src="/static/images/logo.jpg" alt="Horizon West Theater Company" style="width:130px;height:130px;border-radius:16px;object-fit:cover;margin-bottom:14px;box-shadow:0 4px 16px rgba(0,0,0,0.15)"/>
+      <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px;margin-bottom:4px">RoleCall</div>
+      <div style="font-size:12px;color:var(--text-muted);font-weight:500">Horizon West Theater Company</div>
     </div>
-    <h2 style="font-size:20px;font-weight:600;margin-bottom:6px">Welcome back</h2>
-    <p style="color:var(--text-muted);margin-bottom:28px;font-size:14px">Sign in to manage your theater volunteers</p>
+    <h2 style="font-size:18px;font-weight:600;margin-bottom:6px">Welcome back</h2>
+    <p style="color:var(--text-muted);margin-bottom:24px;font-size:14px">Sign in to manage your volunteers</p>
     <div id="auth-error" class="auth-error">Invalid email or password.</div>
     <div class="form-group"><label>Email address</label><input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/></div>
     <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/></div>
@@ -279,11 +398,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- APP -->
 <div id="app">
   <div class="app-layout">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-logo">
-          <div class="sidebar-logo-icon">🎭</div>
-          <div><div class="sidebar-logo-text">RoleCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
+    <div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileNav()"></div>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header" style="padding:16px 20px">
+        <img src="/static/images/logo.jpg" alt="Horizon West Theater Company" style="width:100%;max-width:180px;border-radius:10px;display:block;margin:0 auto 10px"/>
+        <div style="text-align:center">
+          <div style="color:#fff;font-size:15px;font-weight:600;letter-spacing:-0.2px">RoleCall</div>
+          <div style="color:rgba(255,255,255,0.5);font-size:10px;letter-spacing:0.3px">Volunteer Management</div>
         </div>
       </div>
       <nav class="sidebar-nav">
@@ -307,6 +428,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     </aside>
 
     <main class="main-content">
+      <div class="mobile-topbar">
+        <button class="mobile-menu-btn" onclick="toggleMobileNav()">☰</button>
+        <div style="display:flex;align-items:center;gap:8px"><img src="/static/images/logo.jpg" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/><span style="font-weight:600;font-size:16px;color:#fff">RoleCall</span></div>
+        <div style="width:40px"></div>
+      </div>
 
       <!-- DASHBOARD -->
       <section class="page active" id="page-dashboard">
@@ -1044,6 +1170,7 @@ window.addEventListener('DOMContentLoaded',async()=>{
 //  NAV
 // ═══════════════════════════════════════════════════════════════
 function navTo(page,el){
+  closeMobileNav();
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   const pg=document.getElementById('page-'+page)
@@ -2848,6 +2975,25 @@ function buildActivityTimeline(v){
           </div>`).join('')}
       </div>
     </div>`).join('')
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MOBILE NAV
+// ═══════════════════════════════════════════════════════════════
+function toggleMobileNav(){
+  const sidebar=document.getElementById('sidebar')
+  const overlay=document.getElementById('mobile-overlay')
+  sidebar.classList.toggle('open')
+  overlay.classList.toggle('open')
+  document.body.style.overflow=sidebar.classList.contains('open')?'hidden':''
+}
+function closeMobileNav(){
+  const sidebar=document.getElementById('sidebar')
+  const overlay=document.getElementById('mobile-overlay')
+  sidebar.classList.remove('open')
+  overlay.classList.remove('open')
+  document.body.style.overflow=''
 }
 
 </script>

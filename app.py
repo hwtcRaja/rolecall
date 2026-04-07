@@ -100,115 +100,20 @@ def init_db():
         signed_date TEXT NOT NULL, expiry_date TEXT, signed_by TEXT,
         filename TEXT, original_name TEXT, created_at TIMESTAMP DEFAULT NOW())''')
 
-    def hash_pw(pw):
-        return hashlib.sha256(pw.encode()).hexdigest()
+    # youth_programs table
+    c.execute('''CREATE TABLE IF NOT EXISTS youth_programs (
+        id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+        description TEXT, created_at TIMESTAMP DEFAULT NOW())''')
 
-    for u in [
-        (str(uuid.uuid4()), 'Aria Montgomery', 'admin@horizonwest.org', hash_pw('admin123'), 'admin'),
-        (str(uuid.uuid4()), 'Marcus Chen',     'board@horizonwest.org', hash_pw('board123'), 'board'),
-    ]:
-        c.execute('INSERT INTO users (id,name,email,password_hash,role) VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', u)
+    # Add emergency contact fields to volunteer_waivers
+    try:
+        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_name TEXT')
+        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_phone TEXT')
+        c.execute('ALTER TABLE volunteer_waivers ADD COLUMN emergency_contact_relationship TEXT')
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
-    for it in [
-        (str(uuid.uuid4()), 'Performance','teal'),(str(uuid.uuid4()), 'Painting','pink'),
-        (str(uuid.uuid4()), 'Front of House','blue'),(str(uuid.uuid4()), 'Technical','amber'),
-        (str(uuid.uuid4()), 'Other','gray'),
-    ]:
-        c.execute('INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING', it)
-
-    for wt in [
-        (str(uuid.uuid4()), 'General Liability','Standard liability waiver for all volunteers',
-         'By signing this waiver, I agree to hold harmless Horizon West Theater from any injury or damages that may occur during my volunteer service.'),
-        (str(uuid.uuid4()), 'Minor Waiver','Required for volunteers under 18',
-         'As parent or legal guardian, I hereby grant permission for the above named minor to participate in volunteer activities at Horizon West Theater.'),
-        (str(uuid.uuid4()), 'Media Release','Permission to use photos and video',
-         'I grant Horizon West Theater the right to use photographs and video footage taken of me during events for promotional and educational purposes.'),
-        (str(uuid.uuid4()), 'COVID Health Screening','Health screening acknowledgment',
-         'I confirm that I am not experiencing COVID-19 symptoms and agree to follow all health and safety protocols established by Horizon West Theater.'),
-    ]:
-        c.execute('INSERT INTO waiver_types (id,name,description,template_body) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING', wt)
-
-    for et in [
-        (str(uuid.uuid4()), 'Event Reminder','Reminder: Upcoming Event',
-         'Hi {name},\n\nThis is a reminder that you are signed up for our upcoming event. Please arrive 15 minutes early.\n\nThank you for volunteering!\nHorizon West Theater'),
-        (str(uuid.uuid4()), 'Waiver Expiring','Action Required: Your Waiver is Expiring',
-         'Hi {name},\n\nYour volunteer waiver will expire soon. Please stop by or contact us to renew it before your next event.\n\nThank you,\nHorizon West Theater'),
-        (str(uuid.uuid4()), 'Thank You','Thank You for Volunteering!',
-         'Hi {name},\n\nThank you so much for volunteering with us. Your time and dedication mean everything to our organization.\n\nWith gratitude,\nHorizon West Theater'),
-    ]:
-        c.execute('INSERT INTO email_templates (id,name,subject,body) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING', et)
-
-    for ev in [
-        (str(uuid.uuid4()), 'Mamma Mia!','2025-03-01','Spring musical production'),
-        (str(uuid.uuid4()), 'Holiday Gala 2024','2024-12-15','Annual holiday fundraiser'),
-        (str(uuid.uuid4()), 'Spring Showcase','2025-04-05','Student showcase performance'),
-        (str(uuid.uuid4()), 'Rent','2025-02-14','Valentine weekend production'),
-        (str(uuid.uuid4()), 'Set Build Weekend','2025-01-20','Set construction for spring show'),
-    ]:
-        c.execute('INSERT INTO events (id,name,event_date,description) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING', ev)
-
-    for v in [
-        ('v1','Sophie Larkin','sophie@email.com','(555)201-3344','1994-03-12','active','["Performance","Front of House"]'),
-        ('v2','Darius Wells','darius@email.com','(555)888-2211','1989-07-22','active','["Technical","Painting"]'),
-        ('v3','Priya Nandakumar','priya@email.com','(555)334-9012','1997-11-05','active','["Performance","Technical"]'),
-        ('v4','Tomasz Bryl','tomasz@email.com','(555)774-0023','1985-05-30','active','["Painting","Other"]'),
-        ('v5','Yuki Tanaka','yuki@email.com','(555)121-5566','2000-08-18','inactive','["Front of House"]'),
-        ('v6','Ramon Delgado','ramon@email.com','(555)902-3344','1991-12-03','active','["Performance","Front of House"]'),
-    ]:
-        c.execute('INSERT INTO volunteers (id,name,email,phone,birthday,status,interests) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', v)
-
-    for h in [
-        ('hr1','v1','Mamma Mia!','2025-03-01',6,'Ensemble','Dress rehearsal + performance'),
-        ('hr2','v1','Holiday Gala 2024','2024-12-15',4,'FOH Lead',''),
-        ('hr3','v1','Spring Showcase','2025-04-05',4,'Performer',''),
-        ('hr4','v2','Rent','2025-02-14',8,'Lighting Technician','Rig setup + show'),
-        ('hr5','v2','Set Build Weekend','2025-01-20',7,'Scenic Painter',''),
-        ('hr6','v3','Spring Showcase','2025-04-05',5,'Stage Manager',''),
-        ('hr7','v3','Mamma Mia!','2025-03-01',6,'ASM',''),
-        ('hr8','v4','Mamma Mia!','2025-03-01',12,'Set Design Lead','Multi-day build'),
-        ('hr9','v6','Holiday Gala 2024','2024-12-15',3,'Box Office',''),
-    ]:
-        c.execute('INSERT INTO hours (id,volunteer_id,event,date,hours,role,notes) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', h)
-
-    for n in [
-        ('n1','v1','Aria Montgomery','Excellent stage presence. Recommended for lead roles.'),
-        ('n2','v2','Marcus Chen','Skilled with lighting rigs. Available most weekends.'),
-        ('n3','v5','Aria Montgomery','Went on leave — check back in fall 2025.'),
-    ]:
-        c.execute('INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING', n)
-
-    for h in [
-        ('h1','v1','Mamma Mia!','Ensemble','2025-03-01','Standout performance'),
-        ('h2','v1','Holiday Gala 2024','FOH Lead','2024-12-15',''),
-        ('h3','v2','Rent','Lighting Technician','2025-02-14',''),
-        ('h4','v2','Set Build Weekend','Scenic Painter','2025-01-20','Built flats for Act 2'),
-        ('h5','v3','Spring Showcase','Stage Manager','2025-04-05',''),
-        ('h6','v4','Mamma Mia!','Set Design Lead','2025-03-01',''),
-        ('h7','v6','Holiday Gala 2024','Greeter / Box Office','2024-12-15',''),
-    ]:
-        c.execute('INSERT INTO volunteer_history (id,volunteer_id,event,role,date,notes) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', h)
-
-    for y in [
-        ('y1','Emma','Rodriguez','2012-05-14','Summer Theater Camp','active','None','Peanuts',1,1),
-        ('y2','Liam','Park','2013-08-22','Youth Acting Class','active','Asthma - has inhaler','None',1,0),
-        ('y3','Zoe','Williams','2011-11-03','Junior Crew','active','','Tree nuts',0,1),
-    ]:
-        c.execute('INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', y)
-
-    for g in [
-        ('g1','y1','Maria Rodriguez','Mother','(555)301-2222','maria@email.com',1),
-        ('g2','y1','Carlos Rodriguez','Father','(555)301-3333','carlos@email.com',0),
-        ('g3','y2','Jin Park','Parent','(555)402-1111','jin@email.com',1),
-        ('g4','y3','Sarah Williams','Mother','(555)503-4444','sarah@email.com',1),
-    ]:
-        c.execute('INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', g)
-
-    for e in [
-        ('e1','y1','Grandma Rosa','Grandmother','(555)301-9999'),
-        ('e2','y2','Uncle Tom','Uncle','(555)402-8888'),
-        ('e3','y3','Aunt Lisa','Aunt','(555)503-7777'),
-    ]:
-        c.execute('INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING', e)
 
     conn.commit()
     conn.close()
@@ -611,6 +516,9 @@ def upload_waiver(vol_id):
     expiry_date    = request.form.get('expiry_date') or None
     signed_name    = request.form.get('signed_name') or None
     signed_via     = request.form.get('signed_via', 'upload')
+    ec_name        = request.form.get('emergency_contact_name') or None
+    ec_phone       = request.form.get('emergency_contact_phone') or None
+    ec_rel         = request.form.get('emergency_contact_relationship') or None
     if not waiver_type_id or not signed_date:
         return jsonify({'error': 'Waiver type and signed date are required'}), 400
     filename = original_name = file_size = None
@@ -628,8 +536,8 @@ def upload_waiver(vol_id):
     wid = str(uuid.uuid4())
     conn = get_db()
     execute(conn,
-        'INSERT INTO volunteer_waivers (id,volunteer_id,waiver_type_id,signed_date,expiry_date,filename,original_name,file_size,signed_name,signed_via,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-        (wid, vol_id, waiver_type_id, signed_date, expiry_date, filename, original_name, file_size, signed_name, signed_via, session['user_name']))
+        'INSERT INTO volunteer_waivers (id,volunteer_id,waiver_type_id,signed_date,expiry_date,filename,original_name,file_size,signed_name,signed_via,uploaded_by,emergency_contact_name,emergency_contact_phone,emergency_contact_relationship) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        (wid, vol_id, waiver_type_id, signed_date, expiry_date, filename, original_name, file_size, signed_name, signed_via, session['user_name'], ec_name, ec_phone, ec_rel))
     conn.commit()
     row = fetchone(conn,
         'SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.id=%s', (wid,))
@@ -676,6 +584,47 @@ def delete_waiver_record(wid):
         try: os.remove(os.path.join(UPLOAD_FOLDER, w['filename']))
         except: pass
     execute(conn, 'DELETE FROM volunteer_waivers WHERE id=%s', (wid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  YOUTH PROGRAMS
+# ─────────────────────────────────────────────
+
+@app.route('/api/youth-programs')
+def get_youth_programs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    programs = fetchall(conn, 'SELECT * FROM youth_programs ORDER BY name')
+    conn.close()
+    return jsonify(programs)
+
+@app.route('/api/youth-programs', methods=['POST'])
+def create_youth_program():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO youth_programs (id,name,description) VALUES (%s,%s,%s)',
+                (pid, d['name'].strip(), d.get('description','')))
+        conn.commit()
+    except psycopg2.IntegrityError:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Program already exists'}), 400
+    row = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-programs/<pid>', methods=['DELETE'])
+def delete_youth_program(pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_programs WHERE id=%s', (pid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -939,9 +888,8 @@ def create_user():
 #  RUN
 # ─────────────────────────────────────────────
 
-init_db()
-
 if __name__ == '__main__':
+    init_db()
     print('\n🎭 RollCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)

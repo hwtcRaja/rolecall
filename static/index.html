@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RoleCall — Volunteer Management</title>
+<title>RollCall — Volunteer Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -251,11 +251,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .setting-item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--gray-50);border-radius:8px;margin-bottom:6px}
 .setting-item-label{font-size:13px;font-weight:500}
 .setting-item-sub{font-size:11px;color:var(--text-muted)}
-.waiver-template-body{width:100%;min-height:100px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical;outline:none}
+.waiver-template-body{width:100%;min-height:260px;padding:14px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.8;resize:vertical;outline:none}
 .waiver-template-body:focus{border-color:var(--teal-400)}
 .sign-box{border:2px solid var(--border-md);border-radius:var(--radius-lg);padding:32px;text-align:center;background:var(--gray-50);margin:16px 0}
 .sign-box h2{font-size:18px;font-weight:600;margin-bottom:8px}
-.sign-box .waiver-text{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px;text-align:left;background:var(--surface);padding:16px;border-radius:var(--radius);border:1px solid var(--border)}
+.sign-box .waiver-text{font-size:13px;color:var(--text-muted);line-height:1.9;margin-bottom:20px;text-align:left;background:var(--surface);padding:20px 24px;border-radius:var(--radius);border:1px solid var(--border);white-space:pre-wrap;max-height:320px;overflow-y:auto}
 </style>
 </head>
 <body>
@@ -265,15 +265,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="auth-card">
     <div class="auth-logo">
       <div class="auth-logo-icon">🎭</div>
-      <div><div class="auth-logo-text">RoleCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
+      <div><div class="auth-logo-text">RollCall</div><div class="auth-logo-sub">Volunteer Management System</div></div>
     </div>
     <h2 style="font-size:20px;font-weight:600;margin-bottom:6px">Welcome back</h2>
-    <p style="color:var(--text-muted);margin-bottom:28px;font-size:14px">Sign in to manage HWTC's volunteers</p>
+    <p style="color:var(--text-muted);margin-bottom:28px;font-size:14px">Sign in to manage your theater volunteers</p>
     <div id="auth-error" class="auth-error">Invalid email or password.</div>
     <div class="form-group"><label>Email address</label><input type="email" id="login-email" placeholder="you@company.com" autocomplete="email"/></div>
     <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/></div>
     <button class="btn btn-primary btn-full" onclick="handleLogin()">Sign in</button>
-    <!-- <div class="demo-accounts">
+    <div class="demo-accounts">
       <p style="font-size:12px;color:var(--text-hint);margin-bottom:12px">Quick access — demo accounts</p>
       <button class="demo-btn" onclick="quickLogin('admin@horizonwest.org','admin123')">
         <div><div style="font-weight:500;font-size:13px">Aria Montgomery</div><div style="font-size:11px;color:var(--text-muted)">admin@horizonwest.org</div></div>
@@ -283,8 +283,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div><div style="font-weight:500;font-size:13px">Marcus Chen</div><div style="font-size:11px;color:var(--text-muted)">board@horizonwest.org</div></div>
         <span style="font-size:11px;padding:3px 8px;border-radius:20px;background:var(--blue-50);color:var(--blue-600)">Board</span>
       </button>
-    </div> -->
-  </div> 
+    </div>
+  </div>
 </div>
 
 <!-- APP -->
@@ -294,7 +294,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="sidebar-logo-icon">🎭</div>
-          <div><div class="sidebar-logo-text">RoleCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
+          <div><div class="sidebar-logo-text">RollCall</div><div class="sidebar-logo-sub">Horizon West Theater</div></div>
         </div>
       </div>
       <nav class="sidebar-nav">
@@ -628,10 +628,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group" style="text-align:left"><label>Type Your Full Name to Sign *</label><input type="text" id="online-sign-name" placeholder="Full legal name"/></div>
         <div style="font-size:12px;color:var(--text-muted)">By typing your name above, you agree to the terms of this waiver. Today's date: <strong id="online-sign-date"></strong></div>
       </div>
-      <div style="background:var(--blue-50);border:1px solid var(--blue-200);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--blue-600)">
-        💡 You can also copy this link to send to the volunteer: <span id="online-sign-link" style="font-family:monospace;font-size:12px;word-break:break-all"></span>
-        <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="copySignLink()">Copy</button>
-      </div>
+
+
+
+
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-online-sign')">Cancel</button>

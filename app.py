@@ -190,6 +190,8 @@ def init_db():
     # Run migrations in separate try blocks so failures don't roll back table creation
     for col_sql in [
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
@@ -365,6 +367,9 @@ def get_events():
     if err: return err
     conn = get_db()
     events = fetchall(conn, 'SELECT * FROM events ORDER BY event_date DESC NULLS LAST')
+    for e in events:
+        e['required_waivers'] = fetchall(conn,
+            'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (e['id'],))
     conn.close()
     return jsonify(events)
 
@@ -375,10 +380,26 @@ def create_event():
     d = request.json
     eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO events (id,name,event_date,description) VALUES (%s,%s,%s,%s)',
-            (eid, d['name'], d.get('event_date') or None, d.get('description','')))
+    execute(conn, 'INSERT INTO events (id,name,event_date,start_time,end_time,description) VALUES (%s,%s,%s,%s,%s,%s)',
+            (eid, d['name'], d.get('event_date') or None, d.get('start_time') or None, d.get('end_time') or None, d.get('description','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    row['required_waivers'] = []
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/<eid>', methods=['PUT'])
+def update_event(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE events SET name=%s,event_date=%s,start_time=%s,end_time=%s,description=%s WHERE id=%s',
+            (d['name'], d.get('event_date') or None, d.get('start_time') or None, d.get('end_time') or None, d.get('description',''), eid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    row['required_waivers'] = fetchall(conn,
+        'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     conn.close()
     return jsonify(row)
 
@@ -1025,6 +1046,8 @@ def get_productions():
             FROM production_members pm
             JOIN volunteers v ON pm.volunteer_id=v.id
             WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
+        p['required_waivers'] = fetchall(conn,
+            'SELECT pw.*, wt.name as waiver_name FROM production_waivers pw JOIN waiver_types wt ON pw.waiver_type_id=wt.id WHERE pw.production_id=%s', (p['id'],))
     conn.close()
     return jsonify(prods)
 
@@ -1207,14 +1230,32 @@ def kiosk_volunteers():
 @app.route('/api/kiosk/events')
 def kiosk_events():
     conn = get_db()
-    today = date.today().isoformat()
-    week_ago = (date.today().replace(day=max(1, date.today().day - 7))).isoformat()
-    events = fetchall(conn,
-        "SELECT * FROM events WHERE event_date >= %s AND event_date <= %s ORDER BY event_date DESC",
-        (week_ago, today))
+    now = datetime.now()
+    today = now.date().isoformat()
+    now_time = now.strftime('%H:%M')
+    all_events = fetchall(conn, "SELECT * FROM events WHERE event_date IS NOT NULL ORDER BY event_date DESC")
     no_date = fetchall(conn, "SELECT * FROM events WHERE event_date IS NULL ORDER BY name")
+
+    visible = []
+    for e in all_events:
+        if e['event_date'] != today:
+            continue
+        # If event has start/end times, apply 90-min window
+        if e.get('start_time') and e.get('end_time'):
+            # Calculate window: start_time - 90min to end_time + 90min
+            from datetime import timedelta
+            start_dt = datetime.strptime(f"{e['event_date']} {e['start_time']}", '%Y-%m-%d %H:%M')
+            end_dt   = datetime.strptime(f"{e['event_date']} {e['end_time']}",   '%Y-%m-%d %H:%M')
+            window_start = start_dt - timedelta(minutes=90)
+            window_end   = end_dt   + timedelta(minutes=90)
+            if window_start <= now <= window_end:
+                visible.append(e)
+        else:
+            # No time set — show all day
+            visible.append(e)
+
     conn.close()
-    return jsonify(events + no_date)
+    return jsonify(visible + no_date)
 
 @app.route('/api/kiosk/submit', methods=['POST'])
 def kiosk_submit():

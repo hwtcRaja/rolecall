@@ -508,7 +508,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PROFILE -->
-      <section class="page" id="page-profile">
+      <section class="page" id="page-profile" style="overflow-y:auto">
         <div id="profile-header"></div>
         <div class="page-body"><div id="profile-content"></div></div>
       </section>
@@ -523,7 +523,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')">📅 Calendar</button>
               <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">☰ List</button>
             </div>
-            <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
+<select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
+            <select class="filter-select" id="ev-filter-category" onchange="renderEventsPage()" style="font-size:13px">
+              <option value="">All Categories</option>
+              <option value="production">🎭 Productions</option>
+              <option value="rising_stars">⭐ Rising Stars</option>
+              <option value="program">📚 Programs/Classes</option>
+              <option value="standalone">📅 Standalone</option>
+            </select>
             <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select>
             <button class="btn btn-primary admin-only" onclick="openEventModal()">+ New Event</button>
           </div>
@@ -667,23 +674,29 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </div>
         </div>
         <div class="page-body">
-          <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
-            <div>
-              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">View by</div>
-              <select id="ysi-filter-type" class="filter-select" onchange="ysiTypeChanged()">
-                <option value="program">Program / Class</option>
-                <option value="event">Event</option>
-              </select>
-            </div>
+          <!-- Category tabs -->
+          <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content">
+            <button class="ysi-cat-btn active" data-cat="program" onclick="setYsiCategory('program')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--teal-600)">📚 Program / Class</button>
+            <button class="ysi-cat-btn" data-cat="rising_stars" onclick="setYsiCategory('rising_stars')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">⭐ Rising Stars</button>
+            <button class="ysi-cat-btn" data-cat="standalone" onclick="setYsiCategory('standalone')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">📅 Standalone Event</button>
+          </div>
+          <!-- Second-level selector -->
+          <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end" id="ysi-selector-row">
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px" id="ysi-id-label">Select Program</div>
-              <select id="ysi-filter-id" class="filter-select" onchange="loadYouthSignInSheet()">
+              <select id="ysi-filter-id" class="filter-select" onchange="ysiParentChanged()">
                 <option value="">— Select —</option>
+              </select>
+            </div>
+            <div id="ysi-event-row" style="display:none">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Then select event</div>
+              <select id="ysi-filter-event" class="filter-select" onchange="loadYouthSignInSheet()">
+                <option value="">— All / No specific event —</option>
               </select>
             </div>
           </div>
           <div id="ysi-content">
-            <div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>
+            <div class="empty-state"><div class="empty-icon">📝</div><p>Select a category above to get started</p></div>
           </div>
         </div>
       </section>
@@ -767,8 +780,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- YOUTH PROFILE -->
-      <section class="page" id="page-youth-profile">
-        <div class="page-header" id="youth-profile-header"></div>
+      <section class="page" id="page-youth-profile" style="overflow-y:auto">
+        <div id="youth-profile-header" style="width:100%"></div>
         <div class="page-body"><div id="youth-profile-content"></div></div>
       </section>
 
@@ -1124,8 +1137,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Location / Venue</label><input type="text" id="edit-event-location" placeholder="e.g. HWTC Main Stage"/></div>
         <div class="form-group"><label>Room / Space</label><input type="text" id="edit-event-room" placeholder="e.g. Black Box, Rehearsal Hall"/></div>
       </div>
+      <div style="padding:10px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Link to (choose one)</div>
+      <div class="form-row" style="margin-bottom:0">
+        <div class="form-group"><label>Production</label>
+          <select id="edit-event-production" onchange="onEventParentChange('production')"><option value="">— Standalone —</option></select>
+        </div>
+        <div class="form-group"><label>Program / Class</label>
+          <select id="edit-event-program" onchange="onEventParentChange('program')"><option value="">— Standalone —</option></select>
+        </div>
+      </div>
       <div class="form-row">
-        <div class="form-group"><label>Production (optional)</label><select id="edit-event-production"><option value="">— Standalone event —</option></select></div>
         <div class="form-group"><label>Expected Volunteers</label><input type="number" id="edit-event-volunteers" min="1" placeholder="e.g. 12"/></div>
       </div>
       <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
@@ -1283,6 +1304,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="form-row">
         <div class="form-group"><label>Start Date</label><input type="date" id="prod-start"/></div>
         <div class="form-group"><label>End Date</label><input type="date" id="prod-end"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Default ELIC</label>
+          <select id="prod-default-elic"><option value="">— Assign default ELIC —</option></select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-fills on events created under this production</div>
+        </div>
       </div>
       <div class="form-group"><label>Description</label><textarea id="prod-desc" placeholder="Brief description…"></textarea></div>
     </div>
@@ -1680,25 +1707,21 @@ async function openProfile(volId){
   const isAdmin=currentUser?.role==='admin'
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
-  document.getElementById('profile-header').innerHTML=`
-    <div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);padding:24px 32px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;width:100%">
-      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);flex-shrink:0" onclick="navTo('volunteers')">← Back</button>
-      <div style="width:56px;height:56px;border-radius:50%;background:${bg};border:3px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:${col};flex-shrink:0">${initials(v.name)}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px">${v.name}</div>
-        <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px">${v.email}${v.phone?' · '+v.phone:''}</div>
-        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-          <span style="background:rgba(255,255,255,${v.status==='active'?'0.25':'0.12'});color:#fff;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${v.status==='active'?'● Active':'○ Inactive'}</span>
-          ${v.background_check_status==='cleared'?'<span style="background:rgba(45,158,107,0.4);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">✅ BGC Cleared</span>':v.background_check_status==='pending'?'<span style="background:rgba(212,131,10,0.4);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px">⏳ BGC Pending</span>':''}
-          <span style="background:rgba(255,255,255,0.15);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px">${v.total_hours||0}h total</span>
-        </div>
-      </div>
-      ${isAdmin?`<div style="display:flex;gap:8px;flex-shrink:0">
-        <a href="mailto:${v.email}" class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)">✉️ Email</a>
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)" onclick="openEditVolModal('${v.id}')">Edit</button>
-        <button class="btn btn-sm" style="background:rgba(192,57,43,0.4);color:#fff;border:1px solid rgba(255,100,80,0.3)" onclick="deleteVol('${v.id}')">Delete</button>
-      </div>`:''}
-    </div>`
+  document.getElementById('profile-header').innerHTML=buildProfileBanner({
+    name: v.name, email: v.email, phone: v.phone, status: v.status,
+    bg, col, backFn: "navTo('volunteers')",
+    badges: [
+      v.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},
+      v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
+      v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
+      {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
+    ].filter(Boolean),
+    actions: isAdmin ? [
+      {label:'✉️ Email', href:'mailto:'+v.email},
+      {label:'Edit', onclick:"openEditVolModal('"+v.id+"')"},
+      {label:'Delete', onclick:"deleteVol('"+v.id+"')", danger:true}
+    ] : []
+  })
 
   document.getElementById('profile-content').innerHTML=`
     <div class="profile-layout">
@@ -2280,32 +2303,24 @@ async function openYouthProfile(yid){
   const age=calcAge(y.dob)
   const [bg,col]=avatarColors(y.first_name+y.last_name)
 
-  document.getElementById('youth-profile-header').innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-secondary btn-sm" onclick="navTo('youth')">← Back to Youth</button>
-    </div>
-    ${isAdmin?`<div class="page-actions">
-      <button class="btn btn-danger btn-sm" onclick="deleteYouth('${y.id}')">Delete</button>
-    </div>`:''}`
+
+  document.getElementById('youth-profile-header').innerHTML=buildProfileBanner({
+    name: y.first_name+' '+y.last_name,
+    sub: (y.dob?'Age '+(calcAge(y.dob)||'?')+' · ':'')+((y.enrollments||[]).map(e=>e.program_name).filter(Boolean).join(', ')||'No programs'),
+    bg:'rgba(255,255,255,0.2)', col:'#fff', backFn:"navTo('youth')", backLabel:'← Back',
+    badges:[
+      y.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},
+      y.photo_consent?{label:'📸 Photo OK',bg:'rgba(255,255,255,0.15)'}:{label:'📸 No Photo',bg:'rgba(255,80,80,0.3)'},
+      y.medical_consent?{label:'🏥 Medical OK',bg:'rgba(255,255,255,0.15)'}:{label:'🏥 No Medical',bg:'rgba(255,80,80,0.3)'},
+      y.allergies&&y.allergies!=='None'?{label:'⚠️ '+y.allergies,bg:'rgba(255,180,0,0.35)'}:null
+    ].filter(Boolean),
+    actions:isAdmin?[
+      {label:'Edit',onclick:"openEditYouthModal('"+y.id+"')" },
+      {label:'Delete',onclick:"deleteYouth('"+y.id+"')",danger:true}
+    ]:[]
+  })
 
   document.getElementById('youth-profile-content').innerHTML=`
-    <!-- Hero banner -->
-    <div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);border-radius:var(--radius-lg);padding:28px 32px;margin-bottom:24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
-      <div style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.2);border:3px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;flex-shrink:0">${initials(y.first_name+' '+y.last_name)}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:24px;font-weight:800;color:#fff;letter-spacing:-0.5px">${y.first_name} ${y.last_name}</div>
-        <div style="color:rgba(255,255,255,0.65);font-size:14px;margin-top:2px">${y.dob?'Age '+(calcAge(y.dob)||'?')+' · ':''} ${(y.enrollments||[]).map(e=>e.program_name).filter(Boolean).join(', ')||'No programs'}</div>
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-          <span style="background:rgba(255,255,255,${y.status==='active'?'0.25':'0.1'});color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${y.status==='active'?'● Active':'○ Inactive'}</span>
-          ${y.photo_consent?'<span style="background:rgba(255,255,255,0.15);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">📸 Photo OK</span>':'<span style="background:rgba(255,80,80,0.3);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">📸 No Photo</span>'}
-          ${y.medical_consent?'<span style="background:rgba(255,255,255,0.15);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">🏥 Medical OK</span>':'<span style="background:rgba(255,80,80,0.3);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">🏥 No Medical</span>'}
-          ${y.allergies&&y.allergies!=='None'?`<span style="background:rgba(255,180,0,0.35);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">⚠️ ${y.allergies}</span>`:''}
-        </div>
-      </div>
-      ${isAdmin?`<div style="display:flex;gap:8px">
-        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)" onclick="openEditYouthModal('${y.id}')">Edit</button>
-      </div>`:''}
-    </div>
 
     <!-- Two-column layout: info sidebar + tabs -->
     <div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start">
@@ -3136,6 +3151,8 @@ function openProductionModal(){
   document.getElementById('prod-stage-mainstage').checked=true
   document.getElementById('prod-stage-rising').checked=false
   updateStageUI()
+  const pdesel=document.getElementById('prod-default-elic')
+  if(pdesel) pdesel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
   openModal('modal-production')
 }
 
@@ -3154,6 +3171,8 @@ function openEditProductionModal(pid){
   document.getElementById('prod-stage-mainstage').checked=stageVal==='mainstage'
   document.getElementById('prod-stage-rising').checked=stageVal==='rising_stars'
   updateStageUI()
+  const epdesel=document.getElementById('prod-default-elic')
+  if(epdesel){epdesel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');epdesel.value=p.default_elic_id||''}
   openModal('modal-production')
 }
 
@@ -3168,7 +3187,8 @@ async function saveProduction(){
     status:document.getElementById('prod-status').value,
     start_date:document.getElementById('prod-start').value||null,
     end_date:document.getElementById('prod-end').value||null,
-    description:document.getElementById('prod-desc').value.trim()
+    description:document.getElementById('prod-desc').value.trim(),
+    default_elic_id:document.getElementById('prod-default-elic')?.value||null
   }
   let res
   if(editId) res=await api(`/api/productions/${editId}`,'PUT',data)
@@ -3963,9 +3983,16 @@ function populateEventsFilters(){
 function filterEvents(){
   const filterType=document.getElementById('ev-filter-type')?.value||''
   const filterStatus=document.getElementById('ev-filter-status')?.value||''
+  const filterCat=document.getElementById('ev-filter-category')?.value||''
   return allEvents.filter(e=>{
     if(filterType&&e.event_type_id!==filterType) return false
     if(filterStatus&&(e.status||'draft')!==filterStatus) return false
+    if(filterCat){
+      if(filterCat==='production'&&(!e.production_id||e.production_stage==='rising_stars')) return false
+      if(filterCat==='rising_stars'&&e.production_stage!=='rising_stars') return false
+      if(filterCat==='program'&&!e.program_id) return false
+      if(filterCat==='standalone'&&(e.production_id||e.program_id)) return false
+    }
     return true
   })
 }
@@ -4082,6 +4109,7 @@ function eventListRow(e,isAdmin){
         <span>⏰ ${timeStr}</span>
         ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
         ${e.production_name?`<span>🎭 ${e.production_name}</span>`:''}
+        ${e.program_name?`<span>📚 ${e.program_name}</span>`:''}
         ${(e.elics||[]).length?`<span>🎬 ${e.elics.map(el=>el.volunteer_name).join(', ')}</span>`:''}
       </div>
     </div>
@@ -4132,6 +4160,7 @@ function openEventDetail(eid){
           <div>⏰ <strong style="color:var(--text)">${timeStr}</strong></div>
           ${e.location?`<div>📍 ${e.location}${e.room?' <span style="color:var(--text-hint)">·</span> '+e.room:''}</div>`:''}
           ${e.production_name?`<div>🎭 <a onclick="openProductionDetail('${e.production_id}')" style="color:var(--teal-600);cursor:pointer">${e.production_name}</a></div>`:''}
+          ${e.program_name?`<div>📚 <span style="color:var(--purple-600)">${e.program_name}</span></div>`:''}
           ${e.expected_volunteers?`<div>👥 ${e.expected_volunteers} expected volunteers</div>`:''}
           ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;margin-top:4px">🔍 Background check required</div>`:''}
         </div>
@@ -4197,7 +4226,9 @@ function populateEventModal(){
   const etSel=document.getElementById('edit-event-type')
   if(etSel) etSel.innerHTML='<option value="">— Select type —</option>'+allEventTypes.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')
   const pSel=document.getElementById('edit-event-production')
-  if(pSel) pSel.innerHTML='<option value="">— Standalone event —</option>'+allProductions.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+  if(pSel) pSel.innerHTML='<option value="">— Standalone —</option>'+allProductions.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+  const pgSel=document.getElementById('edit-event-program')
+  if(pgSel) pgSel.innerHTML='<option value="">— Standalone —</option>'+allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
 }
 
 function openEventModal(eid=null){
@@ -4212,6 +4243,18 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-type').value=''
     document.getElementById('edit-event-production').value=''
     document.getElementById('edit-event-volunteers').value=''
+    document.getElementById('edit-event-bgcheck').checked=false
+    // If opened from a program or production context, pre-fill parent and default ELIC
+    if(eid===null && window._openEventParent){
+      const{productionId,programId}=window._openEventParent
+      if(productionId) document.getElementById('edit-event-production').value=productionId
+      // Fetch default ELIC async
+      const param=productionId?`production_id=${productionId}`:`program_id=${programId}`
+      api(`/api/events/default-elic?${param}`).then(r=>{
+        if(r.elic_id) prefillEventElic(r.elic_id)
+      })
+      window._openEventParent=null
+    }
   } else {
     const e=allEvents.find(e=>e.id===eid)
     if(!e) return
@@ -4248,6 +4291,7 @@ async function saveEditEvent(){
     location:document.getElementById('edit-event-location').value.trim(),
     room:document.getElementById('edit-event-room').value.trim(),
     production_id:document.getElementById('edit-event-production').value||null,
+    program_id:document.getElementById('edit-event-program')?.value||null,
     expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
     description:document.getElementById('edit-event-desc').value.trim(),
     notes:document.getElementById('edit-event-notes').value.trim(),
@@ -4435,133 +4479,216 @@ async function loadYouthSignInTab(yid){
 //  YOUTH SIGN-IN SHEETS
 // ═══════════════════════════════════════════════════════════════
 
-let ysiView = 'card'  // 'card' or 'list'
-let ysiCurrentFilter = {type:'program', id:''}
-let ysiData = []       // sign-in records
-let ysiRoster = []     // all youth for this filter
+let ysiView = 'card'
+let ysiCurrentFilter = {category:'program', parentId:'', eventId:''}
+let ysiData = []
+let ysiRoster = []
+let ysiAdultRoster = []  // for rising stars — adult crew
 
 function initYouthSignIn(){
-  ysiPopulateIds()
+  setYsiCategory('program')
 }
 
-function ysiTypeChanged(){
-  ysiPopulateIds()
-  document.getElementById('ysi-content').innerHTML=
-    '<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
-}
+function setYsiCategory(cat){
+  ysiCurrentFilter.category = cat
+  ysiCurrentFilter.parentId = ''
+  ysiCurrentFilter.eventId = ''
 
-function ysiPopulateIds(){
-  const type=document.getElementById('ysi-filter-type')?.value||'program'
-  const label=document.getElementById('ysi-id-label')
-  const sel=document.getElementById('ysi-filter-id')
+  // Update tab styles
+  document.querySelectorAll('.ysi-cat-btn').forEach(b=>{
+    const active = b.getAttribute('data-cat')===cat
+    b.style.background = active ? 'var(--surface)' : 'transparent'
+    b.style.color = active ? 'var(--teal-600)' : 'var(--text-muted)'
+  })
+
+  // Populate parent selector
+  const label = document.getElementById('ysi-id-label')
+  const sel = document.getElementById('ysi-filter-id')
+  const evRow = document.getElementById('ysi-event-row')
+  const evSel = document.getElementById('ysi-filter-event')
   if(!sel) return
-  if(type==='program'){
-    if(label) label.textContent='Select Program'
-    sel.innerHTML='<option value="">— Select Program —</option>'+
+
+  if(cat === 'program'){
+    if(label) label.textContent = 'Select Program'
+    sel.innerHTML = '<option value="">— Select Program —</option>' +
       allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+    evRow.style.display = 'none'
+  } else if(cat === 'rising_stars'){
+    if(label) label.textContent = 'Select Production'
+    const rsProds = allProductions.filter(p=>p.stage==='rising_stars')
+    sel.innerHTML = '<option value="">— Select Production —</option>' +
+      rsProds.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+    evRow.style.display = 'none'
   } else {
-    if(label) label.textContent='Select Event'
-    sel.innerHTML='<option value="">— Select Event —</option>'+
-      allEvents.map(e=>`<option value="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
+    // standalone event
+    if(label) label.textContent = 'Select Event'
+    const standaloneEvts = allEvents.filter(e=>!e.production_id&&!e.program_id)
+    sel.innerHTML = '<option value="">— Select Event —</option>' +
+      standaloneEvts.map(e=>`<option value="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
+    evRow.style.display = 'none'
   }
+  document.getElementById('ysi-content').innerHTML =
+    '<div class="empty-state"><div class="empty-icon">📝</div><p>Select from the dropdown above</p></div>'
+}
+
+async function ysiParentChanged(){
+  const cat = ysiCurrentFilter.category
+  const parentId = document.getElementById('ysi-filter-id').value
+  ysiCurrentFilter.parentId = parentId
+  ysiCurrentFilter.eventId = ''
+  const evRow = document.getElementById('ysi-event-row')
+  const evSel = document.getElementById('ysi-filter-event')
+
+  if(!parentId){
+    evRow.style.display = 'none'
+    document.getElementById('ysi-content').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">📝</div><p>Select from the dropdown above</p></div>'
+    return
+  }
+
+  if(cat === 'standalone'){
+    // parentId IS the event for standalone
+    ysiCurrentFilter.eventId = parentId
+    evRow.style.display = 'none'
+    loadYouthSignInSheet()
+    return
+  }
+
+  // Populate events for this program or production
+  let events = []
+  if(cat === 'program'){
+    events = allEvents.filter(e=>e.program_id===parentId)
+  } else if(cat === 'rising_stars'){
+    events = allEvents.filter(e=>e.production_id===parentId)
+  }
+
+  if(events.length){
+    evRow.style.display = 'block'
+    evSel.innerHTML = '<option value="">— All events —</option>' +
+      events.map(e=>`<option value="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
+  } else {
+    evRow.style.display = 'none'
+  }
+
+  // Load without specific event selected
+  loadYouthSignInSheet()
 }
 
 async function loadYouthSignInSheet(){
-  const type=document.getElementById('ysi-filter-type')?.value||'program'
-  const id=document.getElementById('ysi-filter-id')?.value
-  const content=document.getElementById('ysi-content')
-  if(!id){
-    content.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
+  const cat = ysiCurrentFilter.category
+  const parentId = document.getElementById('ysi-filter-id').value
+  const eventId = document.getElementById('ysi-filter-event')?.value || ''
+  ysiCurrentFilter = {...ysiCurrentFilter, parentId, eventId}
+
+  const content = document.getElementById('ysi-content')
+  if(!parentId && cat !== 'standalone'){
+    content.innerHTML = '<div class="empty-state"><div class="empty-icon">📝</div><p>Select from the dropdown above</p></div>'
     return
   }
-  ysiCurrentFilter={type,id}
-  content.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
 
-  // Load sign-ins and build roster
-  const param=type==='program'?`program_id=${id}`:`event_id=${id}`
-  ysiData=await api(`/api/youth-sign-ins?${param}`)
+  const isAdmin = currentUser?.role==='admin'
 
-  // Build roster: enrolled youth (program) or all active (event)
-  ysiRoster = type==='program'
-    ? allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===id))
-    : allYouth.filter(y=>y.status==='active')
+  if(cat === 'program'){
+    await loadProgramSignIn(parentId, eventId, isAdmin)
+  } else if(cat === 'rising_stars'){
+    await loadRisingStarsSignIn(parentId, eventId, isAdmin)
+  } else {
+    await loadStandaloneEventSignIn(parentId, isAdmin)
+  }
+}
 
-  // Merge any signed-in youth not in roster
-  ysiData.forEach(r=>{
-    if(!ysiRoster.find(y=>y.id===r.youth_id)){
-      ysiRoster.push({id:r.youth_id,first_name:r.first_name,last_name:r.last_name,status:'active',enrollments:[]})
-    }
-  })
+async function loadProgramSignIn(programId, eventId, isAdmin){
+  // Roster = enrolled youth
+  const enrolled = await api(`/api/youth-programs/${programId}/enrolled`)
+  ysiRoster = enrolled
 
-  renderYsiContent()
+  // Sign-in records
+  const param = eventId ? `event_id=${eventId}` : `program_id=${programId}`
+  ysiData = await api(`/api/youth-sign-ins?${param}`)
+
+  const prog = allPrograms.find(p=>p.id===programId)
+  renderYsiSheet(prog?.name||'Program', isAdmin, false)
+}
+
+async function loadRisingStarsSignIn(prodId, eventId, isAdmin){
+  const prod = allProductions.find(p=>p.id===prodId)
+
+  // Youth = find linked program enrollments (if production has a linked program)
+  // For now: all youth participants who are enrolled in any program
+  // In future: production can link to a specific program
+  // Use all youth as fallback, or try to find by matching Rising Stars program
+  const param = eventId ? `event_id=${eventId}` : ''
+  ysiData = param ? await api(`/api/youth-sign-ins?${param}`) : []
+  ysiRoster = allYouth.filter(y=>y.status==='active')
+
+  // Adults = production members (volunteers)
+  const members = prod?.members || []
+  ysiAdultRoster = members
+
+  // Adult check-ins via pending_hours / prod_attendance
+  renderRisingStarsSheet(prod?.name||'Rising Stars', eventId, isAdmin)
+}
+
+async function loadStandaloneEventSignIn(eventId, isAdmin){
+  ysiRoster = allYouth.filter(y=>y.status==='active')
+  ysiData = await api(`/api/youth-sign-ins?event_id=${eventId}`)
+  const evt = allEvents.find(e=>e.id===eventId)
+  renderYsiSheet(evt?.name||'Event', isAdmin, false)
 }
 
 function setYsiView(v){
-  ysiView=v
-  document.getElementById('ysi-view-card')?.classList.toggle('btn-primary',v==='card')
-  document.getElementById('ysi-view-card')?.classList.toggle('btn-secondary',v!=='card')
-  document.getElementById('ysi-view-list')?.classList.toggle('btn-primary',v==='list')
-  document.getElementById('ysi-view-list')?.classList.toggle('btn-secondary',v!=='list')
-  renderYsiContent()
+  ysiView = v
+  // Re-render based on current category
+  const cat = ysiCurrentFilter.category
+  const isAdmin = currentUser?.role==='admin'
+  if(cat==='rising_stars'){
+    const prod = allProductions.find(p=>p.id===ysiCurrentFilter.parentId)
+    renderRisingStarsSheet(prod?.name||'Rising Stars', ysiCurrentFilter.eventId, isAdmin)
+  } else {
+    const label = cat==='program'
+      ? allPrograms.find(p=>p.id===ysiCurrentFilter.parentId)?.name
+      : allEvents.find(e=>e.id===ysiCurrentFilter.parentId)?.name
+    renderYsiSheet(label||'', isAdmin, false)
+  }
 }
 
-function renderYsiContent(){
-  const content=document.getElementById('ysi-content')
-  const label=ysiCurrentFilter.type==='program'
-    ?allPrograms.find(p=>p.id===ysiCurrentFilter.id)?.name||'Program'
-    :allEvents.find(e=>e.id===ysiCurrentFilter.id)?.name||'Event'
-  const signedInNow=ysiData.filter(r=>!r.signed_out_at)
-  const isAdmin=currentUser?.role==='admin'
+function renderYsiSheet(label, isAdmin, isRisingStars){
+  const content = document.getElementById('ysi-content')
+  const activeSignIn = {}
+  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id] = r })
+  const present = Object.keys(activeSignIn).length
 
-  // Map youth_id to their active sign-in record
-  const activeSignIn={}
-  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id]=r })
+  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
+    <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
+    <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">☰ List</button>
+  </div>`
 
-  const headerHTML=`
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
-      <div>
-        <div style="font-size:18px;font-weight:700">${label}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · <span style="color:var(--green-600);font-weight:600">${signedInNow.length} currently here</span></div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
-          <button id="ysi-view-card" class="btn btn-sm btn-primary" onclick="setYsiView('card')" style="border-radius:8px;padding:6px 12px">⊞ Cards</button>
-          <button id="ysi-view-list" class="btn btn-sm btn-secondary" onclick="setYsiView('list')" style="border-radius:8px;padding:6px 12px">☰ List</button>
-        </div>
-        ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>`:''}
-      </div>
-    </div>`
+  const header = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+    <div>
+      <div style="font-size:18px;font-weight:700">${label}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · <span style="color:var(--green-600);font-weight:600">${present} here now</span></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      ${viewToggle}
+      ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Sign In</button>`:''}
+      <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
+    </div>
+  </div>`
 
   if(ysiView==='card'){
-    const cards=ysiRoster.map(y=>{
-      const rec=activeSignIn[y.id]
-      const isIn=!!rec
-      const allRecs=ysiData.filter(r=>r.youth_id===y.id)
-      return`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;align-items:center;gap:10px">
-          ${avatarHTML(`${y.first_name} ${y.last_name}`,40)}
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:15px">${y.first_name} ${y.last_name}</div>
-            ${isIn?`<div style="font-size:12px;color:var(--green-600)">● Here since ${new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>
-            <div style="font-size:11px;color:var(--text-muted)">Dropped off by: ${rec.signed_in_by||'—'}</div>`
-            :`<div style="font-size:12px;color:var(--text-hint)">Not signed in</div>`}
-          </div>
-          <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">${isIn?'✅ IN':'◯ OUT'}</div>
-        </div>
-        ${isAdmin?`<div style="display:flex;gap:8px">
-          ${!isIn?`<button class="btn btn-primary btn-sm" style="flex:1" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}
-          ${isIn?`<button class="btn btn-secondary btn-sm" style="flex:1" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}
-        </div>`:''}
-      </div>`
+    const cards = ysiRoster.map(y=>{
+      const rec = activeSignIn[y.id]
+      const isIn = !!rec
+      return buildYsiCard(y, rec, isIn, isAdmin)
     }).join('')
-    content.innerHTML=headerHTML+`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">${cards||'<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted)">No participants found</div>'}</div>`
+    content.innerHTML = header + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">${cards||'<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted)">No participants</div>'}</div>`
   } else {
-    // List view
-    const rows=ysiRoster.map(y=>{
-      const rec=activeSignIn[y.id]
-      const isIn=!!rec
-      return`<tr style="${isIn?'background:var(--teal-50)':''}">
-        <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(`${y.first_name} ${y.last_name}`,28)}<span style="font-weight:500">${y.first_name} ${y.last_name}</span></div></td>
+    const rows = ysiRoster.map(y=>{
+      const rec = activeSignIn[y.id]
+      const isIn = !!rec
+      return `<tr style="${isIn?'background:var(--teal-50)':''}">
+        <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(y.first_name+' '+y.last_name,28)}<span style="font-weight:500">${y.first_name} ${y.last_name}</span></div></td>
         <td style="font-size:13px">${rec?new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
         <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_in_by||'—'}</td>
         <td style="font-size:13px">${rec?.signed_out_at?new Date(rec.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Present</span>'}</td>
@@ -4572,163 +4699,95 @@ function renderYsiContent(){
         </td>`:''}
       </tr>`
     }).join('')
-    content.innerHTML=headerHTML+`<div class="card"><table><thead><tr>
+    content.innerHTML = header + `<div class="card"><table><thead><tr>
       <th>Name</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}
-    </tr></thead><tbody>${rows}</tbody></table></div>`
+    </tr></thead><tbody>${rows||`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:24px;color:var(--text-muted)">No participants</td></tr>`}</tbody></table></div>`
   }
 }
 
-async function ysiDropOff(youthId, name){
-  // Load authorized pickups for this youth
-  const pickups=await api(`/api/youth/${youthId}/authorized-pickups`)
-  ysiShowPersonModal('dropoff', youthId, name, pickups, async (personName, isAuthorized)=>{
-    const data={youth_id:youthId, signed_in_by:personName}
-    if(ysiCurrentFilter.type==='program') data.program_id=ysiCurrentFilter.id
-    else data.event_id=ysiCurrentFilter.id
-    const res=await api('/api/youth-sign-ins','POST',data)
-    if(res.error){toast(res.error,'error');return}
-    if(!isAuthorized) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'dropoff'})
-    ysiData.push(res)
-    toast(`${name} signed in`,'success')
-    renderYsiContent()
-  })
-}
-
-async function ysiPickUp(signInId, youthId, name){
-  const pickups=await api(`/api/youth/${youthId}/authorized-pickups`)
-  ysiShowPersonModal('pickup', youthId, name, pickups, async (personName, isAuthorized)=>{
-    const res=await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:personName})
-    if(res.error){toast(res.error,'error');return}
-    if(!isAuthorized) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'pickup'})
-    ysiData=ysiData.map(r=>r.id===signInId?res:r)
-    toast(`${name} signed out`,'success')
-    renderYsiContent()
-  })
-}
-
-function ysiShowPersonModal(action, youthId, childName, pickups, onSubmit){
-  const isDropoff = action==='dropoff'
-  const modal=document.createElement('div')
-  modal.className='modal-overlay open'
-  modal.id='modal-ysi-person'
-  modal.innerHTML=`<div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">${isDropoff?'Drop Off':'Pick Up'}: ${childName}</div>
-      <button class="modal-close" onclick="document.getElementById('modal-ysi-person').remove()">✕</button>
-    </div>
-    <div class="modal-body">
-      ${pickups.length?`<div style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AUTHORIZED LIST</div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${pickups.map(p=>`<button onclick="ysiSelectPerson('${p.name}',true)" style="text-align:left;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;cursor:pointer;font-family:inherit;transition:all 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
-            <div style="font-weight:600;font-size:14px">${p.name}</div>
-            <div style="font-size:12px;color:var(--text-muted)">${p.relationship||''}${p.phone?' · '+p.phone:''}</div>
-          </button>`).join('')}
-        </div>
-        <div style="margin:12px 0;text-align:center;font-size:12px;color:var(--text-hint)">— or enter manually —</div>
-      </div>`:''}
-      <div class="form-group">
-        <label>${isDropoff?'Dropped Off By':'Picked Up By'}</label>
-        <input type="text" id="ysi-person-name" placeholder="Name" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
-        ${!pickups.length?'':`<div style="font-size:12px;color:var(--amber-600);margin-top:4px">⚠️ If not on the authorized list, admin will be notified to update it.</div>`}
+function buildYsiCard(y, rec, isIn, isAdmin){
+  const bg = isIn ? 'var(--green-light)' : 'var(--surface)'
+  const border = isIn ? '#86EFAD' : 'var(--border)'
+  const sinceStr = isIn ? 'Here since '+new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : 'Not signed in'
+  return `<div style="background:${bg};border:2px solid ${border};border-radius:var(--radius-lg);padding:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      ${avatarHTML(y.first_name+' '+y.last_name,40)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px">${y.first_name} ${y.last_name}</div>
+        <div style="font-size:12px;color:${isIn?'var(--green-600)':'var(--text-hint)'}">${sinceStr}</div>
+        ${rec&&isIn?`<div style="font-size:11px;color:var(--text-muted)">By: ${rec.signed_in_by||'—'}</div>`:''}
       </div>
+      <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">${isIn?'✅':'◯'}</div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi-person').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="ysiSubmitPerson(${JSON.stringify(pickups).replace(/"/g,'&quot;')})">Confirm</button>
-    </div>
+    ${isAdmin?`<div style="display:flex;gap:6px">
+      ${!isIn?`<button class="btn btn-primary btn-sm" style="flex:1" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}
+      ${isIn?`<button class="btn btn-secondary btn-sm" style="flex:1" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}
+    </div>`:''}
   </div>`
-  document.body.appendChild(modal)
-  // Store callback
-  window._ysiPersonCallback = onSubmit
 }
 
-function ysiSelectPerson(name, isAuth){
-  document.getElementById('ysi-person-name').value=name
-}
+function renderRisingStarsSheet(label, eventId, isAdmin){
+  const content = document.getElementById('ysi-content')
+  const activeSignIn = {}
+  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id] = r })
+  const present = Object.keys(activeSignIn).length
 
-function ysiSubmitPerson(pickups){
-  const name=document.getElementById('ysi-person-name')?.value.trim()
-  if(!name){toast('Please enter a name','error');return}
-  const isAuthorized=pickups.some(p=>p.name.toLowerCase()===name.toLowerCase())
-  document.getElementById('modal-ysi-person')?.remove()
-  if(window._ysiPersonCallback) window._ysiPersonCallback(name, isAuthorized)
-}
+  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
+    <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
+    <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">☰ List</button>
+  </div>`
 
-// ── Authorized Pickups Tab ──
-async function loadAuthorizedPickups(yid){
-  const container=document.getElementById(`ytab-pickups-content-${yid}`)
-  if(!container) return
-  const pickups=await api(`/api/youth/${yid}/authorized-pickups`)
-  const isAdmin=currentUser?.role==='admin'
-  container.innerHTML=`
-    ${isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}')">+ Add Authorized Person</button></div>`:''}
-    ${!pickups.length?'<div style="color:var(--text-muted);font-size:13px">No authorized pickups on file</div>':
-      pickups.map((p,i)=>`<div class="guardian-item" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        <div>
-          <div style="font-weight:600;font-size:14px">${p.name} <span style="font-size:11px;background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:8px">${i===0?'Primary':i===1?'Secondary':'#'+(i+1)}</span></div>
-          ${p.relationship?`<div style="font-size:12px;color:var(--text-muted)">${p.relationship}</div>`:''}
-          ${p.phone?`<div style="font-size:13px;margin-top:4px">📞 ${p.phone}</div>`:''}
-          ${p.notes?`<div style="font-size:12px;color:var(--text-hint);margin-top:2px">${p.notes}</div>`:''}
-        </div>
-        ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">✕</button>`:''}
-      </div>`).join('')}`
-}
-
-function openAddPickupModal(yid){
-  const modal=document.createElement('div')
-  modal.className='modal-overlay open'
-  modal.id='modal-add-pickup'
-  modal.innerHTML=`<div class="modal">
-    <div class="modal-header"><div class="modal-title">Add Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">✕</button></div>
-    <div class="modal-body">
-      <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
-      <div class="form-row">
-        <div class="form-group"><label>Relationship</label><input type="text" id="pickup-rel" placeholder="e.g. Parent, Grandparent" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
-        <div class="form-group"><label>Phone</label><input type="tel" id="pickup-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+  // Youth section
+  const youthSection = `<div style="margin-bottom:28px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div>
+        <div style="font-size:16px;font-weight:700">👶 Youth Participants</div>
+        <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · ${present} here now</div>
       </div>
-      <div class="form-group"><label>Notes</label><input type="text" id="pickup-notes" placeholder="Any notes (optional)" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      <div style="display:flex;gap:8px">${viewToggle}${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Drop Off</button>`:''}</div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="document.getElementById('modal-add-pickup').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveAuthorizedPickup('${yid}')">Add</button>
-    </div>
+    ${ysiView==='card'
+      ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">${ysiRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||'<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">No enrolled participants. Enroll youth from Programs & Classes.</div>'}</div>`
+      : `<div class="card"><table><thead><tr><th>Name</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}</tr></thead><tbody>
+          ${ysiRoster.map(y=>{const rec=activeSignIn[y.id];const isIn=!!rec;return`<tr style="${isIn?'background:var(--teal-50)':''}">
+            <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(y.first_name+' '+y.last_name,28)}<span style="font-weight:500">${y.first_name} ${y.last_name}</span></div></td>
+            <td style="font-size:13px">${rec?new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
+            <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_in_by||'—'}</td>
+            <td style="font-size:13px">${rec?.signed_out_at?new Date(rec.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Present</span>'}</td>
+            <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_out_by||'—'}</td>
+            ${isAdmin?`<td>${!isIn?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}${isIn?`<button class="btn btn-secondary btn-sm" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}</td>`:''}</tr>`}).join('')||`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:16px;color:var(--text-muted)">No enrolled participants</td></tr>`}
+        </tbody></table></div>`}
   </div>`
-  document.body.appendChild(modal)
-}
 
-async function saveAuthorizedPickup(yid){
-  const name=document.getElementById('pickup-name')?.value.trim()
-  if(!name){toast('Name is required','error');return}
-  const res=await api(`/api/youth/${yid}/authorized-pickups`,'POST',{
-    name, relationship:document.getElementById('pickup-rel')?.value.trim(),
-    phone:document.getElementById('pickup-phone')?.value.trim(),
-    notes:document.getElementById('pickup-notes')?.value.trim()
-  })
-  if(res.error){toast(res.error,'error');return}
-  document.getElementById('modal-add-pickup')?.remove()
-  toast('Added!','success')
-  loadAuthorizedPickups(yid)
-}
+  // Adult crew section — simple check-in list
+  const adultSection = ysiAdultRoster.length ? `
+    <div style="padding-top:20px;border-top:2px solid var(--border)">
+      <div style="font-size:16px;font-weight:700;margin-bottom:12px">👤 Adult Crew / Volunteers</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Simple attendance — no parent sign-in required</div>
+      <div class="card"><table><thead><tr><th>Name</th><th>Role</th><th>Department</th></tr></thead><tbody>
+        ${ysiAdultRoster.map(m=>`<tr>
+          <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(m.volunteer_name,28)}<span onclick="openProfile('${m.volunteer_id}')" style="cursor:pointer;color:var(--teal-600);font-weight:500">${m.volunteer_name}</span></div></td>
+          <td style="font-size:13px">${m.role||'—'}</td>
+          <td style="font-size:13px;color:var(--text-muted)">${m.department||'—'}</td>
+        </tr>`).join('')}
+      </tbody></table></div>
+    </div>` : ''
 
-async function deleteAuthorizedPickup(yid, pid){
-  if(!confirm('Remove this authorized person?')) return
-  await api(`/api/youth/${yid}/authorized-pickups/${pid}`,'DELETE')
-  toast('Removed')
-  loadAuthorizedPickups(yid)
+  content.innerHTML = `<div style="margin-bottom:12px"><div style="font-size:20px;font-weight:800">⭐ ${label}</div></div>` + youthSection + adultSection
 }
 
 function exportYouthSignInSheet(){
-  const rows=ysiRoster.map(y=>{
-    const activeSignIn=ysiData.find(r=>r.youth_id===y.id&&!r.signed_out_at)
-    const lastRec=ysiData.filter(r=>r.youth_id===y.id).pop()
-    return[`${y.first_name} ${y.last_name}`,
-      lastRec?.signed_in_at?new Date(lastRec.signed_in_at).toLocaleString():'',
+  const rows = ysiRoster.map(y=>{
+    const activeSignIn = {}
+    ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id]=r })
+    const lastRec = ysiData.filter(r=>r.youth_id===y.id).pop()
+    return [`${y.first_name} ${y.last_name}`,
+      lastRec?.signed_in_at ? new Date(lastRec.signed_in_at).toLocaleString() : '',
       lastRec?.signed_in_by||'',
-      lastRec?.signed_out_at?new Date(lastRec.signed_out_at).toLocaleString():'',
+      lastRec?.signed_out_at ? new Date(lastRec.signed_out_at).toLocaleString() : '',
       lastRec?.signed_out_by||'']
   })
-  downloadCSV('youth_signin.csv',[['Participant','Sign In','Dropped Off By','Sign Out','Picked Up By'],...rows])
+  downloadCSV('youth_signin.csv', [['Participant','Sign In','Dropped Off By','Sign Out','Picked Up By'], ...rows])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4917,9 +4976,18 @@ function renderYouthProgramsPage(){
             ${p.start_date?`<div>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
             ${instructor?`<div>👤 ${instructor.name}</div>`:''}
           </div>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <div style="font-size:13px;color:var(--text-muted)">👦 ${enrolled} participant${enrolled!==1?'s':''}</div>
-            <button class="btn btn-secondary btn-sm" onclick="navToYouthFiltered('${p.id}')">View Roster →</button>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div style="font-size:13px;color:var(--text-muted)">👦 ${enrolled} participant${enrolled!==1?'s':''}</div>
+              <div style="display:flex;gap:6px">
+                ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\\'")}')">+ Enroll</button>`:''}
+                <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted)">
+              ${(()=>{ const evts=allEvents.filter(e=>e.production_id===p.id||(e.event_type_id&&false));return evts.length?evts.length+' event'+(evts.length!==1?'s':''):'' })()} 
+            </div>
+            ${p.default_elic_name?`<div style="font-size:11px;color:var(--text-hint)">🎬 Default ELIC: ${p.default_elic_name}</div>`:''}
           </div>
         </div>
       </div>`
@@ -4940,9 +5008,10 @@ function openNewProgramModal(){
   ;['program-name','program-desc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   ;['program-start','program-end'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   document.getElementById('program-type').value='class'
-  // Populate instructor dropdown
-  const sel=document.getElementById('program-instructor')
-  if(sel) sel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+  const isel=document.getElementById('program-instructor')
+  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+  const esel=document.getElementById('program-default-elic')
+  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
   openModal('modal-program')
 }
 
@@ -4956,11 +5025,10 @@ function openEditProgramModal(pid){
   document.getElementById('program-start').value=p.start_date||''
   document.getElementById('program-end').value=p.end_date||''
   document.getElementById('program-type').value=p.program_type||'class'
-  const sel=document.getElementById('program-instructor')
-  if(sel){
-    sel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
-    sel.value=p.instructor_id||''
-  }
+  const isel=document.getElementById('program-instructor')
+  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
+  const esel=document.getElementById('program-default-elic')
+  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
   openModal('modal-program')
 }
 
@@ -4974,7 +5042,8 @@ async function saveYouthProgram(){
     start_date:document.getElementById('program-start').value||null,
     end_date:document.getElementById('program-end').value||null,
     description:document.getElementById('program-desc').value.trim(),
-    instructor_id:document.getElementById('program-instructor').value||null
+    instructor_id:document.getElementById('program-instructor').value||null,
+    default_elic_id:document.getElementById('program-default-elic')?.value||null
   }
   let res
   if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)
@@ -4987,6 +5056,177 @@ async function saveYouthProgram(){
   renderYouthProgramsSettings()
   populateProgramsDropdown()
   toast(eid?'Program updated!':'Program added!','success')
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PROFILE BANNER HELPER
+// ═══════════════════════════════════════════════════════════════
+function buildProfileBanner({name, email, phone, sub, status, bg, col, backFn, backLabel='← Back', badges=[], actions=[]}){
+  const subtitle=sub||(email?email+(phone?' · '+phone:''):'')
+  const actionsHTML=actions.map(a=>
+    a.href
+      ? `<a href="${a.href}" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;text-decoration:none">${a.label}</a>`
+      : `<button onclick="${a.onclick}" style="background:${a.danger?'rgba(192,57,43,0.5)':'rgba(255,255,255,0.2)'};color:#fff;border:1px solid rgba(255,255,255,${a.danger?'0.4':'0.3'});padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer">${a.label}</button>`
+  ).join('')
+  const badgesHTML=badges.map(b=>
+    `<span style="background:${b.bg};color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500">${b.label}</span>`
+  ).join('')
+  const ini=name.split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase()
+  return `<div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);padding:24px 32px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;width:100%;box-sizing:border-box">
+    <button onclick="${backFn}" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;flex-shrink:0">${backLabel}</button>
+    <div style="width:56px;height:56px;border-radius:50%;background:${bg};border:3px solid rgba(255,255,255,0.35);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:${col};flex-shrink:0">${ini}</div>
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;line-height:1.2">${name}</div>
+      ${subtitle?`<div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:3px">${subtitle}</div>`:''}
+      ${badgesHTML?`<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${badgesHTML}</div>`:''}
+    </div>
+    ${actionsHTML?`<div style="display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0">${actionsHTML}</div>`:''}
+  </div>`
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  PROGRAM ENROLLMENT & DETAIL
+// ═══════════════════════════════════════════════════════════════
+
+async function openEnrollProgramModal(programId, programName){
+  // Load already enrolled
+  const enrolled = await api(`/api/youth-programs/${programId}/enrolled`)
+  const enrolledIds = new Set(enrolled.map(y=>y.id))
+  const candidates = allYouth.filter(y=>y.status==='active'&&!enrolledIds.has(y.id))
+
+  const modal = document.createElement('div')
+  modal.className = 'modal-overlay open'
+  modal.id = 'modal-enroll-program'
+  modal.innerHTML = `<div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">Enroll in ${programName}</div>
+      <button class="modal-close" onclick="document.getElementById('modal-enroll-program').remove()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:16px">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">${enrolled.length} currently enrolled · ${candidates.length} available to add</div>
+        ${enrolled.length?`<div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Currently Enrolled</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${enrolled.map(y=>`
+            <span style="background:var(--teal-50);color:var(--teal-600);padding:4px 10px;border-radius:20px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px">
+              ${y.first_name} ${y.last_name}
+              <button onclick="unenrollFromProgram('${y.enrollment_id}','${programId}','${y.first_name} ${y.last_name}',this)" style="background:none;border:none;cursor:pointer;color:var(--teal-600);font-size:14px;padding:0;line-height:1">×</button>
+            </span>`).join('')}
+          </div>
+        </div>`:''}
+        ${candidates.length?`<div>
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Add Participants</div>
+          <input type="text" id="enroll-search" placeholder="Search name…" oninput="filterEnrollList('${programId}')" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:8px"/>
+          <div id="enroll-list" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+            ${candidates.map(y=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--gray-50);border-radius:8px;cursor:pointer">
+              <input type="checkbox" value="${y.id}" style="accent-color:var(--teal-400)"/>
+              <span style="font-size:14px;font-weight:500">${y.first_name} ${y.last_name}</span>
+              ${y.dob?`<span style="font-size:12px;color:var(--text-muted)">Age ${calcAge(y.dob)||'?'}</span>`:''}
+            </label>`).join('')}
+          </div>
+        </div>`:'<div style="color:var(--text-muted);font-size:13px">All active participants are already enrolled</div>'}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-enroll-program').remove()">Close</button>
+      ${candidates.length?`<button class="btn btn-primary" onclick="submitProgramEnrollment('${programId}')">Enroll Selected</button>`:''}
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+}
+
+function filterEnrollList(programId){
+  const q = document.getElementById('enroll-search')?.value.toLowerCase()||''
+  document.querySelectorAll('#enroll-list label').forEach(l=>{
+    const name = l.querySelector('span')?.textContent.toLowerCase()||''
+    l.style.display = q&&!name.includes(q)?'none':''
+  })
+}
+
+async function submitProgramEnrollment(programId){
+  const checked = [...document.querySelectorAll('#enroll-list input:checked')].map(c=>c.value)
+  if(!checked.length){ toast('Select at least one participant','error'); return }
+  const res = await api(`/api/youth-programs/${programId}/enroll`,'POST',{youth_ids:checked})
+  if(res.error){ toast(res.error,'error'); return }
+  // Refresh youth data
+  const youth = await api('/api/youth')
+  allYouth = youth
+  document.getElementById('modal-enroll-program')?.remove()
+  toast(`${res.enrolled} participant${res.enrolled!==1?'s':''} enrolled!`,'success')
+  renderYouthProgramsPage()
+  renderYouth()
+}
+
+async function unenrollFromProgram(enrollmentId, programId, name, btn){
+  if(!confirm(`Remove ${name} from this program?`)) return
+  await api(`/api/youth-enrollments/${enrollmentId}`,'DELETE')
+  toast(`${name} removed`,'success')
+  // Re-open the modal refreshed
+  const modal = document.getElementById('modal-enroll-program')
+  if(modal) modal.remove()
+  // Find program name
+  const prog = allPrograms.find(p=>p.id===programId)
+  if(prog) openEnrollProgramModal(programId, prog.name)
+  const youth = await api('/api/youth')
+  allYouth = youth
+  renderYouthProgramsPage()
+}
+
+function openProgramDetail(programId){
+  // Navigate to youth filtered by this program
+  navToYouthFiltered(programId)
+}
+
+// Pre-fill ELIC on event modal from parent program/production
+function prefillEventElic(elicId){
+  // The event modal's ELIC assignment is handled by addEventElicUI after save
+  // Just store it so saveEditEvent can auto-assign
+  window._prefillElicId = elicId
+}
+
+// Open event modal pre-linked to a program/production
+function openEventModalForParent(productionId, programId){
+  window._openEventParent = {productionId: productionId||null, programId: programId||null}
+  openEventModal()
+}
+
+// ── Update sign-in sheet to use enrolled roster for programs ──
+// (already handled in loadYouthSignInSheet via allYouth filter)
+
+// ── Show program events in program card ──
+function getProgramEvents(programId){
+  // Events linked to this program via production_id match or direct program_id field
+  // For now match events where production is a Rising Stars prod linked to program
+  return allEvents.filter(e=>{
+    if(!e.event_date) return false
+    return false // will be enhanced when program_id added to events
+  })
+}
+
+
+// ── EVENT MODAL PARENT CHANGE ──
+function onEventParentChange(changed){
+  // Mutually exclusive: clear the other one
+  if(changed==='production'){
+    const p=document.getElementById('edit-event-production').value
+    if(p) document.getElementById('edit-event-program').value=''
+    // Fetch default ELIC
+    if(p){
+      api(`/api/events/default-elic?production_id=${p}`).then(r=>{
+        if(r.elic_id) window._pendingDefaultElic=r.elic_id
+      })
+    }
+  } else {
+    const p=document.getElementById('edit-event-program').value
+    if(p) document.getElementById('edit-event-production').value=''
+    if(p){
+      api(`/api/events/default-elic?program_id=${p}`).then(r=>{
+        if(r.elic_id) window._pendingDefaultElic=r.elic_id
+      })
+    }
+  }
 }
 
 </script>

@@ -200,6 +200,15 @@ def init_db():
     for item in opening_items:
         c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
 
+    # production attendance (kiosk sign-in/out for cast & crew)
+    c.execute("""CREATE TABLE IF NOT EXISTS prod_attendance (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        signed_in_at TIMESTAMP DEFAULT NOW(),
+        signed_out_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # youth parent sign-in/out
     c.execute("""CREATE TABLE IF NOT EXISTS youth_sign_ins (
         id TEXT PRIMARY KEY,
@@ -317,6 +326,8 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_volunteers INTEGER",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'mainstage'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS youth_program_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
@@ -1206,7 +1217,7 @@ def get_productions():
     err = require_auth()
     if err: return err
     conn = get_db()
-    prods = fetchall(conn, 'SELECT * FROM productions ORDER BY start_date DESC NULLS LAST')
+    prods = fetchall(conn, "SELECT *, COALESCE(stage,'mainstage') as stage FROM productions ORDER BY start_date DESC NULLS LAST")
     for p in prods:
         p['members'] = fetchall(conn, '''
             SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
@@ -1225,9 +1236,10 @@ def create_production():
     d = request.json
     pid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO productions (id,name,production_type,start_date,end_date,description,status) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-            (pid, d['name'], d.get('production_type','show'), d.get('start_date') or None,
-             d.get('end_date') or None, d.get('description',''), d.get('status','upcoming')))
+    execute(conn, 'INSERT INTO productions (id,name,production_type,stage,start_date,end_date,description,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+            (pid, d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
+             d.get('start_date') or None, d.get('end_date') or None,
+             d.get('description',''), d.get('status','upcoming')))
     conn.commit()
     prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
     prod['members'] = []
@@ -1240,9 +1252,10 @@ def update_production(pid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,start_date=%s,end_date=%s,description=%s,status=%s WHERE id=%s',
-            (d['name'], d.get('production_type','show'), d.get('start_date') or None,
-             d.get('end_date') or None, d.get('description',''), d.get('status','upcoming'), pid))
+    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s WHERE id=%s',
+            (d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
+             d.get('start_date') or None, d.get('end_date') or None,
+             d.get('description',''), d.get('status','upcoming'), pid))
     conn.commit()
     prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
     prod['members'] = fetchall(conn, '''
@@ -1954,18 +1967,22 @@ def kiosk_elic_login():
         return jsonify({'error': 'Invalid PIN. Please try again or see an administrator.'}), 401
     # Get assigned events (or all if master)
     if elic['is_master']:
-        events = fetchall(conn, '''SELECT e.*, el.id as log_id, el.action as current_status
+        events = fetchall(conn, '''SELECT e.*, el.id as log_id, el.action as current_status,
+            COALESCE(p.stage,'mainstage') as stage, p.name as production_name
             FROM events e
+            LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN LATERAL (
                 SELECT id, action FROM event_logs
                 WHERE event_id=e.id ORDER BY timestamp DESC LIMIT 1
             ) el ON true
             ORDER BY e.event_date DESC NULLS LAST''')
     else:
-        events = fetchall(conn, '''SELECT e.*, el2.id as log_id, el2.action as current_status
+        events = fetchall(conn, '''SELECT e.*, el2.id as log_id, el2.action as current_status,
+            COALESCE(p.stage,'mainstage') as stage, p.name as production_name
             FROM event_elics ee
             JOIN events e ON ee.event_id=e.id
             JOIN elics ec ON ee.elic_id=ec.id
+            LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN LATERAL (
                 SELECT id, action FROM event_logs
                 WHERE event_id=e.id ORDER BY timestamp DESC LIMIT 1
@@ -2178,4 +2195,112 @@ def update_user_role(uid):
     user = fetchone(conn, 'SELECT id,name,email,role,COALESCE(active,TRUE) as active FROM users WHERE id=%s', (uid,))
     conn.close()
     return jsonify(user)
+
+
+# ─────────────────────────────────────────────
+#  KIOSK PRODUCTION SIGN-IN/OUT
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/production-roster/<event_id>')
+def kiosk_production_roster(event_id):
+    """Get the cast/crew roster for a production event, with their current sign-in status."""
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt or not evt.get('production_id'):
+        conn.close()
+        return jsonify({'error': 'Not a production event'}), 404
+    prod_info = fetchone(conn, "SELECT id, name, COALESCE(stage,'mainstage') as stage FROM productions WHERE id=%s", (evt['production_id'],))
+
+    members = fetchall(conn, '''
+        SELECT pm.id as member_id, pm.volunteer_id, pm.role, pm.department, pm.status,
+               v.name as volunteer_name, v.phone as volunteer_phone
+        FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s AND pm.status != 'dropped'
+        ORDER BY pm.department, v.name
+    ''', (evt['production_id'],))
+
+    # Check which are currently signed in (have pending_hours for this event with no end)
+    # We use a simple attendance flag — signed_in_at in a prod_attendance table
+    # For now use a simple lookup in our new prod_attendance table
+    attendance = fetchall(conn,
+        "SELECT * FROM prod_attendance WHERE event_id=%s",
+        (event_id,))
+    att_by_vol = {a['volunteer_id']: a for a in attendance}
+
+    for m in members:
+        att = att_by_vol.get(m['volunteer_id'])
+        m['signed_in'] = att is not None and att.get('signed_out_at') is None
+        m['attendance_id'] = att['id'] if att else None
+        m['signed_in_at'] = att['signed_in_at'] if att else None
+
+    conn.close()
+    return jsonify({
+        'event': evt,
+        'production_name': prod_info['name'] if prod_info else '',
+        'stage': prod_info['stage'] if prod_info else 'mainstage',
+        'production_id': evt['production_id'],
+        'members': members
+    })
+
+@app.route('/api/kiosk/production-signin', methods=['POST'])
+def kiosk_production_signin():
+    d = request.json
+    volunteer_id = d.get('volunteer_id')
+    event_id     = d.get('event_id')
+    if not volunteer_id or not event_id:
+        return jsonify({'error': 'Missing fields'}), 400
+    conn = get_db()
+    # Check not already signed in
+    existing = fetchone(conn,
+        "SELECT id FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL",
+        (volunteer_id, event_id))
+    if existing:
+        conn.close()
+        return jsonify({'error': 'Already signed in'}), 400
+    aid = str(uuid.uuid4())
+    execute(conn,
+        "INSERT INTO prod_attendance (id,volunteer_id,event_id,signed_in_at) VALUES (%s,%s,%s,NOW())",
+        (aid, volunteer_id, event_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'attendance_id': aid})
+
+@app.route('/api/kiosk/production-signout', methods=['POST'])
+def kiosk_production_signout():
+    d = request.json
+    attendance_id = d.get('attendance_id')
+    volunteer_id  = d.get('volunteer_id')
+    event_id      = d.get('event_id')
+    if not attendance_id:
+        return jsonify({'error': 'Missing attendance_id'}), 400
+    conn = get_db()
+    # Get sign-in time to calculate hours
+    att = fetchone(conn, 'SELECT * FROM prod_attendance WHERE id=%s', (attendance_id,))
+    if not att:
+        conn.close()
+        return jsonify({'error': 'Attendance record not found'}), 404
+
+    execute(conn, 'UPDATE prod_attendance SET signed_out_at=NOW() WHERE id=%s', (attendance_id,))
+
+    # Auto-submit hours to pending_hours
+    evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
+    # Calculate hours from sign-in to now
+    from datetime import timezone
+    signed_in = att['signed_in_at']
+    if hasattr(signed_in, 'replace'):
+        now = datetime.now(timezone.utc) if signed_in.tzinfo else datetime.now()
+        elapsed = (now - signed_in).total_seconds() / 3600
+        hours = max(0.5, round(elapsed * 2) / 2)  # round to nearest 0.5
+    else:
+        hours = 1.0
+
+    pid = str(uuid.uuid4())
+    execute(conn,
+        "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,'Kiosk production sign-in','pending')",
+        (pid, volunteer_id, evt['name'] if evt else 'Production Event', event_id,
+         date.today().isoformat(), hours, d.get('role','')))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (volunteer_id,))
+    conn.close()
+    return jsonify({'ok': True, 'hours': hours, 'volunteer_name': vol['name'] if vol else ''})
 

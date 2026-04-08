@@ -408,18 +408,27 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <nav class="sidebar-nav">
-        <div class="nav-section">Volunteers</div>
+        <!-- MAIN THEATER -->
+        <div class="nav-section">RoleCall</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon">📊</span>Dashboard</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon">👥</span>Volunteers</div>
-        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events</div>
+        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon">⏱</span>Time Tracking</div>
-        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📋</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
-        <div class="nav-section">Programs</div>
-        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Production Sign-In</div>
-        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Education &amp; Programs</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)" style="padding-left:28px"><span class="nav-icon">📝</span>Sign-In</div>
+
+        <!-- MAINSTAGE -->
+        <div class="nav-section">🎭 Mainstage</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events &amp; Calendar</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎬</span>Productions</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Cast Sign-In</div>
+
+        <!-- YOUTH EDUCATION -->
+        <div class="nav-section">🧒 Youth Education</div>
+        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">👦</span>Participants</div>
+        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon">📚</span>Programs &amp; Classes</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon">📝</span>Sign-In Sheets</div>
+
+        <!-- ADMIN -->
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
@@ -500,7 +509,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- PROFILE -->
       <section class="page" id="page-profile">
-        <div class="page-header" id="profile-header"></div>
+        <div id="profile-header"></div>
         <div class="page-body"><div id="profile-content"></div></div>
       </section>
 
@@ -705,6 +714,30 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           <div id="psi-content">
             <div class="empty-state"><div class="empty-icon">🎭</div><p>Select a production above</p></div>
           </div>
+        </div>
+      </section>
+
+      <!-- YOUTH PROGRAMS PAGE -->
+      <section class="page" id="page-youth-programs-page">
+        <div class="page-header">
+          <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Youth Education programs, workshops, and summer camps</div></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-primary" onclick="openNewProgramModal()">+ New Program</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div class="search-bar" style="margin-bottom:20px">
+            <div class="search-input-wrap"><span>🔍</span><input type="text" id="yp-search" placeholder="Search programs…" oninput="renderYouthProgramsPage()"/></div>
+            <select class="filter-select" id="yp-filter-type" onchange="renderYouthProgramsPage()">
+              <option value="">All Types</option>
+              <option value="class">Class</option>
+              <option value="workshop">Workshop</option>
+              <option value="camp">Summer Camp</option>
+              <option value="production">Production</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div id="youth-programs-grid"></div>
         </div>
       </section>
 
@@ -1458,7 +1491,7 @@ function applyRoleUI(){
     document.querySelectorAll('.nav-item').forEach(nav=>{
       const txt=nav.textContent.trim()
       const allowed=isInstructor
-        ?['Events','Youth Education','Dashboard','Sign-In']
+        ?['Events &amp; Calendar','Participants','Programs &amp; Classes','Sign-In Sheets','Dashboard']
         :['Dashboard'] // ELIC just uses kiosk
       const show=allowed.some(a=>txt.includes(a))
       nav.style.display=show?'':'none'
@@ -1500,6 +1533,7 @@ function navTo(page,el){
   if(page==='pending') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
+  if(page==='youth-programs-page') renderYouthProgramsPage()
   if(page==='youth-signin') initYouthSignIn()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
@@ -1647,15 +1681,24 @@ async function openProfile(volId){
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
   document.getElementById('profile-header').innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-secondary btn-sm" onclick="navTo('volunteers')">← Back</button>
-      <div><div class="page-title">${v.name}</div><div class="page-subtitle">${v.email}</div></div>
-    </div>
-    ${isAdmin?`<div class="page-actions">
-      <a href="mailto:${v.email}" class="btn btn-secondary btn-sm">✉️ Email</a>
-      <button class="btn btn-secondary btn-sm" onclick="openEditVolModal('${v.id}')">Edit</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteVol('${v.id}')">Delete</button>
-    </div>`:''}`
+    <div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);padding:24px 32px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;width:100%">
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);flex-shrink:0" onclick="navTo('volunteers')">← Back</button>
+      <div style="width:56px;height:56px;border-radius:50%;background:${bg};border:3px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:${col};flex-shrink:0">${initials(v.name)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px">${v.name}</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px">${v.email}${v.phone?' · '+v.phone:''}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+          <span style="background:rgba(255,255,255,${v.status==='active'?'0.25':'0.12'});color:#fff;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${v.status==='active'?'● Active':'○ Inactive'}</span>
+          ${v.background_check_status==='cleared'?'<span style="background:rgba(45,158,107,0.4);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">✅ BGC Cleared</span>':v.background_check_status==='pending'?'<span style="background:rgba(212,131,10,0.4);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px">⏳ BGC Pending</span>':''}
+          <span style="background:rgba(255,255,255,0.15);color:#fff;padding:2px 10px;border-radius:20px;font-size:12px">${v.total_hours||0}h total</span>
+        </div>
+      </div>
+      ${isAdmin?`<div style="display:flex;gap:8px;flex-shrink:0">
+        <a href="mailto:${v.email}" class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)">✉️ Email</a>
+        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)" onclick="openEditVolModal('${v.id}')">Edit</button>
+        <button class="btn btn-sm" style="background:rgba(192,57,43,0.4);color:#fff;border:1px solid rgba(255,100,80,0.3)" onclick="deleteVol('${v.id}')">Delete</button>
+      </div>`:''}
+    </div>`
 
   document.getElementById('profile-content').innerHTML=`
     <div class="profile-layout">
@@ -4826,6 +4869,126 @@ function switchYTab(btn){
     p.classList.toggle('active',p.id===tabId)
   })
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH PROGRAMS PAGE
+// ═══════════════════════════════════════════════════════════════
+
+const PROGRAM_TYPE_LABELS = {class:'Class',workshop:'Workshop',camp:'Summer Camp',production:'Production',other:'Other'}
+const PROGRAM_TYPE_COLORS = {class:['#E6F1FB','#0C447C'],workshop:['#F3EEFF','#6D28D9'],camp:['#FAEEDA','#633806'],production:['#EAF3DE','#27500A'],other:['#EFEFEC','#5F5E5A']}
+
+function renderYouthProgramsPage(){
+  const search=document.getElementById('yp-search')?.value.toLowerCase()||''
+  const filterType=document.getElementById('yp-filter-type')?.value||''
+  let filtered=allPrograms.filter(p=>{
+    if(search&&!p.name.toLowerCase().includes(search)) return false
+    if(filterType&&(p.program_type||'class')!==filterType) return false
+    return true
+  })
+  const grid=document.getElementById('youth-programs-grid')
+  const isAdmin=currentUser?.role==='admin'
+  const sub=document.getElementById('youth-programs-subtitle')
+  if(sub) sub.textContent=filtered.length+' program'+(filtered.length!==1?'s':'')+' · '+allYouth.length+' participants'
+  if(!filtered.length){
+    grid.innerHTML=`<div class="empty-state"><div class="empty-icon">📚</div><p>No programs yet</p>${isAdmin?'<button class="btn btn-primary" onclick="openNewProgramModal()" style="margin-top:12px">+ New Program</button>':''}</div>`
+    return
+  }
+  grid.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">`+
+    filtered.map(p=>{
+      const type=p.program_type||'class'
+      const[bg,col]=PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other
+      const enrolled=allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===p.id)).length
+      const instructor=volunteers.find(v=>v.id===p.instructor_id)
+      return`<div class="card" style="padding:0;overflow:hidden">
+        <div style="height:6px;background:${col}"></div>
+        <div style="padding:20px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+            <div>
+              <div style="font-size:16px;font-weight:700;margin-bottom:4px">${p.name}</div>
+              <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROGRAM_TYPE_LABELS[type]||type}</span>
+            </div>
+            ${isAdmin?`<div style="display:flex;gap:4px">
+              <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal('${p.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="deleteYouthProgram('${p.id}')">✕</button>
+            </div>`:''}
+          </div>
+          ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
+          <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px">
+            ${p.start_date?`<div>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
+            ${instructor?`<div>👤 ${instructor.name}</div>`:''}
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:13px;color:var(--text-muted)">👦 ${enrolled} participant${enrolled!==1?'s':''}</div>
+            <button class="btn btn-secondary btn-sm" onclick="navToYouthFiltered('${p.id}')">View Roster →</button>
+          </div>
+        </div>
+      </div>`
+    }).join('')+'</div>'
+}
+
+function navToYouthFiltered(programId){
+  navTo('youth')
+  setTimeout(()=>{
+    const sel=document.getElementById('youth-filter-program')
+    if(sel){ sel.value=programId; renderYouth() }
+  }, 100)
+}
+
+function openNewProgramModal(){
+  document.getElementById('program-modal-title').textContent='New Program'
+  document.getElementById('program-edit-id').value=''
+  ;['program-name','program-desc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
+  ;['program-start','program-end'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
+  document.getElementById('program-type').value='class'
+  // Populate instructor dropdown
+  const sel=document.getElementById('program-instructor')
+  if(sel) sel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+  openModal('modal-program')
+}
+
+function openEditProgramModal(pid){
+  const p=allPrograms.find(p=>p.id===pid)
+  if(!p) return
+  document.getElementById('program-modal-title').textContent='Edit Program'
+  document.getElementById('program-edit-id').value=p.id
+  document.getElementById('program-name').value=p.name||''
+  document.getElementById('program-desc').value=p.description||''
+  document.getElementById('program-start').value=p.start_date||''
+  document.getElementById('program-end').value=p.end_date||''
+  document.getElementById('program-type').value=p.program_type||'class'
+  const sel=document.getElementById('program-instructor')
+  if(sel){
+    sel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+    sel.value=p.instructor_id||''
+  }
+  openModal('modal-program')
+}
+
+async function saveYouthProgram(){
+  const eid=document.getElementById('program-edit-id').value
+  const name=document.getElementById('program-name').value.trim()
+  if(!name){toast('Program name is required','error');return}
+  const data={
+    name,
+    program_type:document.getElementById('program-type').value,
+    start_date:document.getElementById('program-start').value||null,
+    end_date:document.getElementById('program-end').value||null,
+    description:document.getElementById('program-desc').value.trim(),
+    instructor_id:document.getElementById('program-instructor').value||null
+  }
+  let res
+  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)
+  else res=await api('/api/youth-programs','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  if(eid) allPrograms=allPrograms.map(p=>p.id===eid?res:p)
+  else allPrograms.push(res)
+  closeModal('modal-program')
+  renderYouthProgramsPage()
+  renderYouthProgramsSettings()
+  populateProgramsDropdown()
+  toast(eid?'Program updated!':'Program added!','success')
+}
+
 </script>
 </body>
 </html>

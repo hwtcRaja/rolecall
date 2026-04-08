@@ -939,12 +939,30 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description) VALUES (%s,%s,%s)',
-                (pid, d['name'].strip(), d.get('description','')))
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (pid, d['name'].strip(), d.get('description',''),
+                 d.get('program_type','class'), d.get('start_date') or None,
+                 d.get('end_date') or None, d.get('instructor_id') or None))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
         return jsonify({'error': 'Program already exists'}), 400
+    row = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-programs/<pid>', methods=['PUT'])
+def update_youth_program(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s WHERE id=%s',
+            (d['name'].strip(), d.get('description',''),
+             d.get('program_type','class'), d.get('start_date') or None,
+             d.get('end_date') or None, d.get('instructor_id') or None, pid))
+    conn.commit()
     row = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
     conn.close()
     return jsonify(row)

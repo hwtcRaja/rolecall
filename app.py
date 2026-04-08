@@ -339,6 +339,9 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'mainstage'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS youth_program_id TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS program_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
@@ -524,10 +527,12 @@ def get_events():
     events = fetchall(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
-        p.name as production_name
+        p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
+        pg.name as program_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN youth_programs pg ON e.program_id=pg.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -549,12 +554,13 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,expected_volunteers,description,notes,status,requires_background_check)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
         (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
-         d.get('production_id') or None, d.get('expected_volunteers') or None,
+         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
@@ -572,11 +578,12 @@ def update_event(eid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
         (d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
-         d.get('production_id') or None, d.get('expected_volunteers') or None,
+         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
@@ -1248,7 +1255,12 @@ def get_productions():
     err = require_auth()
     if err: return err
     conn = get_db()
-    prods = fetchall(conn, "SELECT *, COALESCE(stage,'mainstage') as stage FROM productions ORDER BY start_date DESC NULLS LAST")
+    prods = fetchall(conn, """SELECT p.*, COALESCE(p.stage,'mainstage') as stage,
+        v.name as default_elic_name
+        FROM productions p
+        LEFT JOIN elics el ON p.default_elic_id=el.id
+        LEFT JOIN volunteers v ON el.volunteer_id=v.id
+        ORDER BY p.start_date DESC NULLS LAST""")
     for p in prods:
         p['members'] = fetchall(conn, '''
             SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
@@ -2438,6 +2450,71 @@ def notify_unauthorized_pickup():
          f'youth_unauthorized_{action}',
          '',
          json.dumps({'youth_id': yid, 'name': name, 'action': action, 'note': 'Not on authorized list — consider adding'})))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  DEFAULT ELIC / ENROLLMENT HELPERS
+# ─────────────────────────────────────────────
+
+@app.route('/api/events/default-elic')
+def get_default_elic_for_parent():
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
+    conn = get_db()
+    elic_id = None
+    if program_id:
+        row = fetchone(conn, 'SELECT default_elic_id FROM youth_programs WHERE id=%s', (program_id,))
+        if row: elic_id = row['default_elic_id']
+    elif production_id:
+        row = fetchone(conn, 'SELECT default_elic_id FROM productions WHERE id=%s', (production_id,))
+        if row: elic_id = row['default_elic_id']
+    conn.close()
+    return jsonify({'elic_id': elic_id})
+
+@app.route('/api/youth-programs/<pid>/enroll', methods=['POST'])
+def bulk_enroll_youth(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    youth_ids = d.get('youth_ids', [])
+    if not youth_ids:
+        return jsonify({'error': 'No youth selected'}), 400
+    conn = get_db()
+    enrolled = 0
+    for yid in youth_ids:
+        try:
+            execute(conn,
+                "INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date) VALUES (%s,%s,%s,%s)",
+                (str(uuid.uuid4()), yid, pid, date.today().isoformat()))
+            enrolled += 1
+        except psycopg2.IntegrityError:
+            conn.rollback()
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'enrolled': enrolled})
+
+@app.route('/api/youth-programs/<pid>/enrolled')
+def get_program_enrolled(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    youth = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name, y.dob, y.status,
+        ye.id as enrollment_id, ye.enrolled_date
+        FROM youth_program_enrollments ye
+        JOIN youth_participants y ON ye.youth_id=y.id
+        WHERE ye.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    return jsonify(youth)
+
+
+@app.route('/api/youth-enrollments/<eid>', methods=['DELETE'])
+def delete_youth_enrollment(eid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

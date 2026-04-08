@@ -200,6 +200,17 @@ def init_db():
     for item in opening_items:
         c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
 
+    # youth authorized pickups
+    c.execute("""CREATE TABLE IF NOT EXISTS youth_authorized_pickups (
+        id TEXT PRIMARY KEY,
+        youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        relationship TEXT,
+        phone TEXT,
+        priority INTEGER DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # production attendance (kiosk sign-in/out for cast & crew)
     c.execute("""CREATE TABLE IF NOT EXISTS prod_attendance (
         id TEXT PRIMARY KEY,
@@ -996,6 +1007,7 @@ def get_youth():
     for y in youth:
         y['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (y['id'],))
         y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (y['id'],))
+        y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (y['id'],))
         y['waivers'] = fetchall(conn,
             'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (y['id'],))
         y['enrollments'] = fetchall(conn,
@@ -1012,6 +1024,7 @@ def get_youth_participant(yid):
     if not y: conn.close(); return jsonify({'error': 'Not found'}), 404
     y['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
     y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
+    y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
     y['enrollments'] = fetchall(conn,
@@ -2338,4 +2351,75 @@ def kiosk_production_signout():
     vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (volunteer_id,))
     conn.close()
     return jsonify({'ok': True, 'hours': hours, 'volunteer_name': vol['name'] if vol else ''})
+
+
+# ─────────────────────────────────────────────
+#  YOUTH AUTHORIZED PICKUPS
+# ─────────────────────────────────────────────
+
+@app.route('/api/youth/<yid>/authorized-pickups')
+def get_authorized_pickups(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn,
+        'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority, created_at',
+        (yid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/youth/<yid>/authorized-pickups', methods=['POST'])
+def add_authorized_pickup(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('name','').strip():
+        return jsonify({'error': 'Name is required'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    # Get next priority
+    max_p = fetchone(conn, 'SELECT COALESCE(MAX(priority),0)+1 as n FROM youth_authorized_pickups WHERE youth_id=%s', (yid,))['n']
+    execute(conn,
+        'INSERT INTO youth_authorized_pickups (id,youth_id,name,relationship,phone,priority,notes) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        (pid, yid, d['name'].strip(), d.get('relationship',''), d.get('phone',''), max_p, d.get('notes','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_authorized_pickups WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/<yid>/authorized-pickups/<pid>', methods=['DELETE'])
+def delete_authorized_pickup(yid, pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_authorized_pickups WHERE id=%s AND youth_id=%s', (pid, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/authorized-pickups/<yid>')
+def kiosk_authorized_pickups(yid):
+    """No auth needed — used by kiosk for sign-in/out."""
+    conn = get_db()
+    rows = fetchall(conn,
+        'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority, created_at',
+        (yid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/kiosk/unauthorized-pickup-notify', methods=['POST'])
+def notify_unauthorized_pickup():
+    """ELIC overrode authorized list — submit to pending updates for admin review."""
+    d = request.json
+    yid = d.get('youth_id')
+    name = d.get('pickup_name','')
+    action = d.get('action','pickup')  # 'dropoff' or 'pickup'
+    conn = get_db()
+    execute(conn,
+        "INSERT INTO pending_profile_updates (id,volunteer_id,field_name,old_value,new_value,status) VALUES (%s,%s,%s,%s,%s,'pending')",
+        (str(uuid.uuid4()), yid,
+         f'youth_unauthorized_{action}',
+         '',
+         json.dumps({'youth_id': yid, 'name': name, 'action': action, 'note': 'Not on authorized list — consider adding'})))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 

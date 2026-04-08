@@ -220,6 +220,15 @@ def init_db():
         signed_out_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # youth production members (kids cast in Rising Stars productions)
+    c.execute("""CREATE TABLE IF NOT EXISTS youth_production_members (
+        id TEXT PRIMARY KEY,
+        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+        youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+        role TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(production_id, youth_id))""")
+
     # youth parent sign-in/out
     c.execute("""CREATE TABLE IF NOT EXISTS youth_sign_ins (
         id TEXT PRIMARY KEY,
@@ -2515,6 +2524,52 @@ def delete_youth_enrollment(eid):
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  YOUTH PRODUCTION MEMBERS
+# ─────────────────────────────────────────────
+
+@app.route('/api/productions/<pid>/youth-members', methods=['POST'])
+def add_youth_production_members(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    youth_ids = d.get('youth_ids', [])
+    conn = get_db()
+    added = 0
+    for yid in youth_ids:
+        try:
+            execute(conn,
+                "INSERT INTO youth_production_members (id,production_id,youth_id) VALUES (%s,%s,%s)",
+                (str(uuid.uuid4()), pid, yid))
+            added += 1
+        except psycopg2.IntegrityError:
+            conn.rollback()
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'added': added})
+
+@app.route('/api/productions/<pid>/youth-members', methods=['GET'])
+def get_youth_production_members(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name, y.dob
+        FROM youth_production_members ypm
+        JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/youth-members/<mid>', methods=['DELETE'])
+def remove_youth_production_member(pid, mid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_production_members WHERE id=%s AND production_id=%s', (mid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

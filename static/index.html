@@ -2239,116 +2239,142 @@ async function openYouthProfile(yid){
 
   document.getElementById('youth-profile-header').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-secondary btn-sm" onclick="navTo('youth')">← Back</button>
-      <div><div class="page-title">${y.first_name} ${y.last_name}</div><div class="page-subtitle">${y.program||'No program'}</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="navTo('youth')">← Back to Youth</button>
     </div>
     ${isAdmin?`<div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="openEditYouthModal('${y.id}')">Edit</button>
       <button class="btn btn-danger btn-sm" onclick="deleteYouth('${y.id}')">Delete</button>
     </div>`:''}`
 
   document.getElementById('youth-profile-content').innerHTML=`
-    <div class="profile-layout">
-      <div class="profile-card">
-        <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(y.first_name+' '+y.last_name)}</div>
-        <div class="profile-name">${y.first_name} ${y.last_name}</div>
-        <div style="text-align:center;margin-bottom:16px">
-          <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}">${y.status==='active'?'● Active':'○ Inactive'}</span>
+    <!-- Hero banner -->
+    <div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);border-radius:var(--radius-lg);padding:28px 32px;margin-bottom:24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+      <div style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.2);border:3px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;flex-shrink:0">${initials(y.first_name+' '+y.last_name)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:24px;font-weight:800;color:#fff;letter-spacing:-0.5px">${y.first_name} ${y.last_name}</div>
+        <div style="color:rgba(255,255,255,0.65);font-size:14px;margin-top:2px">${y.dob?'Age '+(calcAge(y.dob)||'?')+' · ':''} ${(y.enrollments||[]).map(e=>e.program_name).filter(Boolean).join(', ')||'No programs'}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <span style="background:rgba(255,255,255,${y.status==='active'?'0.25':'0.1'});color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${y.status==='active'?'● Active':'○ Inactive'}</span>
+          ${y.photo_consent?'<span style="background:rgba(255,255,255,0.15);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">📸 Photo OK</span>':'<span style="background:rgba(255,80,80,0.3);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">📸 No Photo</span>'}
+          ${y.medical_consent?'<span style="background:rgba(255,255,255,0.15);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">🏥 Medical OK</span>':'<span style="background:rgba(255,80,80,0.3);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px">🏥 No Medical</span>'}
+          ${y.allergies&&y.allergies!=='None'?`<span style="background:rgba(255,180,0,0.35);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">⚠️ ${y.allergies}</span>`:''}
         </div>
-        <hr class="divider"/>
-        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
-          ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?` (Age ${age})`:''}` :''}
-          ${y.program?`<div>🎭 ${y.program}</div>`:''}
+      </div>
+      ${isAdmin?`<div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3)" onclick="openEditYouthModal('${y.id}')">Edit</button>
+      </div>`:''}
+    </div>
+
+    <!-- Two-column layout: info sidebar + tabs -->
+    <div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start">
+
+      <!-- Left info panel -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <!-- Quick info -->
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Info</div>
+          <div style="font-size:13px;display:flex;flex-direction:column;gap:6px;color:var(--text-muted)">
+            ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
+            ${y.program?`<div>🎭 ${y.program}</div>`:''}
+          </div>
         </div>
-        <hr class="divider"/>
-        <div style="margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Consents</div>
-          ${y.photo_consent?'<span class="consent-badge consent-yes">📸 Photo Release</span>':'<span class="consent-badge consent-no">📸 No Photo Release</span>'}
-          ${y.medical_consent?'<span class="consent-badge consent-yes" style="display:block;margin-top:4px">🏥 Medical Treatment</span>':'<span class="consent-badge consent-no" style="display:block;margin-top:4px">🏥 No Medical Consent</span>'}
-        </div>
-        ${y.allergies&&y.allergies!=='None'?`
-        <hr class="divider"/>
-        <div style="margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;color:var(--amber-600);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠️ Allergies</div>
-          <div style="font-size:13px;font-weight:500;color:var(--amber-600)">${y.allergies}</div>
+        <!-- Medical -->
+        ${y.allergies&&y.allergies!=='None'||y.medical_notes?`
+        <div class="card" style="padding:16px;border-left:3px solid var(--amber-200)">
+          ${y.allergies&&y.allergies!=='None'?`<div style="font-size:11px;font-weight:700;color:var(--amber-600);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠️ Allergies</div>
+          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:${y.medical_notes?'10px':'0'}">${y.allergies}</div>`:''}
+          ${y.medical_notes?`<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
+          <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>`:''}
         </div>`:''}
-        ${y.medical_notes?`
-        <hr class="divider"/>
-        <div style="margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
-          <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>
-        </div>`:''}
-        <hr class="divider"/>
-        <div style="margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Waivers</div>
+        <!-- Waivers -->
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Waivers</div>
           ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No waivers on file</div>':
-            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:5px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
+            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:6px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
               <div style="font-weight:500">${w.type_name}</div>
-              <div style="color:var(--text-muted)">Signed: ${formatDate(w.signed_date)}${w.signed_by?' by '+w.signed_by:''}</div>
+              <div style="color:var(--text-muted)">${formatDate(w.signed_date)}</div>
               ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
             </div>`).join('')}
           ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openYouthWaiverModal('${y.id}')">+ Add Waiver</button>`:''}
         </div>
       </div>
-      <div>
-        <div class="card" style="padding:20px 20px 0">
-          <div class="tabs">
-            <div class="tab active" onclick="switchTab(this,'ytab-programs')">Programs (${(y.enrollments||[]).length})</div>
-            <div class="tab" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
-            <div class="tab" onclick="switchTab(this,'ytab-emergency')">Emergency Contacts</div>
-            <div class="tab" onclick="switchTab(this,'ytab-pickups');loadAuthorizedPickups('${y.id}')">Authorized Pickups (${(y.authorized_pickups||[]).length})</div>
-            <div class="tab" onclick="switchTab(this,'ytab-signin');loadYouthSignInTab('${y.id}')">Sign-In History</div>
+
+      <!-- Right: full-width tabs -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <!-- Tab strip -->
+        <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50)">
+          <button class="ytab-btn active" data-tab="ytab-programs" onclick="switchYTab(this)" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            🎓 Programs <span style="background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.enrollments||[]).length}</span>
+          </button>
+          <button class="ytab-btn" data-tab="ytab-guardians" onclick="switchYTab(this)" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            👤 Guardians <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.guardians||[]).length}</span>
+          </button>
+          <button class="ytab-btn" data-tab="ytab-emergency" onclick="switchYTab(this)" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            🚨 Emergency
+          </button>
+          <button class="ytab-btn" data-tab="ytab-pickups" onclick="switchYTab(this);loadAuthorizedPickups('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            ✅ Auth. Pickups <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.authorized_pickups||[]).length}</span>
+          </button>
+          <button class="ytab-btn" data-tab="ytab-signin" onclick="switchYTab(this);loadYouthSignInTab('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            📝 Sign-In History
+          </button>
+        </div>
+
+        <!-- Tab panes -->
+        <div style="padding:20px">
+          <div class="ytab-pane active" id="ytab-programs">
+            ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openEnrollModal('${y.id}')">+ Enroll in Program</button></div>`:''}
+            ${!(y.enrollments||[]).length?'<div style="color:var(--text-muted);font-size:13px">Not enrolled in any programs</div>':
+              (y.enrollments||[]).map(e=>`
+              <div class="guardian-item">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <div>
+                    <div style="font-weight:500;font-size:14px">${e.program_name}</div>
+                    ${e.enrolled_date?`<div style="font-size:12px;color:var(--text-muted)">Enrolled ${formatDate(e.enrolled_date)}</div>`:''}
+                    ${e.notes?`<div style="font-size:12px;color:var(--text-muted)">${e.notes}</div>`:''}
+                  </div>
+                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="unenrollYouth('${e.id}','${y.id}')">✕</button>`:''}
+                </div>
+              </div>`).join('')}
           </div>
-          <div style="padding:0 0 20px">
-            <div class="tab-pane active" id="ytab-programs">
-              ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openEnrollModal('${y.id}')">+ Enroll in Program</button></div>`:''}
-              ${!(y.enrollments||[]).length?'<div style="color:var(--text-muted);font-size:13px">Not enrolled in any programs</div>':
-                (y.enrollments||[]).map(e=>`
-                <div class="guardian-item">
-                  <div style="display:flex;align-items:center;justify-content:space-between">
-                    <div>
-                      <div style="font-weight:500;font-size:14px">${e.program_name}</div>
-                      ${e.enrolled_date?`<div style="font-size:12px;color:var(--text-muted)">Enrolled ${formatDate(e.enrolled_date)}</div>`:''}
-                      ${e.notes?`<div style="font-size:12px;color:var(--text-muted)">${e.notes}</div>`:''}
-                    </div>
-                    ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="unenrollYouth('${e.id}','${y.id}')">✕</button>`:''}
+
+          <div class="ytab-pane" id="ytab-guardians" style="display:none">
+            ${!(y.guardians||[]).length?'<div style="color:var(--text-muted);font-size:13px">No guardians on file</div>':
+              (y.guardians||[]).map(g=>`
+              <div class="guardian-item">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <div>
+                    <div style="font-weight:500;font-size:14px">${g.name} ${g.is_primary?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:10px">Primary</span>':''}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">${g.relationship}</div>
                   </div>
-                </div>`).join('')}
-            </div>
-            <div class="tab-pane" id="ytab-guardians">
-              ${!(y.guardians||[]).length?'<div style="color:var(--text-muted);font-size:13px">No guardians on file</div>':
-                (y.guardians||[]).map(g=>`
-                <div class="guardian-item">
-                  <div style="display:flex;align-items:center;justify-content:space-between">
-                    <div>
-                      <div style="font-weight:500;font-size:14px">${g.name} ${g.is_primary?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:10px">Primary</span>':''}</div>
-                      <div style="font-size:12px;color:var(--text-muted)">${g.relationship}</div>
-                    </div>
-                    ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteGuardian('${g.id}','${y.id}')">✕</button>`:''}
+                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteGuardian('${g.id}','${y.id}')">✕</button>`:''}
+                </div>
+                <div style="font-size:13px;margin-top:6px;display:flex;gap:16px">
+                  ${g.phone?`<span>📞 ${g.phone}</span>`:''}
+                  ${g.email?`<span>📧 <a href="mailto:${g.email}" style="color:var(--teal-600)">${g.email}</a></span>`:''}
+                </div>
+              </div>`).join('')}
+          </div>
+
+          <div class="ytab-pane" id="ytab-emergency" style="display:none">
+            ${!(y.emergency_contacts||[]).length?'<div style="color:var(--text-muted);font-size:13px">No emergency contacts on file</div>':
+              (y.emergency_contacts||[]).map(e=>`
+              <div class="guardian-item">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <div>
+                    <div style="font-weight:500;font-size:14px">${e.name}</div>
+                    <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
+                    <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
                   </div>
-                  <div style="font-size:13px;margin-top:6px;display:flex;gap:16px">
-                    ${g.phone?`<span>📞 ${g.phone}</span>`:''}
-                    ${g.email?`<span>📧 <a href="mailto:${g.email}" style="color:var(--teal-600)">${g.email}</a></span>`:''}
-                  </div>
-                </div>`).join('')}
-            </div>
-            <div class="tab-pane" id="ytab-emergency">
-              ${!(y.emergency_contacts||[]).length?'<div style="color:var(--text-muted);font-size:13px">No emergency contacts on file</div>':
-                (y.emergency_contacts||[]).map(e=>`
-                <div class="guardian-item">
-                  <div style="font-weight:500;font-size:14px">${e.name}</div>
-                  <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
-                  <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
-                </div>`).join('')}
-            </div>
-            <div class="tab-pane" id="ytab-pickups">
-              <div id="ytab-pickups-content-${y.id}">
-                <div style="color:var(--text-muted);font-size:13px">Loading…</div>
-              </div>
-            </div>
-            <div class="tab-pane" id="ytab-signin">
-              <div id="youth-signin-list-${y.id}"><div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading…</div></div>
-            </div>
+                </div>
+              </div>`).join('')}
+          </div>
+
+          <div class="ytab-pane" id="ytab-pickups" style="display:none">
+            <div id="ytab-pickups-content-${y.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+          </div>
+
+          <div class="ytab-pane" id="ytab-signin" style="display:none">
+            <div id="youth-signin-list-${y.id}"><div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading…</div></div>
           </div>
         </div>
       </div>
@@ -4783,6 +4809,23 @@ function renderRisingStars(){
   }).join('')
 }
 
+
+function switchYTab(btn){
+  const tabId=btn.getAttribute('data-tab')
+  // Update button styles
+  document.querySelectorAll('.ytab-btn').forEach(b=>{
+    const active=b.getAttribute('data-tab')===tabId
+    b.classList.toggle('active',active)
+    b.style.color=active?'var(--teal-600)':'var(--text-muted)'
+    b.style.background=active?'var(--surface)':'transparent'
+    b.style.borderBottomColor=active?'var(--teal-400)':'transparent'
+  })
+  // Show/hide panes
+  document.querySelectorAll('.ytab-pane').forEach(p=>{
+    p.style.display=p.id===tabId?'block':'none'
+    p.classList.toggle('active',p.id===tabId)
+  })
+}
 </script>
 </body>
 </html>

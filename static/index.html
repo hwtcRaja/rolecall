@@ -509,8 +509,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PROFILE -->
-      <section class="page" id="page-profile" style="overflow-y:auto">
-        <div id="profile-header" style="width:100%;flex-shrink:0"></div>
+      <section class="page" id="page-profile" style="overflow-y:auto;background:var(--bg)">
+        <div id="profile-header" style="width:100%;flex-shrink:0;min-height:0"></div>
         <div class="page-body"><div id="profile-content"></div></div>
       </section>
 
@@ -793,8 +793,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- YOUTH PROFILE -->
-      <section class="page" id="page-youth-profile" style="overflow-y:auto">
-        <div id="youth-profile-header" style="width:100%;flex-shrink:0"></div>
+      <section class="page" id="page-youth-profile" style="overflow-y:auto;background:var(--bg)">
+        <div id="youth-profile-header" style="width:100%;flex-shrink:0;min-height:0"></div>
         <div class="page-body" style="padding-top:20px"><div id="youth-profile-content"></div></div>
       </section>
 
@@ -5146,7 +5146,7 @@ function buildProfileBanner({name, email, phone, sub, status, bg, col, backFn, b
     `<span style="background:${b.bg};color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500">${b.label}</span>`
   ).join('')
   const ini=name.split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase()
-  return `<div style="background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 100%);padding:24px 32px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;width:100%;box-sizing:border-box">
+  return `<div style="background:linear-gradient(135deg,#0d3d4d 0%,#1b708d 100%);padding:24px 32px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;width:100%;box-sizing:border-box">
     <button onclick="${backFn}" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;flex-shrink:0">${backLabel}</button>
     <div style="width:56px;height:56px;border-radius:50%;background:${bg};border:3px solid rgba(255,255,255,0.35);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:${col};flex-shrink:0">${ini}</div>
     <div style="flex:1;min-width:180px">
@@ -5756,7 +5756,6 @@ function renderRisingStarsPage(){
     return
   }
 
-  const[sbg,scol]=PROD_STATUS_COLORS
   grid.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
     filtered.map(p=>{
       const[bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
@@ -5831,12 +5830,31 @@ async function loadRSYouthCount(prodId){
 
 function openProductionModalForRS(){
   openProductionModal()
-  // Pre-select Rising Stars
   setTimeout(()=>{
     const rBtn = document.getElementById('prod-stage-rising')
     const mBtn = document.getElementById('prod-stage-mainstage')
     if(rBtn){ rBtn.checked=true; if(mBtn) mBtn.checked=false; updateStageUI() }
+    // Lock stage to Rising Stars - hide the selector
+    const stageRow = document.getElementById('prod-stage-mainstage')?.closest('.form-group')
+    if(stageRow) stageRow.style.display='none'
+    // Add a note
+    const existing = document.getElementById('rs-locked-note')
+    if(!existing){
+      const note = document.createElement('div')
+      note.id = 'rs-locked-note'
+      note.style.cssText='font-size:12px;background:var(--purple-50);color:var(--purple-600);padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:500'
+      note.textContent='⭐ Creating a Rising Stars youth production'
+      stageRow?.closest('.modal-body')?.insertBefore(note, stageRow?.closest('.modal-body')?.firstChild)
+    }
   }, 50)
+}
+
+function closeRSProductionModal(){
+  // Restore stage selector when modal closes normally
+  const stageRow = document.getElementById('prod-stage-mainstage')?.closest('.form-group')
+  if(stageRow) stageRow.style.display=''
+  document.getElementById('rs-locked-note')?.remove()
+  closeModal('modal-production')
 }
 
 function navToRSSignIn(prodId){

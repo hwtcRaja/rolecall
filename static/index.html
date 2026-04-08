@@ -526,7 +526,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <button class="btn btn-secondary btn-sm" onclick="calNav(1)">Next →</button>
             </div>
             <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:2px">
-              ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">${d}</div>`).join('')}
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sun</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Mon</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Tue</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Wed</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Thu</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Fri</div>
+              <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sat</div>
             </div>
             <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
           </div>
@@ -808,9 +814,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
             </div>
 
+            <!-- Opening Checklist -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🟢 Opening Checklist Template</div>
+              <div id="opening-checklist-items-list" style="margin-bottom:16px"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <div style="flex:2;min-width:180px"><input type="text" id="new-ocl-label" placeholder="e.g. All mics tested?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <select id="new-ocl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="checkbox">Checkbox</option>
+                  <option value="text">Text / Notes</option>
+                  <option value="rating">1–5 Rating</option>
+                </select>
+                <div style="display:flex;align-items:flex-end;gap:6px">
+                  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+                  <button class="btn btn-primary btn-sm" onclick="addOpeningChecklistItem()">Add Item</button>
+                </div>
+              </div>
+            </div>
+
             <!-- User Management -->
             <div class="settings-section" style="grid-column:1/-1">
-              <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users</div>
+              <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users & Roles</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Set each user's role to control what they can access. Changes take effect on their next login.</div>
               <div id="users-management-list"></div>
             </div>
 
@@ -839,6 +864,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Birthday</label><input type="date" id="vol-birthday"/></div>
       </div>
       <div class="form-group"><label>Status</label><select id="vol-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>Background Check</label><select id="vol-bgcheck"><option value="none">Not on file</option><option value="pending">Pending</option><option value="cleared">Cleared</option></select></div>
+        <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
+      </div>
       <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
     </div>
     <div class="modal-footer">
@@ -997,6 +1026,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
       <div class="form-group"><label>Internal Notes</label><textarea id="edit-event-notes" placeholder="Notes for staff/admins only…"></textarea></div>
+      <div style="display:flex;gap:16px;padding:8px 0">
+        <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event</label>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">Cancel</button>
@@ -1213,6 +1245,7 @@ let allProductions = []
 let currentProdId = null
 let allElics = []
 let allChecklistItems = []
+let allOpeningChecklistItems = []
 let allEventTypes = []
 let calYear = new Date().getFullYear()
 let calMonth = new Date().getMonth()
@@ -1329,8 +1362,30 @@ async function handleLogout(){
   document.getElementById('login-password').value=''
 }
 function applyRoleUI(){
-  const isAdmin=currentUser?.role==='admin'
+  const role=currentUser?.role||'board'
+  const isAdmin=role==='admin'
+  const isInstructor=role==='instructor'
+  const isElic=role==='elic'
+
+  // admin-only elements
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'':'none')
+
+  // Hide irrelevant nav for instructors (can see events, calendar, youth only)
+  if(isInstructor||isElic){
+    document.querySelectorAll('.nav-item').forEach(nav=>{
+      const txt=nav.textContent.trim()
+      const allowed=isInstructor
+        ?['Events','Youth Program','Dashboard']
+        :['Dashboard'] // ELIC just uses kiosk
+      const show=allowed.some(a=>txt.includes(a))
+      nav.style.display=show?'':'none'
+    })
+    // Hide nav sections if all children hidden
+    document.querySelectorAll('.nav-section').forEach(sec=>{
+      const next=sec.nextElementSibling
+      if(next&&next.style.display==='none') sec.style.display='none'
+    })
+  }
 }
 window.addEventListener('DOMContentLoaded',async()=>{
   const data=await api('/api/auth/me')
@@ -1469,6 +1524,7 @@ function renderVolunteers(){
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
       <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
+      <td>${v.background_check_status==='cleared'?'<span style="font-size:11px;background:var(--green-50);color:var(--green-600);padding:2px 6px;border-radius:8px;font-weight:600">✅ BGC</span>':v.background_check_status==='pending'?'<span style="font-size:11px;background:var(--amber-50);color:var(--amber-600);padding:2px 6px;border-radius:8px;font-weight:600">⏳ BGC</span>':''}</td>
       <td style="font-weight:600;color:var(--teal-600)">${v.total_hours||0}h</td>
       <td><div class="action-btns">
         <button class="btn btn-secondary btn-sm" onclick="openProfile('${v.id}')">View</button>
@@ -1526,6 +1582,7 @@ async function openProfile(volId){
         <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
           <div>📧 <a href="mailto:${v.email}" style="color:var(--teal-600)">${v.email}</a></div>
           ${v.phone?`<div>📞 ${v.phone}</div>`:''}
+          <div>🔍 Background Check: <span style="font-weight:600;color:${v.background_check_status==='cleared'?'var(--green-600)':v.background_check_status==='pending'?'var(--amber-600)':'var(--text-hint)'}">${v.background_check_status==='cleared'?'✅ Cleared':v.background_check_status==='pending'?'⏳ Pending':'Not on file'}</span>${v.background_check_date?' ('+formatDate(v.background_check_date)+')':''}</div>
           ${v.birthday?`<div>🎂 ${formatDate(v.birthday)}</div>`:''}
         </div>
         <hr class="divider"/>
@@ -2399,6 +2456,8 @@ function openEditVolModal(volId){
   document.getElementById('vol-phone').value=v.phone||''
   document.getElementById('vol-birthday').value=v.birthday||''
   document.getElementById('vol-status').value=v.status
+  document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
+  document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
   setCheckedInterests(JSON.parse(v.interests||'[]'))
   openModal('modal-volunteer')
 }
@@ -2407,7 +2466,7 @@ async function saveVolunteer(){
   const email=document.getElementById('vol-email').value.trim()
   if(!name||!email){toast('Name and email are required','error');return}
   const editId=document.getElementById('vol-edit-id').value
-  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests()}
+  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
   if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
   else await api('/api/volunteers','POST',data)
   toast(editId?'Volunteer updated!':'Volunteer added!','success')
@@ -2471,12 +2530,12 @@ async function attachFile(e,volId){
 //  SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
-  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,evTypes]=await Promise.all([
+  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes]=await Promise.all([
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
-    api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/event-types')
+    api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/opening-checklist-items'),api('/api/event-types')
   ])
   interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
-  allElics=elicsData; allChecklistItems=clItems; allEventTypes=evTypes
+  allElics=elicsData; allChecklistItems=clItems; allOpeningChecklistItems=oclItems; allEventTypes=evTypes
   renderInterestTypesSettings()
   renderWaiverTypesSettings()
   renderEventsSettings()
@@ -2485,6 +2544,7 @@ async function loadSettings(){
   renderUsersManagement(users)
   renderElicsSettings()
   renderChecklistSettings()
+  renderOpeningChecklistSettings()
   renderEventTypesSettings()
   populateElicVolSelect()
   populateWaiverTypeSelects()
@@ -3878,6 +3938,7 @@ function openEventDetail(eid){
           ${e.location?`<div>📍 ${e.location}${e.room?' <span style="color:var(--text-hint)">·</span> '+e.room:''}</div>`:''}
           ${e.production_name?`<div>🎭 <a onclick="openProductionDetail('${e.production_id}')" style="color:var(--teal-600);cursor:pointer">${e.production_name}</a></div>`:''}
           ${e.expected_volunteers?`<div>👥 ${e.expected_volunteers} expected volunteers</div>`:''}
+          ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;margin-top:4px">🔍 Background check required</div>`:''}
         </div>
         ${e.description?`<hr class="divider"/><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.description}</div>`:''}
         ${e.notes&&isAdmin?`<hr class="divider"/><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-hint);margin-bottom:4px">Staff Notes</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.notes}</div>`:''}
@@ -3973,6 +4034,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-volunteers').value=e.expected_volunteers||''
     document.getElementById('edit-event-desc').value=e.description||''
     document.getElementById('edit-event-notes').value=e.notes||''
+    document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
   }
   openModal('modal-edit-event')
 }
@@ -3993,7 +4055,8 @@ async function saveEditEvent(){
     production_id:document.getElementById('edit-event-production').value||null,
     expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
     description:document.getElementById('edit-event-desc').value.trim(),
-    notes:document.getElementById('edit-event-notes').value.trim()
+    notes:document.getElementById('edit-event-notes').value.trim(),
+    requires_background_check:document.getElementById('edit-event-bgcheck').checked
   }
   let res
   if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
@@ -4050,6 +4113,100 @@ async function deleteEventType(tid){
   allEventTypes=allEventTypes.filter(t=>t.id!==tid)
   renderEventTypesSettings()
   toast('Deleted')
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  OPENING CHECKLIST SETTINGS
+// ═══════════════════════════════════════════════════════════════
+
+function renderOpeningChecklistSettings(){
+  const el=document.getElementById('opening-checklist-items-list')
+  if(!el) return
+  if(!allOpeningChecklistItems.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet</div>';return}
+  const typeIcon={checkbox:'☑️',text:'📝',rating:'⭐'}
+  el.innerHTML=allOpeningChecklistItems.map(item=>`
+    <div class="setting-item" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:13px;font-weight:500">${typeIcon[item.item_type]||'☑️'} ${item.label}</div>
+        ${item.hint?`<div style="font-size:11px;color:var(--text-hint)">${item.hint}</div>`:''}
+        <div style="font-size:11px;margin-top:2px"><span style="color:${item.required?'var(--red-600)':'var(--text-hint)'}">${item.required?'Required':'Optional'}</span> · ${item.item_type}</div>
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditOpeningChecklistItem('${item.id}')">Edit</button>
+        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteOpeningChecklistItem('${item.id}')">✕</button>
+      </div>
+    </div>`).join('')
+}
+
+async function addOpeningChecklistItem(){
+  const label=document.getElementById('new-ocl-label').value.trim()
+  const item_type=document.getElementById('new-ocl-type').value
+  const required=document.getElementById('new-ocl-required').checked
+  if(!label){toast('Label is required','error');return}
+  const res=await api('/api/opening-checklist-items','POST',{label,item_type,required})
+  if(res.error){toast(res.error,'error');return}
+  allOpeningChecklistItems.push(res)
+  document.getElementById('new-ocl-label').value=''
+  renderOpeningChecklistSettings()
+  toast('Opening checklist item added!','success')
+}
+
+async function deleteOpeningChecklistItem(cid){
+  if(!confirm('Delete this item?')) return
+  await api(`/api/opening-checklist-items/${cid}`,'DELETE')
+  allOpeningChecklistItems=allOpeningChecklistItems.filter(i=>i.id!==cid)
+  renderOpeningChecklistSettings()
+  toast('Deleted')
+}
+
+function openEditOpeningChecklistItem(cid){
+  const item=allOpeningChecklistItems.find(i=>i.id===cid)
+  if(!item) return
+  const label=prompt('Label:',item.label)
+  if(!label) return
+  const hint=prompt('Hint/prompt (optional):',item.hint||'')
+  saveOpeningChecklistItem(cid,{...item,label,hint:hint||''})
+}
+
+async function saveOpeningChecklistItem(cid,data){
+  const res=await api(`/api/opening-checklist-items/${cid}`,'PUT',data)
+  if(res.error){toast(res.error,'error');return}
+  allOpeningChecklistItems=allOpeningChecklistItems.map(i=>i.id===cid?res:i)
+  renderOpeningChecklistSettings()
+  toast('Updated!','success')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ROLE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+async function changeUserRole(uid, newRole){
+  const res=await api(`/api/users/${uid}/role`,'PUT',{role:newRole})
+  if(res.error){toast(res.error,'error');loadSettings();return}
+  toast(`Role updated to ${newRole}`, 'success')
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH SIGN-IN/OUT
+// ═══════════════════════════════════════════════════════════════
+
+async function loadYouthSignIns(eventId, programId){
+  let url='/api/youth-sign-ins?'
+  if(eventId) url+=`event_id=${eventId}`
+  if(programId) url+=`program_id=${programId}`
+  return await api(url)
+}
+
+async function signInYouth(youthId, eventId, programId, signedInBy){
+  return await api('/api/youth-sign-ins','POST',{
+    youth_id:youthId, event_id:eventId||null,
+    program_id:programId||null, signed_in_by:signedInBy||''
+  })
+}
+
+async function signOutYouth(signInId, signedOutBy){
+  return await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:signedOutBy||''})
 }
 
 </script>

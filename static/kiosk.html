@@ -438,6 +438,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 
 <script>
 // ── STATE ──
+let pendingAction=null
 let selVol=null, selEvent=null, curHours=0
 let waiverIssues=[], signingWaiver=null
 let elicData=null, elicEventList=[], closingEvent=null
@@ -716,7 +717,7 @@ function renderElicMenu(){
     return
   }
   const statusTag={draft:'<span class="status-tag st-draft">● Draft</span>',open:'<span class="status-tag st-open">🟢 Open</span>',closed:'<span class="status-tag st-closed">🔒 Closed</span>'}
-  container.innerHTML=elicEventList.map(e=>{
+  container.innerHTML=elicEventList.map((e,idx)=>{
     const status=e.current_status==='open'?'open':e.current_status==='close'?'closed':(e.status||'draft')
     return`<div class="elic-event-card">
       <div class="elic-event-header">
@@ -727,8 +728,8 @@ function renderElicMenu(){
         ${statusTag[status]||statusTag.draft}
       </div>
       <div class="elic-actions">
-        ${status!=='open'?`<button class="elic-open-btn" onclick="openEvent('${e.id}','${e.name}')">🟢 Open Event</button>`:''}
-        ${status==='open'?`<button class="elic-close-btn" onclick="startClose('${e.id}','${e.name}')">🔒 Close Event</button>`:''}
+        ${status!=='open'?`<button class="elic-open-btn" data-eidx="${idx}" onclick="handleElicOpen(this)">🟢 Open Event</button>`:''}
+        ${status==='open'?`<button class="elic-close-btn" data-eidx="${idx}" onclick="handleElicClose(this)">🔒 Close Event</button>`:''}
         ${status==='closed'?`<div style="font-size:13px;color:var(--hint);padding:8px 0">Event closed</div>`:''}
       </div>
     </div>`
@@ -741,11 +742,24 @@ function fmtTime(t){
 }
 
 async function openEvent(evid,evname){
-  if(!confirm(`Open "${evname}"? Volunteers will be able to log hours.`))return
-  const r=await fetch('/api/kiosk/open-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid})})
+  pendingAction={type:'open',evid,evname}
+  showKioskConfirm(`Open "${evname}"?`, 'Volunteers will be able to log hours once opened.', 'Open Event', doOpenEvent, cancelKioskConfirm)
+}
+function handleElicOpen(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  const e=elicEventList[idx]
+  if(e) openEvent(e.id,e.name)
+}
+function handleElicClose(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  const e=elicEventList[idx]
+  if(e) startClose(e.id,e.name)
+}
+async function doOpenEvent(){
+  const {evid,evname}=pendingAction
+  const r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:[]})})
   const d=await r.json()
   if(d.error){alert(d.error);return}
-  // Update local state
   elicEventList=elicEventList.map(e=>e.id===evid?{...e,current_status:'open',status:'open'}:e)
   renderElicMenu()
   showConfirm('🟢','Event Opened!',`"${evname}" is now open for hour logging.`,'Volunteers can now log their hours.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
@@ -811,6 +825,18 @@ async function submitChecklist(){
   showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
 }
 
+// ── KIOSK CONFIRM DIALOG ──
+function showKioskConfirm(title, body, btnLabel, onConfirm, onCancel){
+  const el=document.getElementById('kiosk-confirm')
+  document.getElementById('kc-title').textContent=title
+  document.getElementById('kc-body').textContent=body
+  document.getElementById('kc-btn').textContent=btnLabel
+  document.getElementById('kc-confirm').onclick=()=>{el.style.display='none';onConfirm()}
+  document.getElementById('kc-cancel').onclick=()=>{el.style.display='none';if(onCancel)onCancel()}
+  el.style.display='flex'
+}
+function cancelKioskConfirm(){pendingAction=null}
+
 // ── CONFIRM ──
 function showConfirm(icon,title,sub,note,onBack){
   document.getElementById('conf-icon').textContent=icon
@@ -826,5 +852,17 @@ function showConfirm(icon,title,sub,note,onBack){
   resetTmt=setTimeout(()=>{if(onBack)onBack();else showScreen('screen-vol-menu')},RESET_MS)
 }
 </script>
+<!-- Kiosk Confirm Dialog -->
+<div id="kiosk-confirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:24px">
+  <div style="background:#fff;border-radius:24px;padding:40px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.3)">
+    <div style="font-size:40px;margin-bottom:16px" id="kc-icon">❓</div>
+    <div style="font-size:22px;font-weight:700;color:#0d3d4d;margin-bottom:8px" id="kc-title"></div>
+    <div style="font-size:15px;color:#5F5E5A;margin-bottom:32px" id="kc-body"></div>
+    <div style="display:flex;gap:12px">
+      <button id="kc-cancel" style="flex:1;padding:16px;background:#EFEFEC;border:none;border-radius:14px;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;color:#5F5E5A">Cancel</button>
+      <button id="kc-confirm" style="flex:1;padding:16px;background:#1b708d;border:none;border-radius:14px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;color:#fff" id="kc-btn"></button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

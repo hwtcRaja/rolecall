@@ -509,7 +509,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- PROFILE -->
       <section class="page" id="page-profile" style="overflow-y:auto">
-        <div id="profile-header"></div>
+        <div id="profile-header" style="width:100%;flex-shrink:0"></div>
         <div class="page-body"><div id="profile-content"></div></div>
       </section>
 
@@ -781,8 +781,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- YOUTH PROFILE -->
       <section class="page" id="page-youth-profile" style="overflow-y:auto">
-        <div id="youth-profile-header" style="width:100%"></div>
-        <div class="page-body"><div id="youth-profile-content"></div></div>
+        <div id="youth-profile-header" style="width:100%;flex-shrink:0"></div>
+        <div class="page-body" style="padding-top:20px"><div id="youth-profile-content"></div></div>
       </section>
 
       <!-- EVENT LOGS -->
@@ -967,6 +967,46 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- ═══════════════ MODALS ═══════════════ -->
 
 <!-- Volunteer Modal -->
+<!-- New/Edit Program Modal -->
+<div class="modal-overlay" id="modal-program">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="program-edit-id"/>
+      <div class="form-group"><label>Program Name *</label><input type="text" id="program-name" placeholder="e.g. Summer Theater Camp 2025"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Type</label>
+          <select id="program-type">
+            <option value="class">Class</option>
+            <option value="workshop">Workshop</option>
+            <option value="camp">Summer Camp</option>
+            <option value="production">Production</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Instructor</label>
+          <select id="program-instructor"><option value="">— Assign instructor —</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Default ELIC</label>
+          <select id="program-default-elic"><option value="">— Assign default ELIC —</option></select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-fills on events created under this program</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Start Date</label><input type="date" id="program-start"/></div>
+        <div class="form-group"><label>End Date</label><input type="date" id="program-end"/></div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-program')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYouthProgram()">Save Program</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-volunteer">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="vol-modal-title">Add Volunteer</div><button class="modal-close" onclick="closeModal('modal-volunteer')">✕</button></div>
@@ -3156,6 +3196,7 @@ function openProductionDetail(prodId){
 
   navTo('production-detail')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  if(p.stage==='rising_stars') setTimeout(()=>loadYouthProdMembers(p.id),100)
 }
 
 function openProductionModal(){
@@ -3169,8 +3210,8 @@ function openProductionModal(){
   document.getElementById('prod-stage-mainstage').checked=true
   document.getElementById('prod-stage-rising').checked=false
   updateStageUI()
-  const pdesel=document.getElementById('prod-default-elic')
-  if(pdesel) pdesel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+  const pdesel2=document.getElementById('prod-default-elic')
+  if(pdesel2) pdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
   openModal('modal-production')
 }
 
@@ -3189,8 +3230,8 @@ function openEditProductionModal(pid){
   document.getElementById('prod-stage-mainstage').checked=stageVal==='mainstage'
   document.getElementById('prod-stage-rising').checked=stageVal==='rising_stars'
   updateStageUI()
-  const epdesel=document.getElementById('prod-default-elic')
-  if(epdesel){epdesel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');epdesel.value=p.default_elic_id||''}
+  const epdesel2=document.getElementById('prod-default-elic')
+  if(epdesel2){epdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');epdesel2.value=p.default_elic_id||''}
   openModal('modal-production')
 }
 
@@ -3704,25 +3745,6 @@ function _old_openEditEventModal(eid){
   openModal('modal-edit-event')
 }
 
-async function saveEditEvent(){
-  const eid=document.getElementById('edit-event-id').value
-  const name=document.getElementById('edit-event-name').value.trim()
-  if(!name){toast('Event name is required','error');return}
-  const res=await api(`/api/events/${eid}`,'PUT',{
-    name,
-    event_date:document.getElementById('edit-event-date').value||null,
-    start_time:document.getElementById('edit-event-start').value||null,
-    end_time:document.getElementById('edit-event-end').value||null,
-    description:document.getElementById('edit-event-desc').value.trim()
-  })
-  if(res.error){toast(res.error,'error');return}
-  allEvents=allEvents.map(e=>e.id===eid?res:e)
-  closeModal('modal-edit-event')
-  renderEventsSettings()
-  populateHoursFilters()
-  toast('Event updated!','success')
-}
-
 async function addEventWaiverUI(eid, sel){
   const wtid=sel.value
   if(!wtid){return}
@@ -4186,6 +4208,16 @@ function openEventDetail(eid){
         ${e.notes&&isAdmin?`<hr class="divider"/><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-hint);margin-bottom:4px">Staff Notes</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.notes}</div>`:''}
       </div>
       <div style="display:flex;flex-direction:column;gap:16px">
+        <!-- Youth Members (Rising Stars only) -->
+        ${p.stage==='rising_stars'?`<div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:600">👶 Youth Cast</div>
+            ${isAdmin?'<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'"+p.id+"\')" >+ Enroll Youth</button>':''}
+          </div>
+          <div id="youth-prod-members-${p.id}">
+            <div style="color:var(--text-muted);font-size:13px">Loading…</div>
+          </div>
+        </div>`:''}
         <!-- ELICs -->
         <div class="card" style="padding:20px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -4633,19 +4665,20 @@ async function loadProgramSignIn(programId, eventId, isAdmin){
 async function loadRisingStarsSignIn(prodId, eventId, isAdmin){
   const prod = allProductions.find(p=>p.id===prodId)
 
-  // Youth = find linked program enrollments (if production has a linked program)
-  // For now: all youth participants who are enrolled in any program
-  // In future: production can link to a specific program
-  // Use all youth as fallback, or try to find by matching Rising Stars program
-  const param = eventId ? `event_id=${eventId}` : ''
-  ysiData = param ? await api(`/api/youth-sign-ins?${param}`) : []
-  ysiRoster = allYouth.filter(y=>y.status==='active')
+  // Youth = enrolled youth production members
+  const youthMembers = await api('/api/productions/'+prodId+'/youth-members')
+  ysiRoster = youthMembers.map(m=>({
+    id: m.youth_id, first_name: m.first_name, last_name: m.last_name,
+    dob: m.dob, status: 'active', member_id: m.id
+  }))
+
+  // Sign-in records
+  const param = eventId ? 'event_id='+eventId : ''
+  ysiData = param ? await api('/api/youth-sign-ins?'+param) : []
 
   // Adults = production members (volunteers)
-  const members = prod?.members || []
-  ysiAdultRoster = members
+  ysiAdultRoster = prod?.members || []
 
-  // Adult check-ins via pending_hours / prod_attendance
   renderRisingStarsSheet(prod?.name||'Rising Stars', eventId, isAdmin)
 }
 
@@ -5382,17 +5415,7 @@ function addDays(date, days){
   return d
 }
 
-// ── DUPLICATE BUTTON show/hide ──
-// Show duplicate button when editing existing event
-const _origOpenEventModal = openEventModal
-function openEventModal(eid=null){
-  _origOpenEventModal(eid)
-  const dupBtn=document.getElementById('duplicate-event-btn')
-  const repSel=document.getElementById('event-repeat-type')
-  if(dupBtn) dupBtn.style.display=eid?'':'none'
-  if(repSel) repSel.value='none'
-  toggleRepeatOptions()
-}
+// ── DUPLICATE BUTTON show/hide — handled inside main openEventModal ──
 
 async function duplicateCurrentEvent(){
   const eid=document.getElementById('edit-event-id').value
@@ -5420,62 +5443,261 @@ async function duplicateCurrentEvent(){
 
 // Override saveEditEvent to handle repeat
 const _origSaveEditEvent = saveEditEvent
-async function saveEditEvent(){
-  // Save the main event first
-  const repeatType=document.getElementById('event-repeat-type').value
-  const repeatCount=parseInt(document.getElementById('event-repeat-count').value)||4
 
-  // Call original save
-  const eid=document.getElementById('edit-event-id').value
-  const name=document.getElementById('edit-event-name').value.trim()
-  if(!name){toast('Event name is required','error');return}
-  const data={
+// ═══════════════════════════════════════════════════════════════
+//  AUTHORIZED PICKUPS
+// ═══════════════════════════════════════════════════════════════
+
+async function loadAuthorizedPickups(yid){
+  const container=document.getElementById('ytab-pickups-content-'+yid)
+  if(!container) return
+  const pickups=await api('/api/youth/'+yid+'/authorized-pickups')
+  const isAdmin=currentUser?.role==='admin'
+  container.innerHTML=
+    (isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}')">+ Add Authorized Person</button></div>`:'')+
+    (!pickups.length?'<div style="color:var(--text-muted);font-size:13px">No authorized pickups on file</div>':
+      pickups.map((p,i)=>`<div class="guardian-item" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px">${p.name} <span style="font-size:11px;background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:8px">${i===0?'Primary':i===1?'Secondary':'#'+(i+1)}</span></div>
+          ${p.relationship?`<div style="font-size:12px;color:var(--text-muted)">${p.relationship}</div>`:''}
+          ${p.phone?`<div style="font-size:13px;margin-top:4px">📞 ${p.phone}</div>`:''}
+        </div>
+        ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">✕</button>`:''}
+      </div>`).join(''))
+}
+
+function openAddPickupModal(yid){
+  const modal=document.createElement('div')
+  modal.className='modal-overlay open'
+  modal.id='modal-add-pickup'
+  modal.innerHTML=`<div class="modal">
+    <div class="modal-header"><div class="modal-title">Add Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Relationship</label><input type="text" id="pickup-rel" placeholder="e.g. Parent, Grandparent" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="pickup-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-add-pickup').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAuthorizedPickup('${yid}')">Add</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+}
+
+async function saveAuthorizedPickup(yid){
+  const name=document.getElementById('pickup-name')?.value.trim()
+  if(!name){toast('Name is required','error');return}
+  const res=await api('/api/youth/'+yid+'/authorized-pickups','POST',{
     name,
-    event_date:document.getElementById('edit-event-date').value||null,
-    end_date:document.getElementById('edit-event-end-date').value||null,
-    start_time:document.getElementById('edit-event-start').value||null,
-    end_time:document.getElementById('edit-event-end').value||null,
-    event_type_id:document.getElementById('edit-event-type').value||null,
-    location:getEventLocation(),
-    room:getEventRoom(),
-    production_id:document.getElementById('edit-event-production').value||null,
-    program_id:document.getElementById('edit-event-program')?.value||null,
-    expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
-    description:document.getElementById('edit-event-desc').value.trim(),
-    notes:document.getElementById('edit-event-notes').value.trim(),
-    requires_background_check:document.getElementById('edit-event-bgcheck').checked
-  }
-  let res
-  if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
-  else res=await api('/api/events','POST',data)
+    relationship:document.getElementById('pickup-rel')?.value.trim(),
+    phone:document.getElementById('pickup-phone')?.value.trim()
+  })
   if(res.error){toast(res.error,'error');return}
-  if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
-  else allEvents.unshift(res)
+  document.getElementById('modal-add-pickup')?.remove()
+  toast('Added!','success')
+  loadAuthorizedPickups(yid)
+}
 
-  // Handle recurrence — only for new events
-  if(!eid && repeatType!=='none' && data.event_date){
-    const dates=computeRepeatDates(data.event_date, repeatType, repeatCount)
-    let created=0
-    for(const d of dates){
-      const dayDiff=data.end_date&&data.event_date?(new Date(data.end_date)-new Date(data.event_date))/(86400000):0
-      const endD=dayDiff>0?new Date(new Date(d).getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
-      const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD,status:'draft'})
-      if(!r.error){allEvents.unshift(r);created++}
-    }
-    closeModal('modal-edit-event')
-    populateHoursFilters()
-    renderEventsSettings()
-    renderEventsPage()
-    toast(`Event created with ${created} recurring occurrence${created!==1?'s':''}!`,'success')
+async function deleteAuthorizedPickup(yid, pid){
+  if(!confirm('Remove this authorized person?')) return
+  await api('/api/youth/'+yid+'/authorized-pickups/'+pid,'DELETE')
+  toast('Removed')
+  loadAuthorizedPickups(yid)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH SIGN-IN DROP OFF / PICK UP (admin app)
+// ═══════════════════════════════════════════════════════════════
+
+async function ysiDropOff(youthId, name){
+  // If youthId is null, show a youth selector first
+  if(!youthId){
+    const modal=document.createElement('div')
+    modal.className='modal-overlay open'
+    modal.id='modal-ysi-select'
+    modal.innerHTML=`<div class="modal">
+      <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-ysi-select').remove()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Participant *</label>
+          <select id="ysi-select-youth" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
+            <option value="">— Select participant —</option>
+            ${ysiRoster.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi-select').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="ysiSelectAndDropOff()">Continue</button>
+      </div>
+    </div>`
+    document.body.appendChild(modal)
     return
   }
+  const pickups=await api('/api/youth/'+youthId+'/authorized-pickups')
+  ysiShowPersonModal('dropoff', youthId, name, pickups, async(personName, isAuth)=>{
+    const data={youth_id:youthId, signed_in_by:personName}
+    const cat=ysiCurrentFilter.category
+    if(ysiCurrentFilter.eventId) data.event_id=ysiCurrentFilter.eventId
+    else if(cat==='program'&&ysiCurrentFilter.parentId) data.program_id=ysiCurrentFilter.parentId
+    else if(ysiCurrentFilter.eventId) data.event_id=ysiCurrentFilter.eventId
+    const res=await api('/api/youth-sign-ins','POST',data)
+    if(res.error){toast(res.error,'error');return}
+    if(!isAuth&&pickups.length) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'dropoff'})
+    ysiData.push(res)
+    toast(name+' signed in','success')
+    loadYouthSignInSheet()
+  })
+}
 
-  closeModal('modal-edit-event')
-  populateHoursFilters()
-  renderEventsSettings()
-  renderEventsPage()
-  toast(eid?'Event updated!':'Event created!','success')
-  if(eid&&currentEventId===eid) openEventDetail(eid)
+async function ysiSelectAndDropOff(){
+  const sel=document.getElementById('ysi-select-youth')
+  const yid=sel?.value
+  if(!yid){toast('Select a participant','error');return}
+  const y=ysiRoster.find(y=>y.id===yid)
+  document.getElementById('modal-ysi-select')?.remove()
+  ysiDropOff(yid, y?y.first_name+' '+y.last_name:'')
+}
+
+async function ysiPickUp(signInId, youthId, name){
+  const pickups=await api('/api/youth/'+youthId+'/authorized-pickups')
+  ysiShowPersonModal('pickup', youthId, name, pickups, async(personName, isAuth)=>{
+    const res=await api('/api/youth-sign-ins/'+signInId+'/sign-out','POST',{signed_out_by:personName})
+    if(res.error){toast(res.error,'error');return}
+    if(!isAuth&&pickups.length) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'pickup'})
+    ysiData=ysiData.map(r=>r.id===signInId?res:r)
+    toast(name+' signed out','success')
+    loadYouthSignInSheet()
+  })
+}
+
+function ysiShowPersonModal(action, youthId, childName, pickups, onSubmit){
+  const isDropoff=action==='dropoff'
+  const modal=document.createElement('div')
+  modal.className='modal-overlay open'
+  modal.id='modal-ysi-person'
+  const pickupList=pickups.length?`<div style="margin-bottom:12px">
+    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AUTHORIZED LIST</div>
+    ${pickups.map(p=>`<button onclick="document.getElementById('ysi-person-name').value='${p.name.replace(/'/g,"\'")}'" style="text-align:left;width:100%;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;cursor:pointer;font-family:inherit;margin-bottom:4px">
+      <div style="font-weight:600;font-size:14px">${p.name}</div>
+      <div style="font-size:12px;color:var(--text-muted)">${p.relationship||''}${p.phone?' · '+p.phone:''}</div>
+    </button>`).join('')}
+    <div style="margin:8px 0;text-align:center;font-size:12px;color:var(--text-hint)">— or enter manually —</div>
+  </div>`:''
+  modal.innerHTML=`<div class="modal">
+    <div class="modal-header"><div class="modal-title">${isDropoff?'Drop Off':'Pick Up'}: ${childName}</div><button class="modal-close" onclick="document.getElementById('modal-ysi-person').remove()">✕</button></div>
+    <div class="modal-body">
+      ${pickupList}
+      <div class="form-group"><label>${isDropoff?'Dropped Off By':'Picked Up By'} *</label>
+        <input type="text" id="ysi-person-name" placeholder="Name" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        ${pickups.length?'<div style="font-size:12px;color:var(--amber-600);margin-top:4px">⚠️ If not on the authorized list, admin will be notified.</div>':''}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi-person').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="ysiSubmitPerson(${JSON.stringify(pickups).replace(/"/g,'&quot;')})">Confirm</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+  window._ysiPersonCallback=onSubmit
+}
+
+function ysiSubmitPerson(pickups){
+  const name=document.getElementById('ysi-person-name')?.value.trim()
+  if(!name){toast('Please enter a name','error');return}
+  const isAuth=pickups.some(p=>p.name.toLowerCase()===name.toLowerCase())
+  document.getElementById('modal-ysi-person')?.remove()
+  if(window._ysiPersonCallback) window._ysiPersonCallback(name,isAuth)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH PRODUCTION ENROLLMENT (Rising Stars)
+// ═══════════════════════════════════════════════════════════════
+
+async function openEnrollYouthInProduction(prodId, prodName){
+  // Get already-enrolled youth for this production via prod_attendance or production_youth table
+  // For now use youth_program_enrollments approach: find youth enrolled in programs linked to this prod
+  const enrolled = allYouth.filter(y=>{
+    // Check if youth is already a "youth member" of this production
+    return (y.production_youth||[]).includes(prodId)
+  })
+  // Simpler: just show all active youth with checkboxes
+  const modal=document.createElement('div')
+  modal.className='modal-overlay open'
+  modal.id='modal-enroll-youth-prod'
+  modal.innerHTML=`<div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">Enroll Youth in ${prodName}</div><button class="modal-close" onclick="document.getElementById('modal-enroll-youth-prod').remove()">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Select youth participants for this Rising Stars production. They will appear on the sign-in sheet.</div>
+      <input type="text" id="epy-search" placeholder="Search name…" oninput="filterEpyList()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px"/>
+      <div id="epy-list" style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+        ${allYouth.filter(y=>y.status==='active').map(y=>`
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--gray-50);border-radius:8px;cursor:pointer">
+            <input type="checkbox" value="${y.id}" style="accent-color:var(--teal-400)"/>
+            <span style="font-size:14px;font-weight:500">${y.first_name} ${y.last_name}</span>
+            ${y.dob?`<span style="font-size:12px;color:var(--text-muted)">Age ${calcAge(y.dob)||'?'}</span>`:''}
+          </label>`).join('')}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-enroll-youth-prod').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitYouthProdEnrollment('${prodId}')">Enroll Selected</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+}
+
+function filterEpyList(){
+  const q=document.getElementById('epy-search')?.value.toLowerCase()||''
+  document.querySelectorAll('#epy-list label').forEach(l=>{
+    const name=l.querySelector('span')?.textContent.toLowerCase()||''
+    l.style.display=q&&!name.includes(q)?'none':''
+  })
+}
+
+async function submitYouthProdEnrollment(prodId){
+  const checked=[...document.querySelectorAll('#epy-list input:checked')].map(c=>c.value)
+  if(!checked.length){toast('Select at least one participant','error');return}
+  // Store as youth production members in a dedicated endpoint
+  const res=await api('/api/productions/'+prodId+'/youth-members','POST',{youth_ids:checked})
+  if(res&&res.error){toast(res.error,'error');return}
+  document.getElementById('modal-enroll-youth-prod')?.remove()
+  toast(checked.length+' youth enrolled in production!','success')
+  // Refresh productions
+  const prods=await api('/api/productions')
+  allProductions=prods
+}
+
+
+// ── Youth Production Members ──
+async function loadAndShowYouthProdEnroll(prodId, prodName){
+  await openEnrollYouthInProduction(prodId, prodName)
+  // After closing, reload members
+}
+
+async function loadYouthProdMembers(prodId){
+  const container=document.getElementById('youth-prod-members-'+prodId)
+  if(!container) return
+  const members=await api('/api/productions/'+prodId+'/youth-members')
+  if(!members.length){
+    container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No youth enrolled yet</div>'
+    return
+  }
+  const isAdmin=currentUser?.role==='admin'
+  container.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:6px">'+
+    members.map(m=>`<span style="background:var(--purple-50);color:var(--purple-600);padding:4px 10px;border-radius:20px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px">
+      ${m.first_name} ${m.last_name}
+      ${isAdmin?`<button onclick="removeYouthFromProd('${prodId}','${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--purple-600);font-size:14px;padding:0;line-height:1">×</button>`:''}
+    </span>`).join('')+'</div>'
+}
+
+async function removeYouthFromProd(prodId, memberId){
+  if(!confirm('Remove this youth from the production?')) return
+  await api('/api/productions/'+prodId+'/youth-members/'+memberId,'DELETE')
+  toast('Removed','success')
+  loadYouthProdMembers(prodId)
 }
 
 </script>

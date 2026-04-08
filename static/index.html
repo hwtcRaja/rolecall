@@ -418,6 +418,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Programs</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
+        <div class="nav-item" onclick="navTo('signin-sheet',this)"><span class="nav-icon">📝</span>Sign-In Sheet</div>
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
@@ -644,6 +645,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-production-detail">
         <div class="page-header" id="production-detail-header"></div>
         <div class="page-body"><div id="production-detail-content"></div></div>
+      </section>
+
+      <!-- SIGN-IN SHEET -->
+      <section class="page" id="page-signin-sheet">
+        <div class="page-header">
+          <div><div class="page-title">Sign-In Sheet</div><div class="page-subtitle">Parent sign-in and sign-out for youth activities</div></div>
+          <div class="page-actions">
+            <select id="signin-filter-type" class="filter-select" onchange="loadSignInSheet()">
+              <option value="program">By Program</option>
+              <option value="event">By Event</option>
+            </select>
+            <select id="signin-filter-id" class="filter-select" onchange="loadSignInSheet()">
+              <option value="">— Select —</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="exportSignInSheet()">⬇ Export</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div id="signin-sheet-content">
+            <div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>
+          </div>
+        </div>
       </section>
 
       <!-- YOUTH -->
@@ -1417,6 +1440,7 @@ function navTo(page,el){
   if(page==='pending') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
+  if(page==='signin-sheet') initSignInSheet()
   if(page==='settings') loadSettings()
 }
 
@@ -2210,6 +2234,7 @@ async function openYouthProfile(yid){
             <div class="tab active" onclick="switchTab(this,'ytab-programs')">Programs (${(y.enrollments||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-emergency')">Emergency Contacts</div>
+            <div class="tab" onclick="switchTab(this,'ytab-signin');loadYouthSignInTab('${y.id}')">Sign-In History</div>
           </div>
           <div style="padding:0 0 20px">
             <div class="tab-pane active" id="ytab-programs">
@@ -2252,6 +2277,9 @@ async function openYouthProfile(yid){
                   <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
                   <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
                 </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="ytab-signin">
+              <div id="youth-signin-list-${y.id}"><div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading…</div></div>
             </div>
           </div>
         </div>
@@ -3137,27 +3165,48 @@ async function unenrollYouth(eid,yid){
 function renderUsersManagement(users){
   const el=document.getElementById('users-management-list')
   if(!el) return
-  el.innerHTML=`<table style="width:100%">
-    <thead><tr>
-      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Name</th>
-      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Email</th>
-      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Role</th>
-      <th style="text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--border)">Status</th>
-      <th style="background:var(--gray-50);border-bottom:1px solid var(--border)"></th>
-    </tr></thead>
-    <tbody>
-      ${users.map(u=>`
-        <tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:10px 12px;font-weight:500">${u.name}</td>
-          <td style="padding:10px 12px;color:var(--text-muted);font-size:13px">${u.email}</td>
-          <td style="padding:10px 12px"><span style="font-size:12px;padding:2px 8px;border-radius:20px;background:${u.role==='admin'?'var(--teal-50)':'var(--blue-50)'};color:${u.role==='admin'?'var(--teal-600)':'var(--blue-600)'}">${u.role==='admin'?'Admin':'Board'}</span></td>
-          <td style="padding:10px 12px"><span style="font-size:12px;padding:2px 8px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'}">${u.active!==false?'Active':'Inactive'}</span></td>
-          <td style="padding:10px 12px;text-align:right">
-            ${u.id!==currentUser?.id?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:'<span style="font-size:12px;color:var(--text-hint)">You</span>'}
-          </td>
-        </tr>`).join('')}
-    </tbody>
-  </table>`
+  const roleColors={
+    admin:['var(--teal-50)','var(--teal-600)'],
+    board:['var(--blue-50)','var(--blue-600)'],
+    instructor:['var(--purple-50)','var(--purple-600)'],
+    elic:['var(--amber-50)','var(--amber-600)']
+  }
+  const roleDesc={
+    admin:'Full access — can manage everything',
+    board:'Read-only — can view but not edit',
+    instructor:'Can manage events, calendar, and youth programs',
+    elic:'Kiosk only — can open and close events'
+  }
+  el.innerHTML=users.map(u=>{
+    const isSelf=u.id===currentUser?.id
+    const[rbg,rcol]=roleColors[u.role]||roleColors.board
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:10px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div style="flex:0 0 40px">${avatarHTML(u.name,40)}</div>
+      <div style="flex:1;min-width:180px">
+        <div style="font-weight:600;font-size:15px;margin-bottom:2px">${u.name} ${isSelf?'<span style="font-size:11px;color:var(--text-hint)">(You)</span>':''}</div>
+        <div style="font-size:13px;color:var(--text-muted)">${u.email}</div>
+        <div style="font-size:12px;color:var(--text-hint);margin-top:4px">${roleDesc[u.role]||''}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Role:</span>
+          ${isSelf
+            ?`<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:${rbg};color:${rcol};font-weight:600">${u.role.charAt(0).toUpperCase()+u.role.slice(1)}</span>`
+            :`<select onchange="changeUserRole('${u.id}',this.value)" style="padding:5px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;background:${rbg};color:${rcol};font-weight:600">
+              <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+              <option value="board" ${u.role==='board'?'selected':''}>Board</option>
+              <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor</option>
+              <option value="elic" ${u.role==='elic'?'selected':''}>ELIC</option>
+            </select>`}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Status:</span>
+          <span style="font-size:12px;padding:4px 10px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'};font-weight:600">${u.active!==false?'Active':'Inactive'}</span>
+          ${!isSelf?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" style="padding:4px 10px;font-size:12px" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:''}
+        </div>
+      </div>
+    </div>`
+  }).join('')
 }
 
 async function toggleUser(uid,currentlyActive){
@@ -4207,6 +4256,174 @@ async function signInYouth(youthId, eventId, programId, signedInBy){
 
 async function signOutYouth(signInId, signedOutBy){
   return await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:signedOutBy||''})
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH SIGN-IN / SIGN-OUT
+// ═══════════════════════════════════════════════════════════════
+
+async function loadYouthSignInTab(yid){
+  const container=document.getElementById(`youth-signin-list-${yid}`)
+  if(!container) return
+  const filtered=await api(`/api/youth-sign-ins?youth_id=${yid}`)
+  if(!filtered.length){
+    container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
+    return
+  }
+  container.innerHTML=filtered.map(r=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-weight:500;font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${r.signed_in_by?'Signed in by: '+r.signed_in_by:''}</div>
+      </div>
+      <div style="text-align:right">
+        ${r.signed_out_at
+          ?`<div style="font-size:12px;font-weight:500;color:var(--green-600)">✅ Signed out ${new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>`
+          :`<span style="font-size:12px;background:var(--amber-50);color:var(--amber-600);padding:3px 8px;border-radius:8px;font-weight:600">🟡 Still signed in</span>`}
+      </div>
+    </div>`).join('')
+}
+
+// ── SIGN-IN SHEET PAGE ──
+function initSignInSheet(){
+  populateSignInFilters()
+  loadSignInSheet()
+}
+
+function populateSignInFilters(){
+  const typeEl=document.getElementById('signin-filter-type')
+  const idEl=document.getElementById('signin-filter-id')
+  if(!typeEl||!idEl) return
+  const type=typeEl.value
+  if(type==='program'){
+    idEl.innerHTML='<option value="">— Select Program —</option>'+
+      allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+  } else {
+    idEl.innerHTML='<option value="">— Select Event —</option>'+
+      allEvents.map(e=>`<option value="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
+  }
+}
+
+async function loadSignInSheet(){
+  populateSignInFilters()
+  const type=document.getElementById('signin-filter-type')?.value
+  const id=document.getElementById('signin-filter-id')?.value
+  const content=document.getElementById('signin-sheet-content')
+  if(!id){
+    content.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
+    return
+  }
+  content.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
+
+  const url=type==='program'?`/api/youth-sign-ins?program_id=${id}`:`/api/youth-sign-ins?event_id=${id}`
+  const rows=await api(url)
+  const label=type==='program'
+    ?allPrograms.find(p=>p.id===id)?.name||'Program'
+    :allEvents.find(e=>e.id===id)?.name||'Event'
+
+  // Get all youth to build roster
+  const enrolled=type==='program'
+    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===id))
+    :allYouth // for events, show all who've signed in
+
+  const signedInIds=new Set(rows.filter(r=>!r.signed_out_at).map(r=>r.youth_id))
+  const isAdmin=currentUser?.role==='admin'
+
+  content.innerHTML=`
+    <div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div style="font-size:18px;font-weight:700">${label}</div>
+        <div style="font-size:13px;color:var(--text-muted)">${rows.length} sign-in records · ${signedInIds.size} currently signed in</div>
+      </div>
+      ${isAdmin?`<button class="btn btn-primary" onclick="openBulkSignIn('${id}','${type}')">+ Sign In Participant</button>`:''}
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>Participant</th><th>Sign In</th><th>Signed In By</th><th>Sign Out</th><th>Signed Out By</th>${isAdmin?'<th></th>':''}
+        </tr></thead>
+        <tbody>
+          ${rows.length===0?`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:24px;color:var(--text-muted)">No sign-in records yet</td></tr>`:
+            rows.map(r=>`<tr>
+              <td><strong>${r.first_name} ${r.last_name}</strong></td>
+              <td style="font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
+              <td style="font-size:13px;color:var(--text-muted)">${r.signed_in_by||'—'}</td>
+              <td style="font-size:13px">${r.signed_out_at?new Date(r.signed_out_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Still in</span>'}</td>
+              <td style="font-size:13px;color:var(--text-muted)">${r.signed_out_by||'—'}</td>
+              ${isAdmin?`<td>${!r.signed_out_at?`<button class="btn btn-secondary btn-sm" onclick="doSignOut('${r.id}')">Sign Out</button>`:'<span style="color:var(--green-600);font-size:12px">✅ Done</span>'}</td>`:''}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`
+}
+
+function openBulkSignIn(filterId, filterType){
+  const signedInIds=new Set()
+  const candidates=filterType==='program'
+    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===filterId))
+    :allYouth.filter(y=>y.status==='active')
+
+  if(!candidates.length){toast('No participants found','error');return}
+
+  const modal=`<div class="modal-overlay open" id="modal-signin-bulk" style="z-index:1001">
+    <div class="modal">
+      <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-signin-bulk').remove()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Participant *</label>
+          <select id="signin-youth-sel" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
+            <option value="">— Select participant —</option>
+            ${candidates.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Signed In By (Guardian/Parent Name)</label>
+          <input type="text" id="signin-by-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal-signin-bulk').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="doSignIn('${filterId}','${filterType}')">Sign In</button>
+      </div>
+    </div>
+  </div>`
+  document.body.insertAdjacentHTML('beforeend', modal)
+}
+
+async function doSignIn(filterId, filterType){
+  const youthId=document.getElementById('signin-youth-sel')?.value
+  const signedBy=document.getElementById('signin-by-name')?.value.trim()
+  if(!youthId){toast('Please select a participant','error');return}
+  const data={youth_id:youthId, signed_in_by:signedBy}
+  if(filterType==='program') data.program_id=filterId
+  else data.event_id=filterId
+  const res=await api('/api/youth-sign-ins','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById('modal-signin-bulk')?.remove()
+  toast('Signed in!','success')
+  loadSignInSheet()
+}
+
+async function doSignOut(signInId){
+  const name=prompt('Signed out by (guardian/parent name):','') 
+  if(name===null) return
+  await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:name})
+  toast('Signed out!','success')
+  loadSignInSheet()
+}
+
+function exportSignInSheet(){
+  const type=document.getElementById('signin-filter-type')?.value
+  const id=document.getElementById('signin-filter-id')?.value
+  const label=type==='program'
+    ?allPrograms.find(p=>p.id===id)?.name||'program'
+    :allEvents.find(e=>e.id===id)?.name||'event'
+  // Get rows from current table
+  const rows=document.querySelectorAll('#signin-sheet-content tbody tr')
+  const data=[['Participant','Sign In Time','Signed In By','Sign Out Time','Signed Out By']]
+  rows.forEach(r=>{
+    const cells=[...r.querySelectorAll('td')].map(td=>td.textContent.trim())
+    if(cells.length>=5) data.push(cells.slice(0,5))
+  })
+  downloadCSV(`signin_${label.replace(/\s+/g,'_')}.csv`, data)
 }
 
 </script>

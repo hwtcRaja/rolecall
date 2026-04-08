@@ -1395,6 +1395,41 @@ if __name__ == '__main__':
 def kiosk_page():
     return send_from_directory('static', 'kiosk.html')
 
+
+
+
+@app.route('/api/kiosk/youth')
+def kiosk_youth():
+    conn = get_db()
+    youth = fetchall(conn,
+        "SELECT id, first_name, last_name FROM youth_participants WHERE status='active' ORDER BY last_name, first_name")
+    conn.close()
+    return jsonify(youth)
+
+@app.route('/api/kiosk/interest-types')
+def kiosk_interest_types():
+    conn = get_db()
+    types = fetchall(conn, 'SELECT id, name FROM interest_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/kiosk/volunteer-profile/<vol_id>')
+def kiosk_volunteer_profile(vol_id):
+    """Minimal volunteer profile for kiosk — no auth needed."""
+    conn = get_db()
+    vol = fetchone(conn,
+        "SELECT id, name, phone, interests, COALESCE(background_check_status,'none') as background_check_status FROM volunteers WHERE id=%s AND status='active'",
+        (vol_id,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    ec = fetchone(conn,
+        'SELECT name, relationship, phone FROM volunteer_emergency_contacts WHERE volunteer_id=%s ORDER BY created_at DESC LIMIT 1',
+        (vol_id,))
+    vol['emergency_contact'] = ec or {}
+    conn.close()
+    return jsonify(vol)
+
 @app.route('/api/kiosk/volunteers')
 def kiosk_volunteers():
     q = request.args.get('q', '').strip().lower()

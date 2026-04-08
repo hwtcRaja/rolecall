@@ -177,6 +177,45 @@ def init_db():
         phone TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # opening checklist template (separate from closing)
+    c.execute("""CREATE TABLE IF NOT EXISTS opening_checklist_items (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        item_type TEXT NOT NULL DEFAULT 'checkbox',
+        required BOOLEAN DEFAULT TRUE,
+        sort_order INTEGER DEFAULT 0,
+        hint TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # seed default opening checklist items
+    opening_items = [
+        (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
+        (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
+        (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, ''),
+        (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, ''),
+        (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, ''),
+        (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?'),
+        (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts'),
+    ]
+    for item in opening_items:
+        c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
+
+    # youth parent sign-in/out
+    c.execute("""CREATE TABLE IF NOT EXISTS youth_sign_ins (
+        id TEXT PRIMARY KEY,
+        youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+        event_id TEXT REFERENCES events(id),
+        program_id TEXT REFERENCES youth_programs(id),
+        signed_in_at TIMESTAMP,
+        signed_in_by TEXT,
+        signed_out_at TIMESTAMP,
+        signed_out_by TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
+    # summer camps (programs with dates)
+    # already covered by youth_programs — just add date columns via migration
+
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
@@ -278,6 +317,14 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_volunteers INTEGER",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role_permissions TEXT DEFAULT '{}'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS start_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS end_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_type TEXT DEFAULT 'class'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_id TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
@@ -453,6 +500,7 @@ def get_events():
     if err: return err
     conn = get_db()
     events = fetchall(conn, '''SELECT e.*,
+        COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name
         FROM events e
@@ -479,13 +527,13 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,expected_volunteers,description,notes,status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft')''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,expected_volunteers,description,notes,status,requires_background_check)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
         (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes','')))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
         p.name as production_name FROM events e
@@ -502,12 +550,12 @@ def update_event(eid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,expected_volunteers=%s,description=%s,notes=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
         (d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes',''), eid))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
         p.name as production_name FROM events e
@@ -540,7 +588,7 @@ def get_volunteers():
     err = require_auth()
     if err: return err
     conn = get_db()
-    vols = fetchall(conn, 'SELECT * FROM volunteers ORDER BY name')
+    vols = fetchall(conn, '''SELECT *, COALESCE(background_check_status,'none') as background_check_status FROM volunteers ORDER BY name''')
     for v in vols:
         v['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (v['id'],))['t']
         v['waiver_status'], v['waivers'] = get_waiver_summary(conn, v['id'])
@@ -575,8 +623,8 @@ def create_volunteer():
     d = request.json
     vid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-            (vid, d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[]))))
+    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (vid, d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
     vol['total_hours'] = 0; vol['waiver_status'] = 'none'; vol['waivers'] = []
@@ -589,8 +637,8 @@ def update_volunteer(vol_id):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s WHERE id=%s',
-            (d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), vol_id))
+    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s WHERE id=%s',
+            (d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()
@@ -1969,4 +2017,162 @@ def kiosk_event_status(event_id):
     conn.close()
     if not evt: return jsonify({'error': 'Not found'}), 404
     return jsonify({'status': evt['status'] or 'draft'})
+
+
+# ─────────────────────────────────────────────
+#  OPENING CHECKLIST TEMPLATE
+# ─────────────────────────────────────────────
+
+@app.route('/api/opening-checklist-items')
+def get_opening_checklist_items():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, created_at')
+    conn.close()
+    return jsonify(items)
+
+@app.route('/api/opening-checklist-items', methods=['POST'])
+def create_opening_checklist_item():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    cid = str(uuid.uuid4())
+    conn = get_db()
+    max_order = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0)+1 as n FROM opening_checklist_items')['n']
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)',
+            (cid, d['label'], d.get('item_type','checkbox'), d.get('required',True), max_order, d.get('hint','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/opening-checklist-items/<cid>', methods=['PUT'])
+def update_opening_checklist_item(cid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s,item_type=%s,required=%s,hint=%s WHERE id=%s',
+            (d['label'], d.get('item_type','checkbox'), d.get('required',True), d.get('hint',''), cid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/opening-checklist-items/<cid>', methods=['DELETE'])
+def delete_opening_checklist_item(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM opening_checklist_items WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  KIOSK OPEN EVENT WITH CHECKLIST
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/opening-checklist-items')
+def kiosk_opening_checklist():
+    items = []
+    conn = get_db()
+    items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order')
+    conn.close()
+    return jsonify(items)
+
+# Override open-event to support checklist responses
+@app.route('/api/kiosk/open-event-checklist', methods=['POST'])
+def kiosk_open_event_checklist():
+    d = request.json
+    elic_id   = d.get('elic_id')
+    event_id  = d.get('event_id')
+    responses = d.get('responses', [])
+    if not elic_id or not event_id:
+        return jsonify({'error': 'Missing fields'}), 400
+    lid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, "INSERT INTO event_logs (id,event_id,elic_id,action) VALUES (%s,%s,%s,'open')",
+            (lid, event_id, elic_id))
+    execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
+    for r in responses:
+        execute(conn,
+            'INSERT INTO event_checklist_responses (id,event_log_id,checklist_item_id,label,item_type,response) VALUES (%s,%s,%s,%s,%s,%s)',
+            (str(uuid.uuid4()), lid, r.get('item_id',''), r['label'], r['item_type'], r.get('response','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'log_id': lid})
+
+# ─────────────────────────────────────────────
+#  YOUTH PARENT SIGN-IN/OUT
+# ─────────────────────────────────────────────
+
+@app.route('/api/youth-sign-ins')
+def get_youth_sign_ins():
+    err = require_auth()
+    if err: return err
+    event_id = request.args.get('event_id')
+    program_id = request.args.get('program_id')
+    conn = get_db()
+    sql = '''SELECT ys.*, y.first_name, y.last_name
+        FROM youth_sign_ins ys
+        JOIN youth_participants y ON ys.youth_id=y.id
+        WHERE 1=1'''
+    params = []
+    if event_id:
+        sql += ' AND ys.event_id=%s'; params.append(event_id)
+    if program_id:
+        sql += ' AND ys.program_id=%s'; params.append(program_id)
+    sql += ' ORDER BY ys.created_at DESC'
+    rows = fetchall(conn, sql, params)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/youth-sign-ins', methods=['POST'])
+def create_youth_sign_in():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    sid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO youth_sign_ins (id,youth_id,event_id,program_id,signed_in_at,signed_in_by)
+        VALUES (%s,%s,%s,%s,NOW(),%s)''',
+        (sid, d['youth_id'], d.get('event_id'), d.get('program_id'), d.get('signed_in_by','')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT ys.*, y.first_name, y.last_name
+        FROM youth_sign_ins ys JOIN youth_participants y ON ys.youth_id=y.id WHERE ys.id=%s''', (sid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-sign-ins/<sid>/sign-out', methods=['POST'])
+def youth_sign_out(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by=%s WHERE id=%s',
+            (d.get('signed_out_by',''), sid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT ys.*, y.first_name, y.last_name
+        FROM youth_sign_ins ys JOIN youth_participants y ON ys.youth_id=y.id WHERE ys.id=%s''', (sid,))
+    conn.close()
+    return jsonify(row)
+
+# ─────────────────────────────────────────────
+#  USER ROLE MANAGEMENT
+# ─────────────────────────────────────────────
+
+@app.route('/api/users/<uid>/role', methods=['PUT'])
+def update_user_role(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    valid_roles = ['admin', 'board', 'instructor', 'elic']
+    if d.get('role') not in valid_roles:
+        return jsonify({'error': f'Role must be one of: {", ".join(valid_roles)}'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE users SET role=%s WHERE id=%s', (d['role'], uid))
+    conn.commit()
+    user = fetchone(conn, 'SELECT id,name,email,role,COALESCE(active,TRUE) as active FROM users WHERE id=%s', (uid,))
+    conn.close()
+    return jsonify(user)
 

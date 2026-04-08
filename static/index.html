@@ -417,9 +417,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
         <div class="nav-section">Programs</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
-        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)" style="padding-left:28px"><span class="nav-icon">📝</span>Sign-In Sheets</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">🎭</span>Production Sign-In</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Production Sign-In</div>
+        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Education &amp; Programs</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)" style="padding-left:28px"><span class="nav-icon">📝</span>Sign-In</div>
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
@@ -652,7 +652,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- YOUTH SIGN-IN SHEETS -->
       <section class="page" id="page-youth-signin">
         <div class="page-header">
-          <div><div class="page-title">Youth Sign-In Sheets</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
+          <div><div class="page-title">Youth Sign-In</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
           <div class="page-actions">
             <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
           </div>
@@ -711,7 +711,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- YOUTH -->
       <section class="page" id="page-youth">
         <div class="page-header">
-          <div><div class="page-title">Youth Program</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
+          <div><div class="page-title">Youth Education &amp; Programs</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
@@ -1458,7 +1458,7 @@ function applyRoleUI(){
     document.querySelectorAll('.nav-item').forEach(nav=>{
       const txt=nav.textContent.trim()
       const allowed=isInstructor
-        ?['Events','Youth Program','Dashboard']
+        ?['Events','Youth Education','Dashboard','Sign-In']
         :['Dashboard'] // ELIC just uses kiosk
       const show=allowed.some(a=>txt.includes(a))
       nav.style.display=show?'':'none'
@@ -2296,6 +2296,7 @@ async function openYouthProfile(yid){
             <div class="tab active" onclick="switchTab(this,'ytab-programs')">Programs (${(y.enrollments||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-guardians')">Guardians (${(y.guardians||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-emergency')">Emergency Contacts</div>
+            <div class="tab" onclick="switchTab(this,'ytab-pickups');loadAuthorizedPickups('${y.id}')">Authorized Pickups (${(y.authorized_pickups||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'ytab-signin');loadYouthSignInTab('${y.id}')">Sign-In History</div>
           </div>
           <div style="padding:0 0 20px">
@@ -2339,6 +2340,11 @@ async function openYouthProfile(yid){
                   <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
                   <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
                 </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="ytab-pickups">
+              <div id="ytab-pickups-content-${y.id}">
+                <div style="color:var(--text-muted);font-size:13px">Loading…</div>
+              </div>
             </div>
             <div class="tab-pane" id="ytab-signin">
               <div id="youth-signin-list-${y.id}"><div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading…</div></div>
@@ -4360,8 +4366,12 @@ async function loadYouthSignInTab(yid){
 //  YOUTH SIGN-IN SHEETS
 // ═══════════════════════════════════════════════════════════════
 
+let ysiView = 'card'  // 'card' or 'list'
+let ysiCurrentFilter = {type:'program', id:''}
+let ysiData = []       // sign-in records
+let ysiRoster = []     // all youth for this filter
+
 function initYouthSignIn(){
-  // Populate type dropdown then trigger filter
   ysiPopulateIds()
 }
 
@@ -4395,106 +4405,261 @@ async function loadYouthSignInSheet(){
     content.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
     return
   }
+  ysiCurrentFilter={type,id}
   content.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
 
+  // Load sign-ins and build roster
   const param=type==='program'?`program_id=${id}`:`event_id=${id}`
-  const rows=await api(`/api/youth-sign-ins?${param}`)
+  ysiData=await api(`/api/youth-sign-ins?${param}`)
 
-  const label=type==='program'
-    ?allPrograms.find(p=>p.id===id)?.name||'Program'
-    :allEvents.find(e=>e.id===id)?.name||'Event'
-  const signedInNow=rows.filter(r=>!r.signed_out_at).length
+  // Build roster: enrolled youth (program) or all active (event)
+  ysiRoster = type==='program'
+    ? allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===id))
+    : allYouth.filter(y=>y.status==='active')
+
+  // Merge any signed-in youth not in roster
+  ysiData.forEach(r=>{
+    if(!ysiRoster.find(y=>y.id===r.youth_id)){
+      ysiRoster.push({id:r.youth_id,first_name:r.first_name,last_name:r.last_name,status:'active',enrollments:[]})
+    }
+  })
+
+  renderYsiContent()
+}
+
+function setYsiView(v){
+  ysiView=v
+  document.getElementById('ysi-view-card')?.classList.toggle('btn-primary',v==='card')
+  document.getElementById('ysi-view-card')?.classList.toggle('btn-secondary',v!=='card')
+  document.getElementById('ysi-view-list')?.classList.toggle('btn-primary',v==='list')
+  document.getElementById('ysi-view-list')?.classList.toggle('btn-secondary',v!=='list')
+  renderYsiContent()
+}
+
+function renderYsiContent(){
+  const content=document.getElementById('ysi-content')
+  const label=ysiCurrentFilter.type==='program'
+    ?allPrograms.find(p=>p.id===ysiCurrentFilter.id)?.name||'Program'
+    :allEvents.find(e=>e.id===ysiCurrentFilter.id)?.name||'Event'
+  const signedInNow=ysiData.filter(r=>!r.signed_out_at)
   const isAdmin=currentUser?.role==='admin'
 
-  content.innerHTML=`
+  // Map youth_id to their active sign-in record
+  const activeSignIn={}
+  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id]=r })
+
+  const headerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
       <div>
         <div style="font-size:18px;font-weight:700">${label}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${rows.length} total check-ins · <span style="color:var(--green-600);font-weight:600">${signedInNow} currently signed in</span></div>
+        <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · <span style="color:var(--green-600);font-weight:600">${signedInNow.length} currently here</span></div>
       </div>
-      <div style="display:flex;gap:8px">
-        ${isAdmin?`<button class="btn btn-primary" onclick="ysiSignIn('${id}','${type}')">+ Sign In</button>`:''}
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
+          <button id="ysi-view-card" class="btn btn-sm btn-primary" onclick="setYsiView('card')" style="border-radius:8px;padding:6px 12px">⊞ Cards</button>
+          <button id="ysi-view-list" class="btn btn-sm btn-secondary" onclick="setYsiView('list')" style="border-radius:8px;padding:6px 12px">☰ List</button>
+        </div>
+        ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>`:''}
       </div>
-    </div>
-    ${!rows.length
-      ?'<div class="empty-state"><div class="empty-icon">📝</div><p>No sign-ins yet today</p></div>'
-      :`<div class="card"><table>
-        <thead><tr>
-          <th>Participant</th><th>Sign In</th><th>Dropped Off By</th><th>Sign Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}
-        </tr></thead>
-        <tbody>
-          ${rows.map(r=>`<tr style="${!r.signed_out_at?'background:var(--teal-50)':''}">
-            <td><div style="font-weight:600">${r.first_name} ${r.last_name}</div></td>
-            <td style="font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
-            <td style="font-size:13px;color:var(--text-muted)">${r.signed_in_by||'—'}</td>
-            <td style="font-size:13px">${r.signed_out_at?new Date(r.signed_out_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">● Present</span>'}</td>
-            <td style="font-size:13px;color:var(--text-muted)">${r.signed_out_by||'—'}</td>
-            ${isAdmin?`<td>${!r.signed_out_at?`<button class="btn btn-secondary btn-sm" onclick="ysiSignOut('${r.id}','${id}','${type}')">Sign Out</button>`:'<span style="color:var(--green-600);font-size:12px">✅</span>'}</td>`:''}</tr>`).join('')}
-        </tbody>
-      </table></div>`}
-  `
+    </div>`
+
+  if(ysiView==='card'){
+    const cards=ysiRoster.map(y=>{
+      const rec=activeSignIn[y.id]
+      const isIn=!!rec
+      const allRecs=ysiData.filter(r=>r.youth_id===y.id)
+      return`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius-lg);padding:18px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${avatarHTML(`${y.first_name} ${y.last_name}`,40)}
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:15px">${y.first_name} ${y.last_name}</div>
+            ${isIn?`<div style="font-size:12px;color:var(--green-600)">● Here since ${new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>
+            <div style="font-size:11px;color:var(--text-muted)">Dropped off by: ${rec.signed_in_by||'—'}</div>`
+            :`<div style="font-size:12px;color:var(--text-hint)">Not signed in</div>`}
+          </div>
+          <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">${isIn?'✅ IN':'◯ OUT'}</div>
+        </div>
+        ${isAdmin?`<div style="display:flex;gap:8px">
+          ${!isIn?`<button class="btn btn-primary btn-sm" style="flex:1" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}
+          ${isIn?`<button class="btn btn-secondary btn-sm" style="flex:1" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}
+        </div>`:''}
+      </div>`
+    }).join('')
+    content.innerHTML=headerHTML+`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">${cards||'<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted)">No participants found</div>'}</div>`
+  } else {
+    // List view
+    const rows=ysiRoster.map(y=>{
+      const rec=activeSignIn[y.id]
+      const isIn=!!rec
+      return`<tr style="${isIn?'background:var(--teal-50)':''}">
+        <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(`${y.first_name} ${y.last_name}`,28)}<span style="font-weight:500">${y.first_name} ${y.last_name}</span></div></td>
+        <td style="font-size:13px">${rec?new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
+        <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_in_by||'—'}</td>
+        <td style="font-size:13px">${rec?.signed_out_at?new Date(rec.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Present</span>'}</td>
+        <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_out_by||'—'}</td>
+        ${isAdmin?`<td>
+          ${!isIn?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}
+          ${isIn?`<button class="btn btn-secondary btn-sm" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}
+        </td>`:''}
+      </tr>`
+    }).join('')
+    content.innerHTML=headerHTML+`<div class="card"><table><thead><tr>
+      <th>Name</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}
+    </tr></thead><tbody>${rows}</tbody></table></div>`
+  }
 }
 
-function ysiSignIn(filterId, filterType){
-  const candidates=filterType==='program'
-    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===filterId)&&y.status==='active')
-    :allYouth.filter(y=>y.status==='active')
-  if(!candidates.length){toast('No active participants found','error');return}
+async function ysiDropOff(youthId, name){
+  // Load authorized pickups for this youth
+  const pickups=await api(`/api/youth/${youthId}/authorized-pickups`)
+  ysiShowPersonModal('dropoff', youthId, name, pickups, async (personName, isAuthorized)=>{
+    const data={youth_id:youthId, signed_in_by:personName}
+    if(ysiCurrentFilter.type==='program') data.program_id=ysiCurrentFilter.id
+    else data.event_id=ysiCurrentFilter.id
+    const res=await api('/api/youth-sign-ins','POST',data)
+    if(res.error){toast(res.error,'error');return}
+    if(!isAuthorized) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'dropoff'})
+    ysiData.push(res)
+    toast(`${name} signed in`,'success')
+    renderYsiContent()
+  })
+}
+
+async function ysiPickUp(signInId, youthId, name){
+  const pickups=await api(`/api/youth/${youthId}/authorized-pickups`)
+  ysiShowPersonModal('pickup', youthId, name, pickups, async (personName, isAuthorized)=>{
+    const res=await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:personName})
+    if(res.error){toast(res.error,'error');return}
+    if(!isAuthorized) await api('/api/kiosk/unauthorized-pickup-notify','POST',{youth_id:youthId,pickup_name:personName,action:'pickup'})
+    ysiData=ysiData.map(r=>r.id===signInId?res:r)
+    toast(`${name} signed out`,'success')
+    renderYsiContent()
+  })
+}
+
+function ysiShowPersonModal(action, youthId, childName, pickups, onSubmit){
+  const isDropoff = action==='dropoff'
   const modal=document.createElement('div')
   modal.className='modal-overlay open'
-  modal.id='modal-ysi'
+  modal.id='modal-ysi-person'
   modal.innerHTML=`<div class="modal">
-    <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-ysi').remove()">✕</button></div>
+    <div class="modal-header">
+      <div class="modal-title">${isDropoff?'Drop Off':'Pick Up'}: ${childName}</div>
+      <button class="modal-close" onclick="document.getElementById('modal-ysi-person').remove()">✕</button>
+    </div>
     <div class="modal-body">
-      <div class="form-group"><label>Participant *</label>
-        <select id="ysi-youth-sel" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
-          <option value="">— Select participant —</option>
-          ${candidates.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>Dropped Off By (Guardian / Parent Name)</label>
-        <input type="text" id="ysi-by-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+      ${pickups.length?`<div style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">AUTHORIZED LIST</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${pickups.map(p=>`<button onclick="ysiSelectPerson('${p.name}',true)" style="text-align:left;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;cursor:pointer;font-family:inherit;transition:all 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <div style="font-weight:600;font-size:14px">${p.name}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${p.relationship||''}${p.phone?' · '+p.phone:''}</div>
+          </button>`).join('')}
+        </div>
+        <div style="margin:12px 0;text-align:center;font-size:12px;color:var(--text-hint)">— or enter manually —</div>
+      </div>`:''}
+      <div class="form-group">
+        <label>${isDropoff?'Dropped Off By':'Picked Up By'}</label>
+        <input type="text" id="ysi-person-name" placeholder="Name" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        ${!pickups.length?'':`<div style="font-size:12px;color:var(--amber-600);margin-top:4px">⚠️ If not on the authorized list, admin will be notified to update it.</div>`}
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="ysiDoSignIn('${filterId}','${filterType}')">Sign In</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi-person').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="ysiSubmitPerson(${JSON.stringify(pickups).replace(/"/g,'&quot;')})">Confirm</button>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+  // Store callback
+  window._ysiPersonCallback = onSubmit
+}
+
+function ysiSelectPerson(name, isAuth){
+  document.getElementById('ysi-person-name').value=name
+}
+
+function ysiSubmitPerson(pickups){
+  const name=document.getElementById('ysi-person-name')?.value.trim()
+  if(!name){toast('Please enter a name','error');return}
+  const isAuthorized=pickups.some(p=>p.name.toLowerCase()===name.toLowerCase())
+  document.getElementById('modal-ysi-person')?.remove()
+  if(window._ysiPersonCallback) window._ysiPersonCallback(name, isAuthorized)
+}
+
+// ── Authorized Pickups Tab ──
+async function loadAuthorizedPickups(yid){
+  const container=document.getElementById(`ytab-pickups-content-${yid}`)
+  if(!container) return
+  const pickups=await api(`/api/youth/${yid}/authorized-pickups`)
+  const isAdmin=currentUser?.role==='admin'
+  container.innerHTML=`
+    ${isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}')">+ Add Authorized Person</button></div>`:''}
+    ${!pickups.length?'<div style="color:var(--text-muted);font-size:13px">No authorized pickups on file</div>':
+      pickups.map((p,i)=>`<div class="guardian-item" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div>
+          <div style="font-weight:600;font-size:14px">${p.name} <span style="font-size:11px;background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:8px">${i===0?'Primary':i===1?'Secondary':'#'+(i+1)}</span></div>
+          ${p.relationship?`<div style="font-size:12px;color:var(--text-muted)">${p.relationship}</div>`:''}
+          ${p.phone?`<div style="font-size:13px;margin-top:4px">📞 ${p.phone}</div>`:''}
+          ${p.notes?`<div style="font-size:12px;color:var(--text-hint);margin-top:2px">${p.notes}</div>`:''}
+        </div>
+        ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">✕</button>`:''}
+      </div>`).join('')}`
+}
+
+function openAddPickupModal(yid){
+  const modal=document.createElement('div')
+  modal.className='modal-overlay open'
+  modal.id='modal-add-pickup'
+  modal.innerHTML=`<div class="modal">
+    <div class="modal-header"><div class="modal-title">Add Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Relationship</label><input type="text" id="pickup-rel" placeholder="e.g. Parent, Grandparent" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="pickup-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      </div>
+      <div class="form-group"><label>Notes</label><input type="text" id="pickup-notes" placeholder="Any notes (optional)" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-add-pickup').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAuthorizedPickup('${yid}')">Add</button>
     </div>
   </div>`
   document.body.appendChild(modal)
 }
 
-async function ysiDoSignIn(filterId, filterType){
-  const youthId=document.getElementById('ysi-youth-sel')?.value
-  const signedBy=document.getElementById('ysi-by-name')?.value.trim()
-  if(!youthId){toast('Please select a participant','error');return}
-  const data={youth_id:youthId,signed_in_by:signedBy}
-  if(filterType==='program') data.program_id=filterId
-  else data.event_id=filterId
-  const res=await api('/api/youth-sign-ins','POST',data)
+async function saveAuthorizedPickup(yid){
+  const name=document.getElementById('pickup-name')?.value.trim()
+  if(!name){toast('Name is required','error');return}
+  const res=await api(`/api/youth/${yid}/authorized-pickups`,'POST',{
+    name, relationship:document.getElementById('pickup-rel')?.value.trim(),
+    phone:document.getElementById('pickup-phone')?.value.trim(),
+    notes:document.getElementById('pickup-notes')?.value.trim()
+  })
   if(res.error){toast(res.error,'error');return}
-  document.getElementById('modal-ysi')?.remove()
-  toast(`${res.first_name} ${res.last_name} signed in!`,'success')
-  loadYouthSignInSheet()
+  document.getElementById('modal-add-pickup')?.remove()
+  toast('Added!','success')
+  loadAuthorizedPickups(yid)
 }
 
-async function ysiSignOut(signInId, filterId, filterType){
-  const name=prompt('Picked up by (parent/guardian name):')
-  if(name===null) return
-  const res=await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:name})
-  if(res.error){toast(res.error,'error');return}
-  toast('Signed out!','success')
-  loadYouthSignInSheet()
+async function deleteAuthorizedPickup(yid, pid){
+  if(!confirm('Remove this authorized person?')) return
+  await api(`/api/youth/${yid}/authorized-pickups/${pid}`,'DELETE')
+  toast('Removed')
+  loadAuthorizedPickups(yid)
 }
 
 function exportYouthSignInSheet(){
-  const rows=[...document.querySelectorAll('#ysi-content tbody tr')]
-  const data=[['Participant','Sign In','Dropped Off By','Sign Out','Picked Up By']]
-  rows.forEach(r=>{
-    const cells=[...r.querySelectorAll('td')].map(td=>td.textContent.trim())
-    if(cells.length>=5) data.push(cells.slice(0,5))
+  const rows=ysiRoster.map(y=>{
+    const activeSignIn=ysiData.find(r=>r.youth_id===y.id&&!r.signed_out_at)
+    const lastRec=ysiData.filter(r=>r.youth_id===y.id).pop()
+    return[`${y.first_name} ${y.last_name}`,
+      lastRec?.signed_in_at?new Date(lastRec.signed_in_at).toLocaleString():'',
+      lastRec?.signed_in_by||'',
+      lastRec?.signed_out_at?new Date(lastRec.signed_out_at).toLocaleString():'',
+      lastRec?.signed_out_by||'']
   })
-  downloadCSV('youth_signin.csv',data)
+  downloadCSV('youth_signin.csv',[['Participant','Sign In','Dropped Off By','Sign Out','Picked Up By'],...rows])
 }
 
 // ═══════════════════════════════════════════════════════════════

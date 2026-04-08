@@ -447,6 +447,9 @@ let eysEventId=null
 let eysEventData=null
 let eysRoster=[]
 let eysSignOutTarget=null
+let eysDropOffTarget=null
+let eysAuthPickups=[]
+let eysAuthAction='dropoff'
 let allYouthKiosk=[], selEvent=null, curHours=0
 let waiverIssues=[], signingWaiver=null
 let elicData=null, elicEventList=[], closingEvent=null
@@ -878,57 +881,162 @@ function renderEysRoster(){
   filterEysRoster()
 }
 
+let eysView='card'
+function setEysView(v){
+  eysView=v
+  filterEysRoster()
+}
+
 function filterEysRoster(){
-  const q=document.getElementById('eys-search').value.toLowerCase()
-  const signedIn=eysRoster.filter(r=>!r.signed_out_at)
-  const signedOut=eysRoster.filter(r=>r.signed_out_at)
-  const filterRow=(r)=>!q||(r.first_name+' '+r.last_name).toLowerCase().includes(q)
+  const q=document.getElementById('eys-search')?.value.toLowerCase()||''
   const container=document.getElementById('eys-roster')
+  const activeSignIn={}
+  eysRoster.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id]=r })
 
-  const renderRow=(r,isIn)=>`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;margin-bottom:6px"
-    onclick="eysMemberTap('${r.id}','${r.first_name} ${r.last_name}',${isIn})">
-    <div style="width:40px;height:40px;border-radius:50%;background:${isIn?'var(--green)':'var(--hint)'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${(r.first_name||'?')[0]}${(r.last_name||'?')[0]}</div>
-    <div style="flex:1">
-      <div style="font-weight:600;font-size:16px">${r.first_name} ${r.last_name}</div>
-      <div style="font-size:12px;color:var(--muted)">${isIn?'Dropped off by: '+(r.signed_in_by||'—'):'Picked up by: '+(r.signed_out_by||'—')}</div>
-    </div>
-    <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">
-      ${isIn?'✅ IN':'◯ OUT'}
-    </div>
-  </div>`
+  let roster=[...allYouthKiosk]
+  eysRoster.forEach(r=>{
+    if(!roster.find(y=>y.id===r.youth_id))
+      roster.push({id:r.youth_id,first_name:r.first_name||'?',last_name:r.last_name||''})
+  })
+  if(q) roster=roster.filter(y=>(y.first_name+' '+y.last_name).toLowerCase().includes(q))
 
-  let html=''
-  if(signedIn.filter(filterRow).length){
-    html+=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:6px">Currently Here</div>`
-    html+=signedIn.filter(filterRow).map(r=>renderRow(r,true)).join('')
+  const stats=document.getElementById('eys-stats')
+  const present=Object.keys(activeSignIn).length
+  if(stats) stats.textContent=roster.length+' participants · '+present+' currently here'
+
+  if(eysView==='card'){
+    const cards=roster.map(y=>{
+      const rec=activeSignIn[y.id]
+      const isIn=!!rec
+      const bg=isIn?'var(--green-light)':'var(--surface)'
+      const border=isIn?'#86EFAD':'var(--border)'
+      const sinceStr=isIn?'Here since '+new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'Not here'
+      const sinceColor=isIn?'var(--green)':'var(--hint)'
+      const initials=(y.first_name||'?')[0]+(y.last_name||'?')[0]
+      let card='<div style="background:'+bg+';border:2.5px solid '+border+';border-radius:var(--radius-lg);padding:16px;display:flex;flex-direction:column;gap:10px">'
+      card+='<div style="display:flex;align-items:center;gap:10px">'
+      card+='<div style="width:42px;height:42px;border-radius:50%;background:'+(isIn?'var(--green)':'var(--hint)')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">'+initials+'</div>'
+      card+='<div style="flex:1"><div style="font-weight:700;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
+      card+='<div style="font-size:11px;color:'+sinceColor+'">'+sinceStr+'</div></div>'
+      card+='<div style="font-size:12px;font-weight:700;color:'+(isIn?'var(--green)':'var(--hint)')+'">'+( isIn?'✅ IN':'◯')+'</div>'
+      card+='</div>'
+      card+='<div style="display:flex;gap:8px">'
+      if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
+      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      card+='</div></div>'
+      return card
+    }).join('')
+    container.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+(cards||'<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--muted)">No participants</div>')+'</div>'
+  } else {
+    const rows=roster.map(y=>{
+      const rec=activeSignIn[y.id]
+      const isIn=!!rec
+      const initials=(y.first_name||'?')[0]+(y.last_name||'?')[0]
+      let row='<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)'+(isIn?';background:var(--teal-light);border-radius:8px;padding-left:8px':'')+'">'
+      row+='<div style="width:36px;height:36px;border-radius:50%;background:'+(isIn?'var(--green)':'var(--hint)')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
+      row+='<div style="flex:1"><div style="font-weight:600;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
+      if(isIn) row+='<div style="font-size:11px;color:var(--green)">Dropped off by '+(rec.signed_in_by||'—')+'</div>'
+      row+='</div>'
+      if(!isIn) row+='<button style="padding:8px 14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
+      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      row+='</div>'
+      return row
+    }).join('')
+    container.innerHTML='<div>'+rows+'</div>'
   }
-  if(signedOut.filter(filterRow).length){
-    html+=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin:12px 0 6px">Signed Out</div>`
-    html+=signedOut.filter(filterRow).map(r=>renderRow(r,false)).join('')
-  }
-  if(!html) html='<div style="text-align:center;padding:24px;color:var(--muted)">No sign-ins yet — tap "+ Sign In" to add</div>'
-  container.innerHTML=html
 }
 
-function eysMemberTap(rowId,name,isIn){
-  if(!isIn) return // already signed out — do nothing
-  // Show sign-out screen
-  eysSignOutTarget=rowId
-  document.getElementById('eys-out-name').textContent=name
-  const row=eysRoster.find(r=>r.id===rowId)
-  const sinceStr=row?.signed_in_at?'Signed in '+new Date(row.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):''
-  document.getElementById('eys-out-since').textContent=sinceStr
-  document.getElementById('eys-out-parent').value=''
-  showScreen('screen-eys-out')
+
+async function eysStartDropOff(btn){
+  const yid=btn.getAttribute('data-yid')
+  const yname=btn.getAttribute('data-yname')
+  eysDropOffTarget={yid,yname}
+  // Load authorized pickups
+  const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
+  eysAuthPickups=await r.json()
+  eysAuthAction='dropoff'
+  document.getElementById('eys-auth-title').textContent=`Drop Off: ${yname}`
+  document.getElementById('eys-auth-label').textContent='Dropped Off By'
+  document.getElementById('eys-auth-name').value=''
+  renderEysAuthList()
+  showScreen('screen-eys-auth')
 }
 
-function eysSignInNew(){
-  // Populate youth dropdown
-  const sel=document.getElementById('eys-new-youth')
-  sel.innerHTML='<option value="">— Select participant —</option>'+
-    allYouthKiosk.filter(y=>!eysRoster.find(r=>r.youth_id===y.id&&!r.signed_out_at)).map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')
-  document.getElementById('eys-new-parent').value=''
-  showScreen('screen-eys-new')
+async function eysStartPickUp(btn){
+  const rid=btn.getAttribute('data-rid')
+  const yid=btn.getAttribute('data-yid')
+  const yname=btn.getAttribute('data-yname')
+  eysSignOutTarget=rid
+  eysDropOffTarget={yid,yname}
+  const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
+  eysAuthPickups=await r.json()
+  eysAuthAction='pickup'
+  document.getElementById('eys-auth-title').textContent=`Pick Up: ${yname}`
+  document.getElementById('eys-auth-label').textContent='Picked Up By'
+  document.getElementById('eys-auth-name').value=''
+  renderEysAuthList()
+  showScreen('screen-eys-auth')
+}
+
+// eysSignInNew replaced by card-button approach
+
+function renderEysAuthList(){
+  const container=document.getElementById('eys-auth-list')
+  if(!eysAuthPickups.length){container.innerHTML='';return}
+  container.innerHTML=`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px">AUTHORIZED LIST</div>`+
+    eysAuthPickups.map(p=>`<div onclick="document.getElementById('eys-auth-name').value='${p.name}';checkEysAuth()" style="background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:6px;cursor:pointer;transition:all 0.15s" onmouseenter="this.style.borderColor='var(--teal)'" onmouseleave="this.style.borderColor='var(--border)'">
+      <div style="font-weight:600;font-size:15px">${p.name}</div>
+      <div style="font-size:12px;color:var(--muted)">${p.relationship||''}${p.phone?' · '+p.phone:''}</div>
+    </div>`).join('')+
+    `<div style="margin:10px 0;text-align:center;font-size:12px;color:var(--hint)">— or enter manually —</div>`
+}
+
+function checkEysAuth(){
+  const name=document.getElementById('eys-auth-name').value.trim()
+  const isAuth=eysAuthPickups.some(p=>p.name.toLowerCase()===name.toLowerCase())
+  const warn=document.getElementById('eys-auth-warn')
+  if(warn) warn.style.display=name&&!isAuth&&eysAuthPickups.length?'block':'none'
+}
+
+async function eysConfirmPerson(){
+  const name=document.getElementById('eys-auth-name').value.trim()
+  if(!name){alert('Please enter a name');return}
+  const isAuth=eysAuthPickups.some(p=>p.name.toLowerCase()===name.toLowerCase())
+  if(!isAuth&&eysAuthPickups.length){
+    // Notify admin
+    fetch('/api/kiosk/unauthorized-pickup-notify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({youth_id:eysDropOffTarget.yid,pickup_name:name,action:eysAuthAction})})
+  }
+  if(eysAuthAction==='dropoff'){
+    await eysDoSignInWithName(name)
+  } else {
+    await eysDoSignOutWithName(name)
+  }
+}
+
+async function eysDoSignInWithName(parentName){
+  const r=await fetch('/api/youth-sign-ins',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({youth_id:eysDropOffTarget.yid,event_id:eysEventId,signed_in_by:parentName})
+  })
+  const d=await r.json()
+  if(d.error){alert(d.error);return}
+  eysRoster.push(d)
+  filterEysRoster()
+  showScreen('screen-elic-youth-signin')
+}
+
+async function eysDoSignOutWithName(parentName){
+  const r=await fetch(`/api/youth-sign-ins/${eysSignOutTarget}/sign-out`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({signed_out_by:parentName})
+  })
+  const d=await r.json()
+  if(d.error){alert(d.error);return}
+  eysRoster=eysRoster.map(r=>r.id===eysSignOutTarget?d:r)
+  eysSignOutTarget=null
+  filterEysRoster()
+  showScreen('screen-elic-youth-signin')
 }
 
 async function eysDoSignIn(){
@@ -1106,6 +1214,22 @@ function showConfirm(icon,title,sub,note,onBack){
 </script>
 
 
+
+<!-- YOUTH AUTH PERSON SELECTION -->
+<div class="screen hidden" id="screen-eys-auth">
+  <button class="back-btn" onclick="showScreen('screen-elic-youth-signin')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title" id="eys-auth-title">Drop Off</div>
+    <div class="screen-sub">Select from authorized list or enter manually</div>
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:32px;max-width:520px;width:100%;box-shadow:var(--shadow-lg)">
+    <div id="eys-auth-list" style="margin-bottom:16px"></div>
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px" id="eys-auth-label">Dropped Off By</div>
+    <input type="text" id="eys-auth-name" placeholder="Name" style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none;margin-bottom:16px"/>
+    <div id="eys-auth-warn" style="font-size:13px;color:var(--amber-600);margin-bottom:16px;display:none">⚠️ Not on authorized list. Admin will be notified to update.</div>
+    <button onclick="eysConfirmPerson()" style="width:100%;padding:18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:18px;font-weight:700;cursor:pointer">Confirm</button>
+  </div>
+</div>
 <!-- YOUTH SIGN-IN (ELIC kiosk) -->
 <div class="screen hidden" id="screen-elic-youth-signin">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
@@ -1116,10 +1240,13 @@ function showConfirm(icon,title,sub,note,onBack){
   <div style="width:100%;max-width:680px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div id="eys-stats" style="font-size:14px;color:var(--muted)"></div>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="eys-search" placeholder="Search name…" oninput="filterEysRoster()"
-          style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:200px"/>
-        <button onclick="eysSignInNew()" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:10px 18px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">+ Sign In</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="eys-search" placeholder="Search…" oninput="filterEysRoster()"
+          style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:160px"/>
+        <div style="display:flex;gap:2px;background:rgba(255,255,255,0.3);border-radius:var(--radius);padding:2px">
+          <button id="eys-view-card" onclick="setEysView('card')" style="padding:8px 12px;background:rgba(255,255,255,0.9);border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">⊞</button>
+          <button id="eys-view-list" onclick="setEysView('list')" style="padding:8px 12px;background:transparent;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:rgba(255,255,255,0.7)">☰</button>
+        </div>
       </div>
     </div>
     <div id="eys-roster" style="display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow-y:auto"></div>

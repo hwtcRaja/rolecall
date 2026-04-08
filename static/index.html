@@ -1134,8 +1134,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>End Time</label><input type="time" id="edit-event-end"/></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Location / Venue</label><input type="text" id="edit-event-location" placeholder="e.g. HWTC Main Stage"/></div>
-        <div class="form-group"><label>Room / Space</label><input type="text" id="edit-event-room" placeholder="e.g. Black Box, Rehearsal Hall"/></div>
+        <div class="form-group"><label>Location / Venue</label>
+          <select id="edit-event-location-sel" onchange="onLocationSelChange()" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;margin-bottom:6px">
+            <option value="HWTC">Horizon West Theater Company</option>
+            <option value="other">Other / Custom…</option>
+          </select>
+          <input type="text" id="edit-event-location" placeholder="Custom location name" style="display:none;width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        </div>
+        <div class="form-group"><label>Room / Space</label>
+          <select id="edit-event-room-sel" onchange="onRoomSelChange()" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;margin-bottom:6px">
+            <option value="">— Select room —</option>
+            <option value="Studio A">Studio A</option>
+            <option value="Studio B">Studio B</option>
+            <option value="Main Stage">Main Stage</option>
+            <option value="Black Box">Black Box</option>
+            <option value="Rehearsal Hall">Rehearsal Hall</option>
+            <option value="Lobby">Lobby</option>
+            <option value="other">Other / Custom…</option>
+          </select>
+          <input type="text" id="edit-event-room" placeholder="Custom room name" style="display:none;width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        </div>
       </div>
       <div style="padding:10px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Link to (choose one)</div>
       <div class="form-row" style="margin-bottom:0">
@@ -4240,6 +4258,8 @@ function openEventModal(eid=null){
       'edit-event-location','edit-event-room','edit-event-desc','edit-event-notes'].forEach(id=>{
       const el=document.getElementById(id);if(el)el.value=''
     })
+    setEventLocationUI('HWTC','')
+    document.getElementById('edit-event-location-sel').value='HWTC'
     document.getElementById('edit-event-type').value=''
     document.getElementById('edit-event-production').value=''
     document.getElementById('edit-event-volunteers').value=''
@@ -4266,8 +4286,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-start').value=e.start_time||''
     document.getElementById('edit-event-end').value=e.end_time||''
     document.getElementById('edit-event-type').value=e.event_type_id||''
-    document.getElementById('edit-event-location').value=e.location||''
-    document.getElementById('edit-event-room').value=e.room||''
+    setEventLocationUI(e.location||'HWTC', e.room||'')
     document.getElementById('edit-event-production').value=e.production_id||''
     document.getElementById('edit-event-volunteers').value=e.expected_volunteers||''
     document.getElementById('edit-event-desc').value=e.description||''
@@ -4288,8 +4307,8 @@ async function saveEditEvent(){
     start_time:document.getElementById('edit-event-start').value||null,
     end_time:document.getElementById('edit-event-end').value||null,
     event_type_id:document.getElementById('edit-event-type').value||null,
-    location:document.getElementById('edit-event-location').value.trim(),
-    room:document.getElementById('edit-event-room').value.trim(),
+    location:getEventLocation(),
+    room:getEventRoom(),
     production_id:document.getElementById('edit-event-production').value||null,
     program_id:document.getElementById('edit-event-program')?.value||null,
     expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
@@ -5227,6 +5246,236 @@ function onEventParentChange(changed){
       })
     }
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT MODAL HELPERS — LOCATION, RECURRENCE, DUPLICATE
+// ═══════════════════════════════════════════════════════════════
+
+function getEventLocation(){
+  const sel=document.getElementById('edit-event-location-sel')
+  if(sel&&sel.value==='other') return document.getElementById('edit-event-location').value.trim()
+  return sel?sel.value:'HWTC'
+}
+
+function getEventRoom(){
+  const sel=document.getElementById('edit-event-room-sel')
+  if(sel&&sel.value==='other') return document.getElementById('edit-event-room').value.trim()
+  return sel?sel.value:''
+}
+
+function onLocationSelChange(){
+  const sel=document.getElementById('edit-event-location-sel')
+  const inp=document.getElementById('edit-event-location')
+  if(sel.value==='other'){inp.style.display='';inp.focus()}
+  else inp.style.display='none'
+}
+
+function onRoomSelChange(){
+  const sel=document.getElementById('edit-event-room-sel')
+  const inp=document.getElementById('edit-event-room')
+  if(sel.value==='other'){inp.style.display='';inp.focus()}
+  else inp.style.display='none'
+}
+
+function setEventLocationUI(location, room){
+  // Location
+  const locSel=document.getElementById('edit-event-location-sel')
+  const locInp=document.getElementById('edit-event-location')
+  const knownLocs=['HWTC','']
+  if(knownLocs.includes(location)||!location){
+    if(locSel) locSel.value=location||'HWTC'
+    if(locInp) locInp.style.display='none'
+  } else {
+    if(locSel) locSel.value='other'
+    if(locInp){locInp.value=location;locInp.style.display=''}
+  }
+  // Room
+  const roomSel=document.getElementById('edit-event-room-sel')
+  const roomInp=document.getElementById('edit-event-room')
+  const knownRooms=['','Studio A','Studio B','Main Stage','Black Box','Rehearsal Hall','Lobby']
+  if(knownRooms.includes(room)){
+    if(roomSel) roomSel.value=room||''
+    if(roomInp) roomInp.style.display='none'
+  } else if(room){
+    if(roomSel) roomSel.value='other'
+    if(roomInp){roomInp.value=room;roomInp.style.display=''}
+  } else {
+    if(roomSel) roomSel.value=''
+    if(roomInp) roomInp.style.display='none'
+  }
+}
+
+// ── CALENDAR DAY CLICK ──
+function calDayClick(dateStr, evt){
+  // Don't open if clicking on an event chip
+  if(evt.target.closest('[onclick*="openEventDetail"]')) return
+  if(currentUser?.role!=='admin') return
+  openEventModal()
+  setTimeout(()=>{
+    const dateEl=document.getElementById('edit-event-date')
+    const endEl=document.getElementById('edit-event-end-date')
+    if(dateEl) dateEl.value=dateStr
+    if(endEl) endEl.value=dateStr
+  }, 50)
+}
+
+// ── SAME-DAY DEFAULT: when start date changes, auto-set end date ──
+document.addEventListener('DOMContentLoaded',()=>{
+  document.addEventListener('change', e=>{
+    if(e.target.id==='edit-event-date'){
+      const end=document.getElementById('edit-event-end-date')
+      if(end&&!end.value) end.value=e.target.value
+    }
+  })
+})
+
+// ── REPEAT / RECURRENCE ──
+function toggleRepeatOptions(){
+  const type=document.getElementById('event-repeat-type').value
+  const countWrap=document.getElementById('repeat-count-wrap')
+  const untilWrap=document.getElementById('repeat-until-wrap')
+  const preview=document.getElementById('repeat-preview')
+  if(type==='none'){
+    countWrap.style.display='none'
+    untilWrap.style.display='none'
+    preview.textContent=''
+  } else {
+    countWrap.style.display=''
+    untilWrap.style.display=''
+    updateRepeatPreview()
+  }
+}
+
+function updateRepeatPreview(){
+  const type=document.getElementById('event-repeat-type').value
+  const count=parseInt(document.getElementById('event-repeat-count').value)||4
+  const startDate=document.getElementById('edit-event-date').value
+  if(!startDate||type==='none'){document.getElementById('repeat-preview').textContent='';return}
+  const dates=computeRepeatDates(startDate, type, count)
+  const preview=document.getElementById('repeat-preview')
+  preview.innerHTML='<span style="color:var(--teal-600);font-weight:600">Will create '+dates.length+' events:</span> '+
+    dates.slice(0,5).map(d=>formatDate(d)).join(', ')+(dates.length>5?'…':'')
+}
+
+function computeRepeatDates(startDate, type, count){
+  const dates=[]
+  let current=new Date(startDate+'T00:00:00')
+  // Skip the first one (that's the event being saved)
+  for(let i=1;i<count;i++){
+    if(type==='daily') current=addDays(current,1)
+    else if(type==='weekly') current=addDays(current,7)
+    else if(type==='biweekly') current=addDays(current,14)
+    else if(type==='monthly'){
+      current=new Date(current)
+      current.setMonth(current.getMonth()+1)
+    }
+    dates.push(current.toISOString().split('T')[0])
+  }
+  return dates
+}
+
+function addDays(date, days){
+  const d=new Date(date)
+  d.setDate(d.getDate()+days)
+  return d
+}
+
+// ── DUPLICATE BUTTON show/hide ──
+// Show duplicate button when editing existing event
+const _origOpenEventModal = openEventModal
+function openEventModal(eid=null){
+  _origOpenEventModal(eid)
+  const dupBtn=document.getElementById('duplicate-event-btn')
+  const repSel=document.getElementById('event-repeat-type')
+  if(dupBtn) dupBtn.style.display=eid?'':'none'
+  if(repSel) repSel.value='none'
+  toggleRepeatOptions()
+}
+
+async function duplicateCurrentEvent(){
+  const eid=document.getElementById('edit-event-id').value
+  if(!eid) return
+  const e=allEvents.find(e=>e.id===eid)
+  if(!e) return
+  // Create a copy without the id, clearing status to draft
+  const data={
+    ...e, name:e.name+' (Copy)', status:'draft',
+    production_id:e.production_id||null,
+    program_id:e.program_id||null,
+    location:getEventLocation(), room:getEventRoom()
+  }
+  delete data.id; delete data.created_at; delete data.event_type_name
+  delete data.event_type_color; delete data.production_name; delete data.program_name
+  delete data.elics; delete data.required_waivers
+  const res=await api('/api/events','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  allEvents.unshift(res)
+  closeModal('modal-edit-event')
+  renderEventsPage()
+  renderEventsSettings()
+  toast('Event duplicated!','success')
+}
+
+// Override saveEditEvent to handle repeat
+const _origSaveEditEvent = saveEditEvent
+async function saveEditEvent(){
+  // Save the main event first
+  const repeatType=document.getElementById('event-repeat-type').value
+  const repeatCount=parseInt(document.getElementById('event-repeat-count').value)||4
+
+  // Call original save
+  const eid=document.getElementById('edit-event-id').value
+  const name=document.getElementById('edit-event-name').value.trim()
+  if(!name){toast('Event name is required','error');return}
+  const data={
+    name,
+    event_date:document.getElementById('edit-event-date').value||null,
+    end_date:document.getElementById('edit-event-end-date').value||null,
+    start_time:document.getElementById('edit-event-start').value||null,
+    end_time:document.getElementById('edit-event-end').value||null,
+    event_type_id:document.getElementById('edit-event-type').value||null,
+    location:getEventLocation(),
+    room:getEventRoom(),
+    production_id:document.getElementById('edit-event-production').value||null,
+    program_id:document.getElementById('edit-event-program')?.value||null,
+    expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
+    description:document.getElementById('edit-event-desc').value.trim(),
+    notes:document.getElementById('edit-event-notes').value.trim(),
+    requires_background_check:document.getElementById('edit-event-bgcheck').checked
+  }
+  let res
+  if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
+  else res=await api('/api/events','POST',data)
+  if(res.error){toast(res.error,'error');return}
+  if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
+  else allEvents.unshift(res)
+
+  // Handle recurrence — only for new events
+  if(!eid && repeatType!=='none' && data.event_date){
+    const dates=computeRepeatDates(data.event_date, repeatType, repeatCount)
+    let created=0
+    for(const d of dates){
+      const dayDiff=data.end_date&&data.event_date?(new Date(data.end_date)-new Date(data.event_date))/(86400000):0
+      const endD=dayDiff>0?new Date(new Date(d).getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
+      const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD,status:'draft'})
+      if(!r.error){allEvents.unshift(r);created++}
+    }
+    closeModal('modal-edit-event')
+    populateHoursFilters()
+    renderEventsSettings()
+    renderEventsPage()
+    toast(`Event created with ${created} recurring occurrence${created!==1?'s':''}!`,'success')
+    return
+  }
+
+  closeModal('modal-edit-event')
+  populateHoursFilters()
+  renderEventsSettings()
+  renderEventsPage()
+  toast(eid?'Event updated!':'Event created!','success')
+  if(eid&&currentEventId===eid) openEventDetail(eid)
 }
 
 </script>

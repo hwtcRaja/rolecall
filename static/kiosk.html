@@ -20,8 +20,8 @@
   --shadow:0 4px 24px rgba(0,0,0,0.08);--shadow-lg:0 16px 56px rgba(0,0,0,0.16);
 }
 html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;-webkit-font-smoothing:antialiased}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;transition:opacity 0.2s,transform 0.2s;overflow-y:auto}
-.screen.hidden{opacity:0;pointer-events:none;transform:scale(0.98)}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;overflow-y:auto}
+.screen.hidden{display:none!important}
 .back-btn{position:absolute;top:20px;left:20px;background:rgba(255,255,255,0.9);border:2px solid var(--border);border-radius:var(--radius);padding:10px 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;transition:all 0.15s;box-shadow:var(--shadow);z-index:10}
 .back-btn:hover{border-color:var(--teal);color:var(--teal)}
 .step-pill{position:absolute;top:24px;right:24px;background:rgba(255,255,255,0.85);padding:5px 12px;border-radius:20px;font-size:13px;font-weight:500;color:var(--muted);box-shadow:var(--shadow);z-index:10}
@@ -464,8 +464,15 @@ function ini(n){return(n||'?').split(' ').map(p=>p[0]).join('').substring(0,2).t
 function fmtDate(d){if(!d)return'';return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
 
 function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'))
-  document.getElementById(id).classList.remove('hidden')
+  document.querySelectorAll('.screen').forEach(s=>{
+    s.classList.add('hidden')
+    s.style.display='none'
+  })
+  const target=document.getElementById(id)
+  if(target){
+    target.classList.remove('hidden')
+    target.style.display='flex'
+  }
   resetIdle()
 }
 function resetIdle(){
@@ -525,7 +532,7 @@ function searchVols(){
 
 async function selectVol(vol){
   selVol=vol
-  const ir=await fetch('/api/interest-types')
+  const ir=await fetch('/api/kiosk/interest-types')
   allInterestTypes=await ir.json()
   await goWaiverCheck(false)
 }
@@ -651,12 +658,12 @@ async function submitHours(){
 }
 
 async function goUpdateInfo(){
-  const r=await fetch(`/api/volunteers/${selVol.id}`)
+  const r=await fetch(`/api/kiosk/volunteer-profile/${selVol.id}`)
   const vol=await r.json()
   document.getElementById('u-phone').value=vol.phone||''
   let selInts=[];try{selInts=JSON.parse(vol.interests||'[]')}catch{}
   document.getElementById('u-interests').innerHTML=allInterestTypes.map(it=>`<div class="int-chip ${selInts.includes(it.name)?'sel':''}" onclick="this.classList.toggle('sel')">${it.name}</div>`).join('')
-  const ec=vol.emergency_contacts?.[0]||{}
+  const ec=vol.emergency_contact||{}
   document.getElementById('u-ec-name').value=ec.name||''
   document.getElementById('u-ec-rel').value=ec.relationship||''
   document.getElementById('u-ec-phone').value=ec.phone||''
@@ -853,7 +860,7 @@ async function openEysSignIn(evt){
   showScreen('screen-elic-youth-signin')
 
   // Load youth participants
-  const r=await fetch('/api/youth?status=active')
+  const r=await fetch('/api/kiosk/youth')
   const d=await r.json()
   allYouthKiosk=Array.isArray(d)?d:[]
 

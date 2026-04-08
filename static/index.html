@@ -418,7 +418,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Programs</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎭</span>Productions</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">🧒</span>Youth Program</div>
-        <div class="nav-item" onclick="navTo('signin-sheet',this)"><span class="nav-icon">📝</span>Sign-In Sheet</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)" style="padding-left:28px"><span class="nav-icon">📝</span>Sign-In Sheets</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">🎭</span>Production Sign-In</div>
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
@@ -648,23 +649,61 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- SIGN-IN SHEET -->
-      <section class="page" id="page-signin-sheet">
+      <!-- YOUTH SIGN-IN SHEETS -->
+      <section class="page" id="page-youth-signin">
         <div class="page-header">
-          <div><div class="page-title">Sign-In Sheet</div><div class="page-subtitle">Parent sign-in and sign-out for youth activities</div></div>
+          <div><div class="page-title">Youth Sign-In Sheets</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
           <div class="page-actions">
-            <select id="signin-filter-type" class="filter-select" onchange="loadSignInSheet()">
-              <option value="program">By Program</option>
-              <option value="event">By Event</option>
-            </select>
-            <select id="signin-filter-id" class="filter-select" onchange="loadSignInSheet()">
-              <option value="">— Select —</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" onclick="exportSignInSheet()">⬇ Export</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
           </div>
         </div>
         <div class="page-body">
-          <div id="signin-sheet-content">
+          <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">View by</div>
+              <select id="ysi-filter-type" class="filter-select" onchange="ysiTypeChanged()">
+                <option value="program">Program / Class</option>
+                <option value="event">Event</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px" id="ysi-id-label">Select Program</div>
+              <select id="ysi-filter-id" class="filter-select" onchange="loadYouthSignInSheet()">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+          </div>
+          <div id="ysi-content">
             <div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRODUCTION SIGN-IN -->
+      <section class="page" id="page-production-signin">
+        <div class="page-header">
+          <div><div class="page-title">Production Sign-In</div><div class="page-subtitle">Cast & crew check-in for productions</div></div>
+          <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="exportProdSignInSheet()">⬇ Export</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Production</div>
+              <select id="psi-prod-id" class="filter-select" onchange="loadProdSignInSheet()">
+                <option value="">— Select Production —</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Event (optional)</div>
+              <select id="psi-event-id" class="filter-select" onchange="loadProdSignInSheet()">
+                <option value="">All / General</option>
+              </select>
+            </div>
+          </div>
+          <div id="psi-content">
+            <div class="empty-state"><div class="empty-icon">🎭</div><p>Select a production above</p></div>
           </div>
         </div>
       </section>
@@ -676,6 +715,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
+          <!-- Rising Stars Productions Banner -->
+          <div id="rising-stars-section" style="display:none;margin-bottom:28px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+              <span style="font-size:20px">⭐</span>
+              <div style="font-size:16px;font-weight:700;color:var(--purple-600)">Rising Stars Productions</div>
+            </div>
+            <div id="rising-stars-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px"></div>
+            <hr style="border:none;border-top:1px solid var(--border);margin-bottom:20px"/>
+          </div>
           <div class="search-bar">
             <div class="search-input-wrap"><span>🔍</span><input type="text" id="youth-search" placeholder="Search by name or program…" oninput="renderYouth()"></div>
             <select class="filter-select" id="youth-filter-status" onchange="renderYouth()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
@@ -1187,6 +1235,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </select>
         </div>
       </div>
+      <div class="form-group"><label>Stage</label>
+        <div style="display:flex;gap:10px">
+          <label style="flex:1;border:2.5px solid var(--border);border-radius:var(--radius);padding:12px 16px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:10px" id="stage-mainstage-label">
+            <input type="radio" name="prod-stage" id="prod-stage-mainstage" value="mainstage" checked style="accent-color:var(--teal-400)" onchange="updateStageUI()"/>
+            <div><div style="font-weight:600;font-size:14px">🎭 Mainstage</div><div style="font-size:11px;color:var(--text-muted)">Main productions</div></div>
+          </label>
+          <label style="flex:1;border:2.5px solid var(--border);border-radius:var(--radius);padding:12px 16px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:10px" id="stage-rising-label">
+            <input type="radio" name="prod-stage" id="prod-stage-rising" value="rising_stars" style="accent-color:var(--purple-600)" onchange="updateStageUI()"/>
+            <div><div style="font-weight:600;font-size:14px">⭐ Rising Stars</div><div style="font-size:11px;color:var(--text-muted)">Youth productions</div></div>
+          </label>
+        </div>
+      </div>
       <div class="form-row">
         <div class="form-group"><label>Start Date</label><input type="date" id="prod-start"/></div>
         <div class="form-group"><label>End Date</label><input type="date" id="prod-end"/></div>
@@ -1440,7 +1500,8 @@ function navTo(page,el){
   if(page==='pending') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
-  if(page==='signin-sheet') initSignInSheet()
+  if(page==='youth-signin') initYouthSignIn()
+  if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
 }
 
@@ -2090,6 +2151,7 @@ function getCheckedYouthPrograms(){
 }
 
 function renderYouth(){
+  renderRisingStars()
   const search=document.getElementById('youth-search').value.toLowerCase()
   const fs=document.getElementById('youth-filter-status').value
   const fp=document.getElementById('youth-filter-program').value
@@ -2884,7 +2946,7 @@ function renderProductions(){
           <div style="font-size:16px;font-weight:600">${p.name}</div>
           <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
         </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${p.stage==='rising_stars'?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
         ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
       </div>
       <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
@@ -2996,6 +3058,9 @@ function openProductionModal(){
   document.getElementById('prod-end').value=''
   document.getElementById('prod-type').value='musical'
   document.getElementById('prod-status').value='upcoming'
+  document.getElementById('prod-stage-mainstage').checked=true
+  document.getElementById('prod-stage-rising').checked=false
+  updateStageUI()
   openModal('modal-production')
 }
 
@@ -3010,6 +3075,10 @@ function openEditProductionModal(pid){
   document.getElementById('prod-end').value=p.end_date||''
   document.getElementById('prod-type').value=p.production_type||'musical'
   document.getElementById('prod-status').value=p.status||'upcoming'
+  const stageVal=p.stage||'mainstage'
+  document.getElementById('prod-stage-mainstage').checked=stageVal==='mainstage'
+  document.getElementById('prod-stage-rising').checked=stageVal==='rising_stars'
+  updateStageUI()
   openModal('modal-production')
 }
 
@@ -3017,8 +3086,10 @@ async function saveProduction(){
   const name=document.getElementById('prod-name').value.trim()
   if(!name){toast('Production name is required','error');return}
   const editId=document.getElementById('prod-edit-id').value
+  const stageEl=document.querySelector('input[name="prod-stage"]:checked')
   const data={
     name, production_type:document.getElementById('prod-type').value,
+    stage: stageEl?stageEl.value:'mainstage',
     status:document.getElementById('prod-status').value,
     start_date:document.getElementById('prod-start').value||null,
     end_date:document.getElementById('prod-end').value||null,
@@ -4285,145 +4356,269 @@ async function loadYouthSignInTab(yid){
     </div>`).join('')
 }
 
-// ── SIGN-IN SHEET PAGE ──
-function initSignInSheet(){
-  populateSignInFilters()
-  loadSignInSheet()
+// ═══════════════════════════════════════════════════════════════
+//  YOUTH SIGN-IN SHEETS
+// ═══════════════════════════════════════════════════════════════
+
+function initYouthSignIn(){
+  // Populate type dropdown then trigger filter
+  ysiPopulateIds()
 }
 
-function populateSignInFilters(){
-  const typeEl=document.getElementById('signin-filter-type')
-  const idEl=document.getElementById('signin-filter-id')
-  if(!typeEl||!idEl) return
-  const type=typeEl.value
+function ysiTypeChanged(){
+  ysiPopulateIds()
+  document.getElementById('ysi-content').innerHTML=
+    '<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
+}
+
+function ysiPopulateIds(){
+  const type=document.getElementById('ysi-filter-type')?.value||'program'
+  const label=document.getElementById('ysi-id-label')
+  const sel=document.getElementById('ysi-filter-id')
+  if(!sel) return
   if(type==='program'){
-    idEl.innerHTML='<option value="">— Select Program —</option>'+
+    if(label) label.textContent='Select Program'
+    sel.innerHTML='<option value="">— Select Program —</option>'+
       allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
   } else {
-    idEl.innerHTML='<option value="">— Select Event —</option>'+
+    if(label) label.textContent='Select Event'
+    sel.innerHTML='<option value="">— Select Event —</option>'+
       allEvents.map(e=>`<option value="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
   }
 }
 
-async function loadSignInSheet(){
-  populateSignInFilters()
-  const type=document.getElementById('signin-filter-type')?.value
-  const id=document.getElementById('signin-filter-id')?.value
-  const content=document.getElementById('signin-sheet-content')
+async function loadYouthSignInSheet(){
+  const type=document.getElementById('ysi-filter-type')?.value||'program'
+  const id=document.getElementById('ysi-filter-id')?.value
+  const content=document.getElementById('ysi-content')
   if(!id){
     content.innerHTML='<div class="empty-state"><div class="empty-icon">📝</div><p>Select a program or event above</p></div>'
     return
   }
   content.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
 
-  const url=type==='program'?`/api/youth-sign-ins?program_id=${id}`:`/api/youth-sign-ins?event_id=${id}`
-  const rows=await api(url)
+  const param=type==='program'?`program_id=${id}`:`event_id=${id}`
+  const rows=await api(`/api/youth-sign-ins?${param}`)
+
   const label=type==='program'
     ?allPrograms.find(p=>p.id===id)?.name||'Program'
     :allEvents.find(e=>e.id===id)?.name||'Event'
-
-  // Get all youth to build roster
-  const enrolled=type==='program'
-    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===id))
-    :allYouth // for events, show all who've signed in
-
-  const signedInIds=new Set(rows.filter(r=>!r.signed_out_at).map(r=>r.youth_id))
+  const signedInNow=rows.filter(r=>!r.signed_out_at).length
   const isAdmin=currentUser?.role==='admin'
 
   content.innerHTML=`
-    <div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
       <div>
         <div style="font-size:18px;font-weight:700">${label}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${rows.length} sign-in records · ${signedInIds.size} currently signed in</div>
+        <div style="font-size:13px;color:var(--text-muted)">${rows.length} total check-ins · <span style="color:var(--green-600);font-weight:600">${signedInNow} currently signed in</span></div>
       </div>
-      ${isAdmin?`<button class="btn btn-primary" onclick="openBulkSignIn('${id}','${type}')">+ Sign In Participant</button>`:''}
+      <div style="display:flex;gap:8px">
+        ${isAdmin?`<button class="btn btn-primary" onclick="ysiSignIn('${id}','${type}')">+ Sign In</button>`:''}
+      </div>
     </div>
-    <div class="card">
-      <table>
+    ${!rows.length
+      ?'<div class="empty-state"><div class="empty-icon">📝</div><p>No sign-ins yet today</p></div>'
+      :`<div class="card"><table>
         <thead><tr>
-          <th>Participant</th><th>Sign In</th><th>Signed In By</th><th>Sign Out</th><th>Signed Out By</th>${isAdmin?'<th></th>':''}
+          <th>Participant</th><th>Sign In</th><th>Dropped Off By</th><th>Sign Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}
         </tr></thead>
         <tbody>
-          ${rows.length===0?`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:24px;color:var(--text-muted)">No sign-in records yet</td></tr>`:
-            rows.map(r=>`<tr>
-              <td><strong>${r.first_name} ${r.last_name}</strong></td>
-              <td style="font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
-              <td style="font-size:13px;color:var(--text-muted)">${r.signed_in_by||'—'}</td>
-              <td style="font-size:13px">${r.signed_out_at?new Date(r.signed_out_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Still in</span>'}</td>
-              <td style="font-size:13px;color:var(--text-muted)">${r.signed_out_by||'—'}</td>
-              ${isAdmin?`<td>${!r.signed_out_at?`<button class="btn btn-secondary btn-sm" onclick="doSignOut('${r.id}')">Sign Out</button>`:'<span style="color:var(--green-600);font-size:12px">✅ Done</span>'}</td>`:''}</tr>`).join('')}
+          ${rows.map(r=>`<tr style="${!r.signed_out_at?'background:var(--teal-50)':''}">
+            <td><div style="font-weight:600">${r.first_name} ${r.last_name}</div></td>
+            <td style="font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
+            <td style="font-size:13px;color:var(--text-muted)">${r.signed_in_by||'—'}</td>
+            <td style="font-size:13px">${r.signed_out_at?new Date(r.signed_out_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">● Present</span>'}</td>
+            <td style="font-size:13px;color:var(--text-muted)">${r.signed_out_by||'—'}</td>
+            ${isAdmin?`<td>${!r.signed_out_at?`<button class="btn btn-secondary btn-sm" onclick="ysiSignOut('${r.id}','${id}','${type}')">Sign Out</button>`:'<span style="color:var(--green-600);font-size:12px">✅</span>'}</td>`:''}</tr>`).join('')}
         </tbody>
-      </table>
-    </div>`
+      </table></div>`}
+  `
 }
 
-function openBulkSignIn(filterId, filterType){
-  const signedInIds=new Set()
+function ysiSignIn(filterId, filterType){
   const candidates=filterType==='program'
-    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===filterId))
+    ?allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===filterId)&&y.status==='active')
     :allYouth.filter(y=>y.status==='active')
-
-  if(!candidates.length){toast('No participants found','error');return}
-
-  const modal=`<div class="modal-overlay open" id="modal-signin-bulk" style="z-index:1001">
-    <div class="modal">
-      <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-signin-bulk').remove()">✕</button></div>
-      <div class="modal-body">
-        <div class="form-group"><label>Participant *</label>
-          <select id="signin-youth-sel" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
-            <option value="">— Select participant —</option>
-            ${candidates.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group"><label>Signed In By (Guardian/Parent Name)</label>
-          <input type="text" id="signin-by-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
-        </div>
+  if(!candidates.length){toast('No active participants found','error');return}
+  const modal=document.createElement('div')
+  modal.className='modal-overlay open'
+  modal.id='modal-ysi'
+  modal.innerHTML=`<div class="modal">
+    <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-ysi').remove()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Participant *</label>
+        <select id="ysi-youth-sel" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
+          <option value="">— Select participant —</option>
+          ${candidates.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
+        </select>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="document.getElementById('modal-signin-bulk').remove()">Cancel</button>
-        <button class="btn btn-primary" onclick="doSignIn('${filterId}','${filterType}')">Sign In</button>
+      <div class="form-group"><label>Dropped Off By (Guardian / Parent Name)</label>
+        <input type="text" id="ysi-by-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
       </div>
     </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-ysi').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="ysiDoSignIn('${filterId}','${filterType}')">Sign In</button>
+    </div>
   </div>`
-  document.body.insertAdjacentHTML('beforeend', modal)
+  document.body.appendChild(modal)
 }
 
-async function doSignIn(filterId, filterType){
-  const youthId=document.getElementById('signin-youth-sel')?.value
-  const signedBy=document.getElementById('signin-by-name')?.value.trim()
+async function ysiDoSignIn(filterId, filterType){
+  const youthId=document.getElementById('ysi-youth-sel')?.value
+  const signedBy=document.getElementById('ysi-by-name')?.value.trim()
   if(!youthId){toast('Please select a participant','error');return}
-  const data={youth_id:youthId, signed_in_by:signedBy}
+  const data={youth_id:youthId,signed_in_by:signedBy}
   if(filterType==='program') data.program_id=filterId
   else data.event_id=filterId
   const res=await api('/api/youth-sign-ins','POST',data)
   if(res.error){toast(res.error,'error');return}
-  document.getElementById('modal-signin-bulk')?.remove()
-  toast('Signed in!','success')
-  loadSignInSheet()
+  document.getElementById('modal-ysi')?.remove()
+  toast(`${res.first_name} ${res.last_name} signed in!`,'success')
+  loadYouthSignInSheet()
 }
 
-async function doSignOut(signInId){
-  const name=prompt('Signed out by (guardian/parent name):','') 
+async function ysiSignOut(signInId, filterId, filterType){
+  const name=prompt('Picked up by (parent/guardian name):')
   if(name===null) return
-  await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:name})
+  const res=await api(`/api/youth-sign-ins/${signInId}/sign-out`,'POST',{signed_out_by:name})
+  if(res.error){toast(res.error,'error');return}
   toast('Signed out!','success')
-  loadSignInSheet()
+  loadYouthSignInSheet()
 }
 
-function exportSignInSheet(){
-  const type=document.getElementById('signin-filter-type')?.value
-  const id=document.getElementById('signin-filter-id')?.value
-  const label=type==='program'
-    ?allPrograms.find(p=>p.id===id)?.name||'program'
-    :allEvents.find(e=>e.id===id)?.name||'event'
-  // Get rows from current table
-  const rows=document.querySelectorAll('#signin-sheet-content tbody tr')
-  const data=[['Participant','Sign In Time','Signed In By','Sign Out Time','Signed Out By']]
+function exportYouthSignInSheet(){
+  const rows=[...document.querySelectorAll('#ysi-content tbody tr')]
+  const data=[['Participant','Sign In','Dropped Off By','Sign Out','Picked Up By']]
   rows.forEach(r=>{
     const cells=[...r.querySelectorAll('td')].map(td=>td.textContent.trim())
     if(cells.length>=5) data.push(cells.slice(0,5))
   })
-  downloadCSV(`signin_${label.replace(/\s+/g,'_')}.csv`, data)
+  downloadCSV('youth_signin.csv',data)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PRODUCTION SIGN-IN
+// ═══════════════════════════════════════════════════════════════
+
+function initProdSignIn(){
+  // Populate productions dropdown
+  const pSel=document.getElementById('psi-prod-id')
+  if(pSel){
+    pSel.innerHTML='<option value="">— Select Production —</option>'+
+      allProductions.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+  }
+  document.getElementById('psi-content').innerHTML=
+    '<div class="empty-state"><div class="empty-icon">🎭</div><p>Select a production above</p></div>'
+}
+
+function loadProdSignInSheet(){
+  const prodId=document.getElementById('psi-prod-id')?.value
+  const eventId=document.getElementById('psi-event-id')?.value
+  const content=document.getElementById('psi-content')
+  if(!prodId){
+    content.innerHTML='<div class="empty-state"><div class="empty-icon">🎭</div><p>Select a production above</p></div>'
+    return
+  }
+
+  // Update event filter with events for this production
+  const evSel=document.getElementById('psi-event-id')
+  if(evSel){
+    const prodEvents=allEvents.filter(e=>e.production_id===prodId)
+    evSel.innerHTML='<option value="">All / General</option>'+
+      prodEvents.map(e=>`<option value="${e.id}" ${e.id===eventId?'selected':''}>${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')
+  }
+
+  const prod=allProductions.find(p=>p.id===prodId)
+  const members=prod?.members||[]
+  const isAdmin=currentUser?.role==='admin'
+
+  content.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+      <div>
+        <div style="font-size:18px;font-weight:700">${prod?.name||'Production'}</div>
+        <div style="font-size:13px;color:var(--text-muted)">${members.length} cast & crew members</div>
+      </div>
+    </div>
+    <div class="card"><table>
+      <thead><tr>
+        <th>Name</th><th>Role</th><th>Department</th><th>Status</th>${isAdmin?'<th>Check-In</th>':''}
+      </tr></thead>
+      <tbody>
+        ${!members.length
+          ?`<tr><td colspan="${isAdmin?5:4}" style="text-align:center;padding:24px;color:var(--text-muted)">No members in this production yet</td></tr>`
+          :members.map(m=>`<tr>
+            <td><div class="volunteer-name-cell">${avatarHTML(m.volunteer_name,28)}<span style="font-weight:500;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${m.volunteer_id}')">${m.volunteer_name}</span></div></td>
+            <td style="font-size:13px">${m.role||'—'}</td>
+            <td style="font-size:13px;color:var(--text-muted)">${m.department||'—'}</td>
+            <td><span style="font-size:12px;padding:2px 8px;border-radius:20px;background:${m.status==='confirmed'?'var(--green-50)':m.status==='pending'?'var(--amber-50)':'var(--gray-100)'};color:${m.status==='confirmed'?'var(--green-600)':m.status==='pending'?'var(--amber-600)':'var(--gray-600)'}">${m.status||'confirmed'}</span></td>
+            ${isAdmin?`<td><button class="btn btn-secondary btn-sm" onclick="psiLogAttendance('${m.volunteer_id}','${m.volunteer_name}','${prodId}','${eventId||''}')">Log Hours</button></td>`:''}</tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div style="margin-top:16px;padding:12px 16px;background:var(--blue-50);border:1px solid var(--blue-200);border-radius:var(--radius);font-size:13px;color:var(--blue-600)">
+      💡 Tip: The kiosk lets cast & crew self-log their hours for open events. Use "Log Hours" above to log time directly for a member.
+    </div>`
+}
+
+function psiLogAttendance(volId, volName, prodId, eventId){
+  // Pre-fill log time modal for this volunteer
+  openLogTimeModal(volId)
+  // Pre-select the event if one is chosen
+  if(eventId){
+    setTimeout(()=>{
+      const sel=document.getElementById('lt-event-select')
+      if(sel) sel.value=allEvents.find(e=>e.id===eventId)?.name||''
+    },100)
+  }
+}
+
+function exportProdSignInSheet(){
+  const rows=[...document.querySelectorAll('#psi-content tbody tr')]
+  const data=[['Name','Role','Department','Status']]
+  rows.forEach(r=>{
+    const cells=[...r.querySelectorAll('td')].map(td=>td.textContent.trim())
+    if(cells.length>=4) data.push(cells.slice(0,4))
+  })
+  downloadCSV('production_signin.csv',data)
+}
+
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  RISING STARS / STAGE
+// ═══════════════════════════════════════════════════════════════
+
+function updateStageUI(){
+  const isRising=document.getElementById('prod-stage-rising')?.checked
+  const msLabel=document.getElementById('stage-mainstage-label')
+  const rsLabel=document.getElementById('stage-rising-label')
+  if(msLabel) msLabel.style.borderColor=isRising?'var(--border)':'var(--teal-400)'
+  if(msLabel) msLabel.style.background=isRising?'':'var(--teal-light)'
+  if(rsLabel) rsLabel.style.borderColor=isRising?'var(--purple-400)':'var(--border)'
+  if(rsLabel) rsLabel.style.background=isRising?'var(--purple-light)':''
+}
+
+function renderRisingStars(){
+  const section=document.getElementById('rising-stars-section')
+  const grid=document.getElementById('rising-stars-grid')
+  if(!section||!grid) return
+  const risingProds=allProductions.filter(p=>p.stage==='rising_stars'&&p.status!=='cancelled')
+  if(!risingProds.length){section.style.display='none';return}
+  section.style.display='block'
+  const[sbg,scol]=['#F3EEFF','#6D28D9']
+  grid.innerHTML=risingProds.map(p=>{
+    const[bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
+    const memberCount=p.members?.length||0
+    return`<div style="background:var(--surface);border:2px solid #C4B5FD;border-radius:var(--radius);padding:16px;cursor:pointer;transition:all 0.15s" onclick="openProductionDetail('${p.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:14px">${p.name}</div>
+        <span style="background:${bg};color:${col};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted)">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--purple-600)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
+    </div>`
+  }).join('')
 }
 
 </script>

@@ -439,7 +439,15 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 <script>
 // ── STATE ──
 let pendingAction=null
-let selVol=null, selEvent=null, curHours=0
+let selVol=null
+let psRoster=[]
+let psEventId=null
+let psSignOutTarget=null
+let eysEventId=null
+let eysEventData=null
+let eysRoster=[]
+let eysSignOutTarget=null
+let allYouthKiosk=[], selEvent=null, curHours=0
 let waiverIssues=[], signingWaiver=null
 let elicData=null, elicEventList=[], closingEvent=null
 let checklistItems=[], clResponses={}
@@ -722,14 +730,16 @@ function renderElicMenu(){
     return`<div class="elic-event-card">
       <div class="elic-event-header">
         <div>
-          <div class="elic-event-name">${e.name}</div>
+          <div class="elic-event-name">${e.name} ${e.stage==='rising_stars'?'<span style="font-size:11px;background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-weight:700">⭐ Rising Stars</span>':''}</div>
           <div class="elic-event-date">${e.event_date?fmtDate(e.event_date):'No date'}${e.start_time?` · ${fmtTime(e.start_time)}`:''}${e.end_time?` – ${fmtTime(e.end_time)}`:''}</div>
         </div>
         ${statusTag[status]||statusTag.draft}
       </div>
-      <div class="elic-actions">
+      <div class="elic-actions" style="flex-wrap:wrap;gap:8px">
         ${status!=='open'?`<button class="elic-open-btn" data-eidx="${idx}" onclick="handleElicOpen(this)">🟢 Open Event</button>`:''}
         ${status==='open'?`<button class="elic-close-btn" data-eidx="${idx}" onclick="handleElicClose(this)">🔒 Close Event</button>`:''}
+        ${status==='open'&&e.production_id?`<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-eidx="${idx}" onclick="handleProdSignIn(this)">🎭 Production Sign-In</button>`:''}
+        ${status==='open'&&e.production_id&&e.stage==='rising_stars'?`<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-eidx="${idx}" onclick="handleYouthSignIn(this)">👶 Youth Sign-In</button>`:''}
         ${status==='closed'?`<div style="font-size:13px;color:var(--hint);padding:8px 0">Event closed</div>`:''}
       </div>
     </div>`
@@ -825,6 +835,241 @@ async function submitChecklist(){
   showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
 }
 
+
+
+// ── ELIC YOUTH SIGN-IN (Rising Stars) ──
+function handleYouthSignIn(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  const e=elicEventList[idx]
+  if(e) openEysSignIn(e)
+}
+
+async function openEysSignIn(evt){
+  eysEventId=evt.id
+  eysEventData=evt
+  document.getElementById('eys-prod-name').textContent=evt.production_name||evt.name
+  document.getElementById('eys-event-name').textContent='⭐ Rising Stars · '+evt.name
+  document.getElementById('eys-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>'
+  showScreen('screen-elic-youth-signin')
+
+  // Load youth participants
+  const r=await fetch('/api/youth?status=active')
+  const d=await r.json()
+  allYouthKiosk=Array.isArray(d)?d:[]
+
+  // Load current sign-ins for this event
+  const sr=await fetch(`/api/youth-sign-ins?event_id=${evt.id}`)
+  eysRoster=await sr.json()
+  renderEysRoster()
+}
+
+function renderEysRoster(){
+  const signedIn=eysRoster.filter(r=>!r.signed_out_at)
+  const signedOut=eysRoster.filter(r=>r.signed_out_at)
+  document.getElementById('eys-stats').textContent=`${signedIn.length} present · ${signedOut.length} signed out`
+  document.getElementById('eys-search').value=''
+  filterEysRoster()
+}
+
+function filterEysRoster(){
+  const q=document.getElementById('eys-search').value.toLowerCase()
+  const signedIn=eysRoster.filter(r=>!r.signed_out_at)
+  const signedOut=eysRoster.filter(r=>r.signed_out_at)
+  const filterRow=(r)=>!q||(r.first_name+' '+r.last_name).toLowerCase().includes(q)
+  const container=document.getElementById('eys-roster')
+
+  const renderRow=(r,isIn)=>`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;margin-bottom:6px"
+    onclick="eysMemberTap('${r.id}','${r.first_name} ${r.last_name}',${isIn})">
+    <div style="width:40px;height:40px;border-radius:50%;background:${isIn?'var(--green)':'var(--hint)'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${(r.first_name||'?')[0]}${(r.last_name||'?')[0]}</div>
+    <div style="flex:1">
+      <div style="font-weight:600;font-size:16px">${r.first_name} ${r.last_name}</div>
+      <div style="font-size:12px;color:var(--muted)">${isIn?'Dropped off by: '+(r.signed_in_by||'—'):'Picked up by: '+(r.signed_out_by||'—')}</div>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">
+      ${isIn?'✅ IN':'◯ OUT'}
+    </div>
+  </div>`
+
+  let html=''
+  if(signedIn.filter(filterRow).length){
+    html+=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:6px">Currently Here</div>`
+    html+=signedIn.filter(filterRow).map(r=>renderRow(r,true)).join('')
+  }
+  if(signedOut.filter(filterRow).length){
+    html+=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin:12px 0 6px">Signed Out</div>`
+    html+=signedOut.filter(filterRow).map(r=>renderRow(r,false)).join('')
+  }
+  if(!html) html='<div style="text-align:center;padding:24px;color:var(--muted)">No sign-ins yet — tap "+ Sign In" to add</div>'
+  container.innerHTML=html
+}
+
+function eysMemberTap(rowId,name,isIn){
+  if(!isIn) return // already signed out — do nothing
+  // Show sign-out screen
+  eysSignOutTarget=rowId
+  document.getElementById('eys-out-name').textContent=name
+  const row=eysRoster.find(r=>r.id===rowId)
+  const sinceStr=row?.signed_in_at?'Signed in '+new Date(row.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):''
+  document.getElementById('eys-out-since').textContent=sinceStr
+  document.getElementById('eys-out-parent').value=''
+  showScreen('screen-eys-out')
+}
+
+function eysSignInNew(){
+  // Populate youth dropdown
+  const sel=document.getElementById('eys-new-youth')
+  sel.innerHTML='<option value="">— Select participant —</option>'+
+    allYouthKiosk.filter(y=>!eysRoster.find(r=>r.youth_id===y.id&&!r.signed_out_at)).map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')
+  document.getElementById('eys-new-parent').value=''
+  showScreen('screen-eys-new')
+}
+
+async function eysDoSignIn(){
+  const youthId=document.getElementById('eys-new-youth').value
+  const parent=document.getElementById('eys-new-parent').value.trim()
+  if(!youthId){alert('Please select a participant.');return}
+  const r=await fetch('/api/youth-sign-ins',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({youth_id:youthId,event_id:eysEventId,signed_in_by:parent})
+  })
+  const d=await r.json()
+  if(d.error){alert(d.error);return}
+  eysRoster.push(d)
+  renderEysRoster()
+  showScreen('screen-elic-youth-signin')
+}
+
+async function eysDoSignOut(){
+  const parent=document.getElementById('eys-out-parent').value.trim()
+  const r=await fetch(`/api/youth-sign-ins/${eysSignOutTarget}/sign-out`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({signed_out_by:parent})
+  })
+  const d=await r.json()
+  if(d.error){alert(d.error);return}
+  eysRoster=eysRoster.map(r=>r.id===eysSignOutTarget?d:r)
+  eysSignOutTarget=null
+  renderEysRoster()
+  showScreen('screen-elic-youth-signin')
+}
+
+// ── PRODUCTION SIGN-IN ──
+function handleProdSignIn(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  const e=elicEventList[idx]
+  if(e) openProdSignIn(e)
+}
+
+async function openProdSignIn(evt){
+  psEventId=evt.id
+  document.getElementById('ps-prod-name').textContent=evt.production_name||'Production Sign-In'
+  document.getElementById('ps-event-name').textContent=evt.name+(evt.event_date?' · '+fmtDate(evt.event_date):'')
+  document.getElementById('ps-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading roster…</div>'
+  showScreen('screen-prod-signin')
+
+  const r=await fetch(`/api/kiosk/production-roster/${evt.id}`)
+  const d=await r.json()
+  if(d.error){document.getElementById('ps-roster').innerHTML=`<div style="text-align:center;padding:32px;color:var(--muted)">${d.error}</div>`;return}
+  psRoster=d.members||[]
+  renderPsRoster()
+}
+
+function renderPsRoster(){
+  const signedIn=psRoster.filter(m=>m.signed_in).length
+  document.getElementById('ps-stats').textContent=`${psRoster.length} members · ${signedIn} signed in`
+  document.getElementById('ps-search').value=''
+  filterPsRoster()
+}
+
+function filterPsRoster(){
+  const q=document.getElementById('ps-search').value.toLowerCase()
+  const filtered=q?psRoster.filter(m=>m.volunteer_name.toLowerCase().includes(q)):psRoster
+  const container=document.getElementById('ps-roster')
+  if(!filtered.length){container.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted)">No members found</div>';return}
+
+  // Group by department
+  const byDept={}
+  filtered.forEach(m=>{const d=m.department||'General';if(!byDept[d])byDept[d]=[];byDept[d].push(m)})
+
+  container.innerHTML=Object.entries(byDept).map(([dept,members])=>`
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:6px">${dept}</div>
+      ${members.map((m,i)=>{
+        const[bg,col]=avc(m.volunteer_name)
+        const isIn=m.signed_in
+        return`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all 0.15s;margin-bottom:6px"
+          onclick="psMemberTap('${m.volunteer_id}','${m.member_id}','${m.attendance_id||''}',${isIn},'${m.volunteer_name}','${m.role||''}')">
+          <div style="width:42px;height:42px;border-radius:50%;background:${bg};color:${col};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${ini(m.volunteer_name)}</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:16px">${m.volunteer_name}</div>
+            <div style="font-size:13px;color:var(--muted)">${m.role||''}${m.department?' · '+m.department:''}</div>
+          </div>
+          <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">
+            ${isIn?'✅ IN':'◯ OUT'}
+          </div>
+        </div>`
+      }).join('')}
+    </div>`).join('')
+}
+
+function psMemberTap(volId, memberId, attId, isIn, name, role){
+  if(isIn){
+    // Show sign-out confirmation
+    psSignOutTarget={volId,attId,name,role,eventId:psEventId}
+    document.getElementById('pso-name').textContent=name
+    document.getElementById('pso-role').textContent=role||'Cast/Crew'
+    const m=psRoster.find(r=>r.volunteer_id===volId)
+    const sinceStr=m?.signed_in_at?'Signed in '+new Date(m.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):''
+    document.getElementById('pso-time').textContent=sinceStr
+    showScreen('screen-prod-signout')
+  } else {
+    // Sign in immediately
+    psMemberSignIn(volId,psEventId,name)
+  }
+}
+
+async function psMemberSignIn(volId,eventId,name){
+  const r=await fetch('/api/kiosk/production-signin',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({volunteer_id:volId,event_id:eventId})
+  })
+  const d=await r.json()
+  if(d.error){
+    if(d.error==='Already signed in'){
+      // Just refresh
+      const evt=elicEventList.find(e=>e.id===eventId)
+      if(evt) openProdSignIn(evt)
+    } else {
+      alert(d.error)
+    }
+    return
+  }
+  // Update local roster
+  const m=psRoster.find(m=>m.volunteer_id===volId)
+  if(m){m.signed_in=true;m.attendance_id=d.attendance_id;m.signed_in_at=new Date().toISOString()}
+  renderPsRoster()
+}
+
+async function confirmProdSignOut(){
+  if(!psSignOutTarget) return
+  const{volId,attId,name,role,eventId}=psSignOutTarget
+  const r=await fetch('/api/kiosk/production-signout',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({attendance_id:attId,volunteer_id:volId,event_id:eventId,role})
+  })
+  const d=await r.json()
+  if(d.error){alert(d.error);return}
+  // Update local roster
+  const m=psRoster.find(m=>m.volunteer_id===volId)
+  if(m){m.signed_in=false;m.attendance_id=null}
+  psSignOutTarget=null
+  renderPsRoster()
+  showScreen('screen-prod-signin')
+  // Brief success flash
+  const stats=document.getElementById('ps-stats')
+  if(stats) stats.textContent=`${name} signed out · ${d.hours}h submitted for approval`
+}
+
 // ── KIOSK CONFIRM DIALOG ──
 function showKioskConfirm(title, body, btnLabel, onConfirm, onCancel){
   const el=document.getElementById('kiosk-confirm')
@@ -852,6 +1097,103 @@ function showConfirm(icon,title,sub,note,onBack){
   resetTmt=setTimeout(()=>{if(onBack)onBack();else showScreen('screen-vol-menu')},RESET_MS)
 }
 </script>
+
+
+<!-- YOUTH SIGN-IN (ELIC kiosk) -->
+<div class="screen hidden" id="screen-elic-youth-signin">
+  <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title" id="eys-prod-name">Youth Sign-In</div>
+    <div class="screen-sub" id="eys-event-name">⭐ Rising Stars</div>
+  </div>
+  <div style="width:100%;max-width:680px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div id="eys-stats" style="font-size:14px;color:var(--muted)"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="eys-search" placeholder="Search name…" oninput="filterEysRoster()"
+          style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:200px"/>
+        <button onclick="eysSignInNew()" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:10px 18px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">+ Sign In</button>
+      </div>
+    </div>
+    <div id="eys-roster" style="display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- YOUTH SIGN-IN NEW (parent name entry) -->
+<div class="screen hidden" id="screen-eys-new">
+  <button class="back-btn" onclick="showScreen('screen-elic-youth-signin')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title">Drop Off</div>
+    <div class="screen-sub">Select participant and enter parent name</div>
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:36px;max-width:520px;width:100%;box-shadow:var(--shadow-lg)">
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px">Participant</div>
+      <select id="eys-new-youth" style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none">
+        <option value="">— Select participant —</option>
+      </select>
+    </div>
+    <div style="margin-bottom:24px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px">Dropped Off By</div>
+      <input type="text" id="eys-new-parent" placeholder="Parent / Guardian name"
+        style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none"/>
+    </div>
+    <button onclick="eysDoSignIn()" style="width:100%;padding:18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:18px;font-weight:700;cursor:pointer">Sign In</button>
+  </div>
+</div>
+
+<!-- YOUTH SIGN-OUT CONFIRM -->
+<div class="screen hidden" id="screen-eys-out">
+  <button class="back-btn" onclick="showScreen('screen-elic-youth-signin')">← Back</button>
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:44px;max-width:460px;width:100%;box-shadow:var(--shadow-lg);text-align:center">
+    <div style="font-size:56px;margin-bottom:16px">👋</div>
+    <div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:6px" id="eys-out-name"></div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:24px" id="eys-out-since"></div>
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px">Picked Up By</div>
+      <input type="text" id="eys-out-parent" placeholder="Parent / Guardian name"
+        style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none;text-align:center"/>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button onclick="showScreen('screen-elic-youth-signin')" style="flex:1;padding:16px;background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer">Cancel</button>
+      <button onclick="eysDoSignOut()" style="flex:1;padding:16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Sign Out</button>
+    </div>
+  </div>
+</div>
+<!-- PRODUCTION SIGN-IN ROSTER -->
+<div class="screen hidden" id="screen-prod-signin">
+  <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title" id="ps-prod-name">Production Sign-In</div>
+    <div class="screen-sub" id="ps-event-name"></div>
+  </div>
+  <div style="width:100%;max-width:700px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <div id="ps-stats" style="font-size:14px;color:var(--muted)"></div>
+      <input type="text" id="ps-search" placeholder="Search name…" oninput="filterPsRoster()"
+        style="padding:10px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:15px;outline:none;width:220px"/>
+    </div>
+    <div id="ps-roster" style="display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- PRODUCTION CONFIRM SIGN-OUT -->
+<div class="screen hidden" id="screen-prod-signout">
+  <button class="back-btn" onclick="showScreen('screen-prod-signin')">← Back</button>
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:44px;max-width:460px;width:100%;box-shadow:var(--shadow-lg);text-align:center">
+    <div style="font-size:56px;margin-bottom:16px">👋</div>
+    <div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:8px" id="pso-name"></div>
+    <div style="font-size:15px;color:var(--muted);margin-bottom:4px" id="pso-role"></div>
+    <div style="font-size:13px;color:var(--hint);margin-bottom:28px" id="pso-time"></div>
+    <div style="background:var(--teal-light);border-radius:var(--radius);padding:16px;margin-bottom:28px">
+      <div style="font-size:13px;color:var(--teal-dark);font-weight:600">Signing out will automatically submit your hours for approval.</div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button onclick="showScreen('screen-prod-signin')" style="flex:1;padding:16px;background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer">Cancel</button>
+      <button onclick="confirmProdSignOut()" style="flex:1;padding:16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Sign Out</button>
+    </div>
+  </div>
+</div>
 <!-- Kiosk Confirm Dialog -->
 <div id="kiosk-confirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:24px">
   <div style="background:#fff;border-radius:24px;padding:40px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.3)">

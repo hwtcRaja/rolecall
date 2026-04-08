@@ -426,7 +426,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">🧒 Youth Education</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">👦</span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon">📚</span>Programs &amp; Classes</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon">📝</span>Sign-In Sheets</div>
+        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon">⭐</span>Rising Stars</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon">📝</span>Sign-In</div>
 
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
@@ -733,7 +734,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- YOUTH PROGRAMS PAGE -->
       <section class="page" id="page-youth-programs-page">
         <div class="page-header">
-          <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Youth Education programs, workshops, and summer camps</div></div>
+          <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
           <div class="page-actions admin-only">
             <button class="btn btn-primary" onclick="openNewProgramModal()">+ New Program</button>
           </div>
@@ -746,7 +747,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <option value="class">Class</option>
               <option value="workshop">Workshop</option>
               <option value="camp">Summer Camp</option>
-              <option value="production">Production</option>
               <option value="other">Other</option>
             </select>
           </div>
@@ -754,24 +754,37 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </section>
 
+      <!-- RISING STARS PAGE -->
+      <section class="page" id="page-rising-stars-page">
+        <div class="page-header">
+          <div><div class="page-title">⭐ Rising Stars</div><div class="page-subtitle" id="rs-page-subtitle">Youth productions</div></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-primary" onclick="openProductionModalForRS()">+ New Production</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div class="search-bar" style="margin-bottom:20px">
+            <div class="search-input-wrap"><span>🔍</span><input type="text" id="rs-search" placeholder="Search productions…" oninput="renderRisingStarsPage()"/></div>
+            <select class="filter-select" id="rs-filter-status" onchange="renderRisingStarsPage()">
+              <option value="">All Statuses</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+          <div id="rs-page-grid"></div>
+        </div>
+      </section>
+
       <!-- YOUTH -->
       <section class="page" id="page-youth">
         <div class="page-header">
-          <div><div class="page-title">Youth Education &amp; Programs</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
+          <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
-          <!-- Rising Stars Productions Banner -->
-          <div id="rising-stars-section" style="display:none;margin-bottom:28px">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-              <span style="font-size:20px">⭐</span>
-              <div style="font-size:16px;font-weight:700;color:var(--purple-600)">Rising Stars Productions</div>
-            </div>
-            <div id="rising-stars-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:20px"></div>
-            <hr style="border:none;border-top:1px solid var(--border);margin-bottom:20px"/>
-          </div>
           <div class="search-bar">
-            <div class="search-input-wrap"><span>🔍</span><input type="text" id="youth-search" placeholder="Search by name or program…" oninput="renderYouth()"></div>
+            <div class="search-input-wrap"><span>🔍</span><input type="text" id="youth-search" placeholder="Search by name…" oninput="renderYouth()"></div>
             <select class="filter-select" id="youth-filter-status" onchange="renderYouth()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
             <select class="filter-select" id="youth-filter-program" onchange="renderYouth()"><option value="">All Programs</option></select>
           </div>
@@ -1576,7 +1589,7 @@ function applyRoleUI(){
     document.querySelectorAll('.nav-item').forEach(nav=>{
       const txt=nav.textContent.trim()
       const allowed=isInstructor
-        ?['Events &amp; Calendar','Participants','Programs &amp; Classes','Sign-In Sheets','Dashboard']
+        ?['Events &amp; Calendar','Participants','Programs &amp; Classes','Rising Stars','Sign-In','Dashboard']
         :['Dashboard'] // ELIC just uses kiosk
       const show=allowed.some(a=>txt.includes(a))
       nav.style.display=show?'':'none'
@@ -1619,6 +1632,7 @@ function navTo(page,el){
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
+  if(page==='rising-stars-page') renderRisingStarsPage()
   if(page==='youth-signin') initYouthSignIn()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
@@ -3088,20 +3102,24 @@ function renderProductions(){
   grid.innerHTML=filtered.map(p=>{
     const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
     const memberCount=p.members?.length||0
-    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}')">
-      <div style="padding:20px 20px 16px;border-bottom:3px solid ${col}">
+    const isRS=p.stage==='rising_stars'
+    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer${isRS?';border:1px solid #C4B5FD':''}" onclick="openProductionDetail('${p.id}')">
+      <div style="height:4px;background:${isRS?'var(--purple-600)':col}"></div>
+      <div style="padding:20px 20px 16px;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div style="font-size:16px;font-weight:600">${p.name}</div>
           <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
         </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${p.stage==='rising_stars'?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${isRS?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
         ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
       </div>
       <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
         <div style="font-size:13px;color:var(--text-muted)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
-        <div style="display:flex;gap:6px">
-          ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEditProductionModal('${p.id}')">Edit</button>`:''}
-          ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>`:''}
+        <div style="display:flex;gap:6px;align-items:center">
+          ${isRS?'<span style="font-size:11px;color:var(--purple-600);font-weight:500">Managed in Youth →</span>':''}
+          ${isAdmin&&!isRS?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEditProductionModal('${p.id}')">Edit</button>`:''}
+          ${isAdmin&&!isRS?`<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>`:''}
+          ${isRS?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();navTo('rising-stars-page')">Go to Rising Stars</button>`:''}
         </div>
       </div>
     </div>`
@@ -4212,8 +4230,7 @@ function openEventDetail(eid){
         ${p.stage==='rising_stars'?`<div class="card" style="padding:20px;margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div style="font-size:15px;font-weight:600">👶 Youth Cast</div>
-            ${isAdmin?'<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'"+p.id+"\')" >+ Enroll Youth</button>':''}
-          </div>
+            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll('${p.id}')" >+ Enroll Youth</button>`:''}\n          </div>
           <div id="youth-prod-members-${p.id}">
             <div style="color:var(--text-muted);font-size:13px">Loading…</div>
           </div>
@@ -4796,7 +4813,11 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
         <div style="font-size:16px;font-weight:700">👶 Youth Participants</div>
         <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · ${present} here now</div>
       </div>
-      <div style="display:flex;gap:8px">${viewToggle}${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Drop Off</button>`:''}</div>
+      <div style="display:flex;gap:8px">
+        ${viewToggle}
+        ${isAdmin&&ysiCurrentFilter.parentId?`<button class="btn btn-secondary btn-sm" onclick="loadAndShowYouthProdEnroll('${ysiCurrentFilter.parentId}')">⊕ Manage Roster</button>`:''}
+        ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Drop Off</button>`:''}
+      </div>
     </div>
     ${ysiView==='card'
       ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">${ysiRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||'<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">No enrolled participants. Enroll youth from Programs & Classes.</div>'}</div>`
@@ -4993,6 +5014,7 @@ function renderYouthProgramsPage(){
   const filterType=document.getElementById('yp-filter-type')?.value||''
   let filtered=allPrograms.filter(p=>{
     if(search&&!p.name.toLowerCase().includes(search)) return false
+    if((p.program_type||'class')==='production') return false  // RS handled separately
     if(filterType&&(p.program_type||'class')!==filterType) return false
     return true
   })
@@ -5032,8 +5054,7 @@ function renderYouthProgramsPage(){
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
               <div style="font-size:13px;color:var(--text-muted)">👦 ${enrolled} participant${enrolled!==1?'s':''}</div>
               <div style="display:flex;gap:6px">
-                ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\\'")}')">+ Enroll</button>`:''}
-                <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
+                ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}', allPrograms.find(x=>x.id==='${p.id}')?.name||'')">+ Enroll</button>`:''}\n                <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
               </div>
             </div>
             <div style="font-size:12px;color:var(--text-muted)">
@@ -5646,6 +5667,8 @@ async function openEnrollYouthInProduction(prodId, prodName){
       <button class="btn btn-primary" onclick="submitYouthProdEnrollment('${prodId}')">Enroll Selected</button>
     </div>
   </div>`
+  // After modal closes reload
+  modal.addEventListener('remove', ()=>loadYouthProdMembers(prodId))
   document.body.appendChild(modal)
 }
 
@@ -5665,16 +5688,19 @@ async function submitYouthProdEnrollment(prodId){
   if(res&&res.error){toast(res.error,'error');return}
   document.getElementById('modal-enroll-youth-prod')?.remove()
   toast(checked.length+' youth enrolled in production!','success')
-  // Refresh productions
-  const prods=await api('/api/productions')
-  allProductions=prods
+  // Reload youth members display
+  loadYouthProdMembers(prodId)
+  // Reload sign-in sheet if we're on it
+  if(ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
+    loadYouthSignInSheet()
+  }
 }
 
 
 // ── Youth Production Members ──
-async function loadAndShowYouthProdEnroll(prodId, prodName){
-  await openEnrollYouthInProduction(prodId, prodName)
-  // After closing, reload members
+async function loadAndShowYouthProdEnroll(prodId){
+  const prod = allProductions.find(p=>p.id===prodId)
+  await openEnrollYouthInProduction(prodId, prod?.name||'Production')
 }
 
 async function loadYouthProdMembers(prodId){
@@ -5699,6 +5725,131 @@ async function removeYouthFromProd(prodId, memberId){
   toast('Removed','success')
   loadYouthProdMembers(prodId)
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+//  RISING STARS PAGE
+// ═══════════════════════════════════════════════════════════════
+
+function renderRisingStarsPage(){
+  const search = document.getElementById('rs-search')?.value.toLowerCase()||''
+  const filterStatus = document.getElementById('rs-filter-status')?.value||''
+  const grid = document.getElementById('rs-page-grid')
+  const isAdmin = currentUser?.role==='admin'
+
+  let filtered = allProductions.filter(p=>{
+    if(p.stage!=='rising_stars') return false
+    if(search && !p.name.toLowerCase().includes(search)) return false
+    if(filterStatus && (p.status||'upcoming')!==filterStatus) return false
+    return true
+  })
+
+  const sub = document.getElementById('rs-page-subtitle')
+  if(sub) sub.textContent = filtered.length+' production'+(filtered.length!==1?'s':'')+
+    (allYouth.length?' · '+allYouth.length+' registered youth':'')
+
+  if(!filtered.length){
+    grid.innerHTML=`<div class="empty-state"><div class="empty-icon">⭐</div>
+      <p>No Rising Stars productions yet</p>
+      ${isAdmin?'<button class="btn btn-primary" onclick="openProductionModalForRS()" style="margin-top:12px">+ New Production</button>':''}
+    </div>`
+    return
+  }
+
+  const[sbg,scol]=PROD_STATUS_COLORS
+  grid.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
+    filtered.map(p=>{
+      const[bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
+      const memberCount = p.members?.length||0
+      const youthCount = 0 // loaded async per card
+      const events = allEvents.filter(e=>e.production_id===p.id)
+      return`<div class="card" style="padding:0;overflow:hidden">
+        <div style="height:5px;background:var(--purple-600)"></div>
+        <div style="padding:20px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:17px;font-weight:700;margin-bottom:4px">${p.name}</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROD_STATUS_LABELS[p.status]||p.status}</span>
+                <span style="background:var(--purple-50);color:var(--purple-600);padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">⭐ Rising Stars</span>
+              </div>
+            </div>
+            ${isAdmin?`<div style="display:flex;gap:4px;flex-shrink:0">
+              <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProductionModal('${p.id}')">Edit</button>
+            </div>`:''}
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+            ${p.start_date?`<span>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</span> · `:''}
+            <span>${PROD_TYPE_LABELS[p.production_type]||p.production_type}</span>
+          </div>
+
+          <!-- Two columns: youth cast + adult crew -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div style="background:var(--purple-50);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--purple-600)" id="rs-youth-count-${p.id}">—</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Youth Cast</div>
+              ${isAdmin?`<button class="btn btn-sm" style="background:var(--purple-600);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer" onclick="loadAndShowYouthProdEnroll('${p.id}')">+ Enroll</button>`:''}
+            </div>
+            <div style="background:var(--teal-light);border-radius:var(--radius);padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:800;color:var(--teal-600)">${memberCount}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Adult Crew</div>
+              ${isAdmin?`<button class="btn btn-sm" style="background:var(--teal);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer" onclick="openAddMemberModal('${p.id}')">+ Add</button>`:''}
+            </div>
+          </div>
+
+          <!-- Events -->
+          <div style="border-top:1px solid var(--border);padding-top:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted)">EVENTS (${events.length})</div>
+              ${isAdmin?`<button class="btn btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEventModalForParent('${p.id}',null)">+ Add Event</button>`:''}
+            </div>
+            ${!events.length?'<div style="font-size:12px;color:var(--text-hint)">No events yet</div>':
+              events.slice(0,3).map(e=>`<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+                <span style="font-weight:500">${e.name}</span>
+                <span style="color:var(--text-muted)">${e.event_date?formatDate(e.event_date):'No date'}</span>
+              </div>`).join('')+
+              (events.length>3?`<div style="font-size:11px;color:var(--text-hint);padding:4px 0">+${events.length-3} more</div>`:'')}
+          </div>
+
+          <!-- Sign-In Sheet link -->
+          <div style="margin-top:12px">
+            <button class="btn btn-secondary btn-sm" style="width:100%" onclick="navToRSSignIn('${p.id}')">📝 Open Sign-In Sheet</button>
+          </div>
+        </div>
+      </div>`
+    }).join('')+'</div>'
+
+  // Load youth counts async
+  filtered.forEach(p=>loadRSYouthCount(p.id))
+}
+
+async function loadRSYouthCount(prodId){
+  const members = await api('/api/productions/'+prodId+'/youth-members')
+  const el = document.getElementById('rs-youth-count-'+prodId)
+  if(el) el.textContent = Array.isArray(members)?members.length:'0'
+}
+
+function openProductionModalForRS(){
+  openProductionModal()
+  // Pre-select Rising Stars
+  setTimeout(()=>{
+    const rBtn = document.getElementById('prod-stage-rising')
+    const mBtn = document.getElementById('prod-stage-mainstage')
+    if(rBtn){ rBtn.checked=true; if(mBtn) mBtn.checked=false; updateStageUI() }
+  }, 50)
+}
+
+function navToRSSignIn(prodId){
+  navTo('youth-signin')
+  setTimeout(()=>{
+    // Switch to Rising Stars tab and select this production
+    setYsiCategory('rising_stars')
+    const sel = document.getElementById('ysi-filter-id')
+    if(sel){ sel.value=prodId; ysiParentChanged() }
+  }, 150)
+}
+
+// renderRisingStars is kept as-is above but the banner div was removed from Participants page
 
 </script>
 </body>

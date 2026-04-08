@@ -2113,6 +2113,7 @@ def get_youth_sign_ins():
     event_id = request.args.get('event_id')
     program_id = request.args.get('program_id')
     conn = get_db()
+    youth_id = request.args.get('youth_id')
     sql = '''SELECT ys.*, y.first_name, y.last_name
         FROM youth_sign_ins ys
         JOIN youth_participants y ON ys.youth_id=y.id
@@ -2122,6 +2123,8 @@ def get_youth_sign_ins():
         sql += ' AND ys.event_id=%s'; params.append(event_id)
     if program_id:
         sql += ' AND ys.program_id=%s'; params.append(program_id)
+    if youth_id:
+        sql += ' AND ys.youth_id=%s'; params.append(youth_id)
     sql += ' ORDER BY ys.created_at DESC'
     rows = fetchall(conn, sql, params)
     conn.close()

@@ -532,7 +532,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <option value="program">📚 Programs/Classes</option>
               <option value="standalone">📅 Standalone</option>
             </select>
-            <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select>
+            <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option></select>
             <button class="btn btn-primary admin-only" onclick="openEventModal()">+ New Event</button>
           </div>
         </div>
@@ -3115,8 +3115,8 @@ function renderEventsSettings(){
     const timeStr=e.start_time&&e.end_time?` · ${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:(e.start_time?` · from ${fmtTime(e.start_time)}`:' · All day')
     const reqWaivers=(e.required_waivers||[])
     const assignedElics=(e.elics||[])
-    const statusColors={draft:'var(--gray-400)',open:'var(--green-600)',closed:'var(--text-hint)'}
-    const statusLabels={draft:'Draft',open:'🟢 Open',closed:'Closed'}
+    const statusColors={draft:'#1D4ED8',open:'var(--green-600)',closed:'var(--text-hint)'}
+    const statusLabels={draft:'Scheduled',open:'🟢 In Progress',closed:'✓ Completed'}
     return `<div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:8px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
@@ -4212,9 +4212,9 @@ const TYPE_COLORS = {
   green:['#EAF3DE','#3B6D11'], red:['#FCEBEB','#A32D2D']
 }
 const STATUS_COLORS = {
-  draft:['#EFEFEC','#5F5E5A','Draft'],
-  open:['#EAF6F1','#2D9E6B','🟢 Open'],
-  closed:['#F4F4F4','#9B9B94','Closed']
+  draft:['#EFF6FF','#1D4ED8','Scheduled'],
+  open:['#EAF6F1','#2D9E6B','🟢 In Progress'],
+  closed:['#F4F4F4','#9B9B94','✓ Completed']
 }
 
 function setEventsView(v){
@@ -4301,11 +4301,13 @@ function renderCalendar(events){
     const dateStr=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const isToday=dateStr===today
     const dayEvents=byDate[dateStr]||[]
-    cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:8px;cursor:default">
+    const isAdminGrid=currentUser?.role==='admin'
+    cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:8px;cursor:${isAdminGrid?'pointer':'default'}" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
       <div style="font-size:13px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
       ${dayEvents.slice(0,3).map(e=>{
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
-        return`<div onclick="openEventDetail('${e.id}')" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4">${e.name}</div>`
+        const isAdminCal=currentUser?.role==='admin'
+        return`<div onclick="openEventChip('${e.id}')" title="${e.name}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4">${e.name}</div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
     </div>`
@@ -5597,27 +5599,62 @@ function toggleRepeatOptions(){
   const type=document.getElementById('event-repeat-type').value
   const countWrap=document.getElementById('repeat-count-wrap')
   const untilWrap=document.getElementById('repeat-until-wrap')
+  const daysWrap=document.getElementById('repeat-days-wrap')
   const preview=document.getElementById('repeat-preview')
   if(type==='none'){
     countWrap.style.display='none'
     untilWrap.style.display='none'
+    if(daysWrap) daysWrap.style.display='none'
     preview.textContent=''
+  } else if(type==='custom_days'){
+    countWrap.style.display='none'
+    untilWrap.style.display='none'
+    if(daysWrap) daysWrap.style.display=''
+    updateRepeatPreview()
   } else {
     countWrap.style.display=''
     untilWrap.style.display=''
+    if(daysWrap) daysWrap.style.display='none'
     updateRepeatPreview()
   }
 }
 
 function updateRepeatPreview(){
   const type=document.getElementById('event-repeat-type').value
-  const count=parseInt(document.getElementById('event-repeat-count').value)||4
   const startDate=document.getElementById('edit-event-date').value
-  if(!startDate||type==='none'){document.getElementById('repeat-preview').textContent='';return}
-  const dates=computeRepeatDates(startDate, type, count)
   const preview=document.getElementById('repeat-preview')
-  preview.innerHTML='<span style="color:var(--teal-600);font-weight:600">Will create '+dates.length+' events:</span> '+
-    dates.slice(0,5).map(d=>formatDate(d)).join(', ')+(dates.length>5?'…':'')
+  if(!startDate||type==='none'){if(preview)preview.textContent='';return}
+
+  let dates=[]
+  if(type==='custom_days'){
+    const checked=[...document.querySelectorAll('input[name="repeat-dow"]:checked')].map(c=>parseInt(c.value))
+    const until=document.getElementById('event-repeat-until-dow')?.value
+    if(!checked.length||!until){preview.textContent=checked.length?'Select an end date':'Select days of the week';return}
+    dates=computeDowDates(startDate, checked, until)
+  } else {
+    const count=parseInt(document.getElementById('event-repeat-count').value)||4
+    dates=computeRepeatDates(startDate, type, count)
+  }
+
+  if(!dates.length){preview.textContent='No dates computed';return}
+  preview.innerHTML='Will create <strong>'+dates.length+'</strong> additional event'+( dates.length!==1?'s':'')+': '+
+    dates.slice(0,5).map(d=>formatDate(d)).join(', ')+(dates.length>5?'… (+'+( dates.length-5)+' more)':'')
+}
+
+function computeDowDates(startDate, dowList, untilDate){
+  const dates=[]
+  const start=new Date(startDate+'T00:00:00')
+  const until=new Date(untilDate+'T00:00:00')
+  const cur=new Date(start)
+  cur.setDate(cur.getDate()+1) // start day after the base event
+  while(cur<=until){
+    if(dowList.includes(cur.getDay())){
+      dates.push(cur.toISOString().split('T')[0])
+    }
+    cur.setDate(cur.getDate()+1)
+    if(dates.length>100) break // safety cap
+  }
+  return dates
 }
 
 function computeRepeatDates(startDate, type, count){

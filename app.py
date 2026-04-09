@@ -32,7 +32,10 @@ def get_db():
     return conn
 
 def init_db():
-    conn = get_db()
+    conn = psycopg2.connect(DATABASE_URL)  # plain cursor for init
+    with conn.cursor() as tz:
+        tz.execute("SET timezone = 'America/New_York'")
+    conn.commit()
     c = conn.cursor()
 
     c.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -191,7 +194,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default opening checklist items (only if none exist)
-    c.execute("SELECT COUNT(*) FROM opening_checklist_items")
+    c.execute("SELECT COUNT(*) as cnt FROM opening_checklist_items")
     if c.fetchone()[0] == 0:
         opening_items = [
             (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
@@ -312,7 +315,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default checklist items (only if none exist)
-    c.execute("SELECT COUNT(*) FROM checklist_items")
+    c.execute("SELECT COUNT(*) as cnt FROM checklist_items")
     if c.fetchone()[0] == 0:
         default_items = [
             (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
@@ -994,7 +997,7 @@ def create_youth_program():
                 (pid, d['name'].strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
-                 d.get('default_elic_id') or None, session.get('user_id')))
+                 d.get('default_elic_id') or None, session.get('user_id','')))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()

@@ -25,7 +25,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    with conn.cursor() as c:
+        c.execute("SET timezone = 'America/New_York'")
+    conn.commit()
     return conn
 
 def init_db():
@@ -365,6 +368,22 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        # audit trail columns
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
         # one-time dedup: keep only the oldest checklist item per label
         """DELETE FROM checklist_items WHERE id NOT IN (
             SELECT DISTINCT ON (label) id FROM checklist_items ORDER BY label, created_at ASC)""",
@@ -543,11 +562,14 @@ def get_events():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name,
+        cu.name as created_by_name, uu.name as updated_by_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN users cu ON e.created_by=cu.id
+        LEFT JOIN users uu ON e.updated_by=uu.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -569,8 +591,8 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
         (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -593,13 +615,13 @@ def update_event(eid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s,updated_at=NOW(),updated_by=%s WHERE id=%s''',
         (d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), session.get('user_id'), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
         p.name as production_name FROM events e
@@ -681,7 +703,7 @@ def update_volunteer(vol_id):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s WHERE id=%s',
+    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s,updated_at=NOW(),updated_by=%s WHERE id=%s',
             (d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
@@ -948,10 +970,13 @@ def get_youth_programs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name
+    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name,
+        cu.name as created_by_name, uu.name as updated_by_name
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
+        LEFT JOIN users cu ON yp.created_by=cu.id
+        LEFT JOIN users uu ON yp.updated_by=uu.id
         ORDER BY yp.name''')
     conn.close()
     return jsonify(programs)
@@ -965,11 +990,11 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, d['name'].strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
-                 d.get('default_elic_id') or None))
+                 d.get('default_elic_id') or None, session.get('user_id')))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -985,11 +1010,11 @@ def update_youth_program(pid):
     d = request.json
     if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,updated_at=NOW(),updated_by=%s WHERE id=%s',
             (d['name'].strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
-             d.get('default_elic_id') or None, pid))
+             d.get('default_elic_id') or None, session.get('user_id'), pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -1277,10 +1302,13 @@ def get_productions():
     if err: return err
     conn = get_db()
     prods = fetchall(conn, """SELECT p.*, COALESCE(p.stage,'mainstage') as stage,
-        v.name as default_elic_name
+        v.name as default_elic_name,
+        cu.name as created_by_name, uu.name as updated_by_name
         FROM productions p
         LEFT JOIN elics el ON p.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
+        LEFT JOIN users cu ON p.created_by=cu.id
+        LEFT JOIN users uu ON p.updated_by=uu.id
         ORDER BY p.start_date DESC NULLS LAST""")
     for p in prods:
         p['members'] = fetchall(conn, '''

@@ -1854,6 +1854,7 @@ async function openProfile(volId){
           <div>🔍 Background Check: <span style="font-weight:600;color:${v.background_check_status==='cleared'?'var(--green-600)':v.background_check_status==='pending'?'var(--amber-600)':'var(--text-hint)'}">${v.background_check_status==='cleared'?'✅ Cleared':v.background_check_status==='pending'?'⏳ Pending':'Not on file'}</span>${v.background_check_date?' ('+formatDate(v.background_check_date)+')':''}</div>
           ${v.birthday?`<div>🎂 ${formatDate(v.birthday)}</div>`:''}
         </div>
+        ${auditLine(v.created_at, v.created_by_name, v.updated_at, v.updated_by_name)}
         <hr class="divider"/>
         <div style="margin-bottom:12px">
           <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Interests</div>
@@ -3319,6 +3320,7 @@ function renderProductions(){
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${isRS?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
         ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
         ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
+        ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
       </div>
       <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
         <div style="font-size:13px;color:var(--text-muted)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
@@ -4430,6 +4432,7 @@ function openEventDetail(eid){
           ${e.program_name?`<div>📚 <span style="color:var(--purple-600)">${e.program_name}</span></div>`:''}
           ${e.expected_volunteers?`<div>👥 ${e.expected_volunteers} expected volunteers</div>`:''}
           ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;margin-top:4px">🔍 Background check required</div>`:''}
+          ${auditLine(e.created_at, e.created_by_name, e.updated_at, e.updated_by_name)}
         </div>
         ${e.description?`<hr class="divider"/><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.description}</div>`:''}
         ${e.notes&&isAdmin?`<hr class="divider"/><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-hint);margin-bottom:4px">Staff Notes</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.notes}</div>`:''}
@@ -5269,7 +5272,8 @@ function renderYouthProgramsPage(){
             <div style="font-size:12px;color:var(--text-muted)">
               ${(()=>{ const evts=allEvents.filter(e=>e.production_id===p.id||(e.event_type_id&&false));return evts.length?evts.length+' event'+(evts.length!==1?'s':''):'' })()} 
             </div>
-            ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
+            ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}            ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
+        ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
           </div>
         </div>
       </div>`
@@ -6112,6 +6116,47 @@ function navToRSSignIn(prodId){
 }
 
 // renderRisingStars is kept as-is above but the banner div was removed from Participants page
+
+
+// ── CALENDAR CHIP CLICK ──
+function openEventChip(eid){
+  if(typeof event !== 'undefined' && event) event.stopPropagation()
+  if(currentUser?.role==='admin') openEventModal(eid)
+  else openEventDetail(eid)
+}
+
+// ── EST TIMESTAMP FORMATTER ──
+function formatDateTime(ts){
+  if(!ts) return '—'
+  try{
+    const d=new Date(ts)
+    return d.toLocaleString('en-US',{
+      timeZone:'America/New_York',
+      month:'short', day:'numeric', year:'numeric',
+      hour:'numeric', minute:'2-digit', hour12:true
+    })+' EST'
+  }catch{return ts}
+}
+
+function formatDateTimeShort(ts){
+  if(!ts) return ''
+  try{
+    const d=new Date(ts)
+    return d.toLocaleString('en-US',{
+      timeZone:'America/New_York',
+      month:'short', day:'numeric',
+      hour:'numeric', minute:'2-digit', hour12:true
+    })
+  }catch{return ''}
+}
+
+function auditLine(created_at, created_by_name, updated_at, updated_by_name){
+  const parts=[]
+  if(created_at) parts.push('Created '+formatDateTimeShort(created_at)+(created_by_name?' by '+created_by_name:''))
+  if(updated_at) parts.push('Updated '+formatDateTimeShort(updated_at)+(updated_by_name?' by '+updated_by_name:''))
+  if(!parts.length) return ''
+  return `<div style="font-size:11px;color:var(--text-hint);margin-top:8px;border-top:1px solid var(--border);padding-top:6px">${parts.join(' · ')}</div>`
+}
 
 </script>
 </body>

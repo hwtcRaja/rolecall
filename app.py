@@ -942,7 +942,11 @@ def get_youth_programs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    programs = fetchall(conn, 'SELECT * FROM youth_programs ORDER BY name')
+    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name
+        FROM youth_programs yp
+        LEFT JOIN elics el ON yp.default_elic_id=el.id
+        LEFT JOIN volunteers v ON el.volunteer_id=v.id
+        ORDER BY yp.name''')
     conn.close()
     return jsonify(programs)
 
@@ -963,7 +967,7 @@ def create_youth_program():
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
         return jsonify({'error': 'Program already exists'}), 400
-    row = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
     return jsonify(row)
 
@@ -979,7 +983,7 @@ def update_youth_program(pid):
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None, pid))
     conn.commit()
-    row = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
     return jsonify(row)
 
@@ -1288,12 +1292,13 @@ def create_production():
     d = request.json
     pid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO productions (id,name,production_type,stage,start_date,end_date,description,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+    execute(conn, 'INSERT INTO productions (id,name,production_type,stage,start_date,end_date,description,status,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
             (pid, d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
              d.get('start_date') or None, d.get('end_date') or None,
-             d.get('description',''), d.get('status','upcoming')))
+             d.get('description',''), d.get('status','upcoming'),
+             d.get('default_elic_id') or None))
     conn.commit()
-    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = []
     conn.close()
     return jsonify(prod)
@@ -1304,12 +1309,13 @@ def update_production(pid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s WHERE id=%s',
+    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s,default_elic_id=%s WHERE id=%s',
             (d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
              d.get('start_date') or None, d.get('end_date') or None,
-             d.get('description',''), d.get('status','upcoming'), pid))
+             d.get('description',''), d.get('status','upcoming'),
+             d.get('default_elic_id') or None, pid))
     conn.commit()
-    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = fetchall(conn, '''
         SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
         FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id

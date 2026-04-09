@@ -545,10 +545,16 @@ async function goWaiverCheck(fromMenu=false){
   document.getElementById('wc-title').textContent='Checking Waivers…'
   document.getElementById('wc-sub').textContent=''
   document.getElementById('wc-content').innerHTML='<div style="font-size:36px;text-align:center;padding:40px">⏳</div>'
-  const r=await fetch(`/api/kiosk/waiver-check?volunteer_id=${selVol.id}`)
-  const data=await r.json()
-  waiverIssues=data.issues||[]
-  renderWaiverCheck(fromMenu,data.all_clear)
+  try {
+    const r=await fetch(`/api/kiosk/waiver-check?volunteer_id=${selVol.id}`)
+    const data=await r.json()
+    waiverIssues=data.issues||[]
+    renderWaiverCheck(fromMenu,data.all_clear)
+  } catch(e) {
+    // If waiver check fails, let them continue anyway
+    waiverIssues=[]
+    renderWaiverCheck(fromMenu, true)
+  }
 }
 
 function renderWaiverCheck(fromMenu,allClear){
@@ -634,6 +640,7 @@ async function goEventSelect(){
     <button class="event-btn" onclick='selectEvent(${JSON.stringify(e)})'>
       <div class="event-name">${e.name}</div>
       ${e.event_date?`<div class="event-date">📅 ${fmtDate(e.event_date)}</div>`:'<div class="event-date" style="color:var(--teal)">● Ongoing</div>'}
+      ${e.status==='open'?'<div style="font-size:11px;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">● Open</div>':'<div style="font-size:11px;background:var(--teal-light);color:var(--teal);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">📅 Scheduled</div>'}
     </button>`).join('')
 }
 

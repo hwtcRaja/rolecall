@@ -1198,7 +1198,7 @@ function showKioskConfirm(title, body, btnLabel, onConfirm, onCancel){
   document.getElementById('kc-title').textContent=title
   document.getElementById('kc-body').textContent=body
   document.getElementById('kc-btn').textContent=btnLabel
-  document.getElementById('kc-confirm').onclick=()=>{el.style.display='none';onConfirm()}
+  document.getElementById('kc-btn').onclick=()=>{el.style.display='none';onConfirm()}
   document.getElementById('kc-cancel').onclick=()=>{el.style.display='none';if(onCancel)onCancel()}
   el.style.display='flex'
 }
@@ -1336,14 +1336,14 @@ function showConfirm(icon,title,sub,note,onBack){
   </div>
 </div>
 <!-- Kiosk Confirm Dialog -->
-<div id="kiosk-confirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:24px">
+<div id="kiosk-confirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:24px">
   <div style="background:#fff;border-radius:24px;padding:40px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.3)">
     <div style="font-size:40px;margin-bottom:16px" id="kc-icon">❓</div>
     <div style="font-size:22px;font-weight:700;color:#0d3d4d;margin-bottom:8px" id="kc-title"></div>
     <div style="font-size:15px;color:#5F5E5A;margin-bottom:32px" id="kc-body"></div>
     <div style="display:flex;gap:12px">
       <button id="kc-cancel" style="flex:1;padding:16px;background:#EFEFEC;border:none;border-radius:14px;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;color:#5F5E5A">Cancel</button>
-      <button id="kc-confirm" style="flex:1;padding:16px;background:#1b708d;border:none;border-radius:14px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;color:#fff" id="kc-btn"></button>
+      <button id="kc-btn" style="flex:1;padding:16px;background:#1b708d;border:none;border-radius:14px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;color:#fff" id="kc-confirm"></button>
     </div>
   </div>
 </div>

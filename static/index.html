@@ -3112,6 +3112,7 @@ function renderProductions(){
         </div>
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${isRS?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
         ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
+        ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
       </div>
       <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
         <div style="font-size:13px;color:var(--text-muted)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
@@ -5060,7 +5061,7 @@ function renderYouthProgramsPage(){
             <div style="font-size:12px;color:var(--text-muted)">
               ${(()=>{ const evts=allEvents.filter(e=>e.production_id===p.id||(e.event_type_id&&false));return evts.length?evts.length+' event'+(evts.length!==1?'s':''):'' })()} 
             </div>
-            ${p.default_elic_name?`<div style="font-size:11px;color:var(--text-hint)">🎬 Default ELIC: ${p.default_elic_name}</div>`:''}
+            ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
           </div>
         </div>
       </div>`

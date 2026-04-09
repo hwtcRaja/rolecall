@@ -188,8 +188,8 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default opening checklist items (only if none exist)
-    c.execute("SELECT COUNT(*) as n FROM opening_checklist_items")
-    if c.fetchone()['n'] == 0:
+    c.execute("SELECT COUNT(*) FROM opening_checklist_items")
+    if c.fetchone()[0] == 0:
         opening_items = [
             (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
             (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
@@ -309,8 +309,8 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default checklist items (only if none exist)
-    c.execute("SELECT COUNT(*) as n FROM checklist_items")
-    if c.fetchone()['n'] == 0:
+    c.execute("SELECT COUNT(*) FROM checklist_items")
+    if c.fetchone()[0] == 0:
         default_items = [
             (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
             (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),

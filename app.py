@@ -187,18 +187,20 @@ def init_db():
         hint TEXT,
         created_at TIMESTAMP DEFAULT NOW())""")
 
-    # seed default opening checklist items
-    opening_items = [
-        (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
-        (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
-        (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, ''),
-        (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, ''),
-        (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, ''),
-        (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?'),
-        (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts'),
-    ]
-    for item in opening_items:
-        c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
+    # seed default opening checklist items (only if none exist)
+    c.execute("SELECT COUNT(*) as n FROM opening_checklist_items")
+    if c.fetchone()['n'] == 0:
+        opening_items = [
+            (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
+            (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
+            (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, ''),
+            (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, ''),
+            (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, ''),
+            (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?'),
+            (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts'),
+        ]
+        for item in opening_items:
+            c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
 
     # youth authorized pickups
     c.execute("""CREATE TABLE IF NOT EXISTS youth_authorized_pickups (
@@ -251,16 +253,13 @@ def init_db():
         color TEXT DEFAULT 'blue',
         created_at TIMESTAMP DEFAULT NOW())""")
 
-    # seed default event types
+    # seed default event types (name has UNIQUE constraint so ON CONFLICT works correctly)
     for et in [
-        (str(__import__('uuid').uuid4()), 'Rehearsal', 'amber'),
-        (str(__import__('uuid').uuid4()), 'Performance', 'teal'),
-        (str(__import__('uuid').uuid4()), 'Meeting', 'blue'),
-        (str(__import__('uuid').uuid4()), 'Build Day', 'pink'),
-        (str(__import__('uuid').uuid4()), 'Strike', 'purple'),
-        (str(__import__('uuid').uuid4()), 'Other', 'gray'),
+        ('Rehearsal', 'amber'), ('Performance', 'teal'), ('Meeting', 'blue'),
+        ('Build Day', 'pink'), ('Strike', 'purple'), ('Other', 'gray'),
     ]:
-        c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", et)
+        c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT (name) DO NOTHING",
+                  (str(__import__('uuid').uuid4()), et[0], et[1]))
 
     # ELICs (approved event leads)
     c.execute("""CREATE TABLE IF NOT EXISTS elics (
@@ -309,19 +308,21 @@ def init_db():
         response TEXT,
         created_at TIMESTAMP DEFAULT NOW())""")
 
-    # seed default checklist items
-    default_items = [
-        (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
-        (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),
-        (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, ''),
-        (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors'),
-        (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms'),
-        (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, ''),
-        (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred'),
-        (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know'),
-    ]
-    for item in default_items:
-        c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING", item)
+    # seed default checklist items (only if none exist)
+    c.execute("SELECT COUNT(*) as n FROM checklist_items")
+    if c.fetchone()['n'] == 0:
+        default_items = [
+            (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
+            (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),
+            (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, ''),
+            (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors'),
+            (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms'),
+            (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, ''),
+            (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred'),
+            (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know'),
+        ]
+        for item in default_items:
+            c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
 
     # pending profile updates (kiosk)
     c.execute("""CREATE TABLE IF NOT EXISTS pending_profile_updates (
@@ -364,6 +365,11 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        # one-time dedup: keep only the oldest checklist item per label
+        """DELETE FROM checklist_items WHERE id NOT IN (
+            SELECT DISTINCT ON (label) id FROM checklist_items ORDER BY label, created_at ASC)""",
+        """DELETE FROM opening_checklist_items WHERE id NOT IN (
+            SELECT DISTINCT ON (label) id FROM opening_checklist_items ORDER BY label, created_at ASC)""",
     ]:
         try:
             c.execute(col_sql)

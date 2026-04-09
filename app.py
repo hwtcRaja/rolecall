@@ -1504,9 +1504,18 @@ def kiosk_volunteers():
 
 @app.route('/api/kiosk/events')
 def kiosk_events():
-    # Only return events that have been opened by an ELIC
+    # Return events that are open, OR scheduled for today/recent (within 1 day)
     conn = get_db()
-    events = fetchall(conn, "SELECT * FROM events WHERE status='open' ORDER BY event_date DESC NULLS LAST")
+    events = fetchall(conn, """
+        SELECT * FROM events
+        WHERE status='open'
+           OR (status IN ('draft','published','in_progress')
+               AND event_date >= (CURRENT_DATE - INTERVAL '1 day')
+               AND event_date <= (CURRENT_DATE + INTERVAL '1 day'))
+        ORDER BY
+            CASE WHEN status='open' THEN 0 ELSE 1 END,
+            event_date ASC NULLS LAST
+    """)
     conn.close()
     return jsonify(events)
 

@@ -1272,8 +1272,54 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event</label>
       </div>
     </div>
+
+    <!-- Repeat / Recurrence -->
+    <div style="padding:16px 20px;background:var(--gray-50);border-top:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Repeat / Recurrence <span style="font-size:11px;font-weight:400;color:var(--text-hint)">(new events only)</span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Pattern</div>
+          <select id="event-repeat-type" onchange="toggleRepeatOptions()" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+            <option value="none">No repeat</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly (same day)</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Monthly</option>
+            <option value="custom_days">Pick specific days of week</option>
+          </select>
+        </div>
+        <div id="repeat-count-wrap" style="display:none">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Occurrences</div>
+          <input type="number" id="event-repeat-count" min="2" max="52" value="4" oninput="updateRepeatPreview()" style="width:72px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+        <div id="repeat-until-wrap" style="display:none">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Until</div>
+          <input type="date" id="event-repeat-until" oninput="updateRepeatPreview()" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+      </div>
+      <!-- Custom days of week picker -->
+      <div id="repeat-days-wrap" style="display:none;margin-bottom:10px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Which days?</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="0" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Sun</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="1" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Mon</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="2" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Tue</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="3" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Wed</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="4" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Thu</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="5" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Fri</span></label>
+          <label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="repeat-dow" value="6" style="accent-color:var(--teal-400)" onchange="updateRepeatPreview()"/><span style="font-size:12px;font-weight:600">Sat</span></label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:12px;color:var(--text-muted)">Until</div>
+          <input type="date" id="event-repeat-until-dow" oninput="updateRepeatPreview()" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+      </div>
+      <div id="repeat-preview" style="font-size:12px;color:var(--teal-600);font-weight:500;min-height:18px"></div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">Cancel</button>
+      <button class="btn btn-secondary" id="duplicate-event-btn" style="display:none" onclick="duplicateCurrentEvent()">⧉ Duplicate</button>
       <button class="btn btn-primary" onclick="saveEditEvent()">Save Event</button>
     </div>
   </div>
@@ -4554,6 +4600,15 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-notes').value=e.notes||''
     document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
   }
+  // Reset repeat section
+  const repSel=document.getElementById('event-repeat-type')
+  if(repSel){ repSel.value='none'; toggleRepeatOptions() }
+  document.querySelectorAll('input[name="repeat-dow"]').forEach(c=>c.checked=false)
+  const repPrev=document.getElementById('repeat-preview')
+  if(repPrev) repPrev.textContent=''
+  // Show duplicate button only when editing an existing event
+  const dupBtn=document.getElementById('duplicate-event-btn')
+  if(dupBtn) dupBtn.style.display=eid?'':'none'
   openModal('modal-edit-event')
 }
 

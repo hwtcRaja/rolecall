@@ -606,34 +606,80 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- EMAIL -->
       <section class="page" id="page-email">
-        <div class="page-header"><div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send via Gmail</div></div></div>
+        <div class="page-header">
+          <div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send groups via Gmail</div></div>
+        </div>
         <div class="page-body">
-          <div style="display:grid;grid-template-columns:1fr 340px;gap:20px">
-            <div class="email-compose">
-              <div class="form-group">
-                <label>Template</label>
-                <select id="email-template-select" onchange="applyEmailTemplate()">
-                  <option value="">— Start from scratch —</option>
-                </select>
-              </div>
-              <div class="form-group"><label>Subject</label><input type="text" id="email-subject" placeholder="e.g. Reminder: Upcoming Event"/></div>
-              <div class="form-group"><label>Message</label><textarea id="email-body" style="min-height:180px" placeholder="Write your message here…&#10;&#10;Use {name} to personalize with the volunteer's name."></textarea></div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap">
-                <button class="btn btn-primary" onclick="openGmailCompose()">📧 Open in Gmail</button>
-                <button class="btn btn-secondary" onclick="copyEmailList()">📋 Copy All Emails</button>
-                <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">💾 Save as Template</button>
-              </div>
-              <div id="email-recipients-summary" style="margin-top:16px;font-size:13px;color:var(--text-muted)"></div>
-            </div>
+          <div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
+
+            <!-- LEFT: Compose -->
             <div>
-              <div class="card" style="padding:16px;margin-bottom:16px">
-                <div style="font-size:13px;font-weight:600;margin-bottom:12px">Recipients</div>
-                <div style="display:flex;gap:8px;margin-bottom:12px">
-                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(true)">Select All</button>
-                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(false)">Clear</button>
+              <div class="card" style="padding:20px;margin-bottom:16px">
+                <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:14px">Compose</div>
+                <div class="form-group">
+                  <label>Template</label>
+                  <select id="email-template-select" onchange="applyEmailTemplate()">
+                    <option value="">— Start from scratch —</option>
+                  </select>
                 </div>
-                <div id="email-vol-list" style="max-height:400px;overflow-y:auto"></div>
+                <div class="form-group"><label>Subject</label><input type="text" id="email-subject" placeholder="e.g. Reminder: Upcoming Rehearsal"/></div>
+                <div class="form-group"><label>Message</label>
+                  <textarea id="email-body" style="min-height:200px" placeholder="Write your message here…&#10;&#10;Use {name} to personalize with the recipient's name."></textarea>
+                  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Tip: use {name} for personalization — e.g. "Hi {name},"</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary" onclick="openGmailCompose()">📧 Open in Gmail</button>
+                  <button class="btn btn-secondary" onclick="copyEmailList()">📋 Copy Addresses</button>
+                  <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">💾 Save Template</button>
+                </div>
               </div>
+            </div>
+
+            <!-- RIGHT: Recipients -->
+            <div>
+              <div class="card" style="padding:20px;margin-bottom:12px">
+                <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:14px">Recipients</div>
+
+                <!-- Group quick-select -->
+                <div style="margin-bottom:14px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Quick-select a group</div>
+                  <div style="display:flex;flex-direction:column;gap:6px">
+
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <select id="email-group-type" onchange="renderEmailGroupOptions()" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                        <option value="">— Select group type —</option>
+                        <option value="all_volunteers">All Active Volunteers</option>
+                        <option value="production">Production Cast &amp; Crew</option>
+                        <option value="program">Program / Class</option>
+                        <option value="rising_stars">Rising Stars Production</option>
+                        <option value="interest">Interest / Skill Group</option>
+                        <option value="event">Event Attendees</option>
+                      </select>
+                    </div>
+
+                    <div id="email-group-detail" style="display:none">
+                      <select id="email-group-value" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                        <option value="">— Select —</option>
+                      </select>
+                    </div>
+
+                    <button class="btn btn-secondary btn-sm" onclick="applyEmailGroup()" style="align-self:flex-start">Apply Group →</button>
+                  </div>
+                </div>
+
+                <hr style="border:none;border-top:1px solid var(--border);margin:12px 0"/>
+
+                <!-- Manual filter + list -->
+                <div style="display:flex;gap:6px;margin-bottom:10px">
+                  <input type="text" id="email-vol-search" placeholder="Search recipients…" oninput="filterEmailVolList()" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(true)">All</button>
+                  <button class="btn btn-secondary btn-sm" onclick="selectAllEmailVols(false)">None</button>
+                </div>
+                <div id="email-vol-list" style="max-height:340px;overflow-y:auto"></div>
+              </div>
+
+              <!-- Summary -->
+              <div id="email-recipients-summary" style="font-size:13px;color:var(--text-muted);padding:8px 4px"></div>
             </div>
           </div>
         </div>
@@ -2183,16 +2229,29 @@ function populateEmailTemplates(){
 
 function renderEmailPage(){
   populateEmailTemplates()
+  renderEmailVolList()
+  renderEmailTemplatesSettings()
+}
+
+function renderEmailVolList(){
   const list=document.getElementById('email-vol-list')
   if(!list) return
-  list.innerHTML=volunteers.map(v=>`
+  const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
+  const shown=volunteers.filter(v=>!q||(v.name+' '+v.email).toLowerCase().includes(q))
+  list.innerHTML=shown.map(v=>`
     <div class="vol-checkbox-item">
       <input type="checkbox" id="ecb-${v.id}" ${selectedVolIds.has(v.id)?'checked':''} onchange="toggleEmailVol('${v.id}',this.checked)"/>
       <div>${avatarHTML(v.name,28)}</div>
-      <label for="ecb-${v.id}" style="cursor:pointer;flex:1"><div style="font-weight:500;font-size:13px">${v.name}</div><div style="font-size:11px;color:var(--text-muted)">${v.email}</div></label>
+      <label for="ecb-${v.id}" style="cursor:pointer;flex:1">
+        <div style="font-weight:500;font-size:13px">${v.name}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${v.email}</div>
+      </label>
     </div>`).join('')
   updateEmailSummary()
-  renderEmailTemplatesSettings()
+}
+
+function filterEmailVolList(){
+  renderEmailVolList()
 }
 
 function toggleEmailVol(id,checked){
@@ -2200,18 +2259,155 @@ function toggleEmailVol(id,checked){
   else selectedVolIds.delete(id)
   updateEmailSummary()
 }
+
 function selectAllEmailVols(checked){
-  volunteers.forEach(v=>{
+  const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
+  const shown=volunteers.filter(v=>!q||(v.name+' '+v.email).toLowerCase().includes(q))
+  shown.forEach(v=>{
     if(checked) selectedVolIds.add(v.id)
     else selectedVolIds.delete(v.id)
-    const cb=document.getElementById(`ecb-${v.id}`)
+    const cb=document.getElementById('ecb-'+v.id)
     if(cb) cb.checked=checked
   })
   updateEmailSummary()
 }
+
 function updateEmailSummary(){
-  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
-  document.getElementById('email-recipients-summary').textContent=`Will send to ${sel.length} volunteer${sel.length!==1?'s':''}`
+  const count=selectedVolIds.size
+  const el=document.getElementById('email-recipients-summary')
+  if(!el) return
+  if(count===0){
+    el.innerHTML='<span style="color:var(--amber-600)">⚠️ No recipients selected — all volunteers will receive this email</span>'
+  } else {
+    const emails=[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean).map(v=>v.email)
+    el.innerHTML=`<span style="color:var(--teal-600);font-weight:600">✓ ${count} recipient${count!==1?'s':''} selected</span>`+
+      (count<=5?'<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+emails.join(', ')+'</div>':'')
+  }
+}
+
+function renderEmailGroupOptions(){
+  const type=document.getElementById('email-group-type').value
+  const detail=document.getElementById('email-group-detail')
+  const sel=document.getElementById('email-group-value')
+  if(!type){detail.style.display='none';return}
+
+  if(type==='all_volunteers'){
+    detail.style.display='none'
+    return
+  }
+
+  detail.style.display=''
+  sel.innerHTML='<option value="">— Select —</option>'
+
+  if(type==='production'){
+    allProductions.filter(p=>p.stage!=='rising_stars').forEach(p=>{
+      sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`
+    })
+  } else if(type==='rising_stars'){
+    allProductions.filter(p=>p.stage==='rising_stars').forEach(p=>{
+      sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`
+    })
+  } else if(type==='program'){
+    allPrograms.forEach(p=>{
+      sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`
+    })
+  } else if(type==='interest'){
+    interestTypes.forEach(it=>{
+      sel.innerHTML+=`<option value="${it.name}">${it.name}</option>`
+    })
+  } else if(type==='event'){
+    allEvents.filter(e=>e.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,50).forEach(e=>{
+      sel.innerHTML+=`<option value="${e.id}">${e.name} (${formatDate(e.event_date)})</option>`
+    })
+  }
+}
+
+async function applyEmailGroup(){
+  const type=document.getElementById('email-group-type').value
+  const val=document.getElementById('email-group-value')?.value
+  if(!type){toast('Select a group type first','error');return}
+
+  selectedVolIds.clear()
+  let matched=[]
+  let label=''
+
+  if(type==='all_volunteers'){
+    matched=volunteers.filter(v=>v.status==='active')
+    label='All active volunteers'
+
+  } else if(type==='production'){
+    if(!val){toast('Select a production','error');return}
+    const prod=allProductions.find(p=>p.id===val)
+    const members=prod?.members||[]
+    const memberIds=new Set(members.map(m=>m.volunteer_id))
+    matched=volunteers.filter(v=>memberIds.has(v.id))
+    label=`${prod?.name||'Production'} cast & crew`
+
+  } else if(type==='rising_stars'){
+    if(!val){toast('Select a Rising Stars production','error');return}
+    const prod=allProductions.find(p=>p.id===val)
+    const members=prod?.members||[]
+    const memberIds=new Set(members.map(m=>m.volunteer_id))
+    matched=volunteers.filter(v=>memberIds.has(v.id))
+    label=`${prod?.name||'Production'} crew`
+
+  } else if(type==='program'){
+    if(!val){toast('Select a program','error');return}
+    const prog=allPrograms.find(p=>p.id===val)
+    // Get instructor + any volunteers linked to this program
+    const enrolled=await api('/api/youth-programs/'+val+'/enrolled')
+    // For volunteer emails, use the instructor
+    if(prog?.instructor_id){
+      const instr=volunteers.find(v=>v.id===prog.instructor_id)
+      if(instr) matched.push(instr)
+    }
+    // Also get volunteers who have logged hours for events in this program
+    const progEvents=allEvents.filter(e=>e.program_id===val)
+    const progEventIds=new Set(progEvents.map(e=>e.id))
+    volunteers.forEach(v=>{
+      if(!matched.find(m=>m.id===v.id)){
+        const hasHours=(v.hours||[]).some(h=>progEventIds.has(h.event_id))
+        if(hasHours) matched.push(v)
+      }
+    })
+    label=`${prog?.name||'Program'} volunteers`
+
+  } else if(type==='interest'){
+    if(!val){toast('Select an interest','error');return}
+    matched=volunteers.filter(v=>{
+      try{
+        const ints=JSON.parse(v.interests||'[]')
+        return ints.includes(val)
+      }catch{return false}
+    })
+    label=`Volunteers interested in: ${val}`
+
+  } else if(type==='event'){
+    if(!val){toast('Select an event','error');return}
+    const evt=allEvents.find(e=>e.id===val)
+    // Get volunteers who logged hours for this event
+    matched=volunteers.filter(v=>(v.hours||[]).some(h=>h.event_id===val))
+    // Also add ELIC assigned to this event
+    ;(evt?.elics||[]).forEach(el=>{
+      const v=volunteers.find(v=>v.id===el.volunteer_id)
+      if(v&&!matched.find(m=>m.id===v.id)) matched.push(v)
+    })
+    label=`${evt?.name||'Event'} attendees`
+  }
+
+  if(!matched.length){
+    toast('No volunteers found for this group','error')
+    return
+  }
+
+  matched.forEach(v=>selectedVolIds.add(v.id))
+  renderEmailVolList()
+  toast(`${matched.length} recipient${matched.length!==1?'s':''} selected: ${label}`, 'success')
+  // Update checkboxes
+  volunteers.forEach(v=>{
+    const cb=document.getElementById('ecb-'+v.id)
+    if(cb) cb.checked=selectedVolIds.has(v.id)
+  })
 }
 
 function applyEmailTemplate(){
@@ -2222,19 +2418,29 @@ function applyEmailTemplate(){
   document.getElementById('email-body').value=t.body
 }
 
+function getEmailRecipients(){
+  if(selectedVolIds.size>0) return [...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean)
+  return volunteers.filter(v=>v.status==='active')
+}
+
 function openGmailCompose(){
-  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
-  const emails=sel.map(v=>v.email).join(',')
+  const sel=getEmailRecipients()
+  if(!sel.length){toast('No recipients','error');return}
+  // Gmail has a BCC limit — warn if over 100
+  if(sel.length>100){
+    if(!confirm(`You are about to email ${sel.length} people. Gmail may limit large BCC lists. Continue?`)) return
+  }
+  const emails=sel.map(v=>v.email).filter(Boolean).join(',')
   const subject=encodeURIComponent(document.getElementById('email-subject').value||'')
   const body=encodeURIComponent(document.getElementById('email-body').value||'')
-  const url=`https://mail.google.com/mail/?view=cm&bcc=${encodeURIComponent(emails)}&su=${subject}&body=${body}`
+  const url='https://mail.google.com/mail/?view=cm&bcc='+encodeURIComponent(emails)+'&su='+subject+'&body='+body
   window.open(url,'_blank')
 }
 
 function copyEmailList(){
-  const sel=selectedVolIds.size>0?[...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean):volunteers
-  const emails=sel.map(v=>v.email).join(', ')
-  navigator.clipboard.writeText(emails).then(()=>toast(`Copied ${sel.length} email addresses!`,'success'))
+  const sel=getEmailRecipients()
+  const emails=sel.map(v=>v.email).filter(Boolean).join(', ')
+  navigator.clipboard.writeText(emails).then(()=>toast('Copied '+sel.length+' email addresses!','success'))
 }
 
 function emailSelected(){

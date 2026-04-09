@@ -959,10 +959,11 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, d['name'].strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
-                 d.get('end_date') or None, d.get('instructor_id') or None))
+                 d.get('end_date') or None, d.get('instructor_id') or None,
+                 d.get('default_elic_id') or None))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -978,10 +979,11 @@ def update_youth_program(pid):
     d = request.json
     if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
             (d['name'].strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
-             d.get('end_date') or None, d.get('instructor_id') or None, pid))
+             d.get('end_date') or None, d.get('instructor_id') or None,
+             d.get('default_elic_id') or None, pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()

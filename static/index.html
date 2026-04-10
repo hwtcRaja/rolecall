@@ -4632,12 +4632,48 @@ async function saveEditEvent(){
     notes:document.getElementById('edit-event-notes').value.trim(),
     requires_background_check:document.getElementById('edit-event-bgcheck').checked
   }
+
+  // Save the base event
   let res
   if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
   else res=await api('/api/events','POST',data)
   if(res.error){toast(res.error,'error');return}
   if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
   else allEvents.unshift(res)
+
+  // Handle recurrence — only for NEW events
+  const repeatType=document.getElementById('event-repeat-type')?.value||'none'
+  if(!eid && repeatType!=='none' && data.event_date){
+    let dates=[]
+    if(repeatType==='custom_days'){
+      const checked=[...document.querySelectorAll('input[name="repeat-dow"]:checked')].map(c=>parseInt(c.value))
+      const until=document.getElementById('event-repeat-until-dow')?.value
+      if(checked.length && until) dates=computeDowDates(data.event_date, checked, until)
+    } else {
+      const count=parseInt(document.getElementById('event-repeat-count')?.value)||4
+      dates=computeRepeatDates(data.event_date, repeatType, count)
+    }
+
+    if(dates.length){
+      let created=0
+      for(const d of dates){
+        // Keep same duration for multi-day events
+        const dayDiff=data.end_date&&data.event_date
+          ?(new Date(data.end_date)-new Date(data.event_date))/86400000:0
+        const endD=dayDiff>0
+          ?new Date(new Date(d+'T00:00:00').getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
+        const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD})
+        if(!r.error){allEvents.unshift(r);created++}
+      }
+      closeModal('modal-edit-event')
+      populateHoursFilters()
+      renderEventsSettings()
+      renderEventsPage()
+      toast(`Created event + ${created} repeat occurrence${created!==1?'s':''}!`,'success')
+      return
+    }
+  }
+
   closeModal('modal-edit-event')
   populateHoursFilters()
   renderEventsSettings()

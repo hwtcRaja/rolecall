@@ -4595,6 +4595,8 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-type').value=e.event_type_id||''
     setEventLocationUI(e.location||'HWTC', e.room||'')
     document.getElementById('edit-event-production').value=e.production_id||''
+    const pgSelEdit=document.getElementById('edit-event-program')
+    if(pgSelEdit) pgSelEdit.value=e.program_id||''
     document.getElementById('edit-event-volunteers').value=e.expected_volunteers||''
     document.getElementById('edit-event-desc').value=e.description||''
     document.getElementById('edit-event-notes').value=e.notes||''

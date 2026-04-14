@@ -427,13 +427,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">👦</span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon">📚</span>Programs &amp; Classes</div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon">⭐</span>Rising Stars</div>
+        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon">🏠</span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon">📝</span>Sign-In</div>
 
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
-        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon">🏠</span>Participant Portal</div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
@@ -2749,10 +2749,11 @@ async function openYouthProfile(yid){
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Passphrase</div>
             <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️ Edit</button>
           </div>
+          ${(()=>{ const fam=allFamilies.find(f=>f.id===y.family_id); return fam?`<div style="font-size:12px;font-weight:600;color:var(--teal-dark);margin-bottom:6px">👨‍👩‍👧 ${fam.name}</div><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Family passphrase: <span style="font-family:monospace;font-weight:700">${fam.passphrase}</span></div>`:y.passphrase?'':'<div style="font-size:11px;color:var(--text-hint);margin-bottom:4px">Not linked to a family</div>' })()} 
           ${y.passphrase
             ?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px;letter-spacing:0.5px">${y.passphrase}</div>
-             <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Family uses this to log into the portal</div>`
-            :`<div style="font-size:13px;color:var(--text-hint);font-style:italic">Not set — click Edit to add</div>`}
+             <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Individual passphrase (overrides family)</div>`
+            :``}
         </div>`:''}
         <!-- Waivers -->
         <div class="card" style="padding:16px">
@@ -3527,32 +3528,47 @@ function openProductionDetail(prodId){
           </select>`:''}
         </div>
       </div>
-      <div class="card" style="padding:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-          <div style="font-size:15px;font-weight:600">Cast & Crew</div>
-          ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>`:''}
+      <div>
+        <!-- Tab strip -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+          <button id="prodtab-btn-members" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProductionTab('members')">🎭 Cast & Crew</button>
+          ${isAdmin&&p.stage==='rising_stars'?`<button id="prodtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProductionTab('portal')">🏠 Portal Content</button>`:''}
         </div>
-        ${!members.length?'<div style="color:var(--text-muted);font-size:13px">No members added yet</div>':
-          Object.entries(byDept).map(([dept,mems])=>`
-            <div style="margin-bottom:20px">
-              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">${dept}</div>
-              ${mems.map(m=>`
-                <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-                  ${avatarHTML(m.volunteer_name,36)}
-                  <div style="flex:1">
-                    <div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${m.volunteer_id}')">${m.volunteer_name}</div>
-                    <div style="font-size:12px;color:var(--text-muted)">${m.role}</div>
-                  </div>
-                  <span style="font-size:11px;font-weight:500;color:${memberStatusColors[m.status]||'var(--text-muted)'}">${m.status}</span>
-                  ${isAdmin?`<div style="display:flex;gap:4px">
-                    <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal('${m.id}','${p.id}')">Edit</button>
-                    <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember('${m.id}','${p.id}')">✕</button>
-                  </div>`:''}
-                </div>`).join('')}
+
+        <!-- Members tab -->
+        <div id="prodtab-members" class="card" style="padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+            <div style="font-size:15px;font-weight:600">Cast & Crew</div>
+            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>`:''}
+          </div>
+          ${!members.length?'<div style="color:var(--text-muted);font-size:13px">No members added yet</div>':
+            Object.entries(byDept).map(([dept,mems])=>`
+              <div style="margin-bottom:20px">
+                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">${dept}</div>
+                ${mems.map(m=>`
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                    ${avatarHTML(m.volunteer_name,36)}
+                    <div style="flex:1">
+                      <div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${m.volunteer_id}')">${m.volunteer_name}</div>
+                      <div style="font-size:12px;color:var(--text-muted)">${m.role}</div>
+                    </div>
+                    <span style="font-size:11px;font-weight:500;color:${memberStatusColors[m.status]||'var(--text-muted)'}">${m.status}</span>
+                    ${isAdmin?`<div style="display:flex;gap:4px">
+                      <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal('${m.id}','${p.id}')">Edit</button>
+                      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember('${m.id}','${p.id}')">✕</button>
+                    </div>`:''}
+                  </div>`).join('')}
             </div>`).join('')}
+        </div>
+
+        <!-- Portal content tab (Rising Stars only) -->
+        <div id="prodtab-portal" style="display:none">
+          ${renderProductionPortalHTML(p.id)}
+        </div>
       </div>
     </div>`
 
+  window._currentProductionDetailId = p.id
   navTo('production-detail')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   if(p.stage==='rising_stars') setTimeout(()=>loadYouthProdMembers(p.id),100)
@@ -5899,6 +5915,18 @@ async function openProgramDetail(programId){
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description (optional)</label>
                 <input type="text" id="prog-file-desc-${p.id}" placeholder="Brief description of the file…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
               </div>
+              <div style="margin-bottom:10px">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder (optional)</label>
+                <select id="prog-file-folder-${p.id}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="">General</option>
+                  <option value="Handouts">Handouts</option>
+                  <option value="Schedules">Schedules</option>
+                  <option value="Music">Music</option>
+                  <option value="Costumes">Costumes</option>
+                  <option value="Parents">Parents</option>
+                  <option value="Waivers">Waivers</option>
+                </select>
+              </div>
               <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
             </div>
             <!-- Existing files -->
@@ -5918,6 +5946,229 @@ async function openProgramDetail(programId){
   })
 }
 
+
+
+// ── PRODUCTION PORTAL TAB ──
+function renderProductionPortalHTML(pid){
+  return `
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div><div style="font-size:15px;font-weight:700">📢 Announcements</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to cast/families in the participant portal</div></div>
+      </div>
+      <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
+          <input type="text" id="prod-ann-title-${pid}" placeholder="e.g. Costume fitting schedule" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
+          <textarea id="prod-ann-body-${pid}" placeholder="Write your message…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}')">📢 Post</button>
+      </div>
+      <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+    </div>
+
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">📁 Files & Folders</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Organize files into folders for cast, parents, crew, etc.</div>
+      <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File Title</label>
+            <input type="text" id="prod-file-title-${pid}" placeholder="e.g. Script Act 1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
+            <select id="prod-file-folder-${pid}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+              <option value="">General</option>
+              <option value="Cast">Cast</option>
+              <option value="Parents">Parents</option>
+              <option value="Crew">Crew</option>
+              <option value="Scripts">Scripts</option>
+              <option value="Costumes">Costumes</option>
+              <option value="Music">Music</option>
+              <option value="Waivers">Waivers</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
+          <input type="url" id="prod-file-url-${pid}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description (optional)</label>
+          <input type="text" id="prod-file-desc-${pid}" placeholder="Brief description…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">📁 Add File</button>
+      </div>
+      <div id="prod-file-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+    </div>
+
+    <div class="card" style="padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">🎭 Cast List</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Shown publicly in the portal to families and cast members</div>
+      <div id="prod-castlist-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+    </div>`
+}
+
+function switchProductionTab(tab){
+  const mDiv = document.getElementById('prodtab-members')
+  const pDiv = document.getElementById('prodtab-portal')
+  const mBtn = document.getElementById('prodtab-btn-members')
+  const pBtn = document.getElementById('prodtab-btn-portal')
+  if(mDiv) mDiv.style.display = tab==='members'?'':'none'
+  if(pDiv) pDiv.style.display = tab==='portal'?'':'none'
+  if(mBtn){ mBtn.style.borderBottomColor=tab==='members'?'var(--teal-mid)':'transparent'; mBtn.style.color=tab==='members'?'var(--teal-dark)':'var(--text-muted)' }
+  if(pBtn){ pBtn.style.borderBottomColor=tab==='portal'?'var(--teal-mid)':'transparent'; pBtn.style.color=tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
+  if(tab==='portal') loadProductionPortalContent(window._currentProductionDetailId)
+}
+
+async function loadProductionPortalContent(pid){
+  if(!pid) return
+  const [content, prod] = await Promise.all([
+    api(`/api/portal/instructor/content/production/${pid}`),
+    Promise.resolve(allProductions.find(p=>p.id===pid))
+  ])
+  renderProductionAnnouncements(pid, content.announcements||[])
+  renderProductionFiles(pid, content.files||[])
+  renderProductionCastList(pid, prod)
+}
+
+function renderProductionAnnouncements(pid, anns){
+  const el = document.getElementById(`prod-ann-list-${pid}`)
+  if(!el) return
+  el.innerHTML = !anns.length ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>' :
+    anns.map(a=>`<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">
+      <button onclick="deleteProductionAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">${a.title}</div>
+      <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap">${a.body}</div>
+      <div style="font-size:11px;color:var(--text-hint);margin-top:6px">${formatDateTime(a.created_at)}</div>
+    </div>`).join('')
+}
+
+function renderProductionFiles(pid, files){
+  const el = document.getElementById(`prod-file-list-${pid}`)
+  if(!el) return
+  if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
+  // Group by folder
+  const folders = {}
+  files.forEach(f=>{ const folder=f.description?.startsWith('__folder__')?f.description.replace('__folder__',''):'General'; if(!folders[folder])folders[folder]=[]; folders[folder].push(f) })
+  el.innerHTML = Object.entries(folders).map(([folder,fls])=>`
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
+      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:18px;flex-shrink:0">📄</div>
+        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div></div>
+        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
+        <button onclick="deleteProductionFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
+      </div>`).join('')}
+    </div>`).join('')
+}
+
+function renderProductionCastList(pid, prod){
+  const el = document.getElementById(`prod-castlist-${pid}`)
+  if(!el) return
+  // Get youth cast members
+  const youthMembers = allYouth.filter(y=>(y.productions||[]).find?.(pm=>pm.production_id===pid)||false)
+  // Adult members from production
+  const members = prod?.members||[]
+  if(!members.length && !youthMembers.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No cast members yet.</div>'; return }
+  el.innerHTML = `
+    ${members.length?`<div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Adult Cast & Crew</div>
+      ${members.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+        ${avatarHTML(m.volunteer_name,28)}
+        <div style="flex:1"><div style="font-size:13px;font-weight:600">${m.volunteer_name}</div><div style="font-size:11px;color:var(--text-muted)">${m.role||m.department||''}</div></div>
+        <span style="font-size:11px;color:var(--text-muted)">${m.status}</span>
+      </div>`).join('')}
+    </div>`:''}
+    <div style="font-size:11px;color:var(--text-hint);margin-top:8px">The full cast list (including youth) is visible in the participant portal to enrolled families.</div>`
+}
+
+async function postProductionAnnouncement(pid){
+  const title = document.getElementById(`prod-ann-title-${pid}`)?.value.trim()
+  const body = document.getElementById(`prod-ann-body-${pid}`)?.value.trim()
+  if(!title||!body){toast('Title and message required','error');return}
+  const res = await api('/api/portal/announcements','POST',{production_id:pid, title, body})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prod-ann-title-${pid}`).value=''
+  document.getElementById(`prod-ann-body-${pid}`).value=''
+  await loadProductionPortalContent(pid)
+  toast('Announcement posted!')
+}
+async function deleteProductionAnnouncement(pid, aid){
+  if(!confirm('Delete announcement?')) return
+  await api(`/api/portal/announcements/${aid}`,'DELETE')
+  await loadProductionPortalContent(pid)
+  toast('Deleted')
+}
+async function addProductionFile(pid){
+  const title = document.getElementById(`prod-file-title-${pid}`)?.value.trim()
+  const url = document.getElementById(`prod-file-url-${pid}`)?.value.trim()
+  const folder = document.getElementById(`prod-file-folder-${pid}`)?.value||'General'
+  if(!title||!url){toast('Title and URL required','error');return}
+  // Store folder in description with prefix so we can group
+  const res = await api('/api/portal/files','POST',{production_id:pid, title, drive_url:url, description:`__folder__${folder}`})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prod-file-title-${pid}`).value=''
+  document.getElementById(`prod-file-url-${pid}`).value=''
+  await loadProductionPortalContent(pid)
+  toast('File added!')
+}
+async function deleteProductionFile(pid, fid){
+  if(!confirm('Remove this file?')) return
+  await api(`/api/portal/files/${fid}`,'DELETE')
+  await loadProductionPortalContent(pid)
+  toast('Removed')
+}
+
+// ── Enhanced program portal tab: add folder support ──
+// Override addProgramFile to support folders
+const _origAddProgramFile = addProgramFile
+async function addProgramFile(pid){
+  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
+  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
+  const desc = document.getElementById(`prog-file-desc-${pid}`)?.value.trim()
+  const folderEl = document.getElementById(`prog-file-folder-${pid}`)
+  const folder = folderEl?.value||''
+  if(!title||!url){toast('Title and Drive URL required','error');return}
+  if(!url.startsWith('http')){toast('Please enter a valid URL starting with https://','error');return}
+  const finalDesc = folder ? `__folder__${folder}${desc?': '+desc:''}` : desc
+  const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, description:finalDesc})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prog-file-title-${pid}`).value=''
+  document.getElementById(`prog-file-url-${pid}`).value=''
+  if(folderEl) folderEl.value=''
+  if(document.getElementById(`prog-file-desc-${pid}`)) document.getElementById(`prog-file-desc-${pid}`).value=''
+  await loadProgramPortalContent(pid)
+  toast('File added!')
+}
+
+// Enhanced renderProgramFiles to support folders
+function renderProgramFiles(pid, files){
+  const el = document.getElementById(`prog-file-list-${pid}`)
+  if(!el) return
+  if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No files yet. Add one above.</div>'; return }
+  const folders = {}
+  files.forEach(f=>{
+    let folder='General', cleanDesc=f.description||''
+    if(f.description?.startsWith('__folder__')){ const parts=f.description.replace('__folder__','').split(': '); folder=parts[0]; cleanDesc=parts.slice(1).join(': ') }
+    if(!folders[folder]) folders[folder]=[]
+    folders[folder].push({...f, cleanDesc})
+  })
+  el.innerHTML = Object.entries(folders).map(([folder,fls])=>`
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
+      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:18px;flex-shrink:0">📄</div>
+        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div>${f.cleanDesc?`<div style="font-size:11px;color:var(--text-muted)">${f.cleanDesc}</div>`:''}</div>
+        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open →</a>
+        <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
+      </div>`).join('')}
+    </div>`).join('')
+}
 
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
@@ -5953,25 +6204,6 @@ function renderProgramAnnouncements(pid, announcements){
     </div>`).join('')
 }
 
-function renderProgramFiles(pid, files){
-  const el = document.getElementById(`prog-file-list-${pid}`)
-  if(!el) return
-  if(!files.length){
-    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No files yet. Add one above.</div>'
-    return
-  }
-  el.innerHTML = files.map(f=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-      <div style="width:36px;height:36px;background:var(--teal-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📄</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600">${f.title}</div>
-        ${f.description?`<div style="font-size:12px;color:var(--text-muted)">${f.description}</div>`:''}
-        <div style="font-size:11px;color:var(--text-hint)">${formatDateTime(f.created_at)}</div>
-      </div>
-      <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0">Open →</a>
-      <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm" style="flex-shrink:0">✕</button>
-    </div>`).join('')
-}
 
 async function postProgramAnnouncement(pid){
   const title = document.getElementById(`prog-ann-title-${pid}`)?.value.trim()
@@ -5990,28 +6222,6 @@ async function deleteProgramAnnouncement(pid, aid){
   await api(`/api/portal/announcements/${aid}`,'DELETE')
   await loadProgramPortalContent(pid)
   toast('Announcement deleted')
-}
-
-async function addProgramFile(pid){
-  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
-  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
-  const desc = document.getElementById(`prog-file-desc-${pid}`)?.value.trim()
-  if(!title||!url){toast('Title and Drive URL required','error');return}
-  if(!url.startsWith('http')){toast('Please enter a valid URL starting with https://','error');return}
-  const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, description:desc})
-  if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prog-file-title-${pid}`).value = ''
-  document.getElementById(`prog-file-url-${pid}`).value = ''
-  document.getElementById(`prog-file-desc-${pid}`).value = ''
-  await loadProgramPortalContent(pid)
-  toast('File added! Families can see it now.')
-}
-
-async function deleteProgramFile(pid, fid){
-  if(!confirm('Remove this file from the portal?')) return
-  await api(`/api/portal/files/${fid}`,'DELETE')
-  await loadProgramPortalContent(pid)
-  toast('File removed')
 }
 
 // Pre-fill ELIC on event modal from parent program/production

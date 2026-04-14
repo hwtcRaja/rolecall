@@ -401,6 +401,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        "ALTER TABLE pending_profile_updates ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         """CREATE TABLE IF NOT EXISTS portal_folders (
             id TEXT PRIMARY KEY,
             program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -1878,7 +1879,16 @@ def get_pending_profile_updates():
     if err: return err
     conn = get_db()
     rows = fetchall(conn,
-        "SELECT pu.*, v.name as volunteer_name FROM pending_profile_updates pu JOIN volunteers v ON pu.volunteer_id=v.id WHERE pu.status='pending' ORDER BY pu.submitted_at DESC")
+        '''SELECT pu.*, 
+            v.name as volunteer_name,
+            CASE WHEN pu.youth_id IS NOT NULL 
+                 THEN (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pu.youth_id)
+                 ELSE v.name END as display_name,
+            CASE WHEN pu.youth_id IS NOT NULL THEN 'participant' ELSE 'volunteer' END as profile_type
+            FROM pending_profile_updates pu 
+            LEFT JOIN volunteers v ON pu.volunteer_id=v.id 
+            WHERE pu.status='pending' 
+            ORDER BY pu.submitted_at DESC''')
     conn.close()
     return jsonify(rows)
 
@@ -3054,3 +3064,32 @@ def portal_program_waiver_status(pid):
     conn.close()
     return jsonify({'required_waivers': required_waivers, 'participants': result})
 
+
+# ── Youth portal profile update requests ──
+@app.route('/api/portal/youth/<yid>/profile', methods=['GET'])
+def portal_get_youth_profile(yid):
+    conn = get_db()
+    y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+    if not y:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    guardians = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
+    emergency = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
+    waivers = fetchall(conn, '''SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw
+        JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.youth_id=%s''', (yid,))
+    conn.close()
+    return jsonify({**dict(y), 'guardians': guardians, 'emergency': emergency, 'waivers': waivers})
+
+@app.route('/api/portal/youth/<yid>/request-update', methods=['POST'])
+def portal_request_youth_update(yid):
+    d = request.json
+    conn = get_db()
+    y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+    if not y:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    uid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO pending_profile_updates 
+        (id, youth_id, field_name, old_value, new_value)
+        VALUES (%s, %s, %s, %s, %s)''',
+        (uid, yid, d['field_name'], d.get('old_value',''), d['new_value']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})

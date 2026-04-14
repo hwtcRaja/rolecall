@@ -1319,6 +1319,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-event')">Cancel</button>
+      <button class="btn btn-danger" id="delete-event-btn" style="display:none" onclick="deleteFromModal()">Delete</button>
       <button class="btn btn-secondary" id="duplicate-event-btn" style="display:none" onclick="duplicateCurrentEvent()">⧉ Duplicate</button>
       <button class="btn btn-primary" onclick="saveEditEvent()">Save Event</button>
     </div>
@@ -4355,7 +4356,8 @@ function renderCalendar(events){
       ${dayEvents.slice(0,3).map(e=>{
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
         const isAdminCal=currentUser?.role==='admin'
-        return`<div onclick="openEventChip('${e.id}')" title="${e.name}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4">${e.name}</div>`
+        const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
+        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}" style="background:${bg};color:${col};border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5">${e.name}<span style="opacity:0.75;font-weight:400;font-size:10px">${calTimeStr}</span></div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
     </div>`
@@ -4611,6 +4613,8 @@ function openEventModal(eid=null){
   // Show duplicate button only when editing an existing event
   const dupBtn=document.getElementById('duplicate-event-btn')
   if(dupBtn) dupBtn.style.display=eid?'':'none'
+  const delBtn=document.getElementById('delete-event-btn')
+  if(delBtn) delBtn.style.display=eid?'':'none'
   openModal('modal-edit-event')
 }
 
@@ -4688,6 +4692,13 @@ async function saveEditEvent(){
     console.error('saveEditEvent error:', err)
     toast('Error saving event: '+err.message,'error')
   }
+}
+
+function deleteFromModal(){
+  const eid=document.getElementById('edit-event-id').value
+  if(!eid) return
+  closeModal('modal-edit-event')
+  deleteEventFull(eid)
 }
 
 async function deleteEventFull(eid){
@@ -5368,11 +5379,13 @@ function renderYouthProgramsPage(){
                 ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}', allPrograms.find(x=>x.id==='${p.id}')?.name||'')">+ Enroll</button>`:''}\n                <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
               </div>
             </div>
-            <div style="font-size:12px;color:var(--text-muted)">
-              ${(()=>{ const evts=allEvents.filter(e=>e.production_id===p.id||(e.event_type_id&&false));return evts.length?evts.length+' event'+(evts.length!==1?'s':''):'' })()} 
-            </div>
-            ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}            ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
-        ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
+            ${(()=>{
+              const evts=allEvents.filter(e=>e.program_id===p.id)
+              const progHours=allHours.filter(h=>evts.some(e=>e.id===h.event_id)).reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
+              return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">📅 ${evts.length} event${evts.length!==1?'s':''} · ⏱ ${progHours}h logged</div>`+
+                (evts.length?`<div style="font-size:11px;color:var(--text-hint)">${evts.slice(0,2).map(e=>formatDate(e.event_date)+' '+e.name).join(' · ')}${evts.length>2?' +'+(evts.length-2)+' more':''}</div>`:'')
+            })()}
+            ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
           </div>
         </div>
       </div>`

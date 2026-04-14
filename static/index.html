@@ -522,7 +522,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           <div><div class="page-title">Events</div><div class="page-subtitle" id="events-page-subtitle">Loading…</div></div>
           <div class="page-actions">
             <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:var(--radius);padding:3px">
-              <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')">📅 Calendar</button>
+              <button id="ev-view-today" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('today')">📌 Today</button>
+              <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')">📅 Month</button>
+              <button id="ev-view-day" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('day')">🗓 Day</button>
               <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">☰ List</button>
             </div>
 <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
@@ -538,6 +540,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </div>
         </div>
         <div class="page-body">
+          <!-- Today / Upcoming View -->
+          <div id="ev-today-view" style="display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div class="card" style="padding:20px">
+                <div style="font-size:15px;font-weight:700;margin-bottom:16px">📌 Today — <span id="today-date-label" style="color:var(--teal-dark)"></span></div>
+                <div id="today-events-list"><div style="font-size:13px;color:var(--text-muted)">No events today</div></div>
+              </div>
+              <div class="card" style="padding:20px">
+                <div style="font-size:15px;font-weight:700;margin-bottom:16px">⏭ Upcoming (next 14 days)</div>
+                <div id="upcoming-events-list"><div style="font-size:13px;color:var(--text-muted)">No upcoming events</div></div>
+              </div>
+            </div>
+          </div>
           <!-- Calendar View -->
           <div id="ev-calendar-view">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -555,6 +570,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sat</div>
             </div>
             <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
+          </div>
+          <!-- Day View -->
+          <div id="ev-day-view" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <button class="btn btn-secondary btn-sm" onclick="dayNav(-1)">← Prev Day</button>
+              <div style="font-size:18px;font-weight:700" id="day-view-label"></div>
+              <button class="btn btn-secondary btn-sm" onclick="dayNav(1)">Next Day →</button>
+            </div>
+            <div id="day-view-content"></div>
           </div>
           <!-- List View -->
           <div id="ev-list-view" style="display:none">
@@ -1809,14 +1833,16 @@ function navTo(page,el){
 //  LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
-  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData,evTypes]=await Promise.all([
+  const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData,evTypes,fams]=await Promise.all([
     api('/api/volunteers'),api('/api/hours'),api('/api/events'),
     api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
-    api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics'),api('/api/event-types')
+    api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics'),api('/api/event-types'),
+    api('/api/families')
   ])
   volunteers=vols; allHours=hrs; allEvents=events
   interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates
   allYouth=youth; allPrograms=programs; allProductions=prods; allElics=elicsData; allEventTypes=evTypes
+  allFamilies=fams
   populateHoursFilters()
   populateInterestFilter()
   buildInterestCheckboxes()
@@ -4367,16 +4393,116 @@ const STATUS_COLORS = {
   closed:['#F4F4F4','#9B9B94','✓ Completed']
 }
 
+let calDayDate = new Date().toISOString().split('T')[0]
+
 function setEventsView(v){
   eventsView=v
+  document.getElementById('ev-today-view').style.display=v==='today'?'block':'none'
   document.getElementById('ev-calendar-view').style.display=v==='calendar'?'block':'none'
+  document.getElementById('ev-day-view').style.display=v==='day'?'block':'none'
   document.getElementById('ev-list-view').style.display=v==='list'?'block':'none'
-  const calBtn=document.getElementById('ev-view-calendar')
-  const listBtn=document.getElementById('ev-view-list')
-  if(calBtn){calBtn.style.background=v==='calendar'?'var(--surface)':'transparent';calBtn.style.color=v==='calendar'?'var(--text)':'var(--text-muted)'}
-  if(listBtn){listBtn.style.background=v==='list'?'var(--surface)':'transparent';listBtn.style.color=v==='list'?'var(--text)':'var(--text-muted)'}
-  renderEventsPage()
+  ;['today','calendar','day','list'].forEach(id=>{
+    const btn=document.getElementById('ev-view-'+id)
+    if(btn){ btn.style.background=v===id?'var(--surface)':'transparent'; btn.style.color=v===id?'var(--text)':'var(--text-muted)' }
+  })
+  if(v==='today') renderTodayView()
+  else if(v==='day') renderDayView()
+  else renderEventsPage()
 }
+
+function renderTodayView(){
+  const today = new Date().toISOString().split('T')[0]
+  const in14 = new Date(Date.now()+14*86400000).toISOString().split('T')[0]
+  document.getElementById('today-date-label').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+
+  const todayEvts = allEvents.filter(e=>e.event_date===today).sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||''))
+  const upcomingEvts = allEvents.filter(e=>e.event_date>today&&e.event_date<=in14).sort((a,b)=>a.event_date.localeCompare(b.event_date)||(a.start_time||'').localeCompare(b.start_time||''))
+
+  const evCard = e=>{
+    const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+    const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
+    const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+    return`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer" onclick="openEventChip('${e.id}')">
+      <div style="width:3px;align-self:stretch;background:${tcol};border-radius:2px;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600">${e.name}</div>
+        <div style="font-size:12px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <span>⏰ ${timeStr}</span>
+          ${e.location?`<span>📍 ${e.location}</span>`:''}
+          ${e.program_name?`<span>📚 ${e.program_name}</span>`:''}
+          ${e.production_name?`<span>🎭 ${e.production_name}</span>`:''}
+        </div>
+      </div>
+      <span style="background:${sbg};color:${scol};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;flex-shrink:0">${slabel}</span>
+    </div>`
+  }
+
+  document.getElementById('today-events-list').innerHTML = todayEvts.length
+    ? todayEvts.map(evCard).join('')
+    : '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No events scheduled today</div>'
+
+  // Group upcoming by date
+  const byDate={}
+  upcomingEvts.forEach(e=>{ if(!byDate[e.event_date]) byDate[e.event_date]=[]; byDate[e.event_date].push(e) })
+  document.getElementById('upcoming-events-list').innerHTML = upcomingEvts.length
+    ? Object.entries(byDate).map(([d,evts])=>`
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">${formatDate(d)}</div>
+          ${evts.map(evCard).join('')}
+        </div>`).join('')
+    : '<div style="font-size:13px;color:var(--text-muted)">No events in the next 14 days</div>'
+}
+
+function dayNav(dir){
+  const d = new Date(calDayDate+'T00:00:00')
+  d.setDate(d.getDate()+dir)
+  calDayDate = d.toISOString().split('T')[0]
+  renderDayView()
+}
+
+function renderDayView(){
+  const d = new Date(calDayDate+'T00:00:00')
+  document.getElementById('day-view-label').textContent = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+  const dayEvts = allEvents.filter(e=>e.event_date===calDayDate).sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||''))
+  const content = document.getElementById('day-view-content')
+  if(!dayEvts.length){
+    content.innerHTML='<div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">No events on this day.'+
+      (currentUser?.role==='admin'?` <button class="btn btn-primary btn-sm" style="margin-left:10px" onclick="calDayClick('${calDayDate}',event)">+ Add Event</button>`:'')+'</div>'
+    return
+  }
+  content.innerHTML=`<div class="card" style="padding:20px">
+    ${dayEvts.map(e=>{
+      const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+      const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+      const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
+      const elicName=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
+      return`<div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openEventChip('${e.id}')">
+        <div style="width:80px;text-align:center;flex-shrink:0">
+          <div style="font-size:13px;font-weight:700;color:var(--teal-dark)">${e.start_time?fmtTime(e.start_time):'TBD'}</div>
+          ${e.end_time?`<div style="font-size:11px;color:var(--text-hint)">${fmtTime(e.end_time)}</div>`:''}
+        </div>
+        <div style="width:4px;background:${tcol};border-radius:2px;flex-shrink:0;align-self:stretch"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">${e.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:10px">
+            ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
+            ${e.program_name?`<span>📚 ${e.program_name}</span>`:''}
+            ${e.production_name?`<span>🎭 ${e.production_name}</span>`:''}
+            ${elicName?`<span>🎬 ${elicName}</span>`:''}
+            ${e.expected_volunteers?`<span>👥 ${e.expected_volunteers} volunteers</span>`:''}
+          </div>
+          ${e.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${e.description}</div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+          <span style="background:${tbg};color:${tcol};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">${e.event_type_name||'Event'}</span>
+          <span style="background:${sbg};color:${scol};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600">${slabel}</span>
+        </div>
+      </div>`
+    }).join('')}
+    ${currentUser?.role==='admin'?`<div style="padding-top:12px"><button class="btn btn-secondary btn-sm" onclick="calDayClick('${calDayDate}',event)">+ Add Event on This Day</button></div>`:''}
+  </div>`
+}
+
 
 function populateEventsFilters(){
   const sel=document.getElementById('ev-filter-type')
@@ -5871,14 +5997,12 @@ async function openProgramDetail(programId){
 
         <!-- Portal content tab -->
         <div id="pdtab-portal" style="display:none">
+          <!-- Announcements card -->
           <div class="card" style="padding:20px;margin-bottom:16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-              <div>
-                <div style="font-size:15px;font-weight:700">📢 Announcements</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to families in the participant portal</div>
-              </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div><div style="font-size:15px;font-weight:700">📢 Announcements</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to families in the participant portal</div></div>
             </div>
-            <!-- Post form -->
             <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
               <div class="form-group" style="margin-bottom:10px">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
@@ -5888,51 +6012,48 @@ async function openProgramDetail(programId){
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
                 <textarea id="prog-ann-body-${p.id}" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="postProgramAnnouncement('${p.id}')">📢 Post Announcement</button>
+              <button class="btn btn-primary btn-sm" onclick="postProgramAnnouncement('${p.id}')">📢 Post</button>
             </div>
-            <!-- Existing announcements -->
-            <div id="prog-ann-list-${p.id}">
-              <div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div>
-            </div>
+            <div id="prog-ann-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
-          <div class="card" style="padding:20px">
-            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📁 Files</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Google Drive links visible to families in the portal</div>
+          <!-- Files card with dynamic folders -->
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-size:15px;font-weight:700">📁 Files</div>
+              <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('program','${p.id}')">+ New Folder</button>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Google Drive links organized into folders for families</div>
+            <!-- Folder list for this program -->
+            <div id="prog-folders-${p.id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
             <!-- Add file form -->
-            <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+            <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:14px">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
                 <div>
                   <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File Title</label>
                   <input type="text" id="prog-file-title-${p.id}" placeholder="e.g. Costume Guide" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
                 </div>
                 <div>
-                  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
-                  <input type="url" id="prog-file-url-${p.id}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
+                  <select id="prog-file-folder-${p.id}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                    <option value="General">General</option>
+                  </select>
                 </div>
               </div>
               <div style="margin-bottom:10px">
-                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description (optional)</label>
-                <input type="text" id="prog-file-desc-${p.id}" placeholder="Brief description of the file…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
-              </div>
-              <div style="margin-bottom:10px">
-                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder (optional)</label>
-                <select id="prog-file-folder-${p.id}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
-                  <option value="">General</option>
-                  <option value="Handouts">Handouts</option>
-                  <option value="Schedules">Schedules</option>
-                  <option value="Music">Music</option>
-                  <option value="Costumes">Costumes</option>
-                  <option value="Parents">Parents</option>
-                  <option value="Waivers">Waivers</option>
-                </select>
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
+                <input type="url" id="prog-file-url-${p.id}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
               </div>
               <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
             </div>
-            <!-- Existing files -->
-            <div id="prog-file-list-${p.id}">
-              <div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div>
-            </div>
+            <div id="prog-file-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+          </div>
+
+          <!-- Waiver status card -->
+          <div class="card" style="padding:20px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📋 Waiver Status</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Participants with missing required waivers for this program's events</div>
+            <div id="prog-waiver-status-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
         </div>
       </div>
@@ -5971,8 +6092,12 @@ function renderProductionPortalHTML(pid){
     </div>
 
     <div class="card" style="padding:20px;margin-bottom:16px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:4px">📁 Files & Folders</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Organize files into folders for cast, parents, crew, etc.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="font-size:15px;font-weight:700">📁 Files & Folders</div>
+        <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('production','${pid}')">+ New Folder</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Organize files into folders for cast, parents, crew, etc.</div>
+      <div id="prod-folders-${pid}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
       <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
           <div>
@@ -5982,14 +6107,7 @@ function renderProductionPortalHTML(pid){
           <div>
             <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
             <select id="prod-file-folder-${pid}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
-              <option value="">General</option>
-              <option value="Cast">Cast</option>
-              <option value="Parents">Parents</option>
-              <option value="Crew">Crew</option>
-              <option value="Scripts">Scripts</option>
-              <option value="Costumes">Costumes</option>
-              <option value="Music">Music</option>
-              <option value="Waivers">Waivers</option>
+              <option value="General">General</option>
             </select>
           </div>
         </div>
@@ -6027,12 +6145,14 @@ function switchProductionTab(tab){
 
 async function loadProductionPortalContent(pid){
   if(!pid) return
-  const [content, prod] = await Promise.all([
+  const [content, prod, folders] = await Promise.all([
     api(`/api/portal/instructor/content/production/${pid}`),
-    Promise.resolve(allProductions.find(p=>p.id===pid))
+    Promise.resolve(allProductions.find(p=>p.id===pid)),
+    api(`/api/portal/folders?production_id=${pid}`)
   ])
+  renderPortalFolderPills('prod', pid, folders)
   renderProductionAnnouncements(pid, content.announcements||[])
-  renderProductionFiles(pid, content.files||[])
+  renderProductionFiles(pid, content.files||[], folders)
   renderProductionCastList(pid, prod)
 }
 
@@ -6048,14 +6168,14 @@ function renderProductionAnnouncements(pid, anns){
     </div>`).join('')
 }
 
-function renderProductionFiles(pid, files){
+function renderProductionFiles(pid, files, folders){
   const el = document.getElementById(`prod-file-list-${pid}`)
   if(!el) return
   if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
-  // Group by folder
-  const folders = {}
-  files.forEach(f=>{ const folder=f.description?.startsWith('__folder__')?f.description.replace('__folder__',''):'General'; if(!folders[folder])folders[folder]=[]; folders[folder].push(f) })
-  el.innerHTML = Object.entries(folders).map(([folder,fls])=>`
+  // Group by folder column
+  const grouped = {}
+  files.forEach(f=>{ const folder=f.folder||'General'; if(!grouped[folder])grouped[folder]=[]; grouped[folder].push(f) })
+  el.innerHTML = Object.entries(grouped).map(([folder,fls])=>`
     <div style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
       ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
@@ -6109,8 +6229,7 @@ async function addProductionFile(pid){
   const url = document.getElementById(`prod-file-url-${pid}`)?.value.trim()
   const folder = document.getElementById(`prod-file-folder-${pid}`)?.value||'General'
   if(!title||!url){toast('Title and URL required','error');return}
-  // Store folder in description with prefix so we can group
-  const res = await api('/api/portal/files','POST',{production_id:pid, title, drive_url:url, description:`__folder__${folder}`})
+  const res = await api('/api/portal/files','POST',{production_id:pid, title, drive_url:url, folder})
   if(res.error){toast(res.error,'error');return}
   document.getElementById(`prod-file-title-${pid}`).value=''
   document.getElementById(`prod-file-url-${pid}`).value=''
@@ -6125,85 +6244,126 @@ async function deleteProductionFile(pid, fid){
 }
 
 // ── Enhanced program portal tab: add folder support ──
-// Override addProgramFile to support folders
-const _origAddProgramFile = addProgramFile
-async function addProgramFile(pid){
-  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
-  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
-  const desc = document.getElementById(`prog-file-desc-${pid}`)?.value.trim()
-  const folderEl = document.getElementById(`prog-file-folder-${pid}`)
-  const folder = folderEl?.value||''
-  if(!title||!url){toast('Title and Drive URL required','error');return}
-  if(!url.startsWith('http')){toast('Please enter a valid URL starting with https://','error');return}
-  const finalDesc = folder ? `__folder__${folder}${desc?': '+desc:''}` : desc
-  const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, description:finalDesc})
-  if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prog-file-title-${pid}`).value=''
-  document.getElementById(`prog-file-url-${pid}`).value=''
-  if(folderEl) folderEl.value=''
-  if(document.getElementById(`prog-file-desc-${pid}`)) document.getElementById(`prog-file-desc-${pid}`).value=''
-  await loadProgramPortalContent(pid)
-  toast('File added!')
-}
-
-// Enhanced renderProgramFiles to support folders
-function renderProgramFiles(pid, files){
-  const el = document.getElementById(`prog-file-list-${pid}`)
-  if(!el) return
-  if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No files yet. Add one above.</div>'; return }
-  const folders = {}
-  files.forEach(f=>{
-    let folder='General', cleanDesc=f.description||''
-    if(f.description?.startsWith('__folder__')){ const parts=f.description.replace('__folder__','').split(': '); folder=parts[0]; cleanDesc=parts.slice(1).join(': ') }
-    if(!folders[folder]) folders[folder]=[]
-    folders[folder].push({...f, cleanDesc})
-  })
-  el.innerHTML = Object.entries(folders).map(([folder,fls])=>`
-    <div style="margin-bottom:14px">
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
-      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:18px;flex-shrink:0">📄</div>
-        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div>${f.cleanDesc?`<div style="font-size:11px;color:var(--text-muted)">${f.cleanDesc}</div>`:''}</div>
-        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open →</a>
-        <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
-      </div>`).join('')}
-    </div>`).join('')
-}
-
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
   document.getElementById('pdtab-events').style.display = tab==='events'?'':'none'
   document.getElementById('pdtab-portal').style.display = tab==='portal'?'':'none'
   const evBtn = document.getElementById('pdtab-btn-events')
   const porBtn = document.getElementById('pdtab-btn-portal')
-  if(evBtn) { evBtn.style.borderBottomColor = tab==='events'?'var(--teal-mid)':'transparent'; evBtn.style.color = tab==='events'?'var(--teal-dark)':'var(--text-muted)' }
-  if(porBtn) { porBtn.style.borderBottomColor = tab==='portal'?'var(--teal-mid)':'transparent'; porBtn.style.color = tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
+  if(evBtn){ evBtn.style.borderBottomColor=tab==='events'?'var(--teal-mid)':'transparent'; evBtn.style.color=tab==='events'?'var(--teal-dark)':'var(--text-muted)' }
+  if(porBtn){ porBtn.style.borderBottomColor=tab==='portal'?'var(--teal-mid)':'transparent'; porBtn.style.color=tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
   if(tab==='portal') loadProgramPortalContent(window._currentProgramDetailId)
 }
 
 async function loadProgramPortalContent(pid){
   if(!pid) return
-  const data = await api(`/api/portal/instructor/content/program/${pid}`)
+  const [data, folders, waiverStatus] = await Promise.all([
+    api(`/api/portal/instructor/content/program/${pid}`),
+    api(`/api/portal/folders?program_id=${pid}`),
+    api(`/api/portal/program/${pid}/waiver-status`)
+  ])
+  renderPortalFolderPills('prog', pid, folders)
   renderProgramAnnouncements(pid, data.announcements||[])
-  renderProgramFiles(pid, data.files||[])
+  renderProgramFiles(pid, data.files||[], folders)
+  renderWaiverStatus(pid, waiverStatus)
+}
+
+function renderPortalFolderPills(prefix, pid, folders){
+  const el = document.getElementById(`${prefix}-folders-${pid}`)
+  if(!el) return
+  // Update the folder dropdown too
+  const sel = document.getElementById(`${prefix}-file-folder-${pid}`)
+  if(sel){
+    sel.innerHTML = '<option value="General">General</option>' +
+      folders.map(f=>`<option value="${f.name}">${f.name}</option>`).join('')
+  }
+  el.innerHTML = folders.map(f=>`
+    <span style="display:inline-flex;align-items:center;gap:4px;background:var(--teal-light);color:var(--teal-dark);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600">
+      📂 ${f.name}
+      <button onclick="deletePortalFolder('${prefix}','${pid}','${f.id}')" style="background:none;border:none;cursor:pointer;color:var(--teal-dark);font-size:14px;line-height:1;padding:0 0 0 2px">×</button>
+    </span>`).join('')
 }
 
 function renderProgramAnnouncements(pid, announcements){
   const el = document.getElementById(`prog-ann-list-${pid}`)
   if(!el) return
-  if(!announcements.length){
-    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No announcements yet. Post one above.</div>'
-    return
-  }
-  el.innerHTML = announcements.map(a=>`
+  el.innerHTML = !announcements.length
+    ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>'
+    : announcements.map(a=>`
     <div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">
-      <button onclick="deleteProgramAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint);line-height:1">×</button>
+      <button onclick="deleteProgramAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
       <div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">${a.title}</div>
       <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">${a.body}</div>
       <div style="font-size:11px;color:var(--text-hint);margin-top:6px">${formatDateTime(a.created_at)}</div>
     </div>`).join('')
 }
 
+function renderProgramFiles(pid, files, folders){
+  const el = document.getElementById(`prog-file-list-${pid}`)
+  if(!el) return
+  if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
+  // Group by folder column (or fallback to __folder__ in description for legacy)
+  const grouped = {}
+  files.forEach(f=>{
+    let folder = f.folder||'General'
+    if(!folder||folder==='null') folder='General'
+    if(!grouped[folder]) grouped[folder]=[]
+    grouped[folder].push(f)
+  })
+  el.innerHTML = Object.entries(grouped).map(([folder,fls])=>`
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
+      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:18px;flex-shrink:0">📄</div>
+        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div>${f.description&&!f.description.startsWith('__folder__')?`<div style="font-size:11px;color:var(--text-muted)">${f.description}</div>`:''}</div>
+        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
+        <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
+      </div>`).join('')}
+    </div>`).join('')
+}
+
+function renderWaiverStatus(pid, data){
+  const el = document.getElementById(`prog-waiver-status-${pid}`)
+  if(!el) return
+  if(!data?.required_waivers?.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No waivers required for this program\'s events.</div>'; return
+  }
+  const missing = (data.participants||[]).filter(p=>p.missing_waivers?.length)
+  const ok = (data.participants||[]).filter(p=>!p.missing_waivers?.length)
+  el.innerHTML = `
+    ${missing.length?`
+    <div style="background:var(--red-light);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:var(--red-600);margin-bottom:8px">⚠️ ${missing.length} participant${missing.length!==1?'s':''} missing waivers</div>
+      ${missing.map(p=>`<div style="font-size:13px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05)">
+        <span style="font-weight:600">${p.first_name} ${p.last_name}</span>
+        <span style="font-size:12px;color:var(--red-600);margin-left:8px">Missing: ${p.missing_waivers.map(w=>w.name).join(', ')}</span>
+        <a href="#" onclick="openYouthProfile('${p.id}');return false" style="font-size:11px;color:var(--teal-600);margin-left:8px">View Profile →</a>
+      </div>`).join('')}
+    </div>`:''}
+    ${ok.length?`<div style="font-size:12px;color:var(--green);font-weight:600">✓ ${ok.length} participant${ok.length!==1?'s':''} have all required waivers</div>`:''}
+    <div style="font-size:11px;color:var(--text-hint);margin-top:8px">Required waivers: ${data.required_waivers.map(w=>w.name).join(', ')}</div>`
+}
+
+async function addPortalFolder(contextType, pid){
+  const name = prompt('Folder name (e.g. Scripts, Costumes, Parents):')
+  if(!name?.trim()) return
+  const payload = {name:name.trim()}
+  if(contextType==='program') payload.program_id = pid
+  else payload.production_id = pid
+  const res = await api('/api/portal/folders','POST', payload)
+  if(res.error){toast(res.error,'error');return}
+  if(contextType==='program') await loadProgramPortalContent(pid)
+  else await loadProductionPortalContent(pid)
+  toast(`Folder "${name}" created!`)
+}
+
+async function deletePortalFolder(contextType, pid, fid){
+  if(!confirm('Delete this folder? Files in it will move to General.')) return
+  await api(`/api/portal/folders/${fid}`,'DELETE')
+  if(contextType==='program') await loadProgramPortalContent(pid)
+  else await loadProductionPortalContent(pid)
+  toast('Folder deleted')
+}
 
 async function postProgramAnnouncement(pid){
   const title = document.getElementById(`prog-ann-title-${pid}`)?.value.trim()
@@ -6211,17 +6371,38 @@ async function postProgramAnnouncement(pid){
   if(!title||!body){toast('Title and message required','error');return}
   const res = await api('/api/portal/announcements','POST',{program_id:pid, title, body})
   if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prog-ann-title-${pid}`).value = ''
-  document.getElementById(`prog-ann-body-${pid}`).value = ''
+  document.getElementById(`prog-ann-title-${pid}`).value=''
+  document.getElementById(`prog-ann-body-${pid}`).value=''
   await loadProgramPortalContent(pid)
-  toast('Announcement posted! Families can see it now.')
+  toast('Announcement posted!')
 }
 
 async function deleteProgramAnnouncement(pid, aid){
-  if(!confirm('Delete this announcement?')) return
+  if(!confirm('Delete announcement?')) return
   await api(`/api/portal/announcements/${aid}`,'DELETE')
   await loadProgramPortalContent(pid)
-  toast('Announcement deleted')
+  toast('Deleted')
+}
+
+async function addProgramFile(pid){
+  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
+  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
+  const folder = document.getElementById(`prog-file-folder-${pid}`)?.value||'General'
+  if(!title||!url){toast('Title and URL required','error');return}
+  if(!url.startsWith('http')){toast('Enter a valid URL starting with https://','error');return}
+  const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, folder})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prog-file-title-${pid}`).value=''
+  document.getElementById(`prog-file-url-${pid}`).value=''
+  await loadProgramPortalContent(pid)
+  toast('File added!')
+}
+
+async function deleteProgramFile(pid, fid){
+  if(!confirm('Remove this file?')) return
+  await api(`/api/portal/files/${fid}`,'DELETE')
+  await loadProgramPortalContent(pid)
+  toast('Removed')
 }
 
 // Pre-fill ELIC on event modal from parent program/production
@@ -6230,6 +6411,7 @@ function prefillEventElic(elicId){
   // Just store it so saveEditEvent can auto-assign
   window._prefillElicId = elicId
 }
+
 
 // Open event modal pre-linked to a program/production
 function openEventModalForParent(productionId, programId){

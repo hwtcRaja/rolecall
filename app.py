@@ -2975,13 +2975,3 @@ def set_youth_passphrase(yid):
     return jsonify({'ok': True})
 
 
-@app.route('/api/youth/<yid>/passphrase', methods=['PUT'])
-def set_youth_passphrase(yid):
-    err = require_admin()
-    if err: return err
-    d = request.json
-    conn = get_db()
-    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s',
-            (d.get('passphrase') or None, yid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})

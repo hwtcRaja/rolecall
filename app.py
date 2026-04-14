@@ -566,14 +566,11 @@ def get_events():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name,
-        cu.name as created_by_name, uu.name as updated_by_name
+        pg.name as program_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
-        LEFT JOIN users cu ON e.created_by=cu.id
-        LEFT JOIN users uu ON e.updated_by=uu.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -595,8 +592,8 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,created_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
         (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -974,13 +971,10 @@ def get_youth_programs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name,
-        cu.name as created_by_name, uu.name as updated_by_name
+    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
-        LEFT JOIN users cu ON yp.created_by=cu.id
-        LEFT JOIN users uu ON yp.updated_by=uu.id
         ORDER BY yp.name''')
     conn.close()
     return jsonify(programs)
@@ -1306,13 +1300,10 @@ def get_productions():
     if err: return err
     conn = get_db()
     prods = fetchall(conn, """SELECT p.*, COALESCE(p.stage,'mainstage') as stage,
-        v.name as default_elic_name,
-        cu.name as created_by_name, uu.name as updated_by_name
+        v.name as default_elic_name
         FROM productions p
         LEFT JOIN elics el ON p.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
-        LEFT JOIN users cu ON p.created_by=cu.id
-        LEFT JOIN users uu ON p.updated_by=uu.id
         ORDER BY p.start_date DESC NULLS LAST""")
     for p in prods:
         p['members'] = fetchall(conn, '''

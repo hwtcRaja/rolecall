@@ -1270,6 +1270,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-row">
+        <div class="form-group">
+          <label>Event Lead (ELIC)</label>
+          <select id="edit-event-elic" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
+            <option value="">— No ELIC assigned —</option>
+          </select>
+          <div id="edit-event-elic-note" style="font-size:11px;color:var(--text-muted);margin-top:4px;display:none"></div>
+        </div>
         <div class="form-group"><label>Expected Volunteers</label><input type="number" id="edit-event-volunteers" min="1" placeholder="e.g. 12"/></div>
       </div>
       <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
@@ -4364,7 +4371,8 @@ function renderCalendar(events){
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
         const isAdminCal=currentUser?.role==='admin'
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
-        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}" style="background:${bg};color:${col};border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5">${e.name}<span style="opacity:0.75;font-weight:400;font-size:10px">${calTimeStr}</span></div>`
+        const calElicStr=(e.elics&&e.elics.length)?' · '+e.elics[0].volunteer_name:''
+        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}${calElicStr}" style="background:${bg};color:${col};border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5">${e.name}<span style="opacity:0.75;font-weight:400;font-size:10px">${calTimeStr}${calElicStr}</span></div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
     </div>`
@@ -4580,6 +4588,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-production').value=''
     document.getElementById('edit-event-volunteers').value=''
     document.getElementById('edit-event-bgcheck').checked=false
+    setEventElicUI(null, null)  // reset ELIC
     // If opened from a program or production context, pre-fill parent and default ELIC
     if(eid===null && window._openEventParent){
       const{productionId,programId}=window._openEventParent
@@ -4606,6 +4615,9 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-production').value=e.production_id||''
     const pgSelEdit=document.getElementById('edit-event-program')
     if(pgSelEdit) pgSelEdit.value=e.program_id||''
+    // Pre-fill ELIC from event's assigned elics
+    const assignedElic=(e.elics&&e.elics.length)?e.elics[0].elic_id:null
+    setEventElicUI(assignedElic, e.program_id||e.production_id||null)
     document.getElementById('edit-event-volunteers').value=e.expected_volunteers||''
     document.getElementById('edit-event-desc').value=e.description||''
     document.getElementById('edit-event-notes').value=e.notes||''
@@ -4660,6 +4672,9 @@ async function saveEditEvent(){
   if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
   else allEvents.unshift(res)
 
+  // Read ELIC before repeat block
+  const selectedElic=document.getElementById('edit-event-elic')?.value
+
   // Handle recurrence — only for NEW events
   const repeatType=document.getElementById('event-repeat-type')?.value||'none'
   if(!eid && repeatType!=='none' && data.event_date){
@@ -4678,7 +4693,11 @@ async function saveEditEvent(){
         const dayDiff=data.end_date&&data.event_date?(new Date(data.end_date)-new Date(data.event_date))/86400000:0
         const endD=dayDiff>0?new Date(new Date(d+'T00:00:00').getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
         const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD})
-        if(!r.error){allEvents.unshift(r);created++}
+        if(!r.error){
+          allEvents.unshift(r)
+          if(selectedElic) await api(`/api/events/${r.id}/elics`,'POST',{elic_id:selectedElic})
+          created++
+        }
       }
       closeModal('modal-edit-event')
       populateHoursFilters()
@@ -4687,6 +4706,29 @@ async function saveEditEvent(){
       toast(`Created event + ${created} repeat${created!==1?'s':''}!`,'success')
       return
     }
+  }
+
+  // Assign ELIC if selected
+  const savedId = res.id || eid
+  if(savedId && selectedElic){
+    // Clear existing elics first then assign new one
+    const existing = (res.elics||[])
+    for(const a of existing){
+      await api(`/api/events/${savedId}/elics/${a.assignment_id}`,'DELETE')
+    }
+    await api(`/api/events/${savedId}/elics`,'POST',{elic_id:selectedElic})
+    // Update local allEvents with new elic
+    const updatedElic = allElics.find(e=>e.id===selectedElic)
+    if(updatedElic){
+      allEvents = allEvents.map(e=>e.id===savedId?{...e,elics:[{elic_id:selectedElic,volunteer_name:updatedElic.volunteer_name,assignment_id:'pending'}]}:e)
+    }
+  } else if(savedId && !selectedElic && eid){
+    // Clear elics if unassigned
+    const existing = (res.elics||[])
+    for(const a of existing){
+      await api(`/api/events/${savedId}/elics/${a.assignment_id}`,'DELETE')
+    }
+    allEvents = allEvents.map(e=>e.id===savedId?{...e,elics:[]}:e)
   }
 
   closeModal('modal-edit-event')
@@ -5777,16 +5819,20 @@ function onEventParentChange(changed){
     // Fetch default ELIC
     if(p){
       api(`/api/events/default-elic?production_id=${p}`).then(r=>{
-        if(r.elic_id) window._pendingDefaultElic=r.elic_id
+        setEventElicUI(r.elic_id||null, p)
       })
+    } else {
+      setEventElicUI(null, null)
     }
   } else {
     const p=document.getElementById('edit-event-program').value
     if(p) document.getElementById('edit-event-production').value=''
     if(p){
       api(`/api/events/default-elic?program_id=${p}`).then(r=>{
-        if(r.elic_id) window._pendingDefaultElic=r.elic_id
+        setEventElicUI(r.elic_id||null, p)
       })
+    } else {
+      setEventElicUI(null, null)
     }
   }
 }
@@ -6393,6 +6439,35 @@ function navToRSSignIn(prodId){
 
 // renderRisingStars is kept as-is above but the banner div was removed from Participants page
 
+
+// ── EVENT MODAL ELIC HELPER ──
+function setEventElicUI(elicId, parentId){
+  const sel = document.getElementById('edit-event-elic')
+  const note = document.getElementById('edit-event-elic-note')
+  if(!sel) return
+
+  // Populate dropdown
+  sel.innerHTML = '<option value="">— No ELIC assigned —</option>' +
+    allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+
+  if(elicId){
+    sel.value = elicId
+  }
+
+  // Lock if linked to program/production with a default ELIC
+  if(parentId && elicId){
+    sel.disabled = true
+    sel.style.opacity = '0.7'
+    if(note){
+      note.style.display = ''
+      note.textContent = '🔒 Inherited from program/production default ELIC. Change it there to update here.'
+    }
+  } else {
+    sel.disabled = false
+    sel.style.opacity = ''
+    if(note) note.style.display = 'none'
+  }
+}
 
 // ── CALENDAR CHIP CLICK ──
 function openEventChip(eid){

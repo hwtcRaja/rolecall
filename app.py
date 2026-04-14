@@ -372,6 +372,7 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -2809,9 +2810,12 @@ def portal_login():
 @app.route('/api/portal/instructor-login', methods=['POST'])
 def portal_instructor_login():
     d = request.json
-    user = fetchone(get_db(), "SELECT * FROM users WHERE email=%s AND active=TRUE",
-                    (d.get('email','').strip(),))
-    if not user or not check_password_hash(user['password_hash'], d.get('password','')):
+    pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
+    conn2 = get_db()
+    user = fetchone(conn2, "SELECT * FROM users WHERE email=%s AND password_hash=%s AND active=TRUE",
+                    (d.get('email','').strip(), pw_hash))
+    conn2.close()
+    if not user:
         return jsonify({'error': 'Invalid email or password'}), 401
     if user['role'] not in ('admin','instructor'):
         return jsonify({'error': 'Not an instructor account'}), 403
@@ -3074,8 +3078,17 @@ def portal_get_youth_profile(yid):
         conn.close(); return jsonify({'error': 'Not found'}), 404
     guardians = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
     emergency = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
-    waivers = fetchall(conn, '''SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw
-        JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.youth_id=%s''', (yid,))
+    # Youth waivers via production_waivers or volunteer_waivers linked to youth guardian volunteer
+    # For now return waivers that reference this youth via production enrollment
+    waivers = []
+    try:
+        waivers = fetchall(conn, '''SELECT vw.*, wt.name as type_name 
+            FROM volunteer_waivers vw
+            JOIN waiver_types wt ON vw.waiver_type_id=wt.id 
+            WHERE vw.youth_id=%s''', (yid,))
+    except Exception:
+        conn.rollback()
+        waivers = []
     conn.close()
     return jsonify({**dict(y), 'guardians': guardians, 'emergency': emergency, 'waivers': waivers})
 

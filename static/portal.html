@@ -206,6 +206,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <input type="password" id="login-password" placeholder="Password" onkeydown="if(event.key==='Enter')doInstructorLogin()"/>
       </div>
       <button class="login-btn" onclick="doInstructorLogin()">Sign In →</button>
+    <div class="login-hint">Instructors and admins can log in here using their RoleCall email and password.</div>
     </div>
   </div>
 </div>
@@ -242,16 +243,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
     <!-- Content -->
     <div id="family-content" style="display:none">
-      <!-- Program/production cards -->
-      <div class="section-label" style="margin-bottom:12px">📚 Enrolled Programs & Productions</div>
-      <div class="program-grid" id="program-cards"></div>
+      <!-- Top-level tabs: Programs vs Profile -->
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+        <button id="portal-tab-btn-programs" class="tab-btn active" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('programs',this)">📚 Programs & Productions</button>
+        <button id="portal-tab-btn-profile" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('profile',this)">👤 My Profile</button>
+      </div>
 
-      <!-- Detail panel for selected program -->
-      <div id="program-detail" style="display:none">
-        <div class="detail-panel">
-          <div class="detail-hero" id="detail-hero"></div>
-          <div class="tab-strip" id="detail-tabs"></div>
-          <div id="detail-tab-contents"></div>
+      <!-- Programs tab -->
+      <div id="portal-main-programs">
+        <div class="program-grid" id="program-cards"></div>
+        <!-- Detail panel for selected program -->
+        <div id="program-detail" style="display:none">
+          <div class="detail-panel">
+            <div class="detail-hero" id="detail-hero"></div>
+            <div class="tab-strip" id="detail-tabs"></div>
+            <div id="detail-tab-contents"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile tab -->
+      <div id="portal-main-profile" style="display:none">
+        <div id="portal-profile-content">
+          <div class="loading"><div class="spinner"></div>Loading profile…</div>
         </div>
       </div>
     </div>
@@ -455,6 +469,35 @@ function renderFamilyContent(){
       +'</div></div>'
     cards.appendChild(card)
   })
+}
+
+
+function switchPortalMainTab(tab, btn){
+  document.querySelectorAll('[id^="portal-tab-btn-"]').forEach(b=>{
+    b.classList.remove('active')
+    b.style.borderBottomColor='transparent'
+    b.style.color='var(--text-muted)'
+  })
+  if(btn){ btn.classList.add('active'); btn.style.borderBottomColor='var(--teal-mid)'; btn.style.color='var(--teal-dark)' }
+  document.getElementById('portal-main-programs').style.display = tab==='programs'?'':'none'
+  document.getElementById('portal-main-profile').style.display = tab==='profile'?'':'none'
+  if(tab==='profile') loadPortalProfile()
+}
+
+async function loadPortalProfile(){
+  const el = document.getElementById('portal-profile-content')
+  if(!el) return
+  if(!activeChildId){ el.innerHTML='<div class="empty-state"><div class="icon">👤</div>No participant selected.</div>'; return }
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+  try{
+    const data = await fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json())
+    window._portalProfileData = {y:data, yid:activeChildId}
+    window._portalYid = activeChildId
+    window._portalY = data
+    el.innerHTML = '<div class="card" style="padding:20px">'+buildProfileTab(data, activeChildId)+'</div>'
+  }catch(e){
+    el.innerHTML='<div class="empty-state"><div class="icon">⚠️</div>Could not load profile.</div>'
+  }
 }
 
 let _selectLock = false

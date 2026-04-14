@@ -138,6 +138,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-danger{background:var(--red-light);color:var(--red)}.btn-danger:hover{background:#fecaca}
 .btn-sm{padding:5px 10px;font-size:12px}
 .empty-state{text-align:center;padding:32px 20px;color:var(--text-muted)}
+.portal-edit-btn{background:var(--bg);border:1.5px solid var(--border-md);color:var(--text-muted);padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+.portal-edit-btn:hover{background:var(--teal-light);color:var(--teal-dark);border-color:var(--teal-mid)}
 .empty-state .icon{font-size:40px;margin-bottom:10px}
 
 /* ── ROSTER ── */
@@ -409,146 +411,285 @@ async function loadChildData(yid){
 function renderFamilyContent(){
   document.getElementById('family-loading').style.display = 'none'
   document.getElementById('family-content').style.display = ''
-  const {enrollments=[],productions=[]} = activeChildData
+  const {enrollments=[], productions=[]} = activeChildData
   const cards = document.getElementById('program-cards')
-
   if(!enrollments.length && !productions.length){
     cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📚</div>No programs or productions enrolled yet.</div>'
     return
   }
-
   const colors = ['#0d6e6e','#7c3aed','#d97706','#16a34a','#dc2626','#0369a1']
+  cards.innerHTML = ''
   let html = ''
   enrollments.forEach((e,i)=>{
     const col = colors[i%colors.length]
     const isActive = activeContextId===e.program_id && activeContextType==='program'
-    html += `<div class="program-card${isActive?' active-card':''}" onclick="selectContext('program','${e.program_id}','${e.program_name.replace(/'/g,"\\'")}','${col}')">
-      <div class="program-card-bar" style="background:${col}"></div>
-      <div class="program-card-body">
-        <div class="program-card-name">${e.program_name}</div>
-        <div class="program-card-meta">
-          ${e.instructor_name?`<span>👤 ${e.instructor_name}</span>`:''}
-          ${e.start_date?`<span>📅 ${fmtDate(e.start_date)}${e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''}</span>`:''}
-          ${e.program_type?`<span class="program-badge">${e.program_type}</span>`:''}
-        </div>
-      </div>
-    </div>`
+    const card = document.createElement('div')
+    card.className = 'program-card'+(isActive?' active-card':'')
+    card.dataset.ctxType = 'program'
+    card.dataset.ctxId = e.program_id
+    card.dataset.ctxName = e.program_name
+    card.dataset.ctxColor = col
+    card.onclick = ()=>selectContext('program',e.program_id,e.program_name,col)
+    card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
+      +'<div class="program-card-body">'
+      +'<div class="program-card-name">'+e.program_name+'</div>'
+      +'<div class="program-card-meta">'
+      +(e.instructor_name?'<span>👤 '+e.instructor_name+'</span>':'')
+      +(e.start_date?'<span>📅 '+fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):'')+'</span>':'')
+      +'</div></div>'
+    cards.appendChild(card)
   })
-  productions.forEach((p,i)=>{
+  productions.forEach(p=>{
     const col = '#7c3aed'
     const isActive = activeContextId===p.id && activeContextType==='production'
-    html += `<div class="program-card${isActive?' active-card':''}" onclick="selectContext('production','${p.id}','${p.name.replace(/'/g,"\\'")}','${col}')">
-      <div class="program-card-bar" style="background:${col}"></div>
-      <div class="program-card-body">
-        <div class="program-card-name">⭐ ${p.name}</div>
-        <div class="program-card-meta">
-          <span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars Production</span>
-          ${p.cast_role?`<span>🎭 Role: ${p.cast_role}</span>`:''}
-          ${p.start_date?`<span>📅 ${fmtDate(p.start_date)}</span>`:''}
-        </div>
-      </div>
-    </div>`
+    const card = document.createElement('div')
+    card.className = 'program-card'+(isActive?' active-card':'')
+    card.dataset.ctxType = 'production'
+    card.dataset.ctxId = p.id
+    card.onclick = ()=>selectContext('production',p.id,p.name,col)
+    card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
+      +'<div class="program-card-body">'
+      +'<div class="program-card-name">⭐ '+p.name+'</div>'
+      +'<div class="program-card-meta"><span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars</span>'
+      +(p.cast_role?'<span>🎭 Role: '+p.cast_role+'</span>':'')
+      +'</div></div>'
+    cards.appendChild(card)
   })
-  cards.innerHTML = html
-
-  // If something was previously selected, re-render detail
-  if(activeContextId) selectContext(activeContextType, activeContextId, '', '')
 }
 
+let _selectLock = false
 async function selectContext(type, id, name, color){
-  activeContextId = id; activeContextType = type
-  // Update card highlights
-  renderFamilyContent()
+  if(_selectLock) return
+  _selectLock = true
+  try {
+    activeContextId = id; activeContextType = type
+    // Highlight the active card without full re-render
+    document.querySelectorAll('.program-card').forEach(c=>{
+      c.classList.remove('active-card')
+      if(c.dataset.ctxId===id) c.classList.add('active-card')
+    })
 
-  // Load events
-  const endpoint = type==='program'?`/api/portal/program/${id}/events`:`/api/portal/production/${id}/events`
-  const events = await fetch(endpoint).then(r=>r.json()).catch(()=>[])
+    // Show detail panel with loading state
+    const panel = document.getElementById('program-detail')
+    panel.style.display = ''
+    document.getElementById('detail-hero').innerHTML = '<div class="detail-hero-name">'+name+'</div><div class="detail-hero-meta" id="detail-hero-meta">Loading…</div>'
+    document.getElementById('detail-tabs').innerHTML = ''
+    document.getElementById('detail-tab-contents').innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading…</div>'
 
-  // Filter announcements/files for this context
-  const {announcements=[], files=[]} = activeChildData
-  const contextAnnouncements = announcements.filter(a=> type==='program'?a.program_id===id:a.production_id===id)
-  const contextFiles = files.filter(f=> type==='program'?f.program_id===id:f.production_id===id)
+    // Fetch everything in parallel
+    const endpoint = type==='program'?'/api/portal/program/'+id+'/events':'/api/portal/production/'+id+'/events'
+    const [events, profileData] = await Promise.all([
+      fetch(endpoint).then(r=>r.json()).catch(()=>[]),
+      activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null) : Promise.resolve(null)
+    ])
 
-  // Find context info
-  let ctxName = name
-  let instructor = ''
-  let dateStr = ''
-  if(type==='program'){
-    const e = activeChildData.enrollments?.find(e=>e.program_id===id)
-    if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''): '' }
-  } else {
-    const p = activeChildData.productions?.find(p=>p.id===id)
-    if(p){ ctxName=p.name; dateStr=p.start_date?fmtDate(p.start_date):'' }
+    // Filter announcements/files
+    const {announcements=[], files=[]} = activeChildData
+    const contextAnnouncements = announcements.filter(a=> type==='program'?a.program_id===id:a.production_id===id)
+    const contextFiles = files.filter(f=> type==='program'?f.program_id===id:f.production_id===id)
+
+    // Fill hero
+    let ctxName=name, instructor='', dateStr='', castRole=''
+    if(type==='program'){
+      const e = activeChildData.enrollments?.find(e=>e.program_id===id)
+      if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):'' }
+    } else {
+      const p = activeChildData.productions?.find(p=>p.id===id)
+      if(p){ ctxName=p.name; dateStr=p.start_date?fmtDate(p.start_date):''; castRole=p.cast_role||'' }
+    }
+    document.getElementById('detail-hero').innerHTML =
+      '<div class="detail-hero-name">'+ctxName+'</div>'
+      +'<div class="detail-hero-meta">'
+      +(instructor?'<span>👤 '+instructor+'</span>':'')
+      +(dateStr?'<span>📅 '+dateStr+'</span>':'')
+      +(type==='production'?'<span>⭐ Rising Stars</span>':'')
+      +(castRole?'<span>🎭 '+castRole+'</span>':'')
+      +'</div>'
+
+    // Build tabs
+    const today = new Date().toISOString().split('T')[0]
+    const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+    const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
+
+    const tabDefs = [
+      {id:'schedule',   label:'📅 Schedule ('+events.length+')'},
+      {id:'announcements', label:'📢 Announcements ('+contextAnnouncements.length+')'},
+      {id:'files',      label:'📁 Files ('+contextFiles.length+')'},
+    ]
+    if(profileData) tabDefs.push({id:'profile', label:'👤 Profile'})
+
+    document.getElementById('detail-tabs').innerHTML = ''
+    tabDefs.forEach((t,i)=>{
+      const btn = document.createElement('button')
+      btn.className = 'tab-btn'+(i===0?' active':'')
+      btn.dataset.tab = t.id
+      btn.textContent = t.label
+      btn.onclick = function(){ switchDetailTab(t.id, this) }
+      document.getElementById('detail-tabs').appendChild(btn)
+    })
+
+    // Build schedule HTML
+    const schedHTML = !events.length
+      ? '<div class="empty-state"><div class="icon">📅</div>No events scheduled yet.</div>'
+      : '<div style="margin-bottom:8px;font-weight:700;font-size:13px;color:var(--teal-dark)">Upcoming</div>'
+        +(upcoming.length?upcoming.map(e=>eventRow(e,today)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')
+        +(past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today)).join(''):'')
+
+    // Build announcements HTML
+    const annHTML = !contextAnnouncements.length
+      ? '<div class="empty-state"><div class="icon">📢</div>No announcements yet.</div>'
+      : contextAnnouncements.map(a=>
+          '<div class="announcement">'
+          +'<div class="announcement-title">'+a.title+'</div>'
+          +'<div class="announcement-body">'+escHtml(a.body)+'</div>'
+          +'<div class="announcement-meta">'+(a.author_name?'From '+a.author_name+' · ':'')+fmtDateTime(a.created_at)+'</div>'
+          +'</div>').join('')
+
+    // Build files HTML (grouped by folder)
+    let filesHTML
+    if(!contextFiles.length){
+      filesHTML = '<div class="empty-state"><div class="icon">📁</div>No files shared yet.</div>'
+    } else {
+      const folders={}
+      contextFiles.forEach(f=>{ const folder=f.folder&&f.folder!=='null'?f.folder:'General'; if(!folders[folder])folders[folder]=[]; folders[folder].push(f) })
+      filesHTML = Object.entries(folders).map(([folder,fls])=>
+        '<div style="margin-bottom:16px">'
+        +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 '+folder+'</div>'
+        +fls.map(f=>
+          '<div class="file-item">'
+          +'<div class="file-icon">📄</div>'
+          +'<div class="file-info"><div class="file-name">'+f.title+'</div>'
+          +(f.description&&!f.description.startsWith('__folder__')?'<div class="file-desc">'+f.description+'</div>':'')
+          +'</div>'
+          +'<a href="'+f.drive_url+'" target="_blank" class="file-link">Open →</a>'
+          +'</div>').join('')
+        +'</div>'
+      ).join('')
+    }
+
+    // Build profile HTML
+    let profileHTML = ''
+    if(profileData){
+      const y = profileData
+      profileHTML = buildProfileTab(y, activeChildId)
+    }
+
+    // Set all tab content at once
+    const tabHTML =
+      '<div class="tab-content active" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
+      +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
+      +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
+      +(profileData?'<div class="tab-content" id="dtab-profile" style="padding:20px">'+profileHTML+'</div>':'')
+
+    document.getElementById('detail-tab-contents').innerHTML = tabHTML
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+  } finally {
+    _selectLock = false
+  }
+}
+
+function buildProfileTab(y, yid){
+  // Store for handler access
+  window._portalYid = yid
+  window._portalY = y
+
+  function field(label, key, val){
+    const display = val || ''
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">'+label+'</div>'
+      +'<div style="font-size:14px;margin-top:2px">'+(display||'<span style="color:var(--text-hint)">Not set</span>')+'</div></div>'
+      +'<button class="portal-edit-btn" data-field-key="'+key+'" data-field-label="'+label+'" data-field-val="'+display.replace(/"/g,"'").replace(/[\r\n]/g," ")+'" onclick="portalFieldClick(this)">Edit</button>'
+      +'</div>'
   }
 
-  // Render detail panel
-  document.getElementById('detail-hero').innerHTML = `
-    <div class="detail-hero-name">${ctxName}</div>
-    <div class="detail-hero-meta">
-      ${instructor?`<span>👤 ${instructor}</span>`:''}
-      ${dateStr?`<span>📅 ${dateStr}</span>`:''}
-      ${type==='production'?'<span>⭐ Rising Stars Production</span>':''}
-    </div>`
+  let html = '<div style="margin-bottom:20px">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:4px">Personal Information</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">To request a change, click Edit next to any field. Changes go to HWTC staff for approval.</div>'
+    +field('First Name','first_name',y.first_name||'')
+    +field('Last Name','last_name',y.last_name||'')
+    +field('Date of Birth','dob',y.dob?fmtDate(y.dob):'')
+    +field('Allergies','allergies',y.allergies||'')
+    +field('Medical Notes','medical_notes',y.medical_notes||'')
+    +'</div>'
 
-  const today = new Date().toISOString().split('T')[0]
-  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
-  const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
+  html += '<div style="margin-bottom:20px">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Guardians</div>'
+  if(!y.guardians||!y.guardians.length){
+    html += '<div style="font-size:13px;color:var(--text-muted)">No guardians on file. Contact HWTC to add guardians.</div>'
+  } else {
+    y.guardians.forEach(function(g){
+      html += '<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:8px">'
+        +'<div style="font-size:14px;font-weight:600">'+(g.is_primary?'Primary: ':'')+escHtml(g.name||'')+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-top:4px">'
+        +escHtml(g.relationship||'')+' | '+escHtml(g.phone||'')+' | '+escHtml(g.email||'')
+        +'</div>'
+        +'<button class="portal-edit-btn" data-field-key="guardian_'+g.id+'" data-field-label="Guardian info for '+escHtml(g.name||'')+'" data-field-val="Name: '+escHtml(g.name||'')+', Phone: '+escHtml(g.phone||'')+', Email: '+escHtml(g.email||'')+'" onclick="portalFieldClick(this)" style="margin-top:8px">Request Change to Guardian Info</button>'
+        +'</div>'
+    })
+  }
+  html += '</div>'
 
-  const tabs = [
-    {id:'schedule', label:`📅 Schedule (${events.length})`},
-    {id:'announcements', label:`📢 Announcements (${contextAnnouncements.length})`},
-    {id:'files', label:`📁 Files (${contextFiles.length})`},
-  ]
-  document.getElementById('detail-tabs').innerHTML = tabs.map(t=>
-    `<button class="tab-btn${t.id==='schedule'?' active':''}" onclick="switchDetailTab('${t.id}',this)">${t.label}</button>`
-  ).join('')
+  html += '<div style="margin-bottom:20px">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Emergency Contacts</div>'
+  if(!y.emergency||!y.emergency.length){
+    html += '<div style="font-size:13px;color:var(--text-muted)">No emergency contacts on file.</div>'
+  } else {
+    y.emergency.forEach(function(ec){
+      html += '<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:8px">'
+        +'<div style="font-size:14px;font-weight:600">'+escHtml(ec.name||'')+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-top:4px">'
+        +escHtml(ec.relationship||'')+' | '+escHtml(ec.phone||'')
+        +'</div></div>'
+    })
+  }
+  html += '</div>'
 
-  document.getElementById('detail-tab-contents').innerHTML = `
-    <div class="tab-content active" id="dtab-schedule">
-      ${!events.length?'<div class="empty-state"><div class="icon">📅</div>No events scheduled yet.</div>':
-        '<div style="margin-bottom:8px;font-weight:700;font-size:13px;color:var(--teal-dark)">Upcoming</div>'+
-        (upcoming.length?upcoming.map(e=>eventRow(e,today)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')+
-        (past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today)).join(''):'')
-      }
-    </div>
-    <div class="tab-content" id="dtab-announcements">
-      ${!contextAnnouncements.length?'<div class="empty-state"><div class="icon">📢</div>No announcements yet.</div>':
-        contextAnnouncements.map(a=>
-          '<div class="announcement">'+
-          '<div class="announcement-title">'+a.title+'</div>'+
-          '<div class="announcement-body">'+escHtml(a.body)+'</div>'+
-          '<div class="announcement-meta">'+(a.author_name?'From '+a.author_name+' · ':'')+fmtDateTime(a.created_at)+'</div>'+
-          '</div>').join('')}
-    </div>
-    <div class="tab-content" id="dtab-files">
-      ${(()=>{
-        if(!contextFiles.length) return '<div class="empty-state"><div class="icon">📁</div>No files shared yet.</div>'
-        const folders={}
-        contextFiles.forEach(f=>{
-          let folder=f.folder||'General'
-          if(!folder||folder==='null') folder='General'
-          if(!folders[folder]) folders[folder]=[]
-          folders[folder].push(f)
-        })
-        return Object.entries(folders).map(([folder,fls])=>
-          '<div style="margin-bottom:16px">'+
-          '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px;padding:0 20px">📂 '+folder+'</div>'+
-          fls.map(f=>
-            '<div class="file-item">'+
-            '<div class="file-icon">📄</div>'+
-            '<div class="file-info">'+
-            '<div class="file-name">'+f.title+'</div>'+
-            (f.description&&!f.description.startsWith('__folder__')?'<div class="file-desc">'+f.description+'</div>':'')+
-            '</div>'+
-            '<a href="'+f.drive_url+'" target="_blank" class="file-link">Open →</a>'+
-            '</div>').join('')+
-          '</div>'
-        ).join('')
-      })()}
-    </div>`
+  html += '<div>'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Waivers on File</div>'
+  if(!y.waivers||!y.waivers.length){
+    html += '<div style="font-size:13px;color:var(--text-muted)">No waivers on file. Contact HWTC staff to submit waivers.</div>'
+  } else {
+    y.waivers.forEach(function(w){
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+        +'<div><div style="font-size:14px;font-weight:600">'+escHtml(w.type_name||'')+'</div>'
+        +(w.signed_date?'<div style="font-size:12px;color:var(--text-muted)">Signed: '+fmtDate(w.signed_date)+'</div>':'')
+        +'</div>'
+        +'<span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:3px 10px;border-radius:10px">On File</span>'
+        +'</div>'
+    })
+  }
+  html += '</div>'
 
-  document.getElementById('program-detail').style.display = ''
-  document.getElementById('program-detail').scrollIntoView({behavior:'smooth', block:'nearest'})
+  return html
+}
+
+function portalFieldClick(btn){
+  var key = btn.getAttribute('data-field-key')
+  var label = btn.getAttribute('data-field-label')
+  var val = btn.getAttribute('data-field-val')
+  var yid = window._portalYid
+  if(!yid) return
+  var newVal = prompt('Request change to "'+label+'":\nCurrent: '+(val||'(not set)')+'\n\nNew value:')
+  if(newVal===null||newVal.trim()==='') return
+  fetch('/api/portal/youth/'+yid+'/request-update',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({field_name:key, old_value:val||'', new_value:newVal.trim()})
+  }).then(function(r){return r.json()}).then(function(d){
+    if(d.ok) toast('Change request submitted! HWTC staff will review it.')
+    else toast('Error submitting request','error')
+  })
+}
+
+function switchDetailTab(id, btn){
+  document.querySelectorAll('#detail-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  document.querySelectorAll('#detail-tab-contents .tab-content').forEach(c=>{
+    c.classList.remove('active')
+    c.style.display = 'none'
+  })
+  const target = document.getElementById('dtab-'+id)
+  if(target){ target.classList.add('active'); target.style.display = 'block' }
 }
 
 function eventRow(e, today){
@@ -570,13 +711,6 @@ function eventRow(e, today){
       </div>
     </div>
   </div>`
-}
-
-function switchDetailTab(id, btn){
-  document.querySelectorAll('#detail-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
-  btn.classList.add('active')
-  document.querySelectorAll('#detail-tab-contents .tab-content').forEach(c=>c.classList.remove('active'))
-  document.getElementById('dtab-'+id)?.classList.add('active')
 }
 
 // ── INSTRUCTOR PORTAL ──

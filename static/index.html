@@ -433,6 +433,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
         <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
+        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon">🏠</span>Participant Portal</div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
@@ -878,6 +879,53 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </div>
           <div class="tab-pane" id="pending-tab-profiles">
             <div id="pending-profiles-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PORTAL ADMIN -->
+      <section class="page admin-only" id="page-portal-admin">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🏠 Participant Portal</div>
+            <div class="page-subtitle">Manage family access, passphrases, and portal content</div>
+          </div>
+          <div class="page-actions">
+            <a href="/portal" target="_blank" class="btn btn-secondary">Open Portal ↗</a>
+          </div>
+        </div>
+        <div class="page-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+            <!-- Left: Families -->
+            <div class="settings-section">
+              <div style="font-weight:700;font-size:15px;margin-bottom:6px">👨‍👩‍👧 Family Groups</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Each family shares one passphrase to access their children's portal. Parents enter it at <strong>/portal</strong>.</div>
+              <div id="portal-families-list" style="margin-bottom:16px"></div>
+              <div style="border-top:1px solid var(--border);padding-top:14px">
+                <div style="font-size:13px;font-weight:600;margin-bottom:10px">Create New Family</div>
+                <div class="form-group"><label>Family Name</label><input type="text" id="pf-name" placeholder="e.g. The Smith Family"/></div>
+                <div class="form-group"><label>Passphrase</label>
+                  <div style="display:flex;gap:8px">
+                    <input type="text" id="pf-passphrase" placeholder="e.g. SunflowerDance2025" style="flex:1"/>
+                    <button class="btn btn-secondary btn-sm" onclick="generatePassphrase()" style="white-space:nowrap">🎲 Generate</button>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Choose something memorable — parents will type this to log in</div>
+                </div>
+                <button class="btn btn-primary" onclick="createPortalFamily()">+ Create Family</button>
+              </div>
+            </div>
+
+            <!-- Right: Individual passphrases -->
+            <div class="settings-section">
+              <div style="font-weight:700;font-size:15px;margin-bottom:6px">👤 Individual Passphrases</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Adult participants or unlinked youth can log in with their own passphrase instead of a family one.</div>
+              <div style="margin-bottom:10px">
+                <input type="text" id="portal-youth-search" placeholder="Search participants…" oninput="renderPortalYouthList()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+              </div>
+              <div id="portal-youth-list" style="max-height:420px;overflow-y:auto"></div>
+            </div>
+
           </div>
         </div>
       </section>
@@ -2694,6 +2742,17 @@ async function openYouthProfile(yid){
           <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:${y.medical_notes?'10px':'0'}">${y.allergies}</div>`:''}
           ${y.medical_notes?`<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
           <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>`:''}
+        </div>`:''}
+        <!-- Portal Passphrase -->
+        ${isAdmin?`<div class="card" style="padding:16px;border:1.5px solid var(--teal-light)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Passphrase</div>
+            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️ Edit</button>
+          </div>
+          ${y.passphrase
+            ?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px;letter-spacing:0.5px">${y.passphrase}</div>
+             <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Family uses this to log into the portal</div>`
+            :`<div style="font-size:13px;color:var(--text-hint);font-style:italic">Not set — click Edit to add</div>`}
         </div>`:''}
         <!-- Waivers -->
         <div class="card" style="padding:16px">
@@ -5771,31 +5830,188 @@ async function openProgramDetail(programId){
         </div>
       </div>
 
-      <!-- RIGHT: Events -->
+      <!-- RIGHT: Tabs for Events + Portal -->
       <div>
-        <!-- Upcoming events -->
-        <div class="card" style="padding:20px;margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="font-size:15px;font-weight:700">📅 Upcoming Events</div>
-            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>`:''}
-          </div>
-          ${eventRows(upcoming, false)}
+        <!-- Tab strip -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+          <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">📅 Events</button>
+          ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
         </div>
 
-        <!-- Past events -->
-        ${past.length?`<div class="card" style="padding:20px">
-          <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text-muted)">📋 Past Events</div>
-          ${eventRows(past, true)}
-        </div>`:''}
+        <!-- Events tab -->
+        <div id="pdtab-events">
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:15px;font-weight:700">📅 Upcoming Events</div>
+              ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>`:''}
+            </div>
+            ${eventRows(upcoming, false)}
+          </div>
+          ${past.length?`<div class="card" style="padding:20px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text-muted)">📋 Past Events</div>
+            ${eventRows(past, true)}
+          </div>`:''}
+        </div>
+
+        <!-- Portal content tab -->
+        <div id="pdtab-portal" style="display:none">
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <div>
+                <div style="font-size:15px;font-weight:700">📢 Announcements</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to families in the participant portal</div>
+              </div>
+            </div>
+            <!-- Post form -->
+            <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
+                <input type="text" id="prog-ann-title-${p.id}" placeholder="e.g. Rehearsal reminder for Tuesday" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+              </div>
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
+                <textarea id="prog-ann-body-${p.id}" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="postProgramAnnouncement('${p.id}')">📢 Post Announcement</button>
+            </div>
+            <!-- Existing announcements -->
+            <div id="prog-ann-list-${p.id}">
+              <div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:20px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📁 Files</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Google Drive links visible to families in the portal</div>
+            <!-- Add file form -->
+            <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div>
+                  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File Title</label>
+                  <input type="text" id="prog-file-title-${p.id}" placeholder="e.g. Costume Guide" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
+                  <input type="url" id="prog-file-url-${p.id}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                </div>
+              </div>
+              <div style="margin-bottom:10px">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description (optional)</label>
+                <input type="text" id="prog-file-desc-${p.id}" placeholder="Brief description of the file…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
+            </div>
+            <!-- Existing files -->
+            <div id="prog-file-list-${p.id}">
+              <div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`
 
+  window._currentProgramDetailId = programId
   navTo('program-detail')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
-  // Highlight parent nav item
   document.querySelectorAll('.nav-item').forEach(n=>{
     if(n.textContent.includes('Programs')) n.classList.add('active')
   })
+}
+
+
+// ── PROGRAM PORTAL CONTENT ──
+function switchProgramDetailTab(tab){
+  document.getElementById('pdtab-events').style.display = tab==='events'?'':'none'
+  document.getElementById('pdtab-portal').style.display = tab==='portal'?'':'none'
+  const evBtn = document.getElementById('pdtab-btn-events')
+  const porBtn = document.getElementById('pdtab-btn-portal')
+  if(evBtn) { evBtn.style.borderBottomColor = tab==='events'?'var(--teal-mid)':'transparent'; evBtn.style.color = tab==='events'?'var(--teal-dark)':'var(--text-muted)' }
+  if(porBtn) { porBtn.style.borderBottomColor = tab==='portal'?'var(--teal-mid)':'transparent'; porBtn.style.color = tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
+  if(tab==='portal') loadProgramPortalContent(window._currentProgramDetailId)
+}
+
+async function loadProgramPortalContent(pid){
+  if(!pid) return
+  const data = await api(`/api/portal/instructor/content/program/${pid}`)
+  renderProgramAnnouncements(pid, data.announcements||[])
+  renderProgramFiles(pid, data.files||[])
+}
+
+function renderProgramAnnouncements(pid, announcements){
+  const el = document.getElementById(`prog-ann-list-${pid}`)
+  if(!el) return
+  if(!announcements.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No announcements yet. Post one above.</div>'
+    return
+  }
+  el.innerHTML = announcements.map(a=>`
+    <div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">
+      <button onclick="deleteProgramAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint);line-height:1">×</button>
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">${a.title}</div>
+      <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">${a.body}</div>
+      <div style="font-size:11px;color:var(--text-hint);margin-top:6px">${formatDateTime(a.created_at)}</div>
+    </div>`).join('')
+}
+
+function renderProgramFiles(pid, files){
+  const el = document.getElementById(`prog-file-list-${pid}`)
+  if(!el) return
+  if(!files.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No files yet. Add one above.</div>'
+    return
+  }
+  el.innerHTML = files.map(f=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:36px;height:36px;background:var(--teal-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📄</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${f.title}</div>
+        ${f.description?`<div style="font-size:12px;color:var(--text-muted)">${f.description}</div>`:''}
+        <div style="font-size:11px;color:var(--text-hint)">${formatDateTime(f.created_at)}</div>
+      </div>
+      <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0">Open →</a>
+      <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm" style="flex-shrink:0">✕</button>
+    </div>`).join('')
+}
+
+async function postProgramAnnouncement(pid){
+  const title = document.getElementById(`prog-ann-title-${pid}`)?.value.trim()
+  const body = document.getElementById(`prog-ann-body-${pid}`)?.value.trim()
+  if(!title||!body){toast('Title and message required','error');return}
+  const res = await api('/api/portal/announcements','POST',{program_id:pid, title, body})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prog-ann-title-${pid}`).value = ''
+  document.getElementById(`prog-ann-body-${pid}`).value = ''
+  await loadProgramPortalContent(pid)
+  toast('Announcement posted! Families can see it now.')
+}
+
+async function deleteProgramAnnouncement(pid, aid){
+  if(!confirm('Delete this announcement?')) return
+  await api(`/api/portal/announcements/${aid}`,'DELETE')
+  await loadProgramPortalContent(pid)
+  toast('Announcement deleted')
+}
+
+async function addProgramFile(pid){
+  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
+  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
+  const desc = document.getElementById(`prog-file-desc-${pid}`)?.value.trim()
+  if(!title||!url){toast('Title and Drive URL required','error');return}
+  if(!url.startsWith('http')){toast('Please enter a valid URL starting with https://','error');return}
+  const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, description:desc})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById(`prog-file-title-${pid}`).value = ''
+  document.getElementById(`prog-file-url-${pid}`).value = ''
+  document.getElementById(`prog-file-desc-${pid}`).value = ''
+  await loadProgramPortalContent(pid)
+  toast('File added! Families can see it now.')
+}
+
+async function deleteProgramFile(pid, fid){
+  if(!confirm('Remove this file from the portal?')) return
+  await api(`/api/portal/files/${fid}`,'DELETE')
+  await loadProgramPortalContent(pid)
+  toast('File removed')
 }
 
 // Pre-fill ELIC on event modal from parent program/production
@@ -6456,12 +6672,111 @@ function navToRSSignIn(prodId){
 
 
 
+
+// ── PORTAL ADMIN PAGE ──
+function renderPortalAdmin(){
+  renderPortalFamilies()
+  renderPortalYouthList()
+}
+
+function renderPortalFamilies(){
+  const el = document.getElementById('portal-families-list')
+  if(!el) return
+  if(!allFamilies.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No families yet. Create one below.</div>'
+    return
+  }
+  el.innerHTML = allFamilies.map(f=>{
+    const members = allYouth.filter(y=>y.family_id===f.id)
+    return`<div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-size:14px;font-weight:700">${f.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:6px">
+            <span>Passphrase:</span>
+            <span style="font-family:monospace;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:2px 8px;border-radius:6px">${f.passphrase}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" onclick="openFamilyModal('${f.id}')">Members</button>
+          <button class="btn btn-danger btn-sm" onclick="deletePortalFamily('${f.id}')">✕</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);display:flex;gap:6px;flex-wrap:wrap">
+        ${members.length?members.map(m=>`<span style="background:var(--surface);border:1px solid var(--border);padding:2px 8px;border-radius:12px">${m.first_name} ${m.last_name}</span>`).join(''):'<span style="color:var(--text-hint)">No members linked yet</span>'}
+      </div>
+    </div>`
+  }).join('')
+}
+
+function renderPortalYouthList(){
+  const el = document.getElementById('portal-youth-list')
+  if(!el) return
+  const q = (document.getElementById('portal-youth-search')?.value||'').toLowerCase()
+  const shown = allYouth.filter(y=>!q||(y.first_name+' '+y.last_name).toLowerCase().includes(q))
+  if(!shown.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No participants found</div>'; return }
+  el.innerHTML = shown.map(y=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      ${avatarHTML(y.first_name+' '+y.last_name,32)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${y.first_name} ${y.last_name}</div>
+        <div style="font-size:11px;color:var(--text-muted)">
+          ${y.family_id?'👨‍👩‍👧 '+( allFamilies.find(f=>f.id===y.family_id)?.name||'Family'):'Individual'}
+        </div>
+      </div>
+      <div style="flex-shrink:0;text-align:right">
+        ${y.passphrase
+          ?`<div style="font-family:monospace;font-size:11px;font-weight:700;color:var(--teal-dark);background:var(--teal-light);padding:2px 6px;border-radius:4px;margin-bottom:4px">${y.passphrase}</div>`
+          :'<div style="font-size:11px;color:var(--text-hint);margin-bottom:4px">No passphrase</div>'
+        }
+        <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\'")}')">✏️ Set</button>
+      </div>
+    </div>`).join('')
+}
+
+async function createPortalFamily(){
+  const name = document.getElementById('pf-name')?.value.trim()
+  const passphrase = document.getElementById('pf-passphrase')?.value.trim()
+  if(!name||!passphrase){toast('Name and passphrase required','error');return}
+  const res = await api('/api/families','POST',{name,passphrase})
+  if(res.error){toast(res.error,'error');return}
+  allFamilies.push(res)
+  document.getElementById('pf-name').value = ''
+  document.getElementById('pf-passphrase').value = ''
+  renderPortalFamilies()
+  toast('Family created! 🏠')
+}
+
+async function deletePortalFamily(fid){
+  const f = allFamilies.find(f=>f.id===fid)
+  if(!confirm(`Delete "${f?.name}"? Members will be unlinked but not deleted.`)) return
+  await api(`/api/families/${fid}`,'DELETE')
+  allFamilies = allFamilies.filter(f=>f.id!==fid)
+  // Unlink from local youth
+  allYouth.forEach(y=>{ if(y.family_id===fid) y.family_id=null })
+  renderPortalFamilies()
+  renderPortalYouthList()
+  toast('Family deleted')
+}
+
+const WORDS_A = ['Blue','Green','Teal','Gold','Silver','Happy','Bright','Swift','Bold','Sunny','Calm','Wise']
+const WORDS_B = ['Tiger','River','Falcon','Garden','Moon','Star','Bridge','Dance','Song','Storm','Light','Wave']
+function generatePassphrase(){
+  const a = WORDS_A[Math.floor(Math.random()*WORDS_A.length)]
+  const b = WORDS_B[Math.floor(Math.random()*WORDS_B.length)]
+  const n = Math.floor(Math.random()*90)+10
+  const el = document.getElementById('pf-passphrase')
+  if(el) el.value = a+b+n
+}
+
 // ── FAMILY MANAGEMENT ──
 let allFamilies = []
 
 async function loadFamilies(){
   allFamilies = await api('/api/families')
   renderFamilies()
+  renderPortalFamilies()
+  renderPortalYouthList()
 }
 
 function renderFamilies(){

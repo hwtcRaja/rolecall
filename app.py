@@ -25,17 +25,18 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ─────────────────────────────────────────────
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    with conn.cursor() as c:
-        c.execute("SET timezone = 'America/New_York'")
-    conn.commit()
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        options="-c timezone=America/New_York"
+    )
     return conn
 
 def init_db():
-    conn = psycopg2.connect(DATABASE_URL)  # plain cursor for init
-    with conn.cursor() as tz:
-        tz.execute("SET timezone = 'America/New_York'")
-    conn.commit()
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        options="-c timezone=America/New_York"
+    )
     c = conn.cursor()
 
     c.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -618,13 +619,13 @@ def update_event(eid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s,updated_at=NOW(),updated_by=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
         (d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), session.get('user_id'), eid))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
         p.name as production_name FROM events e
@@ -706,7 +707,7 @@ def update_volunteer(vol_id):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s,updated_at=NOW(),updated_by=%s WHERE id=%s',
+    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s WHERE id=%s',
             (d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
@@ -993,11 +994,11 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, d['name'].strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
-                 d.get('default_elic_id') or None, session.get('user_id','')))
+                 d.get('default_elic_id') or None))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -1013,11 +1014,11 @@ def update_youth_program(pid):
     d = request.json
     if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,updated_at=NOW(),updated_by=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
             (d['name'].strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
-             d.get('default_elic_id') or None, session.get('user_id'), pid))
+             d.get('default_elic_id') or None, pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()

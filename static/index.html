@@ -4371,8 +4371,11 @@ function renderCalendar(events){
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
         const isAdminCal=currentUser?.role==='admin'
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
-        const calElicStr=(e.elics&&e.elics.length)?' · '+e.elics[0].volunteer_name:''
-        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}${calElicStr}" style="background:${bg};color:${col};border-radius:4px;padding:2px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5">${e.name}<span style="opacity:0.75;font-weight:400;font-size:10px">${calTimeStr}${calElicStr}</span></div>`
+        const calElicStr=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
+        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;line-height:1.4">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}<span style="opacity:0.75;font-weight:400">${calTimeStr}</span></div>
+          ${calElicStr?`<div style="font-size:10px;font-weight:400;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ELIC: ${calElicStr}</div>`:''}
+        </div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
     </div>`

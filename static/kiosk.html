@@ -522,7 +522,9 @@ let _kioskBusy = false
 function kioskAction(fn){
   if(_kioskBusy) return
   _kioskBusy = true
-  Promise.resolve(fn()).finally(()=>{ _kioskBusy=false })
+  // Auto-release after 3s in case promise never resolves
+  const timer = setTimeout(()=>{ _kioskBusy=false }, 3000)
+  Promise.resolve(fn()).finally(()=>{ clearTimeout(timer); _kioskBusy=false })
 }
 
 // ── VOLUNTEER FLOW ──
@@ -826,6 +828,13 @@ function renderElicMenu(){
   }
   const today=new Date().toISOString().split('T')[0]
   const statusTag={draft:'<span class="status-tag st-draft">Scheduled</span>',open:'<span class="status-tag st-open">🟢 Open</span>',closed:'<span class="status-tag st-closed">✓ Closed</span>'}
+  // Build section headers
+  const openEvents=elicEventList.filter(e=>e.current_status==='open'||e.status==='open')
+  const todayEvents=elicEventList.filter(e=>e.event_date===today&&e.status!=='open'&&e.current_status!=='open')
+  const upcomingEvents=elicEventList.filter(e=>e.event_date>today&&e.status!=='open'&&e.current_status!=='open')
+  const pastEvents=elicEventList.filter(e=>e.event_date&&e.event_date<today&&e.status!=='open'&&e.current_status!=='open')
+  const undatedEvents=elicEventList.filter(e=>!e.event_date&&e.status!=='open'&&e.current_status!=='open')
+  function sectionHeader(label,color){return`<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:${color};margin:16px 0 6px;padding-left:2px">${label}</div>`}
   container.innerHTML=elicEventList.map((e,idx)=>{
     const status=e.current_status==='open'?'open':e.current_status==='close'?'closed':(e.status||'draft')
     return`<div class="elic-event-card">
@@ -837,8 +846,8 @@ function renderElicMenu(){
         ${statusTag[status]||statusTag.draft}
       </div>
       <div class="elic-actions" style="flex-wrap:wrap;gap:8px">
-        ${status!=='open'?`<button class="elic-open-btn" onclick="kioskAction(()=>handleElicOpenIdx(${idx}))">🟢 Open Event</button>`:''}
-        ${status==='open'?`<button class="elic-close-btn" onclick="kioskAction(()=>handleElicCloseIdx(${idx}))">🔒 Close Event</button>`:''}
+        ${status!=='open'?`<button class="elic-open-btn" onclick="handleElicOpenIdx(${idx})">🟢 Open Event</button>`:''}
+        ${status==='open'?`<button class="elic-close-btn" onclick="handleElicCloseIdx(${idx})">🔒 Close Event</button>`:''}
         ${status==='open'&&e.production_id?`<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx(${idx})">🎭 Production Sign-In</button>`:''}
         ${status==='open'&&e.production_id&&e.stage==='rising_stars'?`<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx(${idx})">👶 Youth Sign-In</button>`:''}
         ${status==='closed'?`<div style="font-size:13px;color:var(--hint);padding:8px 0">Event closed</div>`:''}
@@ -1459,5 +1468,6 @@ function showConfirm(icon,title,sub,note,onBack){
     </div>
   </div>
 </div>
+<div style="position:fixed;bottom:4px;right:8px;font-size:9px;color:rgba(0,0,0,0.2);pointer-events:none;z-index:1">v2025-04-14c</div>
 </body>
 </html>

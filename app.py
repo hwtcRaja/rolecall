@@ -399,6 +399,15 @@ def init_db():
             description TEXT,
             author_id TEXT REFERENCES users(id),
             created_at TIMESTAMP DEFAULT NOW())""",
+        # portal folders
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        """CREATE TABLE IF NOT EXISTS portal_folders (
+            id TEXT PRIMARY KEY,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -2928,10 +2937,10 @@ def create_portal_file():
     fid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO portal_files
-        (id,program_id,production_id,title,drive_url,description,author_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (id,program_id,production_id,title,drive_url,description,folder,author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
         (fid, d.get('program_id') or None, d.get('production_id') or None,
-         d['title'], d['drive_url'], d.get('description',''), session.get('user_id')))
+         d['title'], d['drive_url'], d.get('description',''), d.get('folder','General'), session.get('user_id')))
     conn.commit()
     row = fetchone(conn, '''SELECT pf.*, u.name as author_name FROM portal_files pf
         LEFT JOIN users u ON pf.author_id=u.id WHERE pf.id=%s''', (fid,))
@@ -2974,4 +2983,74 @@ def set_youth_passphrase(yid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+
+# ── Portal Folders ──
+@app.route('/api/portal/folders', methods=['GET'])
+def get_portal_folders():
+    prog_id = request.args.get('program_id')
+    prod_id = request.args.get('production_id')
+    conn = get_db()
+    if prog_id:
+        folders = fetchall(conn, 'SELECT * FROM portal_folders WHERE program_id=%s ORDER BY sort_order,name', (prog_id,))
+    elif prod_id:
+        folders = fetchall(conn, 'SELECT * FROM portal_folders WHERE production_id=%s ORDER BY sort_order,name', (prod_id,))
+    else:
+        folders = []
+    conn.close()
+    return jsonify(folders)
+
+@app.route('/api/portal/folders', methods=['POST'])
+def create_portal_folder():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO portal_folders (id,program_id,production_id,name) VALUES (%s,%s,%s,%s)',
+            (fid, d.get('program_id') or None, d.get('production_id') or None, d['name'].strip()))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_folders WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/folders/<fid>', methods=['DELETE'])
+def delete_portal_folder(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Move files in this folder to General
+    execute(conn, "UPDATE portal_files SET folder='General' WHERE folder=(SELECT name FROM portal_folders WHERE id=%s)", (fid,))
+    execute(conn, 'DELETE FROM portal_folders WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal waiver status for program ──
+@app.route('/api/portal/program/<pid>/waiver-status')
+def portal_program_waiver_status(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Get required waivers for this program via event waivers
+    prog_events = fetchall(conn, 'SELECT id FROM events WHERE program_id=%s', (pid,))
+    event_ids = [e['id'] for e in prog_events]
+    required_waivers = []
+    if event_ids:
+        ph = ','.join(['%s']*len(event_ids))
+        required_waivers = fetchall(conn, f'''SELECT DISTINCT wt.id, wt.name FROM event_waivers ew
+            JOIN waiver_types wt ON ew.waiver_type_id=wt.id
+            WHERE ew.event_id IN ({ph})''', tuple(event_ids))
+    # Get enrolled youth
+    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name 
+        FROM youth_program_enrollments ye JOIN youth_participants y ON ye.youth_id=y.id
+        WHERE ye.program_id=%s''', (pid,))
+    # Check waivers on file for each
+    result = []
+    for y in enrolled:
+        signed = fetchall(conn, '''SELECT vw.waiver_type_id FROM volunteer_waivers vw WHERE vw.youth_id=%s''', (y['id'],))
+        signed_ids = {w['waiver_type_id'] for w in signed}
+        missing = [w for w in required_waivers if w['id'] not in signed_ids]
+        result.append({**y, 'missing_waivers': missing, 'waiver_ok': len(missing)==0})
+    conn.close()
+    return jsonify({'required_waivers': required_waivers, 'participants': result})
 

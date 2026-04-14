@@ -1498,10 +1498,12 @@ if __name__ == '__main__':
 
 @app.route('/kiosk')
 def kiosk_page():
+    import time
     resp = send_from_directory('static', 'kiosk.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
+    resp.headers['ETag'] = str(int(time.time()))
     return resp
 
 
@@ -2195,8 +2197,7 @@ def kiosk_event_status(event_id):
 
 @app.route('/api/opening-checklist-items')
 def get_opening_checklist_items():
-    err = require_auth()
-    if err: return err
+    # No auth required — kiosk needs this without a session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, created_at')
     conn.close()

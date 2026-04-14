@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RoleCall — Horizon West Theater Company</title>
+<title>RoleCall — HWTC Management</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -404,7 +404,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <img src="/static/images/logo.jpg" alt="Horizon West Theater Company" style="width:100%;max-width:180px;border-radius:10px;display:block;margin:0 auto 10px"/>
         <div style="text-align:center">
           <div style="color:#fff;font-size:15px;font-weight:600;letter-spacing:-0.2px">RoleCall</div>
-          <div style="color:rgba(255,255,255,0.5);font-size:10px;letter-spacing:0.3px">Volunteer Management</div>
+          <div style="color:rgba(255,255,255,0.5);font-size:10px;letter-spacing:0.3px">HWTC Management</div>
         </div>
       </div>
       <nav class="sidebar-nav">
@@ -423,7 +423,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Cast Sign-In</div>
 
         <!-- YOUTH EDUCATION -->
-        <div class="nav-section">🧒 Youth Education</div>
+        <div class="nav-section">🎓 Education &amp; Programming</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">👦</span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon">📚</span>Programs &amp; Classes</div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon">⭐</span>Rising Stars</div>
@@ -1827,6 +1827,7 @@ function navTo(page,el){
   if(page==='youth-signin') initYouthSignIn()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
+  if(page==='portal-admin'){ renderPortalAdmin() }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2732,7 +2733,13 @@ async function openYouthProfile(yid){
 
   document.getElementById('youth-profile-header').innerHTML=buildProfileBanner({
     name: y.first_name+' '+y.last_name,
-    sub: (y.dob?'Age '+(calcAge(y.dob)||'?')+' · ':'')+((y.enrollments||[]).map(e=>e.program_name).filter(Boolean).join(', ')||'No programs'),
+    sub: (()=>{
+      const fam=allFamilies.find(f=>f.id===y.family_id)
+      const famStr=fam?'\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67 '+fam.name+' · ':''
+      const ageStr=y.dob?'Age '+(calcAge(y.dob)||'?')+' · ':''
+      const progStr=(y.enrollments||[]).map(e=>e.program_name).filter(Boolean).join(', ')||'No programs'
+      return famStr+ageStr+progStr
+    })(),
     bg:'rgba(255,255,255,0.2)', col:'#fff', backFn:"navTo('youth')", backLabel:'← Back',
     badges:[
       y.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},

@@ -4613,9 +4613,16 @@ function openEventModal(eid=null){
 }
 
 async function saveEditEvent(){
+  try {
   const eid=document.getElementById('edit-event-id').value
   const name=document.getElementById('edit-event-name').value.trim()
   if(!name){toast('Event name is required','error');return}
+
+  // Read location/room safely
+  let location='HWTC', room=''
+  try{ location=getEventLocation() }catch(e){ location=document.getElementById('edit-event-location-sel')?.value||'HWTC' }
+  try{ room=getEventRoom() }catch(e){ room=document.getElementById('edit-event-room-sel')?.value||'' }
+
   const data={
     name,
     event_date:document.getElementById('edit-event-date').value||null,
@@ -4623,14 +4630,13 @@ async function saveEditEvent(){
     start_time:document.getElementById('edit-event-start').value||null,
     end_time:document.getElementById('edit-event-end').value||null,
     event_type_id:document.getElementById('edit-event-type').value||null,
-    location:getEventLocation(),
-    room:getEventRoom(),
-    production_id:document.getElementById('edit-event-production').value||null,
+    location, room,
+    production_id:document.getElementById('edit-event-production')?.value||null,
     program_id:document.getElementById('edit-event-program')?.value||null,
-    expected_volunteers:parseInt(document.getElementById('edit-event-volunteers').value)||null,
-    description:document.getElementById('edit-event-desc').value.trim(),
-    notes:document.getElementById('edit-event-notes').value.trim(),
-    requires_background_check:document.getElementById('edit-event-bgcheck').checked
+    expected_volunteers:parseInt(document.getElementById('edit-event-volunteers')?.value)||null,
+    description:document.getElementById('edit-event-desc')?.value.trim()||'',
+    notes:document.getElementById('edit-event-notes')?.value.trim()||'',
+    requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false
   }
 
   // Save the base event
@@ -4653,15 +4659,11 @@ async function saveEditEvent(){
       const count=parseInt(document.getElementById('event-repeat-count')?.value)||4
       dates=computeRepeatDates(data.event_date, repeatType, count)
     }
-
     if(dates.length){
       let created=0
       for(const d of dates){
-        // Keep same duration for multi-day events
-        const dayDiff=data.end_date&&data.event_date
-          ?(new Date(data.end_date)-new Date(data.event_date))/86400000:0
-        const endD=dayDiff>0
-          ?new Date(new Date(d+'T00:00:00').getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
+        const dayDiff=data.end_date&&data.event_date?(new Date(data.end_date)-new Date(data.event_date))/86400000:0
+        const endD=dayDiff>0?new Date(new Date(d+'T00:00:00').getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
         const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD})
         if(!r.error){allEvents.unshift(r);created++}
       }
@@ -4669,7 +4671,7 @@ async function saveEditEvent(){
       populateHoursFilters()
       renderEventsSettings()
       renderEventsPage()
-      toast(`Created event + ${created} repeat occurrence${created!==1?'s':''}!`,'success')
+      toast(`Created event + ${created} repeat${created!==1?'s':''}!`,'success')
       return
     }
   }
@@ -4680,6 +4682,10 @@ async function saveEditEvent(){
   renderEventsPage()
   toast(eid?'Event updated!':'Event created!','success')
   if(eid&&currentEventId===eid) openEventDetail(eid)
+  } catch(err){
+    console.error('saveEditEvent error:', err)
+    toast('Error saving event: '+err.message,'error')
+  }
 }
 
 async function deleteEventFull(eid){

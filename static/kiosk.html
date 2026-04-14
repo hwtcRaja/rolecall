@@ -144,7 +144,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 .elic-bar{background:linear-gradient(135deg,var(--teal-dark),var(--teal));border-radius:var(--radius);padding:16px 20px;width:100%;max-width:680px;display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;box-shadow:var(--shadow)}
 .elic-name{font-size:18px;font-weight:700;color:#fff}
 .elic-role{font-size:13px;color:rgba(255,255,255,0.65)}
-.elic-events{width:100%;max-width:680px;display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto}
+.elic-events{width:100%;max-width:680px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;padding-bottom:20px}
 .elic-event-card{background:var(--surface);border:2.5px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
 .elic-event-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
 .elic-event-name{font-size:17px;font-weight:700}
@@ -409,6 +409,21 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <div class="elic-events" id="elic-events"></div>
 </div>
 
+
+<!-- OPENING CHECKLIST -->
+<div class="screen hidden" id="screen-opening-checklist">
+  <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
+  <div class="screen-heading" style="margin-bottom:16px">
+    <div class="screen-title">Opening Checklist</div>
+    <div class="screen-sub" id="opening-cl-sub">Complete before opening the event</div>
+  </div>
+  <div class="cl-card" id="opening-cl-card">
+    <div class="cl-event-name" id="opening-cl-event-name"></div>
+    <div id="opening-cl-items"></div>
+    <button class="cl-submit-btn" id="opening-cl-submit" onclick="submitOpeningChecklist()" disabled>Open Event →</button>
+  </div>
+</div>
+
 <!-- CLOSING CHECKLIST -->
 <div class="screen hidden" id="screen-checklist">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
@@ -452,7 +467,7 @@ let eysAuthPickups=[]
 let eysAuthAction='dropoff'
 let allYouthKiosk=[], selEvent=null, curHours=0
 let waiverIssues=[], signingWaiver=null
-let elicData=null, elicEventList=[], closingEvent=null
+let elicData=null, elicEventList=[], closingEvent=null, openingChecklistItems=[], openingClResponses={}
 let checklistItems=[], clResponses={}
 let allInterestTypes=[]
 let pinVal=''
@@ -737,9 +752,68 @@ async function submitPin(){
     return
   }
   elicData=d.elic
-  elicEventList=d.events||[]
+  const raw=d.events||[]
+  const today=new Date().toISOString().split('T')[0]
+  // Sort: open events first, then today, then upcoming, then past, then no date
+  elicEventList=raw.sort((a,b)=>{
+    const aOpen=(a.current_status==='open'||a.status==='open')?0:1
+    const bOpen=(b.current_status==='open'||b.status==='open')?0:1
+    if(aOpen!==bOpen) return aOpen-bOpen
+    const aDate=a.event_date||'9999'
+    const bDate=b.event_date||'9999'
+    // Today's events float to top
+    const aToday=aDate===today?0:1
+    const bToday=bDate===today?0:1
+    if(aToday!==bToday) return aToday-bToday
+    return aDate.localeCompare(bDate)
+  })
   renderElicMenu()
   showScreen('screen-elic-menu')
+}
+
+
+function renderOpeningChecklist(){
+  const {evname} = pendingAction
+  document.getElementById('opening-cl-event-name').textContent = evname
+  document.getElementById('opening-cl-sub').textContent = 'Complete before opening: ' + evname
+  const container = document.getElementById('opening-cl-items')
+  container.innerHTML = openingChecklistItems.map(item=>`
+    <div class="cl-item" id="ocl-item-${item.id}">
+      <div class="cl-label">${item.label}${item.required?'<span class="cl-req">Required</span>':''}</div>
+      ${item.hint?`<div class="cl-hint">${item.hint}</div>`:''}
+      ${item.item_type==='checkbox'?`
+        <div class="cl-check-btns">
+          <button class="cl-yes" id="ocl-y-${item.id}" onclick="setOpeningClResponse('${item.id}','true','${item.item_type}')">✅ Done</button>
+          <button class="cl-no" id="ocl-n-${item.id}" onclick="setOpeningClResponse('${item.id}','false','${item.item_type}')">❌ Not Done</button>
+        </div>`:
+      `<textarea class="cl-textarea" id="ocl-t-${item.id}" placeholder="${item.hint||'Enter notes…'}" oninput="setOpeningClResponse('${item.id}',this.value,'${item.item_type}')"></textarea>`}
+    </div>`).join('')
+  updateOpeningClBtn()
+}
+
+function setOpeningClResponse(id, val, type){
+  openingClResponses[id] = val
+  if(type==='checkbox'){
+    document.getElementById(`ocl-y-${id}`)?.classList.toggle('sel', val==='true')
+    document.getElementById(`ocl-n-${id}`)?.classList.toggle('sel', val==='false')
+  }
+  updateOpeningClBtn()
+}
+
+function updateOpeningClBtn(){
+  const allDone = openingChecklistItems.filter(i=>i.required).every(i=>openingClResponses[i.id]!==undefined&&openingClResponses[i.id]!=='')
+  document.getElementById('opening-cl-submit').disabled = !allDone
+}
+
+async function submitOpeningChecklist(){
+  // Save opening checklist responses then open the event
+  const responses = openingChecklistItems.map(item=>({
+    item_id: item.id, label: item.label, item_type: item.item_type,
+    response: openingClResponses[item.id]||''
+  }))
+  // Store responses with open event call
+  pendingAction.openingResponses = responses
+  await doOpenEvent()
 }
 
 function renderElicMenu(){
@@ -750,22 +824,23 @@ function renderElicMenu(){
     container.innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">No events assigned to you. Contact an administrator.</div>'
     return
   }
-  const statusTag={draft:'<span class="status-tag st-draft">● Draft</span>',open:'<span class="status-tag st-open">🟢 Open</span>',closed:'<span class="status-tag st-closed">🔒 Closed</span>'}
+  const today=new Date().toISOString().split('T')[0]
+  const statusTag={draft:'<span class="status-tag st-draft">Scheduled</span>',open:'<span class="status-tag st-open">🟢 Open</span>',closed:'<span class="status-tag st-closed">✓ Closed</span>'}
   container.innerHTML=elicEventList.map((e,idx)=>{
     const status=e.current_status==='open'?'open':e.current_status==='close'?'closed':(e.status||'draft')
     return`<div class="elic-event-card">
       <div class="elic-event-header">
         <div>
           <div class="elic-event-name">${e.name} ${e.stage==='rising_stars'?'<span style="font-size:11px;background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-weight:700">⭐ Rising Stars</span>':''}</div>
-          <div class="elic-event-date">${e.event_date?fmtDate(e.event_date):'No date'}${e.start_time?` · ${fmtTime(e.start_time)}`:''}${e.end_time?` – ${fmtTime(e.end_time)}`:''}</div>
+          <div class="elic-event-date">${e.event_date===today?'<span style="background:#FCD34D;color:#78350F;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:800;margin-right:4px">TODAY</span>':''}${e.event_date?fmtDate(e.event_date):'No date'}${e.start_time?` · ${fmtTime(e.start_time)}`:''}${e.end_time?` – ${fmtTime(e.end_time)}`:''}</div>
         </div>
         ${statusTag[status]||statusTag.draft}
       </div>
       <div class="elic-actions" style="flex-wrap:wrap;gap:8px">
-        ${status!=='open'?`<button class="elic-open-btn" data-eidx="${idx}" onclick="kioskAction(()=>handleElicOpen(this))">🟢 Open Event</button>`:''}
-        ${status==='open'?`<button class="elic-close-btn" data-eidx="${idx}" onclick="kioskAction(()=>handleElicClose(this))">🔒 Close Event</button>`:''}
-        ${status==='open'&&e.production_id?`<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-eidx="${idx}" onclick="handleProdSignIn(this)">🎭 Production Sign-In</button>`:''}
-        ${status==='open'&&e.production_id&&e.stage==='rising_stars'?`<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-eidx="${idx}" onclick="handleYouthSignIn(this)">👶 Youth Sign-In</button>`:''}
+        ${status!=='open'?`<button class="elic-open-btn" onclick="kioskAction(()=>handleElicOpenIdx(${idx}))">🟢 Open Event</button>`:''}
+        ${status==='open'?`<button class="elic-close-btn" onclick="kioskAction(()=>handleElicCloseIdx(${idx}))">🔒 Close Event</button>`:''}
+        ${status==='open'&&e.production_id?`<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx(${idx})">🎭 Production Sign-In</button>`:''}
+        ${status==='open'&&e.production_id&&e.stage==='rising_stars'?`<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx(${idx})">👶 Youth Sign-In</button>`:''}
         ${status==='closed'?`<div style="font-size:13px;color:var(--hint);padding:8px 0">Event closed</div>`:''}
       </div>
     </div>`
@@ -779,21 +854,49 @@ function fmtTime(t){
 
 async function openEvent(evid,evname){
   pendingAction={type:'open',evid,evname}
-  showKioskConfirm(`Open "${evname}"?`, 'Volunteers will be able to log hours once opened.', 'Open Event', doOpenEvent, cancelKioskConfirm)
+  // Load opening checklist items
+  try{
+    const r=await fetch('/api/opening-checklist-items')
+    openingChecklistItems=await r.json()
+  }catch(e){
+    openingChecklistItems=[]
+  }
+  openingClResponses={}
+  if(openingChecklistItems.length){
+    renderOpeningChecklist()
+    showScreen('screen-opening-checklist')
+  } else {
+    // No opening checklist — open directly
+    doOpenEvent()
+  }
 }
-function handleElicOpen(btn){
-  const idx=parseInt(btn.getAttribute('data-eidx'))
+function handleElicOpenIdx(idx){
   const e=elicEventList[idx]
   if(e) openEvent(e.id,e.name)
 }
-function handleElicClose(btn){
-  const idx=parseInt(btn.getAttribute('data-eidx'))
+function handleElicCloseIdx(idx){
   const e=elicEventList[idx]
   if(e) startClose(e.id,e.name)
 }
+// Legacy btn-based handlers kept for safety
+function handleElicOpen(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  handleElicOpenIdx(idx)
+}
+function handleElicClose(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  handleElicCloseIdx(idx)
+}
+function handleProdSignInIdx(idx){
+  const btn={getAttribute:()=>idx}
+  handleProdSignIn({getAttribute:()=>String(idx)})
+}
+function handleYouthSignInIdx(idx){
+  handleYouthSignIn({getAttribute:()=>String(idx)})
+}
 async function doOpenEvent(){
-  const {evid,evname}=pendingAction
-  const r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:[]})})
+  const {evid,evname,openingResponses}=pendingAction
+  const r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:openingResponses||[]})})
   const d=await r.json()
   if(d.error){alert(d.error);return}
   elicEventList=elicEventList.map(e=>e.id===evid?{...e,current_status:'open',status:'open'}:e)

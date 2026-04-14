@@ -1021,6 +1021,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div id="users-management-list"></div>
             </div>
 
+            <!-- Family / Portal Management -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:6px">🏠 Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
+              <div id="families-list" style="margin-bottom:16px"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
+                <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+                <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
@@ -6443,6 +6455,126 @@ function navToRSSignIn(prodId){
 // renderRisingStars is kept as-is above but the banner div was removed from Participants page
 
 
+
+// ── FAMILY MANAGEMENT ──
+let allFamilies = []
+
+async function loadFamilies(){
+  allFamilies = await api('/api/families')
+  renderFamilies()
+}
+
+function renderFamilies(){
+  const el = document.getElementById('families-list')
+  if(!el) return
+  if(!allFamilies.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No families created yet.</div>'
+    return
+  }
+  el.innerHTML = allFamilies.map(f=>`
+    <div style="background:var(--bg);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:14px;font-weight:700">${f.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
+            Passphrase: <span style="font-family:monospace;background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${f.passphrase}</span>
+            · ${f.member_count||0} member${f.member_count!==1?'s':''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openFamilyModal('${f.id}')">Manage Members</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteFamily('${f.id}')">Delete</button>
+        </div>
+      </div>
+    </div>`).join('')
+}
+
+async function createFamily(){
+  const name = document.getElementById('new-family-name').value.trim()
+  const passphrase = document.getElementById('new-family-passphrase').value.trim()
+  if(!name||!passphrase){toast('Name and passphrase required','error');return}
+  const res = await api('/api/families','POST',{name,passphrase})
+  if(res.error){toast(res.error,'error');return}
+  allFamilies.push(res)
+  document.getElementById('new-family-name').value = ''
+  document.getElementById('new-family-passphrase').value = ''
+  renderFamilies()
+  toast('Family created!')
+}
+
+async function deleteFamily(fid){
+  if(!confirm('Delete this family? Members will be unlinked but not deleted.')) return
+  await api(`/api/families/${fid}`,'DELETE')
+  allFamilies = allFamilies.filter(f=>f.id!==fid)
+  renderFamilies()
+  toast('Family deleted')
+}
+
+async function openFamilyModal(fid){
+  const family = allFamilies.find(f=>f.id===fid)
+  if(!family) return
+  // Load current members
+  const members = allYouth.filter(y=>y.family_id===fid)
+  const unlinked = allYouth.filter(y=>!y.family_id)
+  
+  const content = `
+    <div class="modal-header">
+      <div class="modal-title">Manage: ${family.name}</div>
+      <button class="modal-close" onclick="closeModal('modal-family')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Current Members</div>
+      <div id="family-members-list">
+        ${!members.length?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">No members yet</div>':
+          members.map(y=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px;font-weight:500">${y.first_name} ${y.last_name}</span>
+            <button class="btn btn-danger btn-sm" onclick="removeFamilyMember('${fid}','${y.id}')">Remove</button>
+          </div>`).join('')}
+      </div>
+      ${unlinked.length?`
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:16px;margin-bottom:8px">Add Member</div>
+      <div style="display:flex;gap:8px">
+        <select id="family-add-youth" style="flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+          <option value="">— Select participant —</option>
+          ${unlinked.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="addFamilyMember('${fid}')">Add</button>
+      </div>`:'<div style="font-size:13px;color:var(--text-muted);margin-top:12px">All participants are already linked to families.</div>'}
+    </div>`
+  
+  let modal = document.getElementById('modal-family')
+  if(!modal){
+    modal = document.createElement('div')
+    modal.className = 'modal-overlay'; modal.id = 'modal-family'
+    modal.innerHTML = '<div class="modal" id="modal-family-inner"></div>'
+    document.body.appendChild(modal)
+  }
+  document.getElementById('modal-family-inner').innerHTML = content
+  openModal('modal-family')
+  window._activeFamilyId = fid
+}
+
+async function addFamilyMember(fid){
+  const yid = document.getElementById('family-add-youth').value
+  if(!yid) return
+  await api(`/api/families/${fid}/members`,'POST',{youth_id:yid})
+  // Update local state
+  const y = allYouth.find(y=>y.id===yid)
+  if(y) y.family_id = fid
+  await loadFamilies()
+  openFamilyModal(fid)
+  toast('Member added!')
+}
+
+async function removeFamilyMember(fid, yid){
+  await api(`/api/families/${fid}/members/${yid}`,'DELETE')
+  const y = allYouth.find(y=>y.id===yid)
+  if(y) y.family_id = null
+  await loadFamilies()
+  openFamilyModal(fid)
+  toast('Member removed')
+}
+
 // ── EVENT MODAL ELIC HELPER ──
 function setEventElicUI(elicId, parentId){
   const sel = document.getElementById('edit-event-elic')
@@ -6470,6 +6602,18 @@ function setEventElicUI(elicId, parentId){
     sel.style.opacity = ''
     if(note) note.style.display = 'none'
   }
+}
+
+
+async function setYouthPassphrase(yid, current){
+  const p = prompt('Set portal passphrase for this participant:\n(This is used by their family to log into the portal)', current||'')
+  if(p===null) return
+  const res = await api(`/api/youth/${yid}/passphrase`,'PUT',{passphrase:p.trim()})
+  if(res.error){toast(res.error,'error');return}
+  const y = allYouth.find(y=>y.id===yid)
+  if(y) y.passphrase = p.trim()
+  toast('Passphrase updated!')
+  openYouthProfile(yid)
 }
 
 // ── CALENDAR CHIP CLICK ──

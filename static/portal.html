@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>HWTC Participant Portal</title>
+<style>
+:root{
+  --teal:#0d6e6e;--teal-dark:#0a5555;--teal-mid:#1b8a8a;--teal-light:#e8f5f5;--teal-50:#f0fafa;
+  --amber:#d97706;--amber-light:#fef3c7;
+  --text:#1a2332;--text-muted:#5a6a7a;--text-hint:#9aabb8;
+  --bg:#f4f7f9;--surface:#ffffff;--border:#e2e8ed;--border-md:#cdd5dc;
+  --radius:10px;--radius-lg:16px;--radius-xl:24px;
+  --shadow:0 2px 8px rgba(0,0,0,0.07);--shadow-lg:0 8px 24px rgba(0,0,0,0.12);
+  --green:#16a34a;--green-light:#dcfce7;
+  --purple:#7c3aed;--purple-light:#ede9fe;
+  --red:#dc2626;--red-light:#fee2e2;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── LAYOUT ── */
+.portal-shell{min-height:100vh;display:flex;flex-direction:column}
+.portal-header{background:linear-gradient(135deg,#0d3d4d 0%,#1b708d 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.2)}
+.portal-header-logo{display:flex;align-items:center;gap:10px}
+.portal-header-logo img{height:32px;border-radius:6px}
+.portal-header-title{color:#fff;font-size:16px;font-weight:700;line-height:1.2}
+.portal-header-sub{color:rgba(255,255,255,0.7);font-size:11px}
+.portal-header-right{display:flex;align-items:center;gap:8px}
+.header-badge{background:rgba(255,255,255,0.15);color:#fff;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.logout-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
+.logout-btn:hover{background:rgba(255,255,255,0.2)}
+.portal-body{flex:1;padding:20px;max-width:960px;margin:0 auto;width:100%}
+
+/* ── SCREENS ── */
+.screen{display:none}
+.screen.active{display:block}
+
+/* ── LOGIN ── */
+.login-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:linear-gradient(160deg,#0d3d4d 0%,#1b708d 50%,#0d3d4d 100%)}
+.login-card{background:#fff;border-radius:var(--radius-xl);padding:40px 36px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.25)}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo img{height:48px;border-radius:8px;margin-bottom:12px}
+.login-logo h1{font-size:22px;font-weight:800;color:var(--teal-dark);line-height:1.2}
+.login-logo p{color:var(--text-muted);font-size:13px;margin-top:4px}
+.login-tabs{display:flex;gap:0;margin-bottom:24px;border:1.5px solid var(--border-md);border-radius:var(--radius);overflow:hidden}
+.login-tab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted);background:var(--bg);transition:all 0.15s;border:none;font-family:inherit}
+.login-tab.active{background:var(--teal);color:#fff}
+.login-field{margin-bottom:16px}
+.login-field label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px}
+.login-field input{width:100%;padding:12px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:15px;outline:none;transition:border 0.15s}
+.login-field input:focus{border-color:var(--teal-mid)}
+.login-btn{width:100%;padding:13px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:background 0.15s;margin-top:4px}
+.login-btn:hover{background:var(--teal-dark)}
+.login-btn:disabled{opacity:0.6;cursor:not-allowed}
+.login-error{background:var(--red-light);color:var(--red);border-radius:var(--radius);padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+.login-hint{font-size:12px;color:var(--text-hint);text-align:center;margin-top:16px;line-height:1.5}
+
+/* ── CHILD SWITCHER ── */
+.child-switcher{background:var(--teal-light);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.child-switcher label{font-size:13px;font-weight:700;color:var(--teal-dark);white-space:nowrap}
+.child-select{flex:1;min-width:180px;padding:8px 12px;border:1.5px solid var(--teal-mid);border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;color:var(--teal-dark);background:#fff;outline:none;cursor:pointer}
+
+/* ── CARDS ── */
+.card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);box-shadow:var(--shadow)}
+.card-header{padding:18px 20px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-title{font-size:16px;font-weight:700}
+.card-body{padding:16px 20px 20px}
+.section-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:12px}
+
+/* ── PROGRAM CARDS ── */
+.program-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+.program-card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:box-shadow 0.15s,transform 0.15s}
+.program-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
+.program-card.active-card{border-color:var(--teal-mid);box-shadow:0 0 0 3px var(--teal-light)}
+.program-card-bar{height:5px}
+.program-card-body{padding:16px}
+.program-card-name{font-size:15px;font-weight:700;margin-bottom:4px}
+.program-card-meta{font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:3px}
+.program-badge{display:inline-flex;align-items:center;gap:4px;background:var(--teal-light);color:var(--teal-dark);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:6px}
+
+/* ── DETAIL PANEL ── */
+.detail-panel{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;margin-bottom:20px}
+.detail-hero{background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:20px 24px;color:#fff}
+.detail-hero-name{font-size:20px;font-weight:800;margin-bottom:4px}
+.detail-hero-meta{font-size:13px;opacity:0.85;display:flex;flex-wrap:wrap;gap:12px}
+
+/* ── TABS ── */
+.tab-strip{display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.tab-strip::-webkit-scrollbar{display:none}
+.tab-btn{padding:12px 20px;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer;border:none;background:none;border-bottom:3px solid transparent;white-space:nowrap;font-family:inherit;transition:all 0.15s}
+.tab-btn.active{color:var(--teal-dark);border-bottom-color:var(--teal-mid)}
+.tab-content{display:none;padding:20px}
+.tab-content.active{display:block}
+
+/* ── ANNOUNCEMENTS ── */
+.announcement{border-left:3px solid var(--teal-mid);padding:12px 16px;margin-bottom:12px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0}
+.announcement-title{font-size:14px;font-weight:700;margin-bottom:4px}
+.announcement-body{font-size:13px;color:var(--text-muted);line-height:1.6;white-space:pre-wrap}
+.announcement-meta{font-size:11px;color:var(--text-hint);margin-top:6px}
+
+/* ── FILES ── */
+.file-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.file-item:last-child{border-bottom:none}
+.file-icon{width:40px;height:40px;background:var(--teal-light);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:14px;font-weight:600;margin-bottom:2px}
+.file-desc{font-size:12px;color:var(--text-muted)}
+.file-link{background:var(--teal);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0}
+.file-link:hover{background:var(--teal-dark)}
+
+/* ── CALENDAR / EVENTS ── */
+.event-item{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border)}
+.event-item:last-child{border-bottom:none}
+.event-date-block{width:48px;text-align:center;flex-shrink:0}
+.event-date-day{font-size:24px;font-weight:800;color:var(--teal-dark);line-height:1}
+.event-date-mon{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted)}
+.event-info{flex:1}
+.event-name{font-size:14px;font-weight:700;margin-bottom:3px}
+.event-meta{font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px}
+.event-today{background:var(--amber-light);border-radius:var(--radius);padding:2px 8px;font-size:10px;font-weight:800;color:var(--amber);text-transform:uppercase}
+
+/* ── INSTRUCTOR PANEL ── */
+.instructor-grid{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+.instructor-sidebar .item{padding:10px 14px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;transition:background 0.1s;margin-bottom:4px}
+.instructor-sidebar .item:hover{background:var(--teal-light)}
+.instructor-sidebar .item.active{background:var(--teal);color:#fff;font-weight:700}
+.instructor-sidebar .item-sub{font-size:11px;opacity:0.75;margin-top:2px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:5px}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;transition:border 0.15s}
+.form-group input:focus,.form-group textarea:focus{border-color:var(--teal-mid)}
+.form-group textarea{min-height:90px;resize:vertical}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;border:none;transition:all 0.15s}
+.btn-primary{background:var(--teal);color:#fff}.btn-primary:hover{background:var(--teal-dark)}
+.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}.btn-secondary:hover{background:var(--border)}
+.btn-danger{background:var(--red-light);color:var(--red)}.btn-danger:hover{background:#fecaca}
+.btn-sm{padding:5px 10px;font-size:12px}
+.empty-state{text-align:center;padding:32px 20px;color:var(--text-muted)}
+.empty-state .icon{font-size:40px;margin-bottom:10px}
+
+/* ── ROSTER ── */
+.roster-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.roster-item:last-child{border-bottom:none}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.roster-name{font-size:14px;font-weight:600}
+.roster-meta{font-size:12px;color:var(--text-muted)}
+
+/* ── LOADING ── */
+.loading{text-align:center;padding:40px;color:var(--text-muted)}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--teal-mid);border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── TOAST ── */
+#portal-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1a2332;color:#fff;padding:12px 20px;border-radius:var(--radius-lg);font-size:14px;font-weight:600;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;max-width:90vw}
+#portal-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:640px){
+  .program-grid{grid-template-columns:1fr}
+  .instructor-grid{grid-template-columns:1fr}
+  .form-row{grid-template-columns:1fr}
+  .login-card{padding:28px 20px}
+  .portal-body{padding:12px}
+}
+</style>
+</head>
+<body>
+
+<div id="portal-toast"></div>
+
+<!-- ── LOGIN SCREEN ── -->
+<div id="screen-login" class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="/static/images/logo.jpg" alt="HWTC" onerror="this.style.display='none'"/>
+      <h1>Participant Portal</h1>
+      <p>Horizon West Theater Company</p>
+    </div>
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchLoginTab('family')">👨‍👩‍👧 Family / Participant</button>
+      <button class="login-tab" onclick="switchLoginTab('instructor')">🎓 Instructor</button>
+    </div>
+    <div id="error-msg" class="login-error"></div>
+
+    <!-- Family tab -->
+    <div id="tab-family">
+      <div class="login-field">
+        <label>Family Passphrase</label>
+        <input type="text" id="login-passphrase" placeholder="Enter your family passphrase…" autocomplete="off" autocapitalize="off" onkeydown="if(event.key==='Enter')doLogin()"/>
+      </div>
+      <button class="login-btn" onclick="doLogin()">Enter Portal →</button>
+      <div class="login-hint">Enter the passphrase given to you by HWTC staff.<br>Each family has one passphrase for all children.</div>
+    </div>
+
+    <!-- Instructor tab -->
+    <div id="tab-instructor" style="display:none">
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doInstructorLogin()"/>
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="Password" onkeydown="if(event.key==='Enter')doInstructorLogin()"/>
+      </div>
+      <button class="login-btn" onclick="doInstructorLogin()">Sign In →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PORTAL SHELL (after login) ── -->
+<div id="screen-portal" class="portal-shell" style="display:none">
+  <header class="portal-header">
+    <div class="portal-header-logo">
+      <img src="/static/images/logo.jpg" alt="HWTC" onerror="this.style.display='none'"/>
+      <div>
+        <div class="portal-header-title">Participant Portal</div>
+        <div class="portal-header-sub">Horizon West Theater Company</div>
+      </div>
+    </div>
+    <div class="portal-header-right">
+      <span class="header-badge" id="header-badge"></span>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- FAMILY / PARTICIPANT VIEW -->
+  <div id="view-family" class="portal-body" style="display:none">
+    <!-- Child switcher (shown if multiple children) -->
+    <div id="child-switcher" class="child-switcher" style="display:none">
+      <label>Viewing:</label>
+      <select class="child-select" id="child-select" onchange="switchChild()"></select>
+    </div>
+
+    <!-- Loading -->
+    <div id="family-loading" class="loading">
+      <div class="spinner"></div>
+      Loading your programs…
+    </div>
+
+    <!-- Content -->
+    <div id="family-content" style="display:none">
+      <!-- Program/production cards -->
+      <div class="section-label" style="margin-bottom:12px">📚 Enrolled Programs & Productions</div>
+      <div class="program-grid" id="program-cards"></div>
+
+      <!-- Detail panel for selected program -->
+      <div id="program-detail" style="display:none">
+        <div class="detail-panel">
+          <div class="detail-hero" id="detail-hero"></div>
+          <div class="tab-strip" id="detail-tabs"></div>
+          <div id="detail-tab-contents"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INSTRUCTOR VIEW -->
+  <div id="view-instructor" class="portal-body" style="display:none">
+    <div style="margin-bottom:20px">
+      <div style="font-size:20px;font-weight:800;margin-bottom:4px">Instructor Dashboard</div>
+      <div style="font-size:14px;color:var(--text-muted)" id="instructor-subtitle"></div>
+    </div>
+    <div class="instructor-grid">
+      <!-- Sidebar: program list -->
+      <div>
+        <div class="card" style="padding:16px">
+          <div class="section-label" style="margin-bottom:10px">Your Programs</div>
+          <div id="instructor-program-list"></div>
+          <div class="section-label" style="margin-top:16px;margin-bottom:10px">Rising Stars</div>
+          <div id="instructor-production-list"></div>
+        </div>
+      </div>
+      <!-- Main: manage selected -->
+      <div id="instructor-main">
+        <div class="empty-state card" style="padding:40px">
+          <div class="icon">🎓</div>
+          <div>Select a program or production from the left to manage it</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──
+let portalSession = null  // {type, family/participant/user, members, programs, productions}
+let activeChildId = null
+let activeChildData = null  // {enrollments, productions, announcements, files}
+let activeContextId = null  // currently selected program/production id
+let activeContextType = null
+let instructorContextId = null
+let instructorContextType = null
+let instructorData = null
+
+// ── LOGIN ──
+function switchLoginTab(tab){
+  document.querySelectorAll('.login-tab').forEach((t,i)=>{
+    t.classList.toggle('active', (i===0&&tab==='family')||(i===1&&tab==='instructor'))
+  })
+  document.getElementById('tab-family').style.display = tab==='family'?'':'none'
+  document.getElementById('tab-instructor').style.display = tab==='instructor'?'':'none'
+  document.getElementById('error-msg').style.display = 'none'
+}
+
+async function doLogin(){
+  const pass = document.getElementById('login-passphrase').value.trim()
+  if(!pass){ showError('Please enter a passphrase'); return }
+  const btn = document.querySelector('#tab-family .login-btn')
+  btn.disabled = true; btn.textContent = 'Checking…'
+  try{
+    const r = await fetch('/api/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass})})
+    const d = await r.json()
+    if(!r.ok){ showError(d.error||'Passphrase not found'); btn.disabled=false; btn.textContent='Enter Portal →'; return }
+    portalSession = d
+    if(d.type==='family') enterFamilyPortal(d)
+    else enterParticipantPortal(d)
+  }catch(e){ showError('Connection error'); btn.disabled=false; btn.textContent='Enter Portal →' }
+}
+
+async function doInstructorLogin(){
+  const email = document.getElementById('login-email').value.trim()
+  const password = document.getElementById('login-password').value
+  if(!email||!password){ showError('Email and password required'); return }
+  const btn = document.querySelector('#tab-instructor .login-btn')
+  btn.disabled=true; btn.textContent='Signing in…'
+  try{
+    const r = await fetch('/api/portal/instructor-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})})
+    const d = await r.json()
+    if(!r.ok){ showError(d.error||'Invalid credentials'); btn.disabled=false; btn.textContent='Sign In →'; return }
+    portalSession = d
+    enterInstructorPortal(d)
+  }catch(e){ showError('Connection error'); btn.disabled=false; btn.textContent='Sign In →' }
+}
+
+function showError(msg){
+  const el = document.getElementById('error-msg')
+  el.textContent = msg; el.style.display = ''
+}
+
+function doLogout(){
+  portalSession = null; activeChildId = null; activeChildData = null
+  document.getElementById('screen-login').style.display = 'flex'
+  document.getElementById('screen-portal').style.display = 'none'
+  document.getElementById('login-passphrase').value = ''
+  document.getElementById('login-email').value = ''
+  document.getElementById('login-password').value = ''
+  document.getElementById('error-msg').style.display = 'none'
+  document.querySelectorAll('.login-tab')[0].click()
+}
+
+// ── FAMILY PORTAL ──
+function enterFamilyPortal(d){
+  showPortal()
+  document.getElementById('view-family').style.display = ''
+  document.getElementById('view-instructor').style.display = 'none'
+  const members = d.members || []
+  const name = d.family?.name || 'Family'
+  document.getElementById('header-badge').textContent = name
+  // Child switcher
+  if(members.length > 1){
+    const sel = document.getElementById('child-select')
+    sel.innerHTML = members.map(m=>`<option value="${m.id}">${m.first_name} ${m.last_name}</option>`).join('')
+    document.getElementById('child-switcher').style.display = 'flex'
+  }
+  if(members.length === 0){
+    document.getElementById('family-loading').innerHTML = '<div class="empty-state"><div class="icon">👤</div>No participants linked to this family yet. Contact HWTC staff.</div>'
+    return
+  }
+  activeChildId = members[0].id
+  loadChildData(activeChildId)
+}
+
+function enterParticipantPortal(d){
+  showPortal()
+  document.getElementById('view-family').style.display = ''
+  document.getElementById('view-instructor').style.display = 'none'
+  const p = d.participant
+  document.getElementById('header-badge').textContent = p.first_name+' '+p.last_name
+  document.getElementById('child-switcher').style.display = 'none'
+  activeChildId = p.id
+  loadChildData(p.id)
+}
+
+function switchChild(){
+  activeChildId = document.getElementById('child-select').value
+  activeChildData = null
+  activeContextId = null
+  document.getElementById('program-detail').style.display = 'none'
+  document.getElementById('family-content').style.display = 'none'
+  document.getElementById('family-loading').style.display = ''
+  document.getElementById('family-loading').innerHTML = '<div class="spinner"></div>Loading…'
+  loadChildData(activeChildId)
+}
+
+async function loadChildData(yid){
+  document.getElementById('family-loading').style.display = ''
+  document.getElementById('family-loading').innerHTML = '<div class="spinner"></div>Loading your programs…'
+  document.getElementById('family-content').style.display = 'none'
+  try{
+    const d = await fetch('/api/portal/participant/'+yid).then(r=>r.json())
+    activeChildData = d
+    renderFamilyContent()
+  }catch(e){
+    document.getElementById('family-loading').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div>Could not load data. Please try again.</div>'
+  }
+}
+
+function renderFamilyContent(){
+  document.getElementById('family-loading').style.display = 'none'
+  document.getElementById('family-content').style.display = ''
+  const {enrollments=[],productions=[]} = activeChildData
+  const cards = document.getElementById('program-cards')
+
+  if(!enrollments.length && !productions.length){
+    cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📚</div>No programs or productions enrolled yet.</div>'
+    return
+  }
+
+  const colors = ['#0d6e6e','#7c3aed','#d97706','#16a34a','#dc2626','#0369a1']
+  let html = ''
+  enrollments.forEach((e,i)=>{
+    const col = colors[i%colors.length]
+    const isActive = activeContextId===e.program_id && activeContextType==='program'
+    html += `<div class="program-card${isActive?' active-card':''}" onclick="selectContext('program','${e.program_id}','${e.program_name.replace(/'/g,"\\'")}','${col}')">
+      <div class="program-card-bar" style="background:${col}"></div>
+      <div class="program-card-body">
+        <div class="program-card-name">${e.program_name}</div>
+        <div class="program-card-meta">
+          ${e.instructor_name?`<span>👤 ${e.instructor_name}</span>`:''}
+          ${e.start_date?`<span>📅 ${fmtDate(e.start_date)}${e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''}</span>`:''}
+          ${e.program_type?`<span class="program-badge">${e.program_type}</span>`:''}
+        </div>
+      </div>
+    </div>`
+  })
+  productions.forEach((p,i)=>{
+    const col = '#7c3aed'
+    const isActive = activeContextId===p.id && activeContextType==='production'
+    html += `<div class="program-card${isActive?' active-card':''}" onclick="selectContext('production','${p.id}','${p.name.replace(/'/g,"\\'")}','${col}')">
+      <div class="program-card-bar" style="background:${col}"></div>
+      <div class="program-card-body">
+        <div class="program-card-name">⭐ ${p.name}</div>
+        <div class="program-card-meta">
+          <span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars Production</span>
+          ${p.cast_role?`<span>🎭 Role: ${p.cast_role}</span>`:''}
+          ${p.start_date?`<span>📅 ${fmtDate(p.start_date)}</span>`:''}
+        </div>
+      </div>
+    </div>`
+  })
+  cards.innerHTML = html
+
+  // If something was previously selected, re-render detail
+  if(activeContextId) selectContext(activeContextType, activeContextId, '', '')
+}
+
+async function selectContext(type, id, name, color){
+  activeContextId = id; activeContextType = type
+  // Update card highlights
+  renderFamilyContent()
+
+  // Load events
+  const endpoint = type==='program'?`/api/portal/program/${id}/events`:`/api/portal/production/${id}/events`
+  const events = await fetch(endpoint).then(r=>r.json()).catch(()=>[])
+
+  // Filter announcements/files for this context
+  const {announcements=[], files=[]} = activeChildData
+  const contextAnnouncements = announcements.filter(a=> type==='program'?a.program_id===id:a.production_id===id)
+  const contextFiles = files.filter(f=> type==='program'?f.program_id===id:f.production_id===id)
+
+  // Find context info
+  let ctxName = name
+  let instructor = ''
+  let dateStr = ''
+  if(type==='program'){
+    const e = activeChildData.enrollments?.find(e=>e.program_id===id)
+    if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''): '' }
+  } else {
+    const p = activeChildData.productions?.find(p=>p.id===id)
+    if(p){ ctxName=p.name; dateStr=p.start_date?fmtDate(p.start_date):'' }
+  }
+
+  // Render detail panel
+  document.getElementById('detail-hero').innerHTML = `
+    <div class="detail-hero-name">${ctxName}</div>
+    <div class="detail-hero-meta">
+      ${instructor?`<span>👤 ${instructor}</span>`:''}
+      ${dateStr?`<span>📅 ${dateStr}</span>`:''}
+      ${type==='production'?'<span>⭐ Rising Stars Production</span>':''}
+    </div>`
+
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+  const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
+
+  const tabs = [
+    {id:'schedule', label:`📅 Schedule (${events.length})`},
+    {id:'announcements', label:`📢 Announcements (${contextAnnouncements.length})`},
+    {id:'files', label:`📁 Files (${contextFiles.length})`},
+  ]
+  document.getElementById('detail-tabs').innerHTML = tabs.map(t=>
+    `<button class="tab-btn${t.id==='schedule'?' active':''}" onclick="switchDetailTab('${t.id}',this)">${t.label}</button>`
+  ).join('')
+
+  document.getElementById('detail-tab-contents').innerHTML = `
+    <div class="tab-content active" id="dtab-schedule">
+      ${!events.length?'<div class="empty-state"><div class="icon">📅</div>No events scheduled yet.</div>':
+        '<div style="margin-bottom:8px;font-weight:700;font-size:13px;color:var(--teal-dark)">Upcoming</div>'+
+        (upcoming.length?upcoming.map(e=>eventRow(e,today)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')+
+        (past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today)).join(''):'')
+      }
+    </div>
+    <div class="tab-content" id="dtab-announcements">
+      ${!contextAnnouncements.length?'<div class="empty-state"><div class="icon">📢</div>No announcements yet.</div>':
+        contextAnnouncements.map(a=>`
+          <div class="announcement">
+            <div class="announcement-title">${a.title}</div>
+            <div class="announcement-body">${escHtml(a.body)}</div>
+            <div class="announcement-meta">${a.author_name?'From '+a.author_name+' · ':''}${fmtDateTime(a.created_at)}</div>
+          </div>`).join('')}
+    </div>
+    <div class="tab-content" id="dtab-files">
+      ${!contextFiles.length?'<div class="empty-state"><div class="icon">📁</div>No files shared yet.</div>':
+        contextFiles.map(f=>`
+          <div class="file-item">
+            <div class="file-icon">📄</div>
+            <div class="file-info">
+              <div class="file-name">${f.title}</div>
+              ${f.description?`<div class="file-desc">${f.description}</div>`:''}
+              <div class="file-desc" style="margin-top:2px">${f.author_name?'Shared by '+f.author_name+' · ':''}${fmtDateTime(f.created_at)}</div>
+            </div>
+            <a href="${f.drive_url}" target="_blank" class="file-link">Open →</a>
+          </div>`).join('')}
+    </div>`
+
+  document.getElementById('program-detail').style.display = ''
+  document.getElementById('program-detail').scrollIntoView({behavior:'smooth', block:'nearest'})
+}
+
+function eventRow(e, today){
+  const d = e.event_date ? new Date(e.event_date+'T00:00:00') : null
+  const day = d ? d.getDate() : '?'
+  const mon = d ? d.toLocaleDateString('en-US',{month:'short'}) : ''
+  const isToday = e.event_date===today
+  const timeStr = e.start_time?(e.end_time?fmtTime(e.start_time)+' – '+fmtTime(e.end_time):fmtTime(e.start_time)):'Time TBD'
+  return `<div class="event-item">
+    <div class="event-date-block">
+      <div class="event-date-day">${day}</div>
+      <div class="event-date-mon">${mon}</div>
+    </div>
+    <div class="event-info">
+      <div class="event-name">${e.name}${isToday?' <span class="event-today">Today</span>':''}</div>
+      <div class="event-meta">
+        <span>⏰ ${timeStr}</span>
+        ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
+      </div>
+    </div>
+  </div>`
+}
+
+function switchDetailTab(id, btn){
+  document.querySelectorAll('#detail-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  document.querySelectorAll('#detail-tab-contents .tab-content').forEach(c=>c.classList.remove('active'))
+  document.getElementById('dtab-'+id)?.classList.add('active')
+}
+
+// ── INSTRUCTOR PORTAL ──
+function enterInstructorPortal(d){
+  showPortal()
+  document.getElementById('view-family').style.display = 'none'
+  document.getElementById('view-instructor').style.display = ''
+  instructorData = d
+  document.getElementById('header-badge').textContent = d.user.name
+  document.getElementById('instructor-subtitle').textContent = `Logged in as ${d.user.name} · ${d.programs.length} program${d.programs.length!==1?'s':''}, ${d.productions.length} production${d.productions.length!==1?'s':''}`
+
+  const progList = document.getElementById('instructor-program-list')
+  const prodList = document.getElementById('instructor-production-list')
+
+  if(!d.programs.length) progList.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No programs assigned</div>'
+  else progList.innerHTML = d.programs.map(p=>`
+    <div class="item" onclick="selectInstructorContext('program','${p.id}','${p.name.replace(/'/g,"\\'")}',this)">
+      <div>${p.name}</div>
+      <div class="item-sub">${p.program_type||'class'}</div>
+    </div>`).join('')
+
+  if(!d.productions.length) prodList.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No productions assigned</div>'
+  else prodList.innerHTML = d.productions.map(p=>`
+    <div class="item" onclick="selectInstructorContext('production','${p.id}','${p.name.replace(/'/g,"\\'")}',this)">
+      <div>⭐ ${p.name}</div>
+    </div>`).join('')
+
+  if(d.programs.length) {
+    const first = d.programs[0]
+    document.querySelector('#instructor-program-list .item')?.click()
+  }
+}
+
+async function selectInstructorContext(type, id, name, el){
+  instructorContextId = id; instructorContextType = type
+  document.querySelectorAll('.instructor-sidebar .item').forEach(i=>i.classList.remove('active'))
+  el?.classList.add('active')
+  document.getElementById('instructor-main').innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+
+  const [content, events] = await Promise.all([
+    fetch(`/api/portal/instructor/content/${type}/${id}`).then(r=>r.json()).catch(()=>({announcements:[],files:[]})),
+    fetch(type==='program'?`/api/portal/program/${id}/events`:`/api/portal/production/${id}/events`).then(r=>r.json()).catch(()=>[])
+  ])
+
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+
+  document.getElementById('instructor-main').innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">${name}</div>
+        ${type==='production'?'<span style="background:#ede9fe;color:#7c3aed;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⭐ Rising Stars</span>':''}
+      </div>
+      <div class="card-body">
+        <!-- TABS -->
+        <div class="tab-strip" id="instr-tabs" style="margin:-4px -4px 16px">
+          <button class="tab-btn active" onclick="switchInstrTab('announcements',this)">📢 Announcements</button>
+          <button class="tab-btn" onclick="switchInstrTab('files',this)">📁 Files</button>
+          <button class="tab-btn" onclick="switchInstrTab('schedule',this)">📅 Schedule</button>
+        </div>
+
+        <!-- Announcements tab -->
+        <div class="tab-content active" id="itab-announcements">
+          <div style="background:var(--bg);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+            <div class="section-label" style="margin-bottom:10px">Post Announcement</div>
+            <div class="form-group"><label>Title</label><input type="text" id="ann-title" placeholder="e.g. Rehearsal reminder"/></div>
+            <div class="form-group"><label>Message</label><textarea id="ann-body" placeholder="Write your message here…"></textarea></div>
+            <button class="btn btn-primary" onclick="postAnnouncement()">📢 Post Announcement</button>
+          </div>
+          <div id="ann-list">
+            ${!content.announcements.length?'<div class="empty-state"><div class="icon">📢</div>No announcements yet</div>':
+              content.announcements.map(a=>`
+                <div class="announcement" id="ann-${a.id}" style="position:relative">
+                  <button onclick="deleteAnnouncement('${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
+                  <div class="announcement-title">${a.title}</div>
+                  <div class="announcement-body">${escHtml(a.body)}</div>
+                  <div class="announcement-meta">${fmtDateTime(a.created_at)}</div>
+                </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Files tab -->
+        <div class="tab-content" id="itab-files">
+          <div style="background:var(--bg);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+            <div class="section-label" style="margin-bottom:10px">Add File (Google Drive Link)</div>
+            <div class="form-row">
+              <div class="form-group"><label>Title</label><input type="text" id="file-title" placeholder="e.g. Costume Guide"/></div>
+              <div class="form-group"><label>Google Drive URL</label><input type="url" id="file-url" placeholder="https://drive.google.com/…"/></div>
+            </div>
+            <div class="form-group"><label>Description (optional)</label><input type="text" id="file-desc" placeholder="Brief description…"/></div>
+            <button class="btn btn-primary" onclick="addFile()">📁 Add File</button>
+          </div>
+          <div id="file-list">
+            ${!content.files.length?'<div class="empty-state"><div class="icon">📁</div>No files yet</div>':
+              content.files.map(f=>`
+                <div class="file-item" id="file-${f.id}">
+                  <div class="file-icon">📄</div>
+                  <div class="file-info">
+                    <div class="file-name">${f.title}</div>
+                    ${f.description?`<div class="file-desc">${f.description}</div>`:''}
+                    <div class="file-desc">${fmtDateTime(f.created_at)}</div>
+                  </div>
+                  <a href="${f.drive_url}" target="_blank" class="file-link" style="margin-right:6px">Open</a>
+                  <button onclick="deleteFile('${f.id}')" class="btn btn-danger btn-sm">✕</button>
+                </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Schedule tab -->
+        <div class="tab-content" id="itab-schedule">
+          ${!events.length?'<div class="empty-state"><div class="icon">📅</div>No events yet. Add events in the main admin panel.</div>':
+            '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Events are managed in the main RoleCall admin panel.</div>'+
+            events.map(e=>eventRow(e,today)).join('')}
+        </div>
+      </div>
+    </div>`
+}
+
+function switchInstrTab(id, btn){
+  document.querySelectorAll('#instr-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  document.querySelectorAll('#instructor-main .tab-content').forEach(c=>c.classList.remove('active'))
+  document.getElementById('itab-'+id)?.classList.add('active')
+}
+
+async function postAnnouncement(){
+  const title = document.getElementById('ann-title').value.trim()
+  const body = document.getElementById('ann-body').value.trim()
+  if(!title||!body){ toast('Title and message required','error'); return }
+  const payload = {title, body}
+  if(instructorContextType==='program') payload.program_id = instructorContextId
+  else payload.production_id = instructorContextId
+  const r = await fetch('/api/portal/announcements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+  const d = await r.json()
+  if(d.error){ toast(d.error,'error'); return }
+  document.getElementById('ann-title').value = ''
+  document.getElementById('ann-body').value = ''
+  const list = document.getElementById('ann-list')
+  if(list.querySelector('.empty-state')) list.innerHTML = ''
+  list.insertAdjacentHTML('afterbegin',`
+    <div class="announcement" id="ann-${d.id}" style="position:relative">
+      <button onclick="deleteAnnouncement('${d.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
+      <div class="announcement-title">${d.title}</div>
+      <div class="announcement-body">${escHtml(d.body)}</div>
+      <div class="announcement-meta">${fmtDateTime(d.created_at)}</div>
+    </div>`)
+  toast('Announcement posted!')
+}
+
+async function deleteAnnouncement(aid){
+  if(!confirm('Delete this announcement?')) return
+  await fetch(`/api/portal/announcements/${aid}`,{method:'DELETE'})
+  document.getElementById('ann-'+aid)?.remove()
+  toast('Deleted')
+}
+
+async function addFile(){
+  const title = document.getElementById('file-title').value.trim()
+  const url = document.getElementById('file-url').value.trim()
+  const desc = document.getElementById('file-desc').value.trim()
+  if(!title||!url){ toast('Title and URL required','error'); return }
+  const payload = {title, drive_url:url, description:desc}
+  if(instructorContextType==='program') payload.program_id = instructorContextId
+  else payload.production_id = instructorContextId
+  const r = await fetch('/api/portal/files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+  const d = await r.json()
+  if(d.error){ toast(d.error,'error'); return }
+  document.getElementById('file-title').value = ''
+  document.getElementById('file-url').value = ''
+  document.getElementById('file-desc').value = ''
+  const list = document.getElementById('file-list')
+  if(list.querySelector('.empty-state')) list.innerHTML = ''
+  list.insertAdjacentHTML('afterbegin',`
+    <div class="file-item" id="file-${d.id}">
+      <div class="file-icon">📄</div>
+      <div class="file-info">
+        <div class="file-name">${d.title}</div>
+        ${d.description?`<div class="file-desc">${d.description}</div>`:''}
+        <div class="file-desc">${fmtDateTime(d.created_at)}</div>
+      </div>
+      <a href="${d.drive_url}" target="_blank" class="file-link" style="margin-right:6px">Open</a>
+      <button onclick="deleteFile('${d.id}')" class="btn btn-danger btn-sm">✕</button>
+    </div>`)
+  toast('File added!')
+}
+
+async function deleteFile(fid){
+  if(!confirm('Remove this file?')) return
+  await fetch(`/api/portal/files/${fid}`,{method:'DELETE'})
+  document.getElementById('file-'+fid)?.remove()
+  toast('Removed')
+}
+
+// ── HELPERS ──
+function showPortal(){
+  document.getElementById('screen-login').style.display = 'none'
+  document.getElementById('screen-portal').style.display = 'flex'
+}
+
+function fmtDate(s){
+  if(!s) return ''
+  try{
+    const d=new Date(s+'T00:00:00')
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+  }catch{return s}
+}
+
+function fmtTime(t){
+  if(!t) return ''
+  try{
+    const[h,m]=t.split(':'); const hr=parseInt(h)
+    return`${hr>12?hr-12:hr||12}:${m}${hr>=12?'pm':'am'}`
+  }catch{return t}
+}
+
+function fmtDateTime(ts){
+  if(!ts) return ''
+  try{
+    return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true,timeZone:'America/New_York'})
+  }catch{return ts}
+}
+
+function escHtml(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+let toastTimer = null
+function toast(msg, type){
+  const el = document.getElementById('portal-toast')
+  el.textContent = msg
+  el.style.background = type==='error'?'#dc2626':'#1a2332'
+  el.classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 3000)
+}
+</script>
+</body>
+</html>

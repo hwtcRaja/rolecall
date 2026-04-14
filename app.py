@@ -372,6 +372,33 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        # portal features
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS portal_passphrase TEXT",
+        # portal content tables
+        """CREATE TABLE IF NOT EXISTS families (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            passphrase TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS portal_announcements (
+            id TEXT PRIMARY KEY,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            author_id TEXT REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS portal_files (
+            id TEXT PRIMARY KEY,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            drive_url TEXT NOT NULL,
+            description TEXT,
+            author_id TEXT REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT NOW())""",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -2640,3 +2667,321 @@ def remove_youth_production_member(pid, mid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+# ═══════════════════════════════════════════════════════════════
+#  PARTICIPANT PORTAL
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/portal')
+def portal_page():
+    resp = send_from_directory('static', 'portal.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+# ── Family management ──
+
+@app.route('/api/families', methods=['GET'])
+def get_families():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    families = fetchall(conn, '''SELECT f.*, 
+        COUNT(y.id) as member_count
+        FROM families f
+        LEFT JOIN youth_participants y ON y.family_id=f.id
+        GROUP BY f.id ORDER BY f.name''')
+    conn.close()
+    return jsonify(families)
+
+@app.route('/api/families', methods=['POST'])
+def create_family():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    if not d.get('name') or not d.get('passphrase'):
+        return jsonify({'error': 'Name and passphrase required'}), 400
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO families (id,name,passphrase) VALUES (%s,%s,%s)',
+                (fid, d['name'].strip(), d['passphrase'].strip()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Passphrase already in use'}), 400
+    row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/families/<fid>', methods=['PUT'])
+def update_family(fid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE families SET name=%s,passphrase=%s WHERE id=%s',
+            (d.get('name',''), d.get('passphrase',''), fid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/families/<fid>', methods=['DELETE'])
+def delete_family(fid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=NULL WHERE family_id=%s', (fid,))
+    execute(conn, 'DELETE FROM families WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/families/<fid>/members', methods=['POST'])
+def add_family_member(fid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s',
+            (fid, d['youth_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/families/<fid>/members/<yid>', methods=['DELETE'])
+def remove_family_member(fid, yid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=NULL WHERE id=%s AND family_id=%s', (yid, fid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal login ──
+
+@app.route('/api/portal/login', methods=['POST'])
+def portal_login():
+    d = request.json
+    passphrase = (d.get('passphrase') or '').strip()
+    if not passphrase:
+        return jsonify({'error': 'Passphrase required'}), 400
+    conn = get_db()
+
+    # Check family passphrase
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=LOWER(%s)', (passphrase,))
+    if family:
+        members = fetchall(conn, '''SELECT y.*, 
+            COALESCE(y.family_id,'') as family_id
+            FROM youth_participants y WHERE y.family_id=%s 
+            ORDER BY y.first_name''', (family['id'],))
+        conn.close()
+        return jsonify({'type': 'family', 'family': family, 'members': members})
+
+    # Check individual youth passphrase
+    youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=LOWER(%s)', (passphrase,))
+    if youth:
+        conn.close()
+        return jsonify({'type': 'participant', 'participant': youth})
+
+    # Check instructor login (volunteer with instructor user account)
+    # Instructors use email+password via normal login
+    conn.close()
+    return jsonify({'error': 'Passphrase not found'}), 404
+
+@app.route('/api/portal/instructor-login', methods=['POST'])
+def portal_instructor_login():
+    d = request.json
+    user = fetchone(get_db(), "SELECT * FROM users WHERE email=%s AND active=TRUE",
+                    (d.get('email','').strip(),))
+    if not user or not check_password_hash(user['password_hash'], d.get('password','')):
+        return jsonify({'error': 'Invalid email or password'}), 401
+    if user['role'] not in ('admin','instructor'):
+        return jsonify({'error': 'Not an instructor account'}), 403
+    conn = get_db()
+    # Get programs where this user is the instructor volunteer
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE email=%s', (user['email'],))
+    programs = []
+    productions = []
+    if vol:
+        programs = fetchall(conn, '''SELECT p.*, v.name as default_elic_name
+            FROM youth_programs p LEFT JOIN elics el ON p.default_elic_id=el.id
+            LEFT JOIN volunteers v ON el.volunteer_id=v.id
+            WHERE p.instructor_id=%s ORDER BY p.name''', (vol['id'],))
+        # Rising Stars productions they manage
+        productions = fetchall(conn, '''SELECT p.* FROM productions p
+            JOIN production_members pm ON pm.production_id=p.id
+            WHERE p.stage='rising_stars' AND pm.volunteer_id=%s
+            ORDER BY p.name''', (vol['id'],))
+    if user['role'] == 'admin':
+        # Admins see everything
+        programs = fetchall(conn, 'SELECT * FROM youth_programs ORDER BY name')
+        productions = fetchall(conn, "SELECT * FROM productions WHERE stage='rising_stars' ORDER BY name")
+    conn.close()
+    return jsonify({'type': 'instructor', 'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'role': user['role']}, 'programs': programs, 'productions': productions})
+
+# ── Portal data endpoints (no auth — passphrase already validated client-side) ──
+
+@app.route('/api/portal/participant/<yid>')
+def portal_participant_data(yid):
+    conn = get_db()
+    # Enrollments
+    enrollments = fetchall(conn, '''SELECT ye.*, yp.name as program_name, 
+        yp.description, yp.start_date, yp.end_date, yp.program_type,
+        v.name as instructor_name
+        FROM youth_program_enrollments ye
+        JOIN youth_programs yp ON ye.program_id=yp.id
+        LEFT JOIN volunteers v ON yp.instructor_id=v.id
+        WHERE ye.youth_id=%s ORDER BY yp.start_date''', (yid,))
+    # Rising Stars productions
+    productions = fetchall(conn, '''SELECT p.*, ypm.role as cast_role
+        FROM youth_production_members ypm
+        JOIN productions p ON ypm.production_id=p.id
+        WHERE ypm.youth_id=%s ORDER BY p.start_date''', (yid,))
+    # Portal announcements for enrolled programs
+    prog_ids = [e['program_id'] for e in enrollments]
+    prod_ids = [p['id'] for p in productions]
+    announcements = []
+    if prog_ids or prod_ids:
+        placeholders = ','.join(['%s']*(len(prog_ids)+len(prod_ids)))
+        announcements = fetchall(conn, f'''SELECT pa.*, 
+            COALESCE(yp.name, pr.name) as context_name,
+            u.name as author_name
+            FROM portal_announcements pa
+            LEFT JOIN youth_programs yp ON pa.program_id=yp.id
+            LEFT JOIN productions pr ON pa.production_id=pr.id
+            LEFT JOIN users u ON pa.author_id=u.id
+            WHERE pa.program_id IN ({','.join(['%s']*len(prog_ids)) if prog_ids else 'NULL'})
+               OR pa.production_id IN ({','.join(['%s']*len(prod_ids)) if prod_ids else 'NULL'})
+            ORDER BY pa.created_at DESC''',
+            tuple(prog_ids + prod_ids)) if (prog_ids or prod_ids) else []
+    # Files
+    files = []
+    if prog_ids or prod_ids:
+        files = fetchall(conn, f'''SELECT pf.*,
+            COALESCE(yp.name, pr.name) as context_name,
+            u.name as author_name
+            FROM portal_files pf
+            LEFT JOIN youth_programs yp ON pf.program_id=yp.id
+            LEFT JOIN productions pr ON pf.production_id=pr.id
+            LEFT JOIN users u ON pf.author_id=u.id
+            WHERE pf.program_id IN ({','.join(['%s']*len(prog_ids)) if prog_ids else 'NULL'})
+               OR pf.production_id IN ({','.join(['%s']*len(prod_ids)) if prod_ids else 'NULL'})
+            ORDER BY pf.created_at DESC''',
+            tuple(prog_ids + prod_ids)) if (prog_ids or prod_ids) else []
+    conn.close()
+    return jsonify({
+        'enrollments': enrollments,
+        'productions': productions,
+        'announcements': announcements,
+        'files': files
+    })
+
+@app.route('/api/portal/program/<pid>/events')
+def portal_program_events(pid):
+    conn = get_db()
+    events = fetchall(conn, '''SELECT e.* FROM events e
+        WHERE e.program_id=%s ORDER BY e.event_date ASC NULLS LAST''', (pid,))
+    conn.close()
+    return jsonify(events)
+
+@app.route('/api/portal/production/<pid>/events')
+def portal_production_events(pid):
+    conn = get_db()
+    events = fetchall(conn, '''SELECT e.* FROM events e
+        WHERE e.production_id=%s ORDER BY e.event_date ASC NULLS LAST''', (pid,))
+    conn.close()
+    return jsonify(events)
+
+# ── Instructor portal content management ──
+
+@app.route('/api/portal/announcements', methods=['POST'])
+def create_portal_announcement():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO portal_announcements 
+        (id,program_id,production_id,title,body,author_id)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (aid, d.get('program_id') or None, d.get('production_id') or None,
+         d['title'], d['body'], session.get('user_id')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pa.*, u.name as author_name FROM portal_announcements pa
+        LEFT JOIN users u ON pa.author_id=u.id WHERE pa.id=%s''', (aid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/announcements/<aid>', methods=['DELETE'])
+def delete_portal_announcement(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_announcements WHERE id=%s', (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/files', methods=['POST'])
+def create_portal_file():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO portal_files
+        (id,program_id,production_id,title,drive_url,description,author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, d.get('program_id') or None, d.get('production_id') or None,
+         d['title'], d['drive_url'], d.get('description',''), session.get('user_id')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pf.*, u.name as author_name FROM portal_files pf
+        LEFT JOIN users u ON pf.author_id=u.id WHERE pf.id=%s''', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/files/<fid>', methods=['DELETE'])
+def delete_portal_file(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/instructor/content/<context_type>/<context_id>')
+def get_portal_content(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    field = 'program_id' if context_type == 'program' else 'production_id'
+    announcements = fetchall(conn, f'''SELECT pa.*, u.name as author_name 
+        FROM portal_announcements pa LEFT JOIN users u ON pa.author_id=u.id
+        WHERE pa.{field}=%s ORDER BY pa.created_at DESC''', (context_id,))
+    files = fetchall(conn, f'''SELECT pf.*, u.name as author_name
+        FROM portal_files pf LEFT JOIN users u ON pf.author_id=u.id
+        WHERE pf.{field}=%s ORDER BY pf.created_at DESC''', (context_id,))
+    conn.close()
+    return jsonify({'announcements': announcements, 'files': files})
+
+
+@app.route('/api/youth/<yid>/passphrase', methods=['PUT'])
+def set_youth_passphrase(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s',
+            (d.get('passphrase') or None, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/youth/<yid>/passphrase', methods=['PUT'])
+def set_youth_passphrase(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s',
+            (d.get('passphrase') or None, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})

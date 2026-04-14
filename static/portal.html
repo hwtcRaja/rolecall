@@ -513,25 +513,38 @@ async function selectContext(type, id, name, color){
     </div>
     <div class="tab-content" id="dtab-announcements">
       ${!contextAnnouncements.length?'<div class="empty-state"><div class="icon">📢</div>No announcements yet.</div>':
-        contextAnnouncements.map(a=>`
-          <div class="announcement">
-            <div class="announcement-title">${a.title}</div>
-            <div class="announcement-body">${escHtml(a.body)}</div>
-            <div class="announcement-meta">${a.author_name?'From '+a.author_name+' · ':''}${fmtDateTime(a.created_at)}</div>
-          </div>`).join('')}
+        contextAnnouncements.map(a=>
+          '<div class="announcement">'+
+          '<div class="announcement-title">'+a.title+'</div>'+
+          '<div class="announcement-body">'+escHtml(a.body)+'</div>'+
+          '<div class="announcement-meta">'+(a.author_name?'From '+a.author_name+' · ':'')+fmtDateTime(a.created_at)+'</div>'+
+          '</div>').join('')}
     </div>
     <div class="tab-content" id="dtab-files">
-      ${!contextFiles.length?'<div class="empty-state"><div class="icon">📁</div>No files shared yet.</div>':
-        contextFiles.map(f=>`
-          <div class="file-item">
-            <div class="file-icon">📄</div>
-            <div class="file-info">
-              <div class="file-name">${f.title}</div>
-              ${f.description?`<div class="file-desc">${f.description}</div>`:''}
-              <div class="file-desc" style="margin-top:2px">${f.author_name?'Shared by '+f.author_name+' · ':''}${fmtDateTime(f.created_at)}</div>
-            </div>
-            <a href="${f.drive_url}" target="_blank" class="file-link">Open →</a>
-          </div>`).join('')}
+      ${(()=>{
+        if(!contextFiles.length) return '<div class="empty-state"><div class="icon">📁</div>No files shared yet.</div>'
+        const folders={}
+        contextFiles.forEach(f=>{
+          let folder=f.folder||'General'
+          if(!folder||folder==='null') folder='General'
+          if(!folders[folder]) folders[folder]=[]
+          folders[folder].push(f)
+        })
+        return Object.entries(folders).map(([folder,fls])=>
+          '<div style="margin-bottom:16px">'+
+          '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px;padding:0 20px">📂 '+folder+'</div>'+
+          fls.map(f=>
+            '<div class="file-item">'+
+            '<div class="file-icon">📄</div>'+
+            '<div class="file-info">'+
+            '<div class="file-name">'+f.title+'</div>'+
+            (f.description&&!f.description.startsWith('__folder__')?'<div class="file-desc">'+f.description+'</div>':'')+
+            '</div>'+
+            '<a href="'+f.drive_url+'" target="_blank" class="file-link">Open →</a>'+
+            '</div>').join('')+
+          '</div>'
+        ).join('')
+      })()}
     </div>`
 
   document.getElementById('program-detail').style.display = ''

@@ -822,6 +822,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </section>
 
+      <!-- PROGRAM DETAIL -->
+      <section class="page" id="page-program-detail" style="overflow-y:auto;background:var(--bg)">
+        <div id="program-detail-header" style="width:100%;flex-shrink:0;min-height:0"></div>
+        <div class="page-body" style="padding-top:20px"><div id="program-detail-content"></div></div>
+      </section>
+
       <!-- YOUTH -->
       <section class="page" id="page-youth">
         <div class="page-header">
@@ -1726,6 +1732,7 @@ function navTo(page,el){
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
   if(page==='rising-stars-page') renderRisingStarsPage()
+  if(page==='program-detail') {}  // populated by openProgramDetail
   if(page==='youth-signin') initYouthSignIn()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
@@ -5572,9 +5579,166 @@ async function unenrollFromProgram(enrollmentId, programId, name, btn){
   renderYouthProgramsPage()
 }
 
-function openProgramDetail(programId){
-  // Navigate to youth filtered by this program
-  navToYouthFiltered(programId)
+async function openProgramDetail(programId){
+  const p = allPrograms.find(p=>p.id===programId)
+  if(!p) return
+  const isAdmin = currentUser?.role==='admin'
+
+  // Build banner
+  const type = p.program_type||'class'
+  const[bg,col] = PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other
+  document.getElementById('program-detail-header').innerHTML = buildProfileBanner({
+    name: p.name,
+    sub: PROGRAM_TYPE_LABELS[type]+(p.start_date?' · '+formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''):''),
+    bg, col, backFn:"navTo('youth-programs-page')", backLabel:'← Programs',
+    badges:[],
+    actions: isAdmin ? [
+      {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"},
+      {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"}
+    ] : []
+  })
+
+  // Load enrolled youth
+  const enrolled = await api('/api/youth-programs/'+programId+'/enrolled')
+
+  // Get events for this program
+  const progEvents = allEvents
+    .filter(e=>e.program_id===programId)
+    .sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = progEvents.filter(e=>!e.event_date||e.event_date>=today)
+  const past = progEvents.filter(e=>e.event_date&&e.event_date<today)
+
+  // Hours per event
+  const hoursMap = {}
+  allHours.forEach(h=>{
+    if(!hoursMap[h.event_id]) hoursMap[h.event_id]=[]
+    hoursMap[h.event_id].push(h)
+  })
+
+  const totalHours = allHours.filter(h=>progEvents.some(e=>e.id===h.event_id))
+    .reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
+
+  // Build event table rows
+  function eventRows(evts, showPast){
+    if(!evts.length) return `<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No ${showPast?'past':'upcoming'} events</div>`
+    return evts.map(e=>{
+      const hrs = hoursMap[e.id]||[]
+      const evtHours = hrs.reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
+      const volCount = new Set(hrs.map(h=>h.volunteer_id)).size
+      const timeStr = e.start_time?(e.end_time?fmtTime(e.start_time)+' – '+fmtTime(e.end_time):fmtTime(e.start_time)):'Time TBD'
+      const[sbg,scol,slabel] = STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+      return `<div style="display:grid;grid-template-columns:120px 1fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--teal-dark)">${e.event_date?formatDate(e.event_date):'No date'}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${timeStr}</div>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:2px">${e.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap">
+            ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
+            <span>⏱ ${evtHours}h logged · ${volCount} volunteer${volCount!==1?'s':''}</span>
+            ${(e.elics||[]).length?`<span>🎬 ${e.elics.map(el=>el.volunteer_name).join(', ')}</span>`:''}
+          </div>
+          ${hrs.length?`<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${
+            hrs.slice(0,5).map(h=>`<span style="background:var(--teal-50);color:var(--teal-600);padding:2px 8px;border-radius:10px;font-size:11px">${h.volunteer_name} ${h.hours}h</span>`).join('')
+          }${hrs.length>5?`<span style="font-size:11px;color:var(--text-hint)">+${hrs.length-5} more</span>`:''}</div>`:'' }
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <span style="background:${sbg};color:${scol};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${slabel}</span>
+          ${isAdmin?`<div style="display:flex;gap:4px">
+            <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEventModal('${e.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventFull('${e.id}').then(()=>openProgramDetail('${programId}'))">✕</button>
+          </div>`:''}
+        </div>
+      </div>`
+    }).join('')
+  }
+
+  const instructor = volunteers.find(v=>v.id===p.instructor_id)
+  const elic = allElics.find(e=>e.id===p.default_elic_id)
+
+  document.getElementById('program-detail-content').innerHTML = `
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+      <div class="card" style="padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${enrolled.length}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Participants</div>
+      </div>
+      <div class="card" style="padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${progEvents.length}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Total Events</div>
+      </div>
+      <div class="card" style="padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${upcoming.length}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Upcoming</div>
+      </div>
+      <div class="card" style="padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${totalHours}</div>
+        <div style="font-size:12px;color:var(--text-muted)">Hours Logged</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start">
+
+      <!-- LEFT: Program info + participants -->
+      <div>
+        <!-- Info card -->
+        <div class="card" style="padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Program Info</div>
+          <div style="font-size:13px;display:flex;flex-direction:column;gap:6px;color:var(--text-muted)">
+            ${p.description?`<div style="color:var(--text);margin-bottom:4px">${p.description}</div>`:''}
+            ${p.start_date?`<div>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
+            ${instructor?`<div>👤 Instructor: <strong>${instructor.name}</strong></div>`:''}
+            ${elic?`<div>🎬 Default ELIC: <strong>${elic.volunteer_name}</strong></div>`:''}
+          </div>
+          ${isAdmin?`<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+            <button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\'")}')">+ Enroll Participant</button>
+            <button class="btn btn-secondary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>
+          </div>`:''}
+        </div>
+
+        <!-- Participants card -->
+        <div class="card" style="padding:16px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Participants (${enrolled.length})</div>
+          ${!enrolled.length?'<div style="font-size:13px;color:var(--text-muted)">No participants enrolled yet</div>':
+            enrolled.map(y=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openYouthProfile('${y.id}')">
+              ${avatarHTML(y.first_name+' '+y.last_name,28)}
+              <div>
+                <div style="font-size:13px;font-weight:500">${y.first_name} ${y.last_name}</div>
+                ${y.dob?`<div style="font-size:11px;color:var(--text-muted)">Age ${calcAge(y.dob)||'?'}</div>`:''}
+              </div>
+              ${isAdmin?`<button class="btn btn-danger btn-sm" style="margin-left:auto;padding:2px 6px;font-size:10px" onclick="event.stopPropagation();unenrollYouth('${y.enrollment_id}','${y.id}').then(()=>openProgramDetail('${programId}'))">✕</button>`:''}
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- RIGHT: Events -->
+      <div>
+        <!-- Upcoming events -->
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:700">📅 Upcoming Events</div>
+            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>`:''}
+          </div>
+          ${eventRows(upcoming, false)}
+        </div>
+
+        <!-- Past events -->
+        ${past.length?`<div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text-muted)">📋 Past Events</div>
+          ${eventRows(past, true)}
+        </div>`:''}
+      </div>
+    </div>`
+
+  navTo('program-detail')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  // Highlight parent nav item
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    if(n.textContent.includes('Programs')) n.classList.add('active')
+  })
 }
 
 // Pre-fill ELIC on event modal from parent program/production

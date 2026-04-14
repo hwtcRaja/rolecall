@@ -464,7 +464,11 @@ def get_waiver_summary(conn, vol_id):
 
 @app.route('/')
 def index():
-    return send_from_directory('static', 'index.html')
+    resp = send_from_directory('static', 'index.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 @app.route('/api/debug')
 def debug():
     try:
@@ -601,10 +605,16 @@ def create_event():
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False)))
     conn.commit()
-    row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
-        p.name as production_name FROM events e
+    row = fetchone(conn, '''SELECT e.*,
+        COALESCE(e.requires_background_check, FALSE) as requires_background_check,
+        et.name as event_type_name, et.color as event_type_color,
+        p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
+        pg.name as program_name
+        FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
-        LEFT JOIN productions p ON e.production_id=p.id WHERE e.id=%s''', (eid,))
+        LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        WHERE e.id=%s''', (eid,))
     row['required_waivers'] = []; row['elics'] = []
     conn.close()
     return jsonify(row)
@@ -624,10 +634,16 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
     conn.commit()
-    row = fetchone(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color,
-        p.name as production_name FROM events e
+    row = fetchone(conn, '''SELECT e.*,
+        COALESCE(e.requires_background_check, FALSE) as requires_background_check,
+        et.name as event_type_name, et.color as event_type_color,
+        p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
+        pg.name as program_name
+        FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
-        LEFT JOIN productions p ON e.production_id=p.id WHERE e.id=%s''', (eid,))
+        LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        WHERE e.id=%s''', (eid,))
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
@@ -1482,7 +1498,11 @@ if __name__ == '__main__':
 
 @app.route('/kiosk')
 def kiosk_page():
-    return send_from_directory('static', 'kiosk.html')
+    resp = send_from_directory('static', 'kiosk.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 
 

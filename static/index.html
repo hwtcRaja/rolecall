@@ -53,6 +53,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .nav-item.active{background:rgba(255,255,255,0.18);color:#fff;font-weight:500}
 .nav-icon{font-size:16px;width:20px;text-align:center}
 .nav-badge{margin-left:auto;background:#E24B4A;color:#fff;font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px}
+.portal-sub-btn{padding:8px 16px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted);white-space:nowrap}
+.portal-sub-btn.active{border-bottom-color:var(--teal-mid);color:var(--teal-dark)}
 .sidebar-user{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;gap:10px}
 .user-avatar{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff;flex-shrink:0}
 .user-name{color:#fff;font-size:13px;font-weight:500}
@@ -1986,6 +1988,7 @@ async function openProfile(volId){
     actions: isAdmin ? [
       {label:'✉️ Email', href:'mailto:'+v.email},
       {label:'Edit', onclick:"openEditVolModal('"+v.id+"')"},
+      {label:'🔗 Link Participant', onclick:"openLinkModal('volunteer','"+v.id+"','')"},
       {label:'Delete', onclick:"deleteVol('"+v.id+"')", danger:true}
     ] : []
   })
@@ -6170,62 +6173,127 @@ async function openProgramDetail(programId){
 // ── PRODUCTION PORTAL TAB ──
 function renderProductionPortalHTML(pid){
   return `
-    <div class="card" style="padding:20px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-        <div><div style="font-size:15px;font-weight:700">📢 Announcements</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to cast/families in the participant portal</div></div>
-      </div>
-      <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
-        <div class="form-group" style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
-          <input type="text" id="prod-ann-title-${pid}" placeholder="e.g. Costume fitting schedule" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
-        </div>
-        <div class="form-group" style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
-          <textarea id="prod-ann-body-${pid}" placeholder="Write your message…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}')">📢 Post</button>
-      </div>
-      <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+    <!-- Portal sub-tabs -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;scrollbar-width:none">
+      <button class="portal-sub-btn active" data-ptab="announcements" onclick="switchProdPortalTab('announcements',this)">📢 Announcements</button>
+      <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">📁 Files</button>
+      <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">🎭 About</button>
+      <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">👥 Meet the Team</button>
+      <button class="portal-sub-btn" data-ptab="conflicts" onclick="switchProdPortalTab('conflicts',this)">⚔️ Conflicts</button>
     </div>
 
-    <div class="card" style="padding:20px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:15px;font-weight:700">📁 Files & Folders</div>
-        <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('production','${pid}')">+ New Folder</button>
+    <!-- Announcements -->
+    <div id="pptab-announcements-${pid}">
+      <div class="card" style="padding:20px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:12px">📢 Announcements</div>
+        <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+          <div class="form-group" style="margin-bottom:10px">
+            <input type="text" id="prod-ann-title-${pid}" placeholder="Title…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+          </div>
+          <div class="form-group" style="margin-bottom:10px">
+            <textarea id="prod-ann-body-${pid}" placeholder="Message…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:70px;resize:vertical"></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}')">📢 Post</button>
+        </div>
+        <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
       </div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Organize files into folders for cast, parents, crew, etc.</div>
-      <div id="prod-folders-${pid}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
-      <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+    </div>
+
+    <!-- Files -->
+    <div id="pptab-files-${pid}" style="display:none">
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div style="font-size:14px;font-weight:700">📁 Files & Folders</div>
+          <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('production','${pid}')">+ New Folder</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Files visible to cast and families in the portal</div>
+        <div id="prod-folders-${pid}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+        <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
+              <input type="text" id="prod-file-title-${pid}" placeholder="e.g. Script Act 1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
+              <select id="prod-file-folder-${pid}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                <option value="General">General</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
+            <input type="url" id="prod-file-url-${pid}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">📁 Add File</button>
+        </div>
+        <div id="prod-file-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div id="pptab-about-${pid}" style="display:none">
+      <div class="card" style="padding:20px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">🎭 Production Info</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
           <div>
-            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File Title</label>
-            <input type="text" id="prod-file-title-${pid}" placeholder="e.g. Script Act 1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Director</label>
+            <input type="text" id="prod-director-${pid}" placeholder="Director name…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
           <div>
-            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
-            <select id="prod-file-folder-${pid}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
-              <option value="General">General</option>
-            </select>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Venue</label>
+            <input type="text" id="prod-venue-${pid}" placeholder="e.g. Main Stage, Black Box…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
         </div>
-        <div style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
-          <input type="url" id="prod-file-url-${pid}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description / Director's Note</label>
+          <textarea id="prod-description-${pid}" placeholder="About this production, director's note…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:100px;resize:vertical"></textarea>
         </div>
-        <div style="margin-bottom:10px">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description (optional)</label>
-          <input type="text" id="prod-file-desc-${pid}" placeholder="Brief description…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">📁 Add File</button>
+        <button class="btn btn-primary btn-sm" onclick="saveProductionAbout('${pid}')">💾 Save Info</button>
+        <div id="prod-about-saved-${pid}" style="display:inline;margin-left:10px;font-size:12px;color:var(--green)"></div>
       </div>
-      <div id="prod-file-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
     </div>
 
-    <div class="card" style="padding:20px">
-      <div style="font-size:15px;font-weight:700;margin-bottom:4px">🎭 Cast List</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Shown publicly in the portal to families and cast members</div>
-      <div id="prod-castlist-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+    <!-- Meet the Team -->
+    <div id="pptab-team-${pid}" style="display:none">
+      <div class="card" style="padding:20px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">👥 Meet the Team</div>
+        <!-- Add member form -->
+        <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Name</label>
+              <input type="text" id="team-name-${pid}" placeholder="Full name…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Role / Title</label>
+              <input type="text" id="team-role-${pid}" placeholder="e.g. Director, Choreographer…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Headshot URL (Google Drive or any image link)</label>
+            <input type="url" id="team-headshot-${pid}" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+          </div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Bio</label>
+            <textarea id="team-bio-${pid}" placeholder="Short bio…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:60px;resize:vertical"></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addTeamMember('${pid}')">+ Add Member</button>
+        </div>
+        <div id="prod-team-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Conflicts -->
+    <div id="pptab-conflicts-${pid}" style="display:none">
+      <div class="card" style="padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:14px;font-weight:700">⚔️ Conflicts & Callouts</div>
+          <button class="btn btn-primary btn-sm" onclick="openAddConflictModal('${pid}')">+ Add Conflict</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Self-reported callouts show automatically. Admin-entered conflicts and approved requests also appear here and on the sign-in sheet.</div>
+        <div id="prod-conflicts-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+      </div>
     </div>`
 }
 
@@ -6241,105 +6309,295 @@ function switchProductionTab(tab){
   if(tab==='portal') loadProductionPortalContent(window._currentProductionDetailId)
 }
 
+function switchProdPortalTab(tab, btn){
+  const pid = window._currentProductionDetailId
+  if(!pid) return
+  // Hide all sub-tabs
+  ;['announcements','files','about','team','conflicts'].forEach(t=>{
+    const el = document.getElementById('pptab-'+t+'-'+pid)
+    if(el) el.style.display = t===tab?'':'none'
+  })
+  document.querySelectorAll('.portal-sub-btn').forEach(b=>{
+    b.classList.remove('active')
+  })
+  if(btn) btn.classList.add('active')
+  // Load data for tab
+  if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
+  if(tab==='team') loadTeamMembers(pid)
+  if(tab==='about') loadProductionAbout(pid)
+  if(tab==='conflicts') loadProductionConflicts(pid)
+}
+
 async function loadProductionPortalContent(pid){
   if(!pid) return
-  const [content, prod, folders] = await Promise.all([
+  const [content, folders] = await Promise.all([
     api(`/api/portal/instructor/content/production/${pid}`),
-    Promise.resolve(allProductions.find(p=>p.id===pid)),
     api(`/api/portal/folders?production_id=${pid}`)
   ])
   renderPortalFolderPills('prod', pid, folders)
   renderProductionAnnouncements(pid, content.announcements||[])
   renderProductionFiles(pid, content.files||[], folders)
-  renderProductionCastList(pid, prod)
 }
 
 function renderProductionAnnouncements(pid, anns){
-  const el = document.getElementById(`prod-ann-list-${pid}`)
+  const el = document.getElementById('prod-ann-list-'+pid)
   if(!el) return
   el.innerHTML = !anns.length ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>' :
-    anns.map(a=>`<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">
-      <button onclick="deleteProductionAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
-      <div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">${a.title}</div>
-      <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap">${a.body}</div>
-      <div style="font-size:11px;color:var(--text-hint);margin-top:6px">${formatDateTime(a.created_at)}</div>
-    </div>`).join('')
+    anns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">'
+      +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>'
+      +'<div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">'+a.title+'</div>'
+      +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap">'+a.body+'</div>'
+      +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>'
+      +'</div>').join('')
 }
 
 function renderProductionFiles(pid, files, folders){
-  const el = document.getElementById(`prod-file-list-${pid}`)
+  const el = document.getElementById('prod-file-list-'+pid)
   if(!el) return
   if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
-  // Group by folder column
   const grouped = {}
   files.forEach(f=>{ const folder=f.folder||'General'; if(!grouped[folder])grouped[folder]=[]; grouped[folder].push(f) })
-  el.innerHTML = Object.entries(grouped).map(([folder,fls])=>`
-    <div style="margin-bottom:16px">
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
-      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:18px;flex-shrink:0">📄</div>
-        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div></div>
-        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
-        <button onclick="deleteProductionFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
-      </div>`).join('')}
-    </div>`).join('')
-}
-
-function renderProductionCastList(pid, prod){
-  const el = document.getElementById(`prod-castlist-${pid}`)
-  if(!el) return
-  // Get youth cast members
-  const youthMembers = allYouth.filter(y=>(y.productions||[]).find?.(pm=>pm.production_id===pid)||false)
-  // Adult members from production
-  const members = prod?.members||[]
-  if(!members.length && !youthMembers.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No cast members yet.</div>'; return }
-  el.innerHTML = `
-    ${members.length?`<div style="margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Adult Cast & Crew</div>
-      ${members.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
-        ${avatarHTML(m.volunteer_name,28)}
-        <div style="flex:1"><div style="font-size:13px;font-weight:600">${m.volunteer_name}</div><div style="font-size:11px;color:var(--text-muted)">${m.role||m.department||''}</div></div>
-        <span style="font-size:11px;color:var(--text-muted)">${m.status}</span>
-      </div>`).join('')}
-    </div>`:''}
-    <div style="font-size:11px;color:var(--text-hint);margin-top:8px">The full cast list (including youth) is visible in the participant portal to enrolled families.</div>`
+  el.innerHTML = Object.entries(grouped).map(([folder,fls])=>
+    '<div style="margin-bottom:14px">'
+    +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 '+folder+'</div>'
+    +fls.map(f=>'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="font-size:18px;flex-shrink:0">📄</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+f.title+'</div></div>'
+      +'<a href="'+f.drive_url+'" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none">Open</a>'
+      +'<button onclick="deleteProductionFile(\''+pid+'\',\''+f.id+'\')" class="btn btn-danger btn-sm">✕</button>'
+      +'</div>').join('')
+    +'</div>'
+  ).join('')
 }
 
 async function postProductionAnnouncement(pid){
-  const title = document.getElementById(`prod-ann-title-${pid}`)?.value.trim()
-  const body = document.getElementById(`prod-ann-body-${pid}`)?.value.trim()
+  const title = document.getElementById('prod-ann-title-'+pid)?.value.trim()
+  const body = document.getElementById('prod-ann-body-'+pid)?.value.trim()
   if(!title||!body){toast('Title and message required','error');return}
   const res = await api('/api/portal/announcements','POST',{production_id:pid, title, body})
   if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prod-ann-title-${pid}`).value=''
-  document.getElementById(`prod-ann-body-${pid}`).value=''
+  document.getElementById('prod-ann-title-'+pid).value=''
+  document.getElementById('prod-ann-body-'+pid).value=''
   await loadProductionPortalContent(pid)
   toast('Announcement posted!')
 }
 async function deleteProductionAnnouncement(pid, aid){
   if(!confirm('Delete announcement?')) return
-  await api(`/api/portal/announcements/${aid}`,'DELETE')
+  await api('/api/portal/announcements/'+aid,'DELETE')
   await loadProductionPortalContent(pid)
   toast('Deleted')
 }
 async function addProductionFile(pid){
-  const title = document.getElementById(`prod-file-title-${pid}`)?.value.trim()
-  const url = document.getElementById(`prod-file-url-${pid}`)?.value.trim()
-  const folder = document.getElementById(`prod-file-folder-${pid}`)?.value||'General'
+  const title = document.getElementById('prod-file-title-'+pid)?.value.trim()
+  const url = document.getElementById('prod-file-url-'+pid)?.value.trim()
+  const folder = document.getElementById('prod-file-folder-'+pid)?.value||'General'
   if(!title||!url){toast('Title and URL required','error');return}
   const res = await api('/api/portal/files','POST',{production_id:pid, title, drive_url:url, folder})
   if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prod-file-title-${pid}`).value=''
-  document.getElementById(`prod-file-url-${pid}`).value=''
+  document.getElementById('prod-file-title-'+pid).value=''
+  document.getElementById('prod-file-url-'+pid).value=''
   await loadProductionPortalContent(pid)
   toast('File added!')
 }
 async function deleteProductionFile(pid, fid){
   if(!confirm('Remove this file?')) return
-  await api(`/api/portal/files/${fid}`,'DELETE')
+  await api('/api/portal/files/'+fid,'DELETE')
   await loadProductionPortalContent(pid)
   toast('Removed')
 }
+
+// ── About ──
+async function loadProductionAbout(pid){
+  const prod = allProductions.find(p=>p.id===pid)
+  if(!prod) return
+  const d = document.getElementById('prod-director-'+pid)
+  const v = document.getElementById('prod-venue-'+pid)
+  const desc = document.getElementById('prod-description-'+pid)
+  if(d) d.value = prod.director||''
+  if(v) v.value = prod.venue||''
+  if(desc) desc.value = prod.description||''
+}
+async function saveProductionAbout(pid){
+  const director = document.getElementById('prod-director-'+pid)?.value.trim()||''
+  const venue = document.getElementById('prod-venue-'+pid)?.value.trim()||''
+  const description = document.getElementById('prod-description-'+pid)?.value.trim()||''
+  const res = await api('/api/productions/'+pid+'/about','PUT',{director, venue, description})
+  if(res.error){toast(res.error,'error');return}
+  // Update local
+  const prod = allProductions.find(p=>p.id===pid)
+  if(prod){prod.director=director; prod.venue=venue; prod.description=description}
+  const saved = document.getElementById('prod-about-saved-'+pid)
+  if(saved){saved.textContent='✓ Saved'; setTimeout(()=>saved.textContent='',2000)}
+  toast('Production info saved!')
+}
+
+// ── Meet the Team ──
+async function loadTeamMembers(pid){
+  const el = document.getElementById('prod-team-list-'+pid)
+  if(!el) return
+  const members = await api('/api/productions/'+pid+'/team')
+  if(!members.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
+    return
+  }
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">'
+    + members.map(m=>'<div style="border:1.5px solid var(--border-md);border-radius:var(--radius-lg);overflow:hidden">'
+      +(m.headshot_url?'<img src="'+m.headshot_url+'" style="width:100%;height:160px;object-fit:cover;display:block" onerror="this.style.display=\'none\'"/>':'<div style="width:100%;height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:36px">👤</div>')
+      +'<div style="padding:12px">'
+      +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
+      +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
+      +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">'+m.bio+'</div>':'')
+      +'<div style="margin-top:10px;display:flex;gap:6px">'
+      +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>'
+      +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px">✕</button>'
+      +'</div></div></div>'
+    ).join('')
+    + '</div>'
+}
+async function addTeamMember(pid){
+  const name = document.getElementById('team-name-'+pid)?.value.trim()
+  const role = document.getElementById('team-role-'+pid)?.value.trim()||''
+  const headshot_url = document.getElementById('team-headshot-'+pid)?.value.trim()||''
+  const bio = document.getElementById('team-bio-'+pid)?.value.trim()||''
+  if(!name){toast('Name required','error');return}
+  const res = await api('/api/productions/'+pid+'/team','POST',{name, role, headshot_url, bio})
+  if(res.error){toast(res.error,'error');return}
+  document.getElementById('team-name-'+pid).value=''
+  document.getElementById('team-role-'+pid).value=''
+  document.getElementById('team-headshot-'+pid).value=''
+  document.getElementById('team-bio-'+pid).value=''
+  await loadTeamMembers(pid)
+  toast('Team member added!')
+}
+async function deleteTeamMember(pid, mid){
+  if(!confirm('Remove this team member?')) return
+  await api('/api/productions/'+pid+'/team/'+mid,'DELETE')
+  await loadTeamMembers(pid)
+  toast('Removed')
+}
+async function editTeamMember(pid, mid){
+  const members = await api('/api/productions/'+pid+'/team')
+  const m = members.find(x=>x.id===mid)
+  if(!m) return
+  const name = prompt('Name:', m.name)
+  if(!name) return
+  const role = prompt('Role:', m.role||'')
+  const headshot_url = prompt('Headshot URL:', m.headshot_url||'')
+  const bio = prompt('Bio:', m.bio||'')
+  await api('/api/productions/'+pid+'/team/'+mid,'PUT',{name, role:role||'', headshot_url:headshot_url||'', bio:bio||'', sort_order:m.sort_order||0})
+  await loadTeamMembers(pid)
+  toast('Updated!')
+}
+
+// ── Conflicts ──
+const CONFLICT_STATUS_STYLE = {
+  absent:       {bg:'#fef2f2',col:'#dc2626',label:'Absent'},
+  sick:         {bg:'#fef2f2',col:'#dc2626',label:'Sick'},
+  late:         {bg:'#fffbeb',col:'#d97706',label:'Late'},
+  leaving_early:{bg:'#fffbeb',col:'#d97706',label:'Leaving Early'}
+}
+async function loadProductionConflicts(pid){
+  const el = document.getElementById('prod-conflicts-'+pid)
+  if(!el) return
+  const conflicts = await api('/api/productions/'+pid+'/conflicts')
+  if(!conflicts.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No conflicts on record.</div>'
+    return
+  }
+  // Group: pending approval | today | upcoming/past
+  const today = new Date().toISOString().split('T')[0]
+  const pending = conflicts.filter(c=>!c.approved)
+  const approved = conflicts.filter(c=>c.approved)
+  let html = ''
+  if(pending.length){
+    html += '<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--amber-600);margin-bottom:8px">⏳ Pending Approval ('+pending.length+')</div>'
+    html += pending.map(c=>conflictRow(c, pid, true)).join('')+'</div>'
+  }
+  const todayC = approved.filter(c=>!c.event_date||c.event_date===today)
+  const otherC = approved.filter(c=>c.event_date&&c.event_date!==today)
+  if(todayC.length){
+    html += '<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--red-600);margin-bottom:8px">🔴 Today ('+todayC.length+')</div>'
+    html += todayC.map(c=>conflictRow(c, pid, false)).join('')+'</div>'
+  }
+  if(otherC.length){
+    html += '<div><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📅 Upcoming / Past</div>'
+    html += otherC.map(c=>conflictRow(c, pid, false)).join('')+'</div>'
+  }
+  el.innerHTML = html
+}
+function conflictRow(c, pid, showApprove){
+  const s = CONFLICT_STATUS_STYLE[c.status]||CONFLICT_STATUS_STYLE.absent
+  const src = c.source==='portal'?'Self-reported':c.source==='admin'?'Admin entry':'Staff'
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
+    +'<div style="flex:1">'
+    +'<div style="font-size:14px;font-weight:600">'+(c.person_name||'Unknown')+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'
+    +(c.event_name?c.event_name+(c.event_date?' · '+c.event_date:''):'No specific event')
+    +' · '+src
+    +(c.notes?' · '+c.notes:'')
+    +'</div></div>'
+    +'<span style="background:'+s.bg+';color:'+s.col+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;flex-shrink:0">'+s.label+'</span>'
+    +(showApprove?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')">✅</button>':'')
+    +'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\')">✕</button>'
+    +'</div>'
+}
+async function approveConflictDirect(pid, cid){
+  await api('/api/productions/'+pid+'/conflicts/'+cid,'PUT',{approved:true, status:'absent'})
+  await loadProductionConflicts(pid)
+  toast('Conflict approved')
+}
+async function removeConflict(pid, cid){
+  if(!confirm('Remove this conflict?')) return
+  await api('/api/productions/'+pid+'/conflicts/'+cid,'DELETE')
+  await loadProductionConflicts(pid)
+  toast('Removed')
+}
+function openAddConflictModal(pid){
+  // Build cast member list from youth enrolled in this production
+  const prod = allProductions.find(p=>p.id===pid)
+  const youthOptions = allYouth.filter(y=>(y.productions||[]).some?.(pm=>pm.production_id===pid))
+  const volOptions = (prod?.members||[])
+  const modal = document.createElement('div')
+  modal.className='modal-overlay open'; modal.id='modal-add-conflict'
+  modal.innerHTML = '<div class="modal"><div class="modal-header"><div class="modal-title">Add Conflict</div>'
+    +'<button class="modal-close" onclick="document.getElementById(\'modal-add-conflict\').remove()">✕</button></div>'
+    +'<div class="modal-body">'
+    +'<div class="form-group"><label>Person</label>'
+    +'<select id="conflict-person-id" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +'<option value="">— Select person —</option>'
+    +'<optgroup label="Youth Cast">'
+    +allYouth.map(y=>'<option value="youth:'+y.id+'">'+y.first_name+' '+y.last_name+'</option>').join('')
+    +'</optgroup>'
+    +(volOptions.length?'<optgroup label="Adult Crew/Cast">'+volOptions.map(m=>'<option value="vol:'+m.volunteer_id+'">'+m.volunteer_name+'</option>').join('')+'</optgroup>':'')
+    +'</select></div>'
+    +'<div class="form-group"><label>Status</label>'
+    +'<select id="conflict-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +'<option value="absent">Absent</option><option value="sick">Sick</option>'
+    +'<option value="late">Late</option><option value="leaving_early">Leaving Early</option>'
+    +'</select></div>'
+    +'<div class="form-group"><label>Notes (optional)</label>'
+    +'<input type="text" id="conflict-notes" placeholder="Any notes…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>'
+    +'</div><div class="modal-footer">'
+    +'<button class="btn btn-secondary" onclick="document.getElementById(\'modal-add-conflict\').remove()">Cancel</button>'
+    +'<button class="btn btn-primary" onclick="submitAddConflict(\''+pid+'\')">Add Conflict</button>'
+    +'</div></div>'
+  document.body.appendChild(modal)
+}
+async function submitAddConflict(pid){
+  const personVal = document.getElementById('conflict-person-id')?.value
+  const status = document.getElementById('conflict-status')?.value||'absent'
+  const notes = document.getElementById('conflict-notes')?.value.trim()||''
+  if(!personVal){toast('Select a person','error');return}
+  const [type, id] = personVal.split(':')
+  const payload = {status, notes, source:'admin', approved:true}
+  if(type==='youth') payload.youth_id = id
+  else payload.volunteer_id = id
+  await api('/api/productions/'+pid+'/conflicts','POST',payload)
+  document.getElementById('modal-add-conflict').remove()
+  await loadProductionConflicts(pid)
+  toast('Conflict added')
+}
+
 
 // ── Enhanced program portal tab: add folder support ──
 // ── PROGRAM PORTAL CONTENT ──

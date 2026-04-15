@@ -548,6 +548,8 @@ async function selectContext(type, id, name, color){
       +(type==='production'?'<span>⭐ Rising Stars</span>':'')
       +(castRole?'<span>🎭 '+castRole+'</span>':'')
       +'</div>'
+      // Day-of callout button for productions only
+      +(type==='production'?buildCalloutBar(id, activeChildId):'')
 
     // Build tabs
     const today = new Date().toISOString().split('T')[0]
@@ -722,6 +724,52 @@ function portalFieldClick(btn){
     if(d.ok) toast('Change request submitted! HWTC staff will review it.')
     else toast('Error submitting request','error')
   })
+}
+
+
+function buildCalloutBar(productionId, yid){
+  if(!yid) return ''
+  window._calloutProdId = productionId
+  window._calloutYid = yid
+  return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
+    +'<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:8px">Calling out for today? Let the production team know:</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    +'<button data-callout="absent" onclick="handleCalloutBtn(this)" style="background:rgba(220,38,38,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🔴 Absent</button>'
+    +'<button data-callout="sick" onclick="handleCalloutBtn(this)" style="background:rgba(220,38,38,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🤒 Sick</button>'
+    +'<button data-callout="late" onclick="handleCalloutBtn(this)" style="background:rgba(217,119,6,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🟡 Running Late</button>'
+    +'<button data-callout="leaving_early" onclick="handleCalloutBtn(this)" style="background:rgba(217,119,6,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🟠 Leaving Early</button>'
+    +'</div></div>'
+}
+
+function handleCalloutBtn(btn){
+  var status = btn.getAttribute('data-callout')
+  var productionId = window._calloutProdId
+  var yid = window._calloutYid
+  submitCallout(productionId, yid, status)
+}
+
+
+async function submitCallout(productionId, yid, status){
+  const labels = {absent:'Absent',sick:'Sick',late:'Running Late',leaving_early:'Leaving Early'}
+  if(!confirm('Mark '+labels[status]+' for today? This will notify the production team.')) return
+  const notes = status==='late'||status==='leaving_early' ? (prompt('Any notes? (optional)','') || '') : ''
+  const r = await fetch('/api/portal/callout',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({production_id:productionId, youth_id:yid, status, notes})
+  })
+  const d = await r.json()
+  if(d.ok){
+    toast('Callout submitted! The production team has been notified.')
+    // Re-render the detail hero to show confirmation state
+    const heroEl = document.getElementById('detail-hero')
+    if(heroEl){
+      const bar = heroEl.querySelector('[data-callout-bar]')
+      if(bar) bar.innerHTML = '<div style="font-size:13px;color:rgba(255,255,255,0.9);margin-top:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,0.2)">✅ Callout submitted — the team has been notified.</div>'
+    }
+  } else {
+    toast(d.error||'Error submitting callout','error')
+  }
 }
 
 function switchDetailTab(id, btn){

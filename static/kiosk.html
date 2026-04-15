@@ -1203,6 +1203,7 @@ function handleProdSignIn(btn){
   if(e) openProdSignIn(e)
 }
 
+let psConflicts=[]
 async function openProdSignIn(evt){
   psEventId=evt.id
   document.getElementById('ps-prod-name').textContent=evt.production_name||'Production Sign-In'
@@ -1210,10 +1211,16 @@ async function openProdSignIn(evt){
   document.getElementById('ps-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading roster…</div>'
   showScreen('screen-prod-signin')
 
-  const r=await fetch(`/api/kiosk/production-roster/${evt.id}`)
-  const d=await r.json()
-  if(d.error){document.getElementById('ps-roster').innerHTML=`<div style="text-align:center;padding:32px;color:var(--muted)">${d.error}</div>`;return}
-  psRoster=d.members||[]
+  const prodId=evt.production_id||''
+  const [rosterResp, conflictsResp]=await Promise.all([
+    fetch(`/api/kiosk/production-roster/${evt.id}`).then(r=>r.json()).catch(()=>({members:[]})),
+    prodId?fetch(`/api/productions/${prodId}/conflicts`).then(r=>r.json()).catch(()=>[]):Promise.resolve([])
+  ])
+  if(rosterResp.error){document.getElementById('ps-roster').innerHTML=`<div style="text-align:center;padding:32px;color:var(--muted)">${rosterResp.error}</div>`;return}
+  psRoster=rosterResp.members||[]
+  // Keep only today's approved conflicts
+  const today=new Date().toISOString().split('T')[0]
+  psConflicts=(Array.isArray(conflictsResp)?conflictsResp:[]).filter(c=>c.approved&&(!c.event_date||c.event_date===today))
   renderPsRoster()
 }
 
@@ -1230,6 +1237,15 @@ function filterPsRoster(){
   const container=document.getElementById('ps-roster')
   if(!filtered.length){container.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted)">No members found</div>';return}
 
+  const conflictStyles={absent:{bg:'#fef2f2',border:'#fca5a5',badge:'🔴 Absent',badgeBg:'#dc2626'},
+    sick:{bg:'#fef2f2',border:'#fca5a5',badge:'🤒 Sick',badgeBg:'#dc2626'},
+    late:{bg:'#fffbeb',border:'#fcd34d',badge:'🟡 Late',badgeBg:'#d97706'},
+    leaving_early:{bg:'#fffbeb',border:'#fcd34d',badge:'🟠 Leaving Early',badgeBg:'#d97706'}}
+
+  // Build conflict lookup by volunteer_id
+  const conflictByVol={}
+  psConflicts.forEach(c=>{if(c.volunteer_id)conflictByVol[c.volunteer_id]=c})
+
   // Group by department
   const byDept={}
   filtered.forEach(m=>{const d=m.department||'General';if(!byDept[d])byDept[d]=[];byDept[d].push(m)})
@@ -1237,18 +1253,23 @@ function filterPsRoster(){
   container.innerHTML=Object.entries(byDept).map(([dept,members])=>`
     <div style="margin-bottom:12px">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--hint);margin-bottom:6px">${dept}</div>
-      ${members.map((m,i)=>{
+      ${members.map(m=>{
         const[bg,col]=avc(m.volunteer_name)
         const isIn=m.signed_in
-        return`<div style="background:${isIn?'var(--green-light)':'var(--surface)'};border:2px solid ${isIn?'#86EFAD':'var(--border)'};border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all 0.15s;margin-bottom:6px"
-          onclick="psMemberTap('${m.volunteer_id}','${m.member_id}','${m.attendance_id||''}',${isIn},'${m.volunteer_name}','${m.role||''}')">
+        const conflict=conflictByVol[m.volunteer_id]
+        const cs=conflict?conflictStyles[conflict.status]||conflictStyles.absent:null
+        const rowBg=cs?cs.bg:isIn?'var(--green-light)':'var(--surface)'
+        const rowBorder=cs?cs.border:isIn?'#86EFAD':'var(--border)'
+        return`<div style="background:${rowBg};border:2px solid ${rowBorder};border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:all 0.15s;margin-bottom:6px"
+          onclick="psMemberTap('${m.volunteer_id}','${m.member_id}','${m.attendance_id||''}',${isIn&&!conflict},'${m.volunteer_name}','${m.role||''}')">
           <div style="width:42px;height:42px;border-radius:50%;background:${bg};color:${col};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">${ini(m.volunteer_name)}</div>
           <div style="flex:1">
             <div style="font-weight:600;font-size:16px">${m.volunteer_name}</div>
             <div style="font-size:13px;color:var(--muted)">${m.role||''}${m.department?' · '+m.department:''}</div>
+            ${conflict?`<div style="font-size:12px;font-weight:600;color:${cs.badgeBg};margin-top:3px">${cs.badge}${conflict.notes?' — '+conflict.notes:''} ${conflict.source==='portal'?'(self-reported)':'(staff entered)'}</div>`:''}
           </div>
-          <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">
-            ${isIn?'✅ IN':'◯ OUT'}
+          <div style="font-size:13px;font-weight:700;color:${cs?cs.badgeBg:isIn?'var(--green)':'var(--hint)'}">
+            ${cs?cs.badge.split(' ')[0]:isIn?'✅ IN':'◯ OUT'}
           </div>
         </div>`
       }).join('')}

@@ -521,10 +521,17 @@ async function selectContext(type, id, name, color){
 
     // Fetch everything in parallel
     const endpoint = type==='program'?'/api/portal/program/'+id+'/events':'/api/portal/production/'+id+'/events'
-    const [events, profileData] = await Promise.all([
+    const conflictsUrl = type==='production' ? '/api/portal/production/'+id+'/conflicts'+(activeChildId?'?youth_id='+activeChildId:'') : null
+    const teamUrl = type==='production' ? '/api/productions/'+id+'/team' : null
+    const [events, profileData, conflicts, teamMembers] = await Promise.all([
       fetch(endpoint).then(r=>r.json()).catch(()=>[]),
-      activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null) : Promise.resolve(null)
+      activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
+      conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]) : Promise.resolve([]),
+      teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]) : Promise.resolve([])
     ])
+    // Build conflict lookup by event_id
+    const conflictByEvent = {}
+    ;(conflicts||[]).forEach(c=>{ if(c.event_id){ if(!conflictByEvent[c.event_id]) conflictByEvent[c.event_id]=[]; conflictByEvent[c.event_id].push(c) } })
 
     // Filter announcements/files
     const {announcements=[], files=[]} = activeChildData
@@ -561,6 +568,8 @@ async function selectContext(type, id, name, color){
       {id:'announcements', label:'📢 Announcements ('+contextAnnouncements.length+')'},
       {id:'files',      label:'📁 Files ('+contextFiles.length+')'},
     ]
+    if(type==='production' && teamMembers.length) tabDefs.push({id:'team', label:'👥 Meet the Team'})
+    if(type==='production') tabDefs.push({id:'conflicts', label:'⚔️ Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
     if(profileData) tabDefs.push({id:'profile', label:'👤 Profile'})
 
     document.getElementById('detail-tabs').innerHTML = ''
@@ -573,12 +582,12 @@ async function selectContext(type, id, name, color){
       document.getElementById('detail-tabs').appendChild(btn)
     })
 
-    // Build schedule HTML
+    // Build schedule HTML — pass conflicts so each event row can show callout status
     const schedHTML = !events.length
       ? '<div class="empty-state"><div class="icon">📅</div>No events scheduled yet.</div>'
       : '<div style="margin-bottom:8px;font-weight:700;font-size:13px;color:var(--teal-dark)">Upcoming</div>'
-        +(upcoming.length?upcoming.map(e=>eventRow(e,today)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')
-        +(past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today)).join(''):'')
+        +(upcoming.length?upcoming.map(e=>eventRow(e,today,conflictByEvent)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')
+        +(past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today,{})).join(''):'')
 
     // Build announcements HTML
     const annHTML = !contextAnnouncements.length
@@ -619,11 +628,19 @@ async function selectContext(type, id, name, color){
       profileHTML = buildProfileTab(y, activeChildId)
     }
 
+    // Build Meet the Team HTML
+    const teamHTML = buildTeamHTML(teamMembers)
+
+    // Build Conflicts HTML
+    const conflictsHTML = buildPortalConflictsHTML(conflicts, activeChildId, id, events)
+
     // Set all tab content at once
     const tabHTML =
       '<div class="tab-content active" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
       +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
       +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
+      +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
+      +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
       +(profileData?'<div class="tab-content" id="dtab-profile" style="padding:20px">'+profileHTML+'</div>':'')
 
     document.getElementById('detail-tab-contents').innerHTML = tabHTML
@@ -732,13 +749,8 @@ function buildCalloutBar(productionId, yid){
   window._calloutProdId = productionId
   window._calloutYid = yid
   return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
-    +'<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:8px">Calling out for today? Let the production team know:</div>'
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-    +'<button data-callout="absent" onclick="handleCalloutBtn(this)" style="background:rgba(220,38,38,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🔴 Absent</button>'
-    +'<button data-callout="sick" onclick="handleCalloutBtn(this)" style="background:rgba(220,38,38,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🤒 Sick</button>'
-    +'<button data-callout="late" onclick="handleCalloutBtn(this)" style="background:rgba(217,119,6,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🟡 Running Late</button>'
-    +'<button data-callout="leaving_early" onclick="handleCalloutBtn(this)" style="background:rgba(217,119,6,0.7);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🟠 Leaving Early</button>'
-    +'</div></div>'
+    +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to today\'s event in the 📅 Schedule tab.</div>'
+    +'</div>'
 }
 
 function handleCalloutBtn(btn){
@@ -783,25 +795,131 @@ function switchDetailTab(id, btn){
   if(target){ target.classList.add('active'); target.style.display = 'block' }
 }
 
-function eventRow(e, today){
+const CONFLICT_LABELS = {absent:'🔴 Absent',sick:'🤒 Sick',late:'🟡 Running Late',leaving_early:'🟠 Leaving Early'}
+const CONFLICT_COLORS = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
+const CONFLICT_BG    = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
+
+function eventRow(e, today, conflictByEvent){
   const d = e.event_date ? new Date(e.event_date+'T00:00:00') : null
   const day = d ? d.getDate() : '?'
   const mon = d ? d.toLocaleDateString('en-US',{month:'short'}) : ''
   const isToday = e.event_date===today
   const timeStr = e.start_time?(e.end_time?fmtTime(e.start_time)+' – '+fmtTime(e.end_time):fmtTime(e.start_time)):'Time TBD'
-  return `<div class="event-item">
-    <div class="event-date-block">
-      <div class="event-date-day">${day}</div>
-      <div class="event-date-mon">${mon}</div>
-    </div>
-    <div class="event-info">
-      <div class="event-name">${e.name}${isToday?' <span class="event-today">Today</span>':''}</div>
-      <div class="event-meta">
-        <span>⏰ ${timeStr}</span>
-        ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
-      </div>
-    </div>
-  </div>`
+
+  // Check for conflicts on this event
+  const eventConflicts = (conflictByEvent&&conflictByEvent[e.id])||[]
+  const myConflict = eventConflicts.find(c=>c.is_mine)
+  const othersCount = eventConflicts.filter(c=>!c.is_mine).length
+
+  let conflictBadge = ''
+  if(myConflict){
+    const col = CONFLICT_COLORS[myConflict.status]||'#dc2626'
+    const bg  = CONFLICT_BG[myConflict.status]||'#fef2f2'
+    conflictBadge = '<div style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:'+bg+';color:'+col+';padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600">'
+      +CONFLICT_LABELS[myConflict.status]
+      +(myConflict.notes?' — '+myConflict.notes:'')
+      +(myConflict.source==='portal'?' (you reported this)':'')
+      +'</div>'
+  }
+  const othersNote = othersCount>0&&!myConflict ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+othersCount+' other'+(othersCount>1?'s':'')+' have reported a conflict</div>' : ''
+
+  const row = '<div class="event-item" style="'+(myConflict?'opacity:0.75;':'')+(isToday?'border-left:3px solid var(--teal-mid);padding-left:8px;':'')+'">'
+    +'<div class="event-date-block">'
+    +'<div class="event-date-day">'+day+'</div>'
+    +'<div class="event-date-mon">'+mon+'</div>'
+    +'</div>'
+    +'<div class="event-info" style="flex:1">'
+    +'<div class="event-name">'+e.name+(isToday?' <span class="event-today">Today</span>':'')+'</div>'
+    +'<div class="event-meta"><span>⏰ '+timeStr+'</span>'+(e.location?'<span>📍 '+e.location+(e.room?' · '+e.room:'')+'</span>':'')+'</div>'
+    +conflictBadge
+    +othersNote
+    +'</div>'
+    +(conflictByEvent&&!myConflict&&e.event_date===today
+      ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Call Out</button>'
+      : '')
+    +'</div>'
+  return row
+}
+
+function showCalloutForEvent(eventId, eventName){
+  const productionId = window._calloutProdId
+  const yid = window._calloutYid
+  if(!productionId||!yid) return
+  const status = prompt('Calling out for: '+eventName+'\n\nSelect status:\n1 = Absent\n2 = Sick\n3 = Running Late\n4 = Leaving Early\n\nEnter 1-4:')
+  const map = {'1':'absent','2':'sick','3':'late','4':'leaving_early'}
+  const s = map[status]
+  if(!s){ return }
+  const notes = s==='late'||s==='leaving_early' ? (prompt('Any notes? (optional, press Cancel to skip)','') || '') : ''
+  fetch('/api/portal/callout',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({production_id:productionId, youth_id:yid, event_id:eventId, status:s, notes})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){ toast(CONFLICT_LABELS[s]+' for '+eventName+' — the team has been notified.'); selectContext(activeContextType, activeContextId, '', '') }
+    else toast(d.error||'Error submitting callout','error')
+  })
+}
+
+function buildTeamHTML(members){
+  if(!members||!members.length) return '<div class="empty-state"><div class="icon">👥</div>No team info yet.</div>'
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">'
+    +members.map(m=>
+      '<div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;text-align:center">'
+      +(m.headshot_url
+        ?'<div style="height:150px;overflow:hidden"><img src="'+m.headshot_url+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<div style=&quot;height:150px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:48px&quot;>👤</div>\'"/></div>'
+        :'<div style="height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:40px">👤</div>')
+      +'<div style="padding:12px">'
+      +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
+      +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
+      +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">'+m.bio+'</div>':'')
+      +'</div></div>'
+    ).join('')
+    +'</div>'
+}
+
+function buildPortalConflictsHTML(conflicts, yid, prodId, events){
+  // My confirmed conflicts
+  const mine = (conflicts||[]).filter(c=>c.is_mine)
+  // Others (anonymised)
+  const others = (conflicts||[]).filter(c=>!c.is_mine)
+
+  let html = ''
+  if(!mine.length && !others.length){
+    return '<div class="empty-state"><div class="icon">✅</div>No conflicts on record for upcoming events.</div>'
+  }
+  if(mine.length){
+    html += '<div style="margin-bottom:20px">'
+    html += '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Your Reported Conflicts</div>'
+    html += mine.map(c=>{
+      const col = CONFLICT_COLORS[c.status]||'#dc2626'
+      const bg  = CONFLICT_BG[c.status]||'#fef2f2'
+      return '<div style="background:'+bg+';border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+        +'<div>'
+        +'<div style="font-size:14px;font-weight:600;color:'+col+'">'+CONFLICT_LABELS[c.status]+'</div>'
+        +(c.event_name?'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+c.event_name+(c.event_date?' · '+fmtDate(c.event_date):'')+'</div>':'')
+        +(c.notes?'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+c.notes+'</div>':'')
+        +'</div>'
+        +'<span style="font-size:11px;background:rgba(0,0,0,0.06);color:var(--text-muted);padding:3px 8px;border-radius:8px;white-space:nowrap">'+(c.source==='portal'?'Self-reported':'Staff entered')+'</span>'
+        +'</div>'
+    }).join('')
+    html += '</div>'
+  }
+  if(others.length){
+    // Group by event
+    const byEvt = {}
+    others.forEach(c=>{ const k=c.event_name||'General'; if(!byEvt[k]) byEvt[k]=0; byEvt[k]++ })
+    html += '<div style="margin-bottom:20px">'
+    html += '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Other Known Conflicts</div>'
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Names are kept private. This shows how many cast members have reported conflicts per event.</div>'
+    html += Object.entries(byEvt).map(([evt,count])=>
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="font-size:13px">'+evt+'</span>'
+      +'<span style="font-size:12px;font-weight:600;color:var(--red-600)">'+count+' conflict'+(count>1?'s':'')+'</span>'
+      +'</div>'
+    ).join('')
+    html += '</div>'
+  }
+  return html
 }
 
 // ── INSTRUCTOR PORTAL ──

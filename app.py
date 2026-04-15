@@ -3523,3 +3523,19 @@ def update_youth_production_member(pid, mid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+# ── Reset user password (admin only) ──
+@app.route('/api/users/<uid>/reset-password', methods=['POST'])
+def reset_user_password(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    new_pw = d.get('password','').strip()
+    if len(new_pw) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+    pw_hash = hashlib.sha256(new_pw.encode()).hexdigest()
+    conn = get_db()
+    execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (pw_hash, uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+

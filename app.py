@@ -3388,9 +3388,9 @@ def portal_callout():
     # Check it's today (prevent advance callouts)
     cid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO production_conflicts
-        (id, production_id, youth_id, status, source, notes, approved, created_by_portal)
-        VALUES (%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
-        (cid, production_id, youth_id, status, d.get('notes','')))
+        (id, production_id, event_id, youth_id, status, source, notes, approved, created_by_portal)
+        VALUES (%s,%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
+        (cid, production_id, d.get('event_id') or None, youth_id, status, d.get('notes','')))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': cid})
 
@@ -3470,4 +3470,40 @@ def update_production_about(pid):
         (d.get('description',''), d.get('venue',''), d.get('director',''), pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ── Portal-facing: public conflicts for a production (approved only, no names of others) ──
+@app.route('/api/portal/production/<pid>/conflicts')
+def portal_production_conflicts(pid):
+    """Returns approved conflicts visible to portal — today's and upcoming only.
+    For privacy, only returns conflicts for the requesting youth (if yid passed),
+    plus anonymised counts for others."""
+    conn = get_db()
+    yid = request.args.get('youth_id')
+    today = 'CURRENT_DATE'
+    # All approved conflicts for this production from today forward
+    rows = fetchall(conn, '''SELECT pc.id, pc.event_id, pc.youth_id, pc.status,
+        pc.source, pc.notes, pc.created_at,
+        e.name as event_name, e.event_date, e.start_time
+        FROM production_conflicts pc
+        LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s AND pc.approved=TRUE
+          AND (e.event_date IS NULL OR e.event_date >= CURRENT_DATE)
+        ORDER BY e.event_date ASC NULLS LAST, pc.created_at DESC''', (pid,))
+    conn.close()
+    # Return full details for own conflicts, just event_id+status for others
+    result = []
+    for r in rows:
+        if r['youth_id'] == yid:
+            result.append({**dict(r), 'is_mine': True})
+        else:
+            result.append({
+                'event_id': r['event_id'],
+                'event_name': r['event_name'],
+                'event_date': r['event_date'],
+                'status': r['status'],
+                'is_mine': False,
+                'youth_id': None  # anonymised
+            })
+    return jsonify(result)
 

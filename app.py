@@ -372,6 +372,7 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS role TEXT",
         # volunteer-participant linking
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_participant_id TEXT REFERENCES youth_participants(id) ON DELETE SET NULL",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS linked_volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
@@ -428,6 +429,7 @@ def init_db():
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
         # meet the team
@@ -3507,4 +3509,17 @@ def portal_production_conflicts(pid):
                 'youth_id': None  # anonymised
             })
     return jsonify(result)
+
+
+# ── Youth production member role update ──
+@app.route('/api/productions/<pid>/youth-members/<mid>', methods=['PUT'])
+def update_youth_production_member(pid, mid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth_production_members SET role=%s WHERE id=%s AND production_id=%s',
+            (d.get('role',''), mid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 

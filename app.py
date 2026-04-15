@@ -372,6 +372,31 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
+        # volunteer-participant linking
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_participant_id TEXT REFERENCES youth_participants(id) ON DELETE SET NULL",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS linked_volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        # stage manager role (no DB change needed, just allow it in validation)
+        # notifications read tracking
+        """CREATE TABLE IF NOT EXISTS notification_reads (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            notification_type TEXT NOT NULL,
+            notification_id TEXT NOT NULL,
+            read_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, notification_type, notification_id))""",
+        # production conflicts
+        """CREATE TABLE IF NOT EXISTS production_conflicts (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            event_id TEXT REFERENCES events(id) ON DELETE CASCADE,
+            youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'absent',
+            source TEXT NOT NULL DEFAULT 'admin',
+            notes TEXT,
+            approved BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            created_by_portal BOOLEAN DEFAULT FALSE)""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
@@ -2387,7 +2412,7 @@ def update_user_role(uid):
     err = require_admin()
     if err: return err
     d = request.json
-    valid_roles = ['admin', 'board', 'instructor', 'elic']
+    valid_roles = ['admin', 'board', 'instructor', 'elic', 'stage_manager']
     if d.get('role') not in valid_roles:
         return jsonify({'error': f'Role must be one of: {", ".join(valid_roles)}'}), 400
     conn = get_db()
@@ -3106,3 +3131,272 @@ def portal_request_youth_update(yid):
         (uid, yid, d['field_name'], d.get('old_value',''), d['new_value']))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+# ═══════════════════════════════════════════════════════════════
+#  NOTIFICATIONS CENTER
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/notifications')
+def get_notifications():
+    err = require_auth()
+    if err: return err
+    role = session.get('role')
+    user_id = session.get('user_id')
+    conn = get_db()
+    result = {'needs_action': [], 'activity': [], 'total_action': 0}
+
+    # ── Pending hours (admin/instructor) ──
+    if role in ('admin', 'instructor', 'board'):
+        hours = fetchall(conn, '''SELECT ph.*, v.name as volunteer_name, v.id as volunteer_id
+            FROM pending_hours ph JOIN volunteers v ON ph.volunteer_id=v.id
+            WHERE ph.status='pending' ORDER BY ph.submitted_at DESC''')
+        for h in hours:
+            result['needs_action'].append({
+                'type': 'pending_hours', 'id': h['id'],
+                'title': f"{h['volunteer_name']} submitted {h['hours']}h for {h['event']}",
+                'sub': f"Submitted {h.get('submitted_at','')[:10]}",
+                'icon': '⏱', 'color': 'amber', 'data': dict(h)
+            })
+
+    # ── Pending profile updates ──
+    if role in ('admin',):
+        updates = fetchall(conn, '''SELECT pu.*,
+            CASE WHEN pu.youth_id IS NOT NULL 
+                 THEN (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pu.youth_id)
+                 ELSE v.name END as person_name,
+            CASE WHEN pu.youth_id IS NOT NULL THEN 'participant' ELSE 'volunteer' END as profile_type
+            FROM pending_profile_updates pu
+            LEFT JOIN volunteers v ON pu.volunteer_id=v.id
+            WHERE pu.status='pending' ORDER BY pu.submitted_at DESC''')
+        for u in updates:
+            result['needs_action'].append({
+                'type': 'profile_update', 'id': u['id'],
+                'title': f"{u['person_name']} requested change to {u['field_name']}",
+                'sub': f"New value: {u['new_value'][:60]}",
+                'icon': '👤', 'color': 'blue', 'data': dict(u)
+            })
+
+    # ── Conflict requests needing approval ──
+    if role in ('admin', 'stage_manager'):
+        conflicts = fetchall(conn, '''SELECT pc.*,
+            COALESCE(
+                (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pc.youth_id),
+                (SELECT name FROM volunteers WHERE id=pc.volunteer_id)
+            ) as person_name,
+            p.name as production_name,
+            e.name as event_name, e.event_date
+            FROM production_conflicts pc
+            JOIN productions p ON pc.production_id=p.id
+            LEFT JOIN events e ON pc.event_id=e.id
+            WHERE pc.approved=FALSE ORDER BY pc.created_at DESC''')
+        for c in conflicts:
+            result['needs_action'].append({
+                'type': 'conflict_request', 'id': c['id'],
+                'title': f"{c['person_name']} — {c['status'].title()} for {c['production_name']}",
+                'sub': c['event_name'] or 'No specific event',
+                'icon': '⚔️', 'color': 'red', 'data': dict(c)
+            })
+
+    # ── Missing waivers (proactive) ──
+    if role in ('admin', 'instructor'):
+        # Events in next 7 days
+        upcoming_evts = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.program_id, e.production_id
+            FROM events e WHERE e.event_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+            ORDER BY e.event_date''')
+        for evt in upcoming_evts:
+            req_waivers = fetchall(conn, '''SELECT wt.id, wt.name FROM event_waivers ew
+                JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s''', (evt['id'],))
+            if not req_waivers: continue
+            # Check enrolled youth
+            if evt['program_id']:
+                enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+                    FROM youth_program_enrollments ye JOIN youth_participants y ON ye.youth_id=y.id
+                    WHERE ye.program_id=%s''', (evt['program_id'],))
+                wt_ids = [w['id'] for w in req_waivers]
+                for y in enrolled:
+                    signed = fetchall(conn, 'SELECT waiver_type_id FROM volunteer_waivers WHERE youth_id=%s', (y['id'],))
+                    signed_ids = {s['waiver_type_id'] for s in signed}
+                    missing = [w for w in req_waivers if w['id'] not in signed_ids]
+                    if missing:
+                        result['needs_action'].append({
+                            'type': 'missing_waiver', 'id': f"{evt['id']}_{y['id']}",
+                            'title': f"{y['first_name']} {y['last_name']} missing waiver for {evt['name']}",
+                            'sub': f"Event: {evt['event_date']} · Missing: {', '.join(w['name'] for w in missing)}",
+                            'icon': '📋', 'color': 'red', 'data': {'event': dict(evt), 'youth': dict(y), 'missing': missing}
+                        })
+
+    # ── Activity: Today's callouts ──
+    today = fetchall(conn, '''SELECT pc.*,
+        COALESCE(
+            (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pc.youth_id),
+            (SELECT name FROM volunteers WHERE id=pc.volunteer_id)
+        ) as person_name,
+        p.name as production_name
+        FROM production_conflicts pc
+        JOIN productions p ON pc.production_id=p.id
+        WHERE DATE(pc.created_at)=CURRENT_DATE AND pc.approved=TRUE
+        ORDER BY pc.created_at DESC''')
+    for c in today:
+        result['activity'].append({
+            'type': 'callout', 'id': c['id'],
+            'title': f"{c['person_name']} called {c['status']} — {c['production_name']}",
+            'sub': f"Self-reported · {str(c.get('created_at',''))[:16]}",
+            'icon': '🔴' if c['status']=='absent' else '🟡', 'color': 'red',
+            'data': dict(c)
+        })
+
+    # ── Activity: Unauthorized pickups ──
+    pickups = fetchall(conn, '''SELECT pp.*, 
+        y.first_name||' '||y.last_name as youth_name
+        FROM pending_profile_updates pp
+        JOIN youth_participants y ON pp.youth_id=y.id
+        WHERE pp.field_name='unauthorized_pickup' AND pp.status='pending'
+        ORDER BY pp.submitted_at DESC''')
+    for p in pickups:
+        result['activity'].append({
+            'type': 'unauthorized_pickup', 'id': p['id'],
+            'title': f"Unauthorized pickup attempt for {p['youth_name']}",
+            'sub': p.get('new_value','')[:80],
+            'icon': '⚠️', 'color': 'amber', 'data': dict(p)
+        })
+
+    result['total_action'] = len(result['needs_action'])
+    conn.close()
+    return jsonify(result)
+
+
+# ── Volunteer-Participant linking ──
+
+@app.route('/api/volunteers/<vid>/link-participant', methods=['POST'])
+def link_volunteer_participant(vid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    pid = d.get('participant_id')
+    conn = get_db()
+    execute(conn, 'UPDATE volunteers SET linked_participant_id=%s WHERE id=%s', (pid or None, vid))
+    if pid:
+        execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (vid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/<yid>/link-volunteer', methods=['POST'])
+def link_youth_volunteer(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    vid = d.get('volunteer_id')
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (vid or None, yid))
+    if vid:
+        execute(conn, 'UPDATE volunteers SET linked_participant_id=%s WHERE id=%s', (yid, vid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Production Conflicts ──
+
+@app.route('/api/productions/<pid>/conflicts', methods=['GET'])
+def get_production_conflicts(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    conflicts = fetchall(conn, '''SELECT pc.*,
+        COALESCE(
+            (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pc.youth_id),
+            (SELECT name FROM volunteers WHERE id=pc.volunteer_id)
+        ) as person_name,
+        e.name as event_name, e.event_date
+        FROM production_conflicts pc
+        LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s ORDER BY pc.created_at DESC''', (pid,))
+    conn.close()
+    return jsonify(conflicts)
+
+@app.route('/api/productions/<pid>/conflicts', methods=['POST'])
+def create_production_conflict(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    cid = str(uuid.uuid4())
+    conn = get_db()
+    # Admin-created conflicts are auto-approved, portal submissions need approval
+    approved = session.get('role') in ('admin', 'stage_manager')
+    execute(conn, '''INSERT INTO production_conflicts
+        (id, production_id, event_id, youth_id, volunteer_id, status, source, notes, approved, created_by_portal)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (cid, pid, d.get('event_id') or None, d.get('youth_id') or None,
+         d.get('volunteer_id') or None, d.get('status','absent'),
+         d.get('source','admin'), d.get('notes',''), approved,
+         d.get('from_portal', False)))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pc.*,
+        COALESCE(
+            (SELECT first_name||' '||last_name FROM youth_participants WHERE id=pc.youth_id),
+            (SELECT name FROM volunteers WHERE id=pc.volunteer_id)
+        ) as person_name,
+        e.name as event_name, e.event_date
+        FROM production_conflicts pc LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.id=%s''', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/conflicts/<cid>', methods=['PUT'])
+def update_conflict(pid, cid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, '''UPDATE production_conflicts SET status=%s, notes=%s, approved=%s WHERE id=%s''',
+            (d.get('status'), d.get('notes',''), d.get('approved', True), cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/conflicts/<cid>', methods=['DELETE'])
+def delete_conflict(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_conflicts WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal callout (self-reported, day-of only) ──
+@app.route('/api/portal/callout', methods=['POST'])
+def portal_callout():
+    d = request.json
+    youth_id = d.get('youth_id')
+    production_id = d.get('production_id')
+    status = d.get('status', 'absent')
+    if status not in ('absent', 'sick', 'late', 'leaving_early'):
+        return jsonify({'error': 'Invalid status'}), 400
+    if not youth_id or not production_id:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    # Check it's today (prevent advance callouts)
+    cid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO production_conflicts
+        (id, production_id, youth_id, status, source, notes, approved, created_by_portal)
+        VALUES (%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
+        (cid, production_id, youth_id, status, d.get('notes','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': cid})
+
+# ── Mark notification as read ──
+@app.route('/api/notifications/read', methods=['POST'])
+def mark_notification_read():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO notification_reads (id, user_id, notification_type, notification_id)
+            VALUES (%s,%s,%s,%s) ON CONFLICT (user_id, notification_type, notification_id) DO NOTHING''',
+            (rid, session.get('user_id'), d['type'], d['id']))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    conn.close()
+    return jsonify({'ok': True})
+

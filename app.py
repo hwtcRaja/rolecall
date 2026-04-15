@@ -428,6 +428,7 @@ def init_db():
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
         # meet the team
         """CREATE TABLE IF NOT EXISTS production_team_members (

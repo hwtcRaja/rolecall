@@ -417,10 +417,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon">⏱</span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events &amp; Calendar</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">🎭 Mainstage</div>
-        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎬</span>Productions</div>
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Cast Sign-In</div>
 
@@ -459,23 +459,54 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
         </div>
         <div class="page-body">
-          <div class="stats-grid">
-            <div class="stat-card teal"><div class="stat-icon">👥</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total Volunteers</div></div>
-            <div class="stat-card blue"><div class="stat-icon">⏱</div><div class="stat-value" id="stat-hours">0</div><div class="stat-label">Total Hours Logged</div></div>
-            <div class="stat-card purple"><div class="stat-icon">🧒</div><div class="stat-value" id="stat-youth">0</div><div class="stat-label">Active Youth</div></div>
-            <div class="stat-card amber"><div class="stat-icon">⚠️</div><div class="stat-value" id="stat-waivers">0</div><div class="stat-label">Waivers Expiring</div></div>
-            <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-value" id="stat-expired">0</div><div class="stat-label">Expired Waivers</div></div>
+          <!-- Stat row -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:24px">
+            <div class="stat-card teal" style="cursor:pointer" onclick="navTo('volunteers')"><div class="stat-icon">👥</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Volunteers</div></div>
+            <div class="stat-card blue" style="cursor:pointer" onclick="navTo('hours')"><div class="stat-icon">⏱</div><div class="stat-value" id="stat-hours">0</div><div class="stat-label">Hours Logged</div></div>
+            <div class="stat-card purple" style="cursor:pointer" onclick="navTo('youth')"><div class="stat-icon">🧒</div><div class="stat-value" id="stat-youth">0</div><div class="stat-label">Participants</div></div>
+            <div class="stat-card teal" style="cursor:pointer" onclick="navTo('productions')"><div class="stat-icon">🎭</div><div class="stat-value" id="stat-productions">0</div><div class="stat-label">Productions</div></div>
+            <div class="stat-card amber" style="cursor:pointer" onclick="navTo('waivers')"><div class="stat-icon">⚠️</div><div class="stat-value" id="stat-waivers">0</div><div class="stat-label">Waivers Expiring</div></div>
+            <div class="stat-card red" style="cursor:pointer" onclick="navTo('notifications')"><div class="stat-icon">🔔</div><div class="stat-value" id="stat-actions">0</div><div class="stat-label">Needs Action</div></div>
           </div>
-          <div style="margin-bottom:28px"><h3 style="font-size:15px;font-weight:600;margin-bottom:12px">🔔 Alerts</h3><div id="alerts-container"></div></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-            <div class="card">
-              <div class="card-header"><div class="card-title">Monthly Hours</div></div>
-              <div style="padding:20px 20px 8px;display:flex;align-items:flex-end;gap:8px;height:140px" id="hours-chart"></div>
-              <div style="display:flex;padding:0 20px 16px;gap:8px" id="chart-labels"></div>
+          <!-- Main grid -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+            <!-- Today -->
+            <div class="card" style="padding:20px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Today — <span id="dash-today-date" style="color:var(--teal-dark);font-weight:600"></span></div>
+              <div id="dash-today-events"><div style="font-size:13px;color:var(--text-muted)">No events today</div></div>
             </div>
+            <!-- Upcoming -->
+            <div class="card" style="padding:20px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:14px">⏭ Next 7 Days</div>
+              <div id="dash-upcoming-events"><div style="font-size:13px;color:var(--text-muted)">No upcoming events</div></div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+            <!-- Alerts -->
+            <div class="card" style="padding:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div style="font-size:15px;font-weight:700">🔔 Alerts</div>
+                <button class="btn btn-secondary btn-sm" onclick="navTo('notifications')">View All</button>
+              </div>
+              <div id="alerts-container"></div>
+            </div>
+            <!-- Monthly hours chart -->
+            <div class="card" style="padding:20px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:14px">⏱ Monthly Hours</div>
+              <div style="display:flex;align-items:flex-end;gap:8px;height:120px" id="hours-chart"></div>
+              <div style="display:flex;gap:8px;margin-top:4px" id="chart-labels"></div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <!-- Top volunteers -->
             <div class="card">
-              <div class="card-header"><div class="card-title">Most Active Volunteers</div></div>
+              <div class="card-header"><div class="card-title">⭐ Most Active Volunteers</div></div>
               <table><thead><tr><th>Volunteer</th><th>Hours</th><th>Events</th></tr></thead><tbody id="top-vols-table"></tbody></table>
+            </div>
+            <!-- Active programs & productions -->
+            <div class="card" style="padding:20px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:14px">📊 Active Programs & Productions</div>
+              <div id="dash-active-programs"></div>
             </div>
           </div>
         </div>
@@ -624,10 +655,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- WAIVERS -->
       <section class="page" id="page-waivers">
-        <div class="page-header"><div><div class="page-title">Waiver Management</div><div class="page-subtitle">Track volunteer waiver status</div></div></div>
+        <div class="page-header">
+          <div><div class="page-title">Waiver Management</div><div class="page-subtitle">Track volunteer waiver status</div></div>
+        </div>
         <div class="page-body">
-          <div style="margin-bottom:20px"><select class="filter-select" id="waiver-filter" onchange="renderWaivers()"><option value="">All Waivers</option><option value="valid">✅ Valid</option><option value="expiring">⚠️ Expiring Soon</option><option value="expired">❌ Expired</option><option value="none">No Waiver</option></select></div>
-          <div class="waiver-grid" id="waivers-grid"></div>
+          <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+            <div class="search-input-wrap" style="flex:1;min-width:200px"><span>🔍</span><input type="text" id="waiver-search" placeholder="Search by name…" oninput="renderWaivers()"/></div>
+            <select class="filter-select" id="waiver-filter" onchange="renderWaivers()"><option value="">All Waivers</option><option value="valid">✅ Valid</option><option value="expiring">⚠️ Expiring Soon</option><option value="expired">❌ Expired</option><option value="none">No Waiver</option></select>
+            <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:var(--radius);padding:3px">
+              <button id="waiver-view-cards" class="btn btn-sm" style="padding:5px 12px;font-size:12px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setWaiverView('cards')">⊞ Cards</button>
+              <button id="waiver-view-list" class="btn btn-sm" style="padding:5px 12px;font-size:12px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setWaiverView('list')">☰ List</button>
+            </div>
+          </div>
+          <div id="waivers-grid"></div>
         </div>
       </section>
 
@@ -815,6 +855,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-body">
           <div class="search-bar" style="margin-bottom:20px">
             <div class="search-input-wrap"><span>🔍</span><input type="text" id="yp-search" placeholder="Search programs…" oninput="renderYouthProgramsPage()"/></div>
+            <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()"><option value="">All Statuses</option><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select>
             <select class="filter-select" id="yp-filter-type" onchange="renderYouthProgramsPage()">
               <option value="">All Types</option>
               <option value="class">Class</option>
@@ -1149,7 +1190,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Start Date</label><input type="date" id="program-start"/></div>
         <div class="form-group"><label>End Date</label><input type="date" id="program-end"/></div>
       </div>
-      <div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div>
+      <div class="form-row"><div class="form-group"><label>Status</label><select id="program-status"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div><div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-program')">Cancel</button>
@@ -1460,17 +1501,27 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Youth Modal -->
 <div class="modal-overlay" id="modal-youth">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Youth Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
+    <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="youth-edit-id"/>
-      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Child Information</div>
+      <!-- Minor toggle -->
+      <div style="background:var(--bg);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:16px">
+        <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Participant type:</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600">
+          <input type="radio" name="youth-minor" id="youth-is-minor" value="yes" checked onchange="toggleMinorSections()" style="accent-color:var(--teal-400)"/> Minor (under 18)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600">
+          <input type="radio" name="youth-minor" id="youth-is-adult" value="no" onchange="toggleMinorSections()" style="accent-color:var(--teal-400)"/> Adult
+        </label>
+      </div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Participant Information</div>
       <div class="form-row">
         <div class="form-group"><label>First Name *</label><input type="text" id="youth-first-name" placeholder="Emma"/></div>
         <div class="form-group"><label>Last Name *</label><input type="text" id="youth-last-name" placeholder="Smith"/></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob"/></div>
-        <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply. You can also enroll from their profile later.</div></div>
+        <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply.</div></div>
       </div>
       <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
       <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -1479,23 +1530,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <label class="form-check"><input type="checkbox" id="youth-photo-consent"/> Photo / Media Release</label>
         <label class="form-check"><input type="checkbox" id="youth-medical-consent"/> Emergency Medical Treatment Consent</label>
       </div>
-      <hr class="divider"/>
-      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Primary Guardian</div>
-      <div class="form-row">
-        <div class="form-group"><label>Guardian Name *</label><input type="text" id="youth-guardian-name" placeholder="Maria Smith"/></div>
-        <div class="form-group"><label>Relationship</label><input type="text" id="youth-guardian-rel" placeholder="Mother, Father, Guardian…"/></div>
+      <!-- Guardian section (minor only) -->
+      <div id="youth-minor-sections">
+        <hr class="divider"/>
+        <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Primary Guardian</div>
+        <div class="form-row">
+          <div class="form-group"><label>Guardian Name</label><input type="text" id="youth-guardian-name" placeholder="Maria Smith"/></div>
+          <div class="form-group"><label>Relationship</label><input type="text" id="youth-guardian-rel" placeholder="Mother, Father, Guardian…"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Phone</label><input type="text" id="youth-guardian-phone" placeholder="(555) 000-0000"/></div>
+          <div class="form-group"><label>Email</label><input type="email" id="youth-guardian-email" placeholder="parent@email.com"/></div>
+        </div>
+        <hr class="divider"/>
+        <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Emergency Contact</div>
+        <div class="form-row">
+          <div class="form-group"><label>Name</label><input type="text" id="youth-emergency-name" placeholder="Grandma Rosa"/></div>
+          <div class="form-group"><label>Relationship</label><input type="text" id="youth-emergency-rel" placeholder="Grandmother, Uncle…"/></div>
+        </div>
+        <div class="form-group"><label>Phone</label><input type="text" id="youth-emergency-phone" placeholder="(555) 000-0000"/></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>Phone *</label><input type="text" id="youth-guardian-phone" placeholder="(555) 000-0000"/></div>
-        <div class="form-group"><label>Email</label><input type="email" id="youth-guardian-email" placeholder="parent@email.com"/></div>
-      </div>
-      <hr class="divider"/>
-      <div style="font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Emergency Contact</div>
-      <div class="form-row">
-        <div class="form-group"><label>Name *</label><input type="text" id="youth-emergency-name" placeholder="Grandma Rosa"/></div>
-        <div class="form-group"><label>Relationship</label><input type="text" id="youth-emergency-rel" placeholder="Grandmother, Uncle…"/></div>
-      </div>
-      <div class="form-group"><label>Phone *</label><input type="text" id="youth-emergency-phone" placeholder="(555) 000-0000"/></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-youth')">Cancel</button>
@@ -1862,42 +1916,113 @@ async function loadAllData(){
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 async function renderDashboard(){
-  const d=await api('/api/dashboard')
-  document.getElementById('stat-total').textContent=d.total_volunteers
-  document.getElementById('stat-hours').textContent=d.total_hours
-  document.getElementById('stat-youth').textContent=d.total_youth
-  document.getElementById('stat-waivers').textContent=d.expiring_waivers
-  document.getElementById('stat-expired').textContent=d.expired_waivers
-  const badge=document.getElementById('waiver-badge')
-  const bc=d.expiring_waivers+d.expired_waivers
-  badge.textContent=bc; badge.style.display=bc>0?'':'none'
-  const ac=document.getElementById('alerts-container')
-  if(!d.alerts.length){
-    ac.innerHTML=`<div style="padding:12px 0;color:var(--text-muted);font-size:13px">✅ No alerts at this time</div>`
-  } else {
-    ac.innerHTML=d.alerts.map(a=>`
-      <div class="alert-item ${a.type}">
-        <span>${a.type==='warning'?'⚠️':'❌'}</span>
-        <div style="flex:1"><strong>${a.name}</strong> — ${a.msg}</div>
-        <a class="alert-action" onclick="openProfile('${a.id}')">View →</a>
-      </div>`).join('')
+  const d = await api('/api/dashboard')
+  // Stats
+  document.getElementById('stat-total').textContent = d.total_volunteers
+  document.getElementById('stat-hours').textContent = d.total_hours
+  document.getElementById('stat-youth').textContent = d.total_youth
+  document.getElementById('stat-waivers').textContent = d.expiring_waivers
+  document.getElementById('stat-expired') && (document.getElementById('stat-expired').textContent = d.expired_waivers)
+  const prodCount = allProductions.filter(p=>p.stage!=='rising_stars').length
+  const statProd = document.getElementById('stat-productions')
+  if(statProd) statProd.textContent = prodCount
+  const statActions = document.getElementById('stat-actions')
+  if(statActions){
+    api('/api/notifications').then(n=>{ if(statActions) statActions.textContent = n.total_action||0 })
   }
-  const maxH=Math.max(...d.monthly_hours.map(m=>m.total),1)
-  document.getElementById('hours-chart').innerHTML=d.monthly_hours.map(m=>`
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
-      <div style="font-size:10px;color:var(--text-muted)">${m.total||''}</div>
-      <div style="width:100%;background:var(--teal-400);border-radius:4px 4px 0 0;height:${Math.max(4,(m.total/maxH)*80)}px"></div>
-    </div>`).join('')
-  document.getElementById('chart-labels').innerHTML=d.monthly_hours.map(m=>`
-    <div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">${m.label}</div>`).join('')
-  document.getElementById('top-vols-table').innerHTML=!d.top_volunteers.length
-    ?`<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:20px">No data yet</td></tr>`
-    :d.top_volunteers.map(v=>`
-      <tr>
-        <td><div class="volunteer-name-cell">${avatarHTML(v.name,28)}<span onclick="openProfile('${v.id}')" style="cursor:pointer;font-weight:500">${v.name}</span></div></td>
-        <td style="font-weight:600;color:var(--teal-600)">${v.total_hours}h</td>
-        <td style="color:var(--text-muted)">${v.total_events}</td>
-      </tr>`).join('')
+  // Waiver badge
+  const badge = document.getElementById('waiver-badge')
+  const bc = d.expiring_waivers + d.expired_waivers
+  if(badge){ badge.textContent=bc; badge.style.display=bc>0?'':'none' }
+
+  // Today label
+  const todayEl = document.getElementById('dash-today-date')
+  if(todayEl) todayEl.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})
+
+  // Today's events
+  const today = new Date().toISOString().split('T')[0]
+  const in7 = new Date(Date.now()+7*86400000).toISOString().split('T')[0]
+  const todayEvts = allEvents.filter(e=>e.event_date===today).sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||''))
+  const upcomingEvts = allEvents.filter(e=>e.event_date>today&&e.event_date<=in7).sort((a,b)=>a.event_date.localeCompare(b.event_date))
+  const miniEvt = e => {
+    const timeStr = e.start_time ? fmtTime(e.start_time) : ''
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="navTo(\'events\')">'
+      +'<div style="width:3px;align-self:stretch;background:var(--teal-mid);border-radius:2px;flex-shrink:0"></div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+e.name+'</div>'
+      +'<div style="font-size:11px;color:var(--text-muted)">'+(timeStr?timeStr+' · ':'')+(e.location||'')+'</div></div>'
+      +'</div>'
+  }
+  const todayEl2 = document.getElementById('dash-today-events')
+  if(todayEl2) todayEl2.innerHTML = todayEvts.length ? todayEvts.map(miniEvt).join('') : '<div style="font-size:13px;color:var(--text-muted)">No events today</div>'
+  // Group upcoming by date
+  const byDate = {}
+  upcomingEvts.forEach(e=>{ if(!byDate[e.event_date]) byDate[e.event_date]=[]; byDate[e.event_date].push(e) })
+  const upEl = document.getElementById('dash-upcoming-events')
+  if(upEl) upEl.innerHTML = upcomingEvts.length
+    ? Object.entries(byDate).map(([dt,evts])=>
+        '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">'+formatDate(dt)+'</div>'
+        +evts.map(miniEvt).join('')+'</div>').join('')
+    : '<div style="font-size:13px;color:var(--text-muted)">No events in the next 7 days</div>'
+
+  // Alerts
+  const ac = document.getElementById('alerts-container')
+  if(ac){
+    if(!d.alerts.length){
+      ac.innerHTML='<div style="padding:8px 0;color:var(--text-muted);font-size:13px">✅ No alerts at this time</div>'
+    } else {
+      ac.innerHTML=d.alerts.slice(0,5).map(a=>
+        '<div class="alert-item '+a.type+'">'
+        +'<span>'+(a.type==='warning'?'⚠️':'❌')+'</span>'
+        +'<div style="flex:1"><strong>'+a.name+'</strong> — '+a.msg+'</div>'
+        +'<a class="alert-action" onclick="openProfile(\''+a.id+'\')">View →</a>'
+        +'</div>').join('')
+      +(d.alerts.length>5?'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">+'+( d.alerts.length-5)+' more — <a onclick="navTo(\'notifications\')" style="cursor:pointer;color:var(--teal-600)">view all</a></div>':'')
+    }
+  }
+
+  // Monthly hours chart
+  const maxH = Math.max(...d.monthly_hours.map(m=>m.total),1)
+  const hc = document.getElementById('hours-chart')
+  const cl = document.getElementById('chart-labels')
+  if(hc) hc.innerHTML=d.monthly_hours.map(m=>
+    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
+    +'<div style="font-size:10px;color:var(--text-muted)">'+(m.total||'')+'</div>'
+    +'<div style="width:100%;background:var(--teal-400);border-radius:4px 4px 0 0;height:'+Math.max(4,(m.total/maxH)*80)+'px"></div>'
+    +'</div>').join('')
+  if(cl) cl.innerHTML=d.monthly_hours.map(m=>
+    '<div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">'+m.label+'</div>').join('')
+
+  // Top volunteers
+  const tvt = document.getElementById('top-vols-table')
+  if(tvt) tvt.innerHTML=!d.top_volunteers.length
+    ?'<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:16px">No data yet</td></tr>'
+    :d.top_volunteers.map(v=>
+      '<tr><td><div class="volunteer-name-cell">'+avatarHTML(v.name,28)+'<span onclick="openProfile(\''+v.id+'\')" style="cursor:pointer;font-weight:500">'+v.name+'</span></div></td>'
+      +'<td style="font-weight:600;color:var(--teal-600)">'+v.total_hours+'h</td>'
+      +'<td style="color:var(--text-muted)">'+v.total_events+'</td></tr>').join('')
+
+  // Active programs & productions
+  const ap = document.getElementById('dash-active-programs')
+  if(ap){
+    const activeProgs = allPrograms.filter(p=>!p.status||p.status==='active').slice(0,4)
+    const activeProds = allProductions.filter(p=>p.status==='in_progress'||p.status==='upcoming').slice(0,3)
+    let apHTML = ''
+    if(activeProgs.length){
+      apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Programs</div>'
+      apHTML += activeProgs.map(p=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProgramDetail(\''+p.id+'\')">'
+        +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
+        +'<span style="font-size:11px;color:var(--text-muted)">'+allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===p.id)).length+' enrolled</span>'
+        +'</div>').join('')
+    }
+    if(activeProds.length){
+      apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:12px;margin-bottom:8px">Productions</div>'
+      apHTML += activeProds.map(p=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProductionDetail(\''+p.id+'\')">'
+        +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
+        +'<span style="font-size:11px;color:var(--text-muted)">'+(p.members?.length||0)+' members</span>'
+        +'</div>').join('')
+    }
+    ap.innerHTML = apHTML || '<div style="font-size:13px;color:var(--text-muted)">No active programs or productions</div>'
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1982,6 +2107,7 @@ async function openProfile(volId){
     bg, col, backFn: "navTo('volunteers')",
     badges: [
       v.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},
+      v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:'🔗 Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
       v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
       {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
@@ -2257,30 +2383,82 @@ function populateWaiverTypeSelects(){
   if(ywsel) ywsel.innerHTML=opts
 }
 
+let waiverView = 'cards'
+function setWaiverView(v){
+  waiverView = v
+  const cb = document.getElementById('waiver-view-cards')
+  const lb = document.getElementById('waiver-view-list')
+  if(cb){ cb.style.background=v==='cards'?'var(--surface)':'transparent'; cb.style.color=v==='cards'?'var(--text)':'var(--text-muted)' }
+  if(lb){ lb.style.background=v==='list'?'var(--surface)':'transparent'; lb.style.color=v==='list'?'var(--text)':'var(--text-muted)' }
+  renderWaivers()
+}
+
 function renderWaivers(){
-  const filter=document.getElementById('waiver-filter').value
-  let filtered=filter?volunteers.filter(v=>waiverStatus(v)===filter):volunteers
+  const filter = document.getElementById('waiver-filter').value
+  const search = document.getElementById('waiver-search')?.value.toLowerCase()||''
+  let filtered = volunteers.filter(v=>{
+    if(filter && waiverStatus(v)!==filter) return false
+    if(search && !v.name.toLowerCase().includes(search) && !(v.email||'').toLowerCase().includes(search)) return false
+    return true
+  })
   const dotClass={valid:'dot-valid',expiring:'dot-expiring',expired:'dot-expired',none:'dot-none'}
   const labelMap={valid:'✅ Valid',expiring:'⚠️ Expiring Soon',expired:'❌ Expired',none:'No Waiver'}
-  const isAdmin=currentUser?.role==='admin'
-  document.getElementById('waivers-grid').innerHTML=filtered.map(v=>{
-    const s=waiverStatus(v)
-    const waiverList=(v.waivers||[]).slice(0,3).map(w=>`<div style="font-size:11px;color:var(--text-muted)">${w.type_name} — ${formatDate(w.signed_date)}</div>`).join('')
-    return `<div class="waiver-card">
-      <div class="waiver-card-header">
-        ${avatarHTML(v.name,38)}
-        <div>
-          <div style="font-weight:500;font-size:14px;color:var(--teal-600);cursor:pointer" onclick="openProfile('${v.id}')">${v.name}</div>
-          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
-            <div class="waiver-status-dot ${dotClass[s]}"></div>
-            <span style="font-size:12px;color:var(--text-muted)">${labelMap[s]}</span>
+  const isAdmin = currentUser?.role==='admin'
+  const grid = document.getElementById('waivers-grid')
+
+  // Summary counts
+  const counts = {valid:0,expiring:0,expired:0,none:0}
+  volunteers.forEach(v=>{ const s=waiverStatus(v); counts[s]=(counts[s]||0)+1 })
+
+  const summary = '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">'
+    +Object.entries({valid:'✅ Valid',expiring:'⚠️ Expiring',expired:'❌ Expired',none:'No Waiver'}).map(([k,label])=>
+      `<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:8px 14px;text-align:center;min-width:80px">
+        <div style="font-size:18px;font-weight:800">${counts[k]||0}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${label}</div>
+      </div>`).join('')
+    +'</div>'
+
+  if(!filtered.length){
+    grid.innerHTML = summary + '<div class="empty-state"><div class="empty-icon">📋</div><p>No volunteers match your filter</p></div>'
+    return
+  }
+
+  if(waiverView === 'list'){
+    grid.innerHTML = summary + `<div class="card"><table>
+      <thead><tr><th>Volunteer</th><th>Status</th><th>Waivers on File</th><th>Latest Expiry</th>${isAdmin?'<th></th>':''}</tr></thead>
+      <tbody>
+        ${filtered.map(v=>{
+          const s=waiverStatus(v)
+          const latest = (v.waivers||[]).sort((a,b)=>(b.expiry_date||'').localeCompare(a.expiry_date||''))[0]
+          return `<tr>
+            <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(v.name,28)}<span onclick="openProfile('${v.id}')" style="cursor:pointer;font-weight:500;color:var(--teal-600)">${v.name}</span></div></td>
+            <td><div style="display:flex;align-items:center;gap:4px"><div class="waiver-status-dot ${dotClass[s]}"></div><span style="font-size:12px">${labelMap[s]}</span></div></td>
+            <td style="font-size:13px;color:var(--text-muted)">${(v.waivers||[]).map(w=>w.type_name).join(', ')||'—'}</td>
+            <td style="font-size:13px">${latest?.expiry_date?formatDate(latest.expiry_date):'—'}</td>
+            ${isAdmin?`<td><button class="btn btn-secondary btn-sm" onclick="openWaiverModal('${v.id}')">+ Add</button></td>`:''}
+          </tr>`
+        }).join('')}
+      </tbody></table></div>`
+  } else {
+    grid.innerHTML = summary + `<div class="waiver-grid">${filtered.map(v=>{
+      const s=waiverStatus(v)
+      const waiverList=(v.waivers||[]).map(w=>`<div style="font-size:11px;color:var(--text-muted);padding:3px 0;border-bottom:1px solid var(--border)">${w.type_name} <span style="float:right">${formatDate(w.signed_date)}</span></div>`).join('')
+      return `<div class="waiver-card">
+        <div class="waiver-card-header">
+          ${avatarHTML(v.name,38)}
+          <div>
+            <div style="font-weight:500;font-size:14px;color:var(--teal-600);cursor:pointer" onclick="openProfile('${v.id}')">${v.name}</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+              <div class="waiver-status-dot ${dotClass[s]}"></div>
+              <span style="font-size:12px;color:var(--text-muted)">${labelMap[s]}</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div style="font-size:12px;margin-bottom:12px;line-height:1.8">${waiverList||'<span style="color:var(--text-muted)">No waivers on file</span>'}</div>
-      ${isAdmin?`<button class="btn btn-secondary btn-sm btn-full" onclick="openWaiverModal('${v.id}')">+ Add Waiver</button>`:''}
-    </div>`
-  }).join('')
+        <div style="font-size:12px;margin-bottom:12px;line-height:1.8">${waiverList||'<span style="color:var(--text-muted)">No waivers on file</span>'}</div>
+        ${isAdmin?`<button class="btn btn-secondary btn-sm btn-full" onclick="openWaiverModal('${v.id}')">+ Add Waiver</button>`:''}
+      </div>`
+    }).join('')}</div>`
+  }
 }
 
 function openWaiverModal(volId){
@@ -2749,6 +2927,7 @@ async function openYouthProfile(yid){
     bg:'rgba(255,255,255,0.2)', col:'#fff', backFn:"navTo('youth')", backLabel:'← Back',
     badges:[
       y.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},
+      y.linked_volunteer_id?(()=>{ const v=volunteers.find(v=>v.id===y.linked_volunteer_id); return v?{label:'🔗 Volunteer: '+v.name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       y.photo_consent?{label:'📸 Photo OK',bg:'rgba(255,255,255,0.15)'}:{label:'📸 No Photo',bg:'rgba(255,80,80,0.3)'},
       y.medical_consent?{label:'🏥 Medical OK',bg:'rgba(255,255,255,0.15)'}:{label:'🏥 No Medical',bg:'rgba(255,80,80,0.3)'},
       y.allergies&&y.allergies!=='None'?{label:'⚠️ '+y.allergies,bg:'rgba(255,180,0,0.35)'}:null
@@ -2885,8 +3064,14 @@ async function openYouthProfile(yid){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
 }
 
+function toggleMinorSections(){
+  const isMinor = document.getElementById('youth-is-minor')?.checked
+  const sec = document.getElementById('youth-minor-sections')
+  if(sec) sec.style.display = isMinor ? '' : 'none'
+}
+
 function openYouthModal(){
-  document.getElementById('youth-modal-title').textContent='Add Youth Participant'
+  document.getElementById('youth-modal-title').textContent='Add Participant'
   document.getElementById('youth-edit-id').value=''
   ;['youth-first-name','youth-last-name','youth-medical','youth-allergies',
     'youth-guardian-name','youth-guardian-rel','youth-guardian-phone','youth-guardian-email',
@@ -2897,6 +3082,9 @@ function openYouthModal(){
   document.getElementById('youth-status').value='active'
   document.getElementById('youth-photo-consent').checked=false
   document.getElementById('youth-medical-consent').checked=false
+  const minorEl=document.getElementById('youth-is-minor'); if(minorEl) minorEl.checked=true
+  const adultEl=document.getElementById('youth-is-adult'); if(adultEl) adultEl.checked=false
+  toggleMinorSections()
   buildYouthProgramCheckboxes([])
   openModal('modal-youth')
 }
@@ -2913,6 +3101,12 @@ async function openEditYouthModal(yid){
   document.getElementById('youth-allergies').value=y.allergies||''
   document.getElementById('youth-photo-consent').checked=!!y.photo_consent
   document.getElementById('youth-medical-consent').checked=!!y.medical_consent
+  // Determine minor based on DOB or presence of guardians
+  const hasGuardians = y.guardians&&y.guardians.length>0
+  const isMinor = y.dob ? (new Date().getFullYear()-new Date(y.dob).getFullYear()<18) : hasGuardians
+  const minorEl=document.getElementById('youth-is-minor'); if(minorEl) minorEl.checked=isMinor
+  const adultEl=document.getElementById('youth-is-adult'); if(adultEl) adultEl.checked=!isMinor
+  toggleMinorSections()
   const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]||{}
   document.getElementById('youth-guardian-name').value=primary.name||''
   document.getElementById('youth-guardian-rel').value=primary.relationship||''
@@ -3579,7 +3773,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   // Tab strip
   s += '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
   s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>🎭 Cast &amp; Crew</button>"
-  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>⭐ Youth Cast</button>"
+  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
   s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>📅 Schedule &amp; Conflicts</button>"
   if(isAdmin) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
   s += '</div>'
@@ -3615,7 +3809,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   if(p.stage==='rising_stars'){
     s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
     s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
-    s += '<div style="font-size:15px;font-weight:600">⭐ Youth Cast Members</div>'
+    s += '<div style="font-size:15px;font-weight:600">Cast Members</div>'
     if(isAdmin) s += '<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Enroll Youth</button>'
     s += '</div>'
     s += '<div id="youth-prod-members-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
@@ -5792,10 +5986,12 @@ const PROGRAM_TYPE_COLORS = {class:['#E6F1FB','#0C447C'],workshop:['#F3EEFF','#6
 function renderYouthProgramsPage(){
   const search=document.getElementById('yp-search')?.value.toLowerCase()||''
   const filterType=document.getElementById('yp-filter-type')?.value||''
+  const filterStatus=document.getElementById('yp-filter-status')?.value||''
   let filtered=allPrograms.filter(p=>{
     if(search&&!p.name.toLowerCase().includes(search)) return false
     if((p.program_type||'class')==='production') return false  // RS handled separately
     if(filterType&&(p.program_type||'class')!==filterType) return false
+    if(filterStatus&&(p.status||'active')!==filterStatus) return false
     return true
   })
   const grid=document.getElementById('youth-programs-grid')
@@ -5819,6 +6015,7 @@ function renderYouthProgramsPage(){
             <div>
               <div style="font-size:16px;font-weight:700;margin-bottom:4px">${p.name}</div>
               <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROGRAM_TYPE_LABELS[type]||type}</span>
+              ${(()=>{ const st=p.status||'active'; const sc={upcoming:'background:#EFF6FF;color:#1D4ED8',active:'background:#F0FDF4;color:#16A34A',completed:'background:#F3F4F6;color:#6B7280',archived:'background:#FEF3C7;color:#92400E'}; return '<span style="'+( sc[st]||sc.active)+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;margin-left:4px">'+st.charAt(0).toUpperCase()+st.slice(1)+'</span>' })()}
             </div>
             ${isAdmin?`<div style="display:flex;gap:4px">
               <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal('${p.id}')">Edit</button>
@@ -5864,6 +6061,7 @@ function openNewProgramModal(){
   ;['program-name','program-desc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   ;['program-start','program-end'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   document.getElementById('program-type').value='class'
+  const psel2=document.getElementById('program-status'); if(psel2) psel2.value='active'
   const isel=document.getElementById('program-instructor')
   if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
   const esel=document.getElementById('program-default-elic')
@@ -5881,6 +6079,7 @@ function openEditProgramModal(pid){
   document.getElementById('program-start').value=p.start_date||''
   document.getElementById('program-end').value=p.end_date||''
   document.getElementById('program-type').value=p.program_type||'class'
+  const psel=document.getElementById('program-status'); if(psel) psel.value=p.status||'active'
   const isel=document.getElementById('program-instructor')
   if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
   const esel=document.getElementById('program-default-elic')
@@ -5894,6 +6093,7 @@ async function saveYouthProgram(){
   if(!name){toast('Program name is required','error');return}
   const data={
     name,
+    status:document.getElementById('program-status')?.value||'active',
     program_type:document.getElementById('program-type').value,
     start_date:document.getElementById('program-start').value||null,
     end_date:document.getElementById('program-end').value||null,
@@ -7462,28 +7662,41 @@ async function loadYouthProdMembers(prodId){
   const members=await api('/api/productions/'+prodId+'/youth-members')
   const isAdmin=currentUser?.role==='admin'
   if(!members.length){
-    container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No youth enrolled yet.'+(isAdmin?' Use "+ Enroll Youth" to add cast members.':'')+'</div>'
+    container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No cast members enrolled yet.'+(isAdmin?' Use "+ Enroll" to add cast members.':'')+'</div>'
     return
   }
+  // Update the total count in sidebar if visible
+  const prod = allProductions.find(p=>p.id===prodId)
+  const totalEl = document.getElementById('prod-total-count-'+prodId)
+  if(totalEl) totalEl.textContent = members.length + (prod?.members?.length||0)
   container.innerHTML='<div style="display:flex;flex-direction:column;gap:0">'
-    +members.map(m=>'<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
-      +'<div style="width:36px;height:36px;border-radius:50%;background:var(--purple-100);color:var(--purple-600);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+m.first_name[0]+(m.last_name?m.last_name[0]:'')+'</div>'
-      +'<div style="flex:1;min-width:0">'
-      +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+'</div>'
-      +(m.role?'<div style="font-size:12px;color:var(--text-muted)">'+m.role+'</div>':'')
-      +'</div>'
-      +(isAdmin?'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px">✕ Remove</button>':'')
-      +'</div>'
-    ).join('')
+    +members.map(m=>{
+      const initials = (m.first_name?m.first_name[0]:'')+(m.last_name?m.last_name[0]:'')
+      return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+        +'<div style="width:36px;height:36px;border-radius:50%;background:var(--teal-light);color:var(--teal-dark);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+'</div>'
+        +(m.role?'<div style="font-size:12px;color:var(--text-muted)">'+m.role+'</div>':'<div style="font-size:12px;color:var(--text-hint)">No role assigned</div>')
+        +'</div>'
+        +(isAdmin
+          ? '<input type="text" placeholder="Assign role…" value="'+(m.role||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit;width:140px;flex-shrink:0" onchange="updateYouthCastRole(\''+prodId+'\',\''+m.id+'\',this.value).then(()=>{ const el=this.previousElementSibling.lastElementChild; el.textContent=this.value||\'No role assigned\'; el.style.color=this.value?\'var(--text-muted)\':\'var(--text-hint)\' })" />'
+            +'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px;flex-shrink:0">✕</button>'
+          : '')
+        +'</div>'
+    }).join('')
     +'</div>'
-    +'<div style="font-size:12px;color:var(--text-muted);margin-top:12px">'+members.length+' youth cast member'+(members.length!==1?'s':'')+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-top:12px">'+members.length+' cast member'+(members.length!==1?'s':'')+'</div>'
 }
 
 async function removeYouthFromProd(prodId, memberId){
-  if(!confirm('Remove this youth from the production?')) return
+  if(!confirm('Remove this participant from the production?')) return
   await api('/api/productions/'+prodId+'/youth-members/'+memberId,'DELETE')
   toast('Removed','success')
   loadYouthProdMembers(prodId)
+}
+
+async function updateYouthCastRole(prodId, memberId, role){
+  await api('/api/productions/'+prodId+'/youth-members/'+memberId,'PUT',{role})
 }
 
 
@@ -7547,7 +7760,7 @@ function renderRisingStarsPage(){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
             <div style="background:var(--purple-50);border-radius:var(--radius);padding:12px;text-align:center">
               <div style="font-size:22px;font-weight:800;color:var(--purple-600)" id="rs-youth-count-${p.id}">—</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Youth Cast</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Cast Members</div>
               ${isAdmin?`<button class="btn btn-sm" style="background:var(--purple-600);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer" onclick="loadAndShowYouthProdEnroll('${p.id}')">+ Enroll</button>`:''}
             </div>
             <div style="background:var(--teal-light);border-radius:var(--radius);padding:12px;text-align:center">
@@ -7585,9 +7798,12 @@ function renderRisingStarsPage(){
 }
 
 async function loadRSYouthCount(prodId){
-  const members = await api('/api/productions/'+prodId+'/youth-members')
+  const youthM = await api('/api/productions/'+prodId+'/youth-members')
+  const prod = allProductions.find(p=>p.id===prodId)
+  const youthCount = Array.isArray(youthM)?youthM.length:0
+  const adultCount = prod?.members?.length||0
   const el = document.getElementById('rs-youth-count-'+prodId)
-  if(el) el.textContent = Array.isArray(members)?members.length:'0'
+  if(el) el.textContent = youthCount+adultCount
 }
 
 function openProductionModalForRS(){

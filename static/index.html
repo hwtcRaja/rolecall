@@ -3562,6 +3562,7 @@ function openProductionDetail(prodId){
         <!-- Tab strip -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
           <button id="prodtab-btn-members" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProductionTab('members')">🎭 Cast & Crew</button>
+          ${p.stage==='rising_stars'?`<button id="prodtab-btn-youth" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProductionTab('youth')">⭐ Youth Cast</button>`:''}
           ${isAdmin&&p.stage==='rising_stars'?`<button id="prodtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProductionTab('portal')">🏠 Portal Content</button>`:''}
         </div>
 
@@ -3591,6 +3592,14 @@ function openProductionDetail(prodId){
             </div>`).join('')}
         </div>
 
+        <!-- Youth Cast tab (Rising Stars only) -->
+        ${p.stage==='rising_stars'?`<div id="prodtab-youth" class="card" style="padding:20px;display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:15px;font-weight:600">⭐ Youth Cast Members</div>
+            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll('${p.id}')">+ Enroll Youth</button>`:''}
+          </div>
+          <div id="youth-prod-members-${p.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+        </div>`:''}
         <!-- Portal content tab (Rising Stars only) -->
         <div id="prodtab-portal" style="display:none">
           ${renderProductionPortalHTML(p.id)}
@@ -6298,15 +6307,23 @@ function renderProductionPortalHTML(pid){
 }
 
 function switchProductionTab(tab){
+  const pid = window._currentProductionDetailId
   const mDiv = document.getElementById('prodtab-members')
+  const yDiv = document.getElementById('prodtab-youth')
   const pDiv = document.getElementById('prodtab-portal')
   const mBtn = document.getElementById('prodtab-btn-members')
+  const yBtn = document.getElementById('prodtab-btn-youth')
   const pBtn = document.getElementById('prodtab-btn-portal')
   if(mDiv) mDiv.style.display = tab==='members'?'':'none'
+  if(yDiv) yDiv.style.display = tab==='youth'?'':'none'
   if(pDiv) pDiv.style.display = tab==='portal'?'':'none'
-  if(mBtn){ mBtn.style.borderBottomColor=tab==='members'?'var(--teal-mid)':'transparent'; mBtn.style.color=tab==='members'?'var(--teal-dark)':'var(--text-muted)' }
-  if(pBtn){ pBtn.style.borderBottomColor=tab==='portal'?'var(--teal-mid)':'transparent'; pBtn.style.color=tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
-  if(tab==='portal') loadProductionPortalContent(window._currentProductionDetailId)
+  ;[{btn:mBtn,id:'members'},{btn:yBtn,id:'youth'},{btn:pBtn,id:'portal'}].forEach(({btn,id})=>{
+    if(!btn) return
+    btn.style.borderBottomColor = tab===id?'var(--teal-mid)':'transparent'
+    btn.style.color = tab===id?'var(--teal-dark)':'var(--text-muted)'
+  })
+  if(tab==='portal') loadProductionPortalContent(pid)
+  if(tab==='youth' && pid) loadYouthProdMembers(pid)
 }
 
 function switchProdPortalTab(tab, btn){
@@ -7256,16 +7273,23 @@ async function loadYouthProdMembers(prodId){
   const container=document.getElementById('youth-prod-members-'+prodId)
   if(!container) return
   const members=await api('/api/productions/'+prodId+'/youth-members')
+  const isAdmin=currentUser?.role==='admin'
   if(!members.length){
-    container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No youth enrolled yet</div>'
+    container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No youth enrolled yet.'+(isAdmin?' Use "+ Enroll Youth" to add cast members.':'')+'</div>'
     return
   }
-  const isAdmin=currentUser?.role==='admin'
-  container.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:6px">'+
-    members.map(m=>`<span style="background:var(--purple-50);color:var(--purple-600);padding:4px 10px;border-radius:20px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px">
-      ${m.first_name} ${m.last_name}
-      ${isAdmin?`<button onclick="removeYouthFromProd('${prodId}','${m.id}')" style="background:none;border:none;cursor:pointer;color:var(--purple-600);font-size:14px;padding:0;line-height:1">×</button>`:''}
-    </span>`).join('')+'</div>'
+  container.innerHTML='<div style="display:flex;flex-direction:column;gap:0">'
+    +members.map(m=>'<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="width:36px;height:36px;border-radius:50%;background:var(--purple-100);color:var(--purple-600);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+m.first_name[0]+(m.last_name?m.last_name[0]:'')+'</div>'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+'</div>'
+      +(m.role?'<div style="font-size:12px;color:var(--text-muted)">'+m.role+'</div>':'')
+      +'</div>'
+      +(isAdmin?'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px">✕ Remove</button>':'')
+      +'</div>'
+    ).join('')
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-top:12px">'+members.length+' youth cast member'+(members.length!==1?'s':'')+'</div>'
 }
 
 async function removeYouthFromProd(prodId, memberId){
@@ -7324,6 +7348,7 @@ function renderRisingStarsPage(){
             </div>
             ${isAdmin?`<div style="display:flex;gap:4px;flex-shrink:0">
               <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProductionModal('${p.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>
             </div>`:''}
           </div>
           <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">

@@ -433,7 +433,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
         <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
-        <div class="nav-item admin-only" onclick="navTo('pending',this)"><span class="nav-icon">⏳</span>Pending Approvals<span class="nav-badge" id="pending-badge" style="display:none">0</span></div>
+        <div class="nav-item admin-only" onclick="navTo('notifications',this)"><span class="nav-icon">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
@@ -886,23 +886,23 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PENDING HOURS -->
-      <section class="page admin-only" id="page-pending">
+      <section class="page admin-only" id="page-notifications">
         <div class="page-header">
-          <div><div class="page-title">Pending Approvals</div><div class="page-subtitle">Review volunteer-submitted hours and profile updates</div></div>
+          <div><div class="page-title">🔔 Notifications</div><div class="page-subtitle">Everything that needs your attention</div></div>
           <div class="page-actions">
-            <a href="/kiosk" target="_blank" class="btn btn-secondary btn-sm">🖥 Open Kiosk →</a>
+            <button class="btn btn-secondary btn-sm" onclick="loadNotifications()">↻ Refresh</button>
           </div>
         </div>
         <div class="page-body">
-          <div class="tabs" style="margin-bottom:20px">
-            <div class="tab active" onclick="switchTab(this,'pending-tab-hours')">⏱ Hours <span id="pending-hours-count" style="background:var(--red-50);color:var(--red-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px"></span></div>
-            <div class="tab" onclick="switchTab(this,'pending-tab-profiles')">👤 Profile Updates <span id="pending-profile-count" style="background:var(--blue-50);color:var(--blue-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px"></span></div>
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+            <button id="notif-tab-action" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchNotifTab('action',this)">🔴 Needs Action <span id="notif-action-count" style="background:var(--red-50);color:var(--red-600);padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px"></span></button>
+            <button id="notif-tab-activity" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchNotifTab('activity',this)">📋 Activity</button>
           </div>
-          <div class="tab-pane active" id="pending-tab-hours">
-            <div id="pending-hours-list"></div>
+          <div id="notif-tab-action-content">
+            <div id="notif-action-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
           </div>
-          <div class="tab-pane" id="pending-tab-profiles">
-            <div id="pending-profiles-list"></div>
+          <div id="notif-tab-activity-content" style="display:none">
+            <div id="notif-activity-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
           </div>
         </div>
       </section>
@@ -1017,7 +1017,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
               <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="jane@example.com"/></div>
               <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
-              <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option><option value="instructor">Instructor (portal access)</option></select></div>
+              <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option><option value="instructor">Instructor (portal access)</option><option value="stage_manager">Stage Manager</option></select></div>
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
             </div>
 
@@ -1818,7 +1818,7 @@ function navTo(page,el){
   if(page==='email') renderEmailPage()
   if(page==='productions') renderProductions()
   if(page==='events') renderEventsPage()
-  if(page==='pending') loadPendingHours()
+  if(page==='notifications') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
@@ -1828,6 +1828,7 @@ function navTo(page,el){
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
   if(page==='portal-admin'){ renderPortalAdmin() }
+  if(page==='notifications') loadNotifications()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2002,6 +2003,7 @@ async function openProfile(volId){
           <div>🔍 Background Check: <span style="font-weight:600;color:${v.background_check_status==='cleared'?'var(--green-600)':v.background_check_status==='pending'?'var(--amber-600)':'var(--text-hint)'}">${v.background_check_status==='cleared'?'✅ Cleared':v.background_check_status==='pending'?'⏳ Pending':'Not on file'}</span>${v.background_check_date?' ('+formatDate(v.background_check_date)+')':''}</div>
           ${v.birthday?`<div>🎂 ${formatDate(v.birthday)}</div>`:''}
         </div>
+        ${v.linked_participant_id?`<div style="margin-bottom:8px;background:var(--teal-light);border-radius:8px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between"><div style="font-size:12px;font-weight:700;color:var(--teal-dark)">🔗 Linked Participant</div><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openYouthProfile('${v.linked_participant_id}')">View →</button></div>`:''}
         ${auditLine(v.created_at, v.created_by_name, v.updated_at, v.updated_by_name)}
         <hr class="divider"/>
         <div style="margin-bottom:12px">
@@ -2749,8 +2751,10 @@ async function openYouthProfile(yid){
     ].filter(Boolean),
     actions:isAdmin?[
       {label:'Edit',onclick:"openEditYouthModal('"+y.id+"')" },
+      {label:'🔗 Link Volunteer',onclick:"openLinkModal('youth','"+y.id+"','')" },
       {label:'Delete',onclick:"deleteYouth('"+y.id+"')",danger:true}
-    ]:[]
+    ]:[],
+    linked_volunteer: y.linked_volunteer_id ? volunteers.find(v=>v.id===y.linked_volunteer_id) : null
   })
 
   document.getElementById('youth-profile-content').innerHTML=`
@@ -2776,19 +2780,9 @@ async function openYouthProfile(yid){
           ${y.medical_notes?`<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
           <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>`:''}
         </div>`:''}
+        ${y.linked_volunteer_id?`<div class="card" style="padding:12px 16px;border:1.5px solid var(--teal-light);margin-bottom:8px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:12px;font-weight:700;color:var(--teal-dark)">🔗 Also a Volunteer</div><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openProfile('${y.linked_volunteer_id}')">View Profile →</button></div></div>`:''}
         <!-- Portal Passphrase -->
-        ${isAdmin?`<div class="card" style="padding:16px;border:1.5px solid var(--teal-light)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Passphrase</div>
-            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️ Edit</button>
-          </div>
-          ${(()=>{ const fam=allFamilies.find(f=>f.id===y.family_id); return fam?`<div style="font-size:12px;font-weight:600;color:var(--teal-dark);margin-bottom:6px">👨‍👩‍👧 ${fam.name}</div><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Family passphrase: <span style="font-family:monospace;font-weight:700">${fam.passphrase}</span></div>`:y.passphrase?'':'<div style="font-size:11px;color:var(--text-hint);margin-bottom:4px">Not linked to a family</div>' })()} 
-          ${y.passphrase
-            ?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px;letter-spacing:0.5px">${y.passphrase}</div>
-             <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Individual passphrase (overrides family)</div>`
-            :``}
-        </div>`:''}
-        <!-- Waivers -->
+        ${isAdmin?`<div class="card" style="padding:16px;border:1.5px solid var(--teal-light)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Passphrase</div><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️ Edit</button></div>${(()=>{ const fam=allFamilies.find(f=>f.id===y.family_id); return fam?'<div style="font-size:12px;font-weight:600;color:var(--teal-dark);margin-bottom:6px">👨‍👩‍👧 '+fam.name+'</div><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Family passphrase: <span style=\\"font-family:monospace;font-weight:700\\">'+fam.passphrase+'</span></div>':y.passphrase?'':'<div style=\\"font-size:11px;color:var(--text-hint);margin-bottom:4px\\">Not linked to a family</div>' })()}${y.passphrase?'<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px">'+y.passphrase+'</div>':''}</div>`:''}
         <div class="card" style="padding:16px">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Waivers</div>
           ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No waivers on file</div>':
@@ -3829,6 +3823,7 @@ function renderUsersManagement(users){
               <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
               <option value="board" ${u.role==='board'?'selected':''}>Board</option>
               <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor</option>
+              <option value="stage_manager" ${u.role==='stage_manager'?'selected':''}>Stage Manager</option>
               <option value="elic" ${u.role==='elic'?'selected':''}>ELIC</option>
             </select>`}
         </div>
@@ -3974,138 +3969,234 @@ function closeMobileNav(){
 // ═══════════════════════════════════════════════════════════════
 //  PENDING HOURS
 // ═══════════════════════════════════════════════════════════════
+//  NOTIFICATIONS CENTER
+// ═══════════════════════════════════════════════════════════════
 
-async function loadPendingHours(){
-  const [rows, profileRows]=await Promise.all([
-    api('/api/pending-hours'),
-    api('/api/pending-profile-updates')
-  ])
-  const total=rows.length+profileRows.length
-  updatePendingBadge(total)
-  // Update tab counts
-  const hc=document.getElementById('pending-hours-count')
-  const pc=document.getElementById('pending-profile-count')
-  if(hc) hc.textContent=rows.length||''
-  if(pc) pc.textContent=profileRows.length||''
-  // Render profile updates
-  renderPendingProfileUpdates(profileRows)
-  const el=document.getElementById('pending-hours-list')
-  if(!el) return
-  if(!rows.length){
-    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div><p>No pending hours</p><span>All submitted time has been reviewed</span></div>`
-    return
-  }
-  el.innerHTML=`<div class="card">
-    <table>
-      <thead><tr>
-        <th>Volunteer</th><th>Event</th><th>Date</th><th>Hours</th><th>Role</th><th>Submitted</th><th>Actions</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r=>`<tr>
-          <td><div class="volunteer-name-cell">${avatarHTML(r.volunteer_name,28)}<span onclick="openProfile('${r.volunteer_id}')" style="cursor:pointer;font-weight:500">${r.volunteer_name}</span></div></td>
-          <td style="font-weight:500">${r.event}</td>
-          <td style="color:var(--text-muted)">${formatDate(r.date)}</td>
-          <td><span style="font-weight:700;color:var(--teal-600);font-size:16px">${r.hours}h</span></td>
-          <td style="color:var(--text-muted)">${r.role||'—'}</td>
-          <td style="color:var(--text-muted);font-size:12px">${formatDate((r.submitted_at||'').split('T')[0])}</td>
-          <td>
-            <div class="action-btns">
-              <button class="btn btn-primary btn-sm" onclick="approveHours('${r.id}')">✅ Approve</button>
-              <button class="btn btn-danger btn-sm" onclick="rejectHours('${r.id}')">✕ Reject</button>
-            </div>
-          </td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`
+let notifData = {needs_action:[], activity:[]}
+
+async function loadNotifications(){
+  notifData = await api('/api/notifications')
+  updateNotifBadge(notifData.total_action||0)
+  renderNotifAction()
+  renderNotifActivity()
 }
 
-function updatePendingBadge(count){
-  const badge=document.getElementById('pending-badge')
-  if(!badge) return
-  badge.textContent=count
-  badge.style.display=count>0?'':'none'
+function updateNotifBadge(count){
+  const b = document.getElementById('notif-badge')
+  if(!b) return
+  b.textContent = count
+  b.style.display = count>0?'':'none'
+  // Keep old pending-badge in sync if it still exists
+  const ob = document.getElementById('pending-badge')
+  if(ob){ ob.textContent=count; ob.style.display=count>0?'':'none' }
 }
 
-async function approveHours(pid){
-  await api(`/api/pending-hours/${pid}/approve`,'POST')
-  toast('Hours approved and added!','success')
-  await loadAllData()
-  loadPendingHours()
-}
-
-async function rejectHours(pid){
-  if(!confirm('Reject and delete this time submission?')) return
-  await api(`/api/pending-hours/${pid}/reject`,'POST')
-  toast('Submission rejected')
-  loadPendingHours()
-}
-
-async function pollPendingCount(){
-  if(currentUser?.role==='admin'){
-    const [h,p]=await Promise.all([
-      api('/api/pending-hours/count'),
-      api('/api/pending-profile-updates/count')
-    ])
-    const total=(h.count||0)+(p.count||0)
-    updatePendingBadge(total)
-  }
-}
-
-
-// ─── PENDING PROFILE UPDATES ───
-function renderPendingProfileUpdates(rows){
-  const el=document.getElementById('pending-profiles-list')
-  if(!el) return
-  if(!rows.length){
-    el.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div><p>No pending profile updates</p></div>`
-    return
-  }
-  // Group by volunteer
-  const byVol={}
-  rows.forEach(r=>{
-    if(!byVol[r.volunteer_id]) byVol[r.volunteer_id]={name:r.volunteer_name,id:r.volunteer_id,updates:[]}
-    byVol[r.volunteer_id].updates.push(r)
+function switchNotifTab(tab, btn){
+  document.getElementById('notif-tab-action-content').style.display = tab==='action'?'':'none'
+  document.getElementById('notif-tab-activity-content').style.display = tab==='activity'?'':'none'
+  document.querySelectorAll('#page-notifications button[id^="notif-tab-"]').forEach(b=>{
+    b.style.borderBottomColor='transparent'; b.style.color='var(--text-muted)'
   })
-  const fieldLabels={phone:'Phone Number',interests:'Interests',emergency_contact:'Emergency Contact'}
-  el.innerHTML=Object.values(byVol).map(v=>`
-    <div class="card" style="padding:20px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-        ${avatarHTML(v.name,36)}
-        <div style="font-weight:600;font-size:15px">${v.name}</div>
-      </div>
-      ${v.updates.map(u=>`
-        <div style="padding:12px;background:var(--gray-50);border-radius:var(--radius);margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
-          <div style="flex:1">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">${fieldLabels[u.field_name]||u.field_name}</div>
-            ${u.old_value?`<div style="font-size:12px;color:var(--text-hint);text-decoration:line-through;margin-bottom:2px">${u.field_name==='interests'?JSON.parse(u.old_value||'[]').join(', '):u.field_name==='emergency_contact'?formatECDisplay(u.old_value):u.old_value}</div>`:''}
-            <div style="font-size:14px;font-weight:500;color:var(--text)">${u.field_name==='interests'?JSON.parse(u.new_value||'[]').join(', '):u.field_name==='emergency_contact'?formatECDisplay(u.new_value):u.new_value}</div>
-            <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Submitted ${formatDate((u.submitted_at||'').split('T')[0])}</div>
-          </div>
-          <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn-primary btn-sm" onclick="approveProfileUpdate('${u.id}')">✅ Approve</button>
-            <button class="btn btn-danger btn-sm" onclick="rejectProfileUpdate('${u.id}')">✕</button>
-          </div>
-        </div>`).join('')}
+  if(btn){ btn.style.borderBottomColor='var(--teal-mid)'; btn.style.color='var(--teal-dark)' }
+}
+
+const NOTIF_COLORS = {amber:'var(--amber-600)',blue:'#1D4ED8',red:'var(--red-600)',green:'var(--green)'}
+const NOTIF_BG = {amber:'var(--amber-light)',blue:'#EFF6FF',red:'var(--red-light)',green:'var(--green-light)'}
+
+function renderNotifAction(){
+  const el = document.getElementById('notif-action-list')
+  if(!el) return
+  const items = notifData.needs_action||[]
+  // Update count badge
+  const cnt = document.getElementById('notif-action-count')
+  if(cnt) cnt.textContent = items.length||''
+  if(!items.length){
+    el.innerHTML='<div style="text-align:center;padding:48px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">✅</div>Nothing needs your attention right now!</div>'
+    return
+  }
+  // Group by type
+  const groups = {}
+  items.forEach(n=>{ if(!groups[n.type]) groups[n.type]=[]; groups[n.type].push(n) })
+  const labels = {
+    pending_hours:'⏱ Pending Hours',
+    profile_update:'👤 Profile Update Requests',
+    conflict_request:'⚔️ Conflict Requests',
+    missing_waiver:'📋 Missing Waivers'
+  }
+  el.innerHTML = Object.entries(groups).map(([type, items])=>`
+    <div style="margin-bottom:24px">
+      <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:10px">${labels[type]||type} (${items.length})</div>
+      ${items.map(n=>renderNotifCard(n, true)).join('')}
     </div>`).join('')
 }
 
-function formatECDisplay(val){
-  try{const e=JSON.parse(val);return `${e.name||''} (${e.relationship||''}) ${e.phone||''}`}catch{return val}
+function renderNotifActivity(){
+  const el = document.getElementById('notif-activity-list')
+  if(!el) return
+  const items = notifData.activity||[]
+  if(!items.length){
+    el.innerHTML='<div style="text-align:center;padding:48px;color:var(--text-muted)"><div style="font-size:40px;margin-bottom:12px">📋</div>No recent activity</div>'
+    return
+  }
+  el.innerHTML = items.map(n=>renderNotifCard(n, false)).join('')
 }
 
+function renderNotifCard(n, showActions){
+  const bg = NOTIF_BG[n.color]||'var(--bg)'
+  const col = NOTIF_COLORS[n.color]||'var(--text-muted)'
+  const actions = showActions ? getNotifActions(n) : ''
+  return `<div style="background:${bg};border-left:3px solid ${col};border-radius:0 var(--radius) var(--radius) 0;padding:12px 16px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+    <div style="display:flex;gap:10px;align-items:flex-start;flex:1">
+      <div style="font-size:20px;flex-shrink:0">${n.icon}</div>
+      <div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:2px">${n.title}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${n.sub||''}</div>
+      </div>
+    </div>
+    ${actions?`<div style="display:flex;gap:6px;flex-shrink:0;align-items:center">${actions}</div>`:''}
+  </div>`
+}
+
+function getNotifActions(n){
+  if(n.type==='pending_hours') return `
+    <button class="btn btn-primary btn-sm" onclick="approveHours('${n.id}').then(()=>loadNotifications())">✅ Approve</button>
+    <button class="btn btn-danger btn-sm" onclick="rejectHoursNotif('${n.id}')">✕</button>`
+  if(n.type==='profile_update') return `
+    <button class="btn btn-primary btn-sm" onclick="approveProfileUpdate('${n.id}').then(()=>loadNotifications())">✅ Approve</button>
+    <button class="btn btn-danger btn-sm" onclick="rejectProfileUpdateNotif('${n.id}')">✕</button>`
+  if(n.type==='conflict_request') return `
+    <button class="btn btn-primary btn-sm" onclick="approveConflict('${n.data.production_id}','${n.id}')">✅ Approve</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteConflict('${n.data.production_id}','${n.id}')">✕ Deny</button>`
+  if(n.type==='missing_waiver') return `
+    <button class="btn btn-secondary btn-sm" onclick="openYouthProfile('${n.data.youth.id}')">View Profile →</button>`
+  return ''
+}
+
+async function rejectHoursNotif(pid){
+  if(!confirm('Reject and delete this time submission?')) return
+  await api(`/api/pending-hours/${pid}/reject`,'POST')
+  toast('Submission rejected')
+  await loadAllData()
+  loadNotifications()
+}
+
+async function rejectProfileUpdateNotif(uid){
+  if(!confirm('Reject this profile update?')) return
+  await api(`/api/pending-profile-updates/${uid}/reject`,'POST')
+  toast('Update rejected')
+  loadNotifications()
+}
+
+async function approveConflict(pid, cid){
+  await api(`/api/productions/${pid}/conflicts/${cid}`,'PUT',{status:'absent',approved:true})
+  toast('Conflict approved')
+  loadNotifications()
+}
+
+async function deleteConflict(pid, cid){
+  if(!confirm('Deny and delete this conflict request?')) return
+  await api(`/api/productions/${pid}/conflicts/${cid}`,'DELETE')
+  toast('Conflict denied')
+  loadNotifications()
+}
+
+// Keep old functions working (called from other parts of the app)
+function updatePendingBadge(count){ updateNotifBadge(count) }
+async function loadPendingHours(){ await loadNotifications() }
+async function approveHours(pid){
+  await api(`/api/pending-hours/${pid}/approve`,'POST')
+  toast('Hours approved!','success')
+  await loadAllData()
+  loadNotifications()
+}
 async function approveProfileUpdate(uid){
   await api(`/api/pending-profile-updates/${uid}/approve`,'POST')
   toast('Update approved!','success')
   await loadAllData()
-  loadPendingHours()
+  loadNotifications()
+}
+async function rejectHours(pid){ await rejectHoursNotif(pid) }
+async function rejectProfileUpdate(uid){ await rejectProfileUpdateNotif(uid) }
+async function pollPendingCount(){
+  if(currentUser?.role==='admin'||currentUser?.role==='stage_manager'||currentUser?.role==='instructor'){
+    const notifs = await api('/api/notifications')
+    updateNotifBadge(notifs.total_action||0)
+  }
 }
 
-async function rejectProfileUpdate(uid){
-  if(!confirm('Reject this profile update?')) return
-  await api(`/api/pending-profile-updates/${uid}/reject`,'POST')
-  toast('Update rejected')
-  loadPendingHours()
+// ─── VOLUNTEER-PARTICIPANT LINKING ───
+async function linkVolunteerParticipant(vid, currentLinked){
+  const options = allYouth.map(y=>`${y.first_name} ${y.last_name} (${y.id.slice(0,6)})`).join('\n')
+  // Show a searchable modal instead of prompt
+  openLinkModal('volunteer', vid, currentLinked)
+}
+
+function openLinkModal(fromType, fromId, currentLinked){
+  const isFromVol = fromType==='volunteer'
+  const list = isFromVol ? allYouth : volunteers
+  const title = isFromVol ? 'Link to Participant Profile' : 'Link to Volunteer Profile'
+  const items = list.map(p=>{
+    const name = isFromVol ? `${p.first_name} ${p.last_name}` : p.name
+    const isLinked = isFromVol ? p.linked_volunteer_id===fromId : p.linked_participant_id===fromId
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div>${avatarHTML(name,28)} <span style="margin-left:8px;font-weight:500">${name}</span>${isLinked?'<span style="margin-left:8px;font-size:11px;background:var(--teal-light);color:var(--teal-dark);padding:1px 6px;border-radius:8px">Linked</span>':''}</div>
+      <button class="btn btn-primary btn-sm" onclick="doLink('${fromType}','${fromId}','${isFromVol?p.id:p.id}')">Link</button>
+    </div>`
+  }).join('')
+
+  const modal = document.createElement('div')
+  modal.className = 'modal-overlay'; modal.id = 'modal-link-profile'
+  modal.innerHTML = `<div class="modal">
+    <div class="modal-header"><div class="modal-title">${title}</div><button class="modal-close" onclick="closeModal('modal-link-profile')">✕</button></div>
+    <div class="modal-body">
+      <input type="text" placeholder="Search…" oninput="filterLinkModal(this.value,'${fromType}','${fromId}')" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:12px"/>
+      <div id="link-modal-list" style="max-height:400px;overflow-y:auto">${items}</div>
+      <div style="margin-top:12px"><button class="btn btn-secondary btn-sm" onclick="doLink('${fromType}','${fromId}','')">🔗 Remove Link</button></div>
+    </div>
+  </div>`
+  document.body.appendChild(modal)
+  openModal('modal-link-profile')
+}
+
+function filterLinkModal(q, fromType, fromId){
+  const isFromVol = fromType==='volunteer'
+  const list = isFromVol ? allYouth : volunteers
+  const el = document.getElementById('link-modal-list')
+  if(!el) return
+  const filtered = list.filter(p=>{
+    const name = isFromVol ? `${p.first_name} ${p.last_name}` : p.name
+    return !q || name.toLowerCase().includes(q.toLowerCase())
+  })
+  el.innerHTML = filtered.map(p=>{
+    const name = isFromVol ? `${p.first_name} ${p.last_name}` : p.name
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div>${avatarHTML(name,28)} <span style="margin-left:8px;font-weight:500">${name}</span></div>
+      <button class="btn btn-primary btn-sm" onclick="doLink('${fromType}','${fromId}','${p.id}')">Link</button>
+    </div>`
+  }).join('')
+}
+
+async function doLink(fromType, fromId, toId){
+  if(fromType==='volunteer'){
+    await api(`/api/volunteers/${fromId}/link-participant`,'POST',{participant_id:toId||null})
+    // Update local state
+    const v = volunteers.find(v=>v.id===fromId)
+    if(v) v.linked_participant_id = toId||null
+    if(toId){
+      const y = allYouth.find(y=>y.id===toId)
+      if(y) y.linked_volunteer_id = fromId
+    }
+    toast(toId?'Profiles linked!':'Link removed')
+    closeModal('modal-link-profile')
+    if(currentVolId===fromId) openProfile(fromId)
+  } else {
+    await api(`/api/youth/${fromId}/link-volunteer`,'POST',{volunteer_id:toId||null})
+    const y = allYouth.find(y=>y.id===fromId)
+    if(y) y.linked_volunteer_id = toId||null
+    toast(toId?'Profiles linked!':'Link removed')
+    closeModal('modal-link-profile')
+    if(currentYouthId===fromId) openYouthProfile(fromId)
+  }
 }
 
 // ─── WAIVER REQUIRED TOGGLE ───

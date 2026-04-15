@@ -427,6 +427,18 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
+        # meet the team
+        """CREATE TABLE IF NOT EXISTS production_team_members (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            role TEXT,
+            bio TEXT,
+            headshot_url TEXT,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE pending_profile_updates ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         """CREATE TABLE IF NOT EXISTS portal_folders (
             id TEXT PRIMARY KEY,
@@ -3398,5 +3410,64 @@ def mark_notification_read():
     except Exception:
         conn.rollback()
     conn.close()
+    return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  MEET THE TEAM
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/productions/<pid>/team', methods=['GET'])
+def get_team(pid):
+    conn = get_db()
+    members = fetchall(conn, 'SELECT * FROM production_team_members WHERE production_id=%s ORDER BY sort_order,name', (pid,))
+    conn.close()
+    return jsonify(members)
+
+@app.route('/api/productions/<pid>/team', methods=['POST'])
+def add_team_member(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO production_team_members (id,production_id,name,role,bio,headshot_url,sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (mid, pid, d['name'], d.get('role',''), d.get('bio',''), d.get('headshot_url',''), d.get('sort_order',0)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM production_team_members WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/team/<mid>', methods=['PUT'])
+def update_team_member(pid, mid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, '''UPDATE production_team_members SET name=%s,role=%s,bio=%s,headshot_url=%s,sort_order=%s WHERE id=%s''',
+        (d['name'], d.get('role',''), d.get('bio',''), d.get('headshot_url',''), d.get('sort_order',0), mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/team/<mid>', methods=['DELETE'])
+def delete_team_member(pid, mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_team_members WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Production About (update production info) ──
+@app.route('/api/productions/<pid>/about', methods=['PUT'])
+def update_production_about(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, '''UPDATE productions SET description=%s, venue=%s, director=%s WHERE id=%s''',
+        (d.get('description',''), d.get('venue',''), d.get('director',''), pid))
+    conn.commit(); conn.close()
     return jsonify({'ok': True})
 

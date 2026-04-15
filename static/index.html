@@ -715,7 +715,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- PRODUCTIONS -->
       <section class="page" id="page-productions">
         <div class="page-header">
-          <div><div class="page-title">Productions</div><div class="page-subtitle" id="productions-count-label">Loading…</div></div>
+          <div><div class="page-title">🎭 Mainstage Productions</div><div class="page-subtitle" id="productions-count-label">Loading…</div></div>
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openProductionModal()">+ New Production</button></div>
         </div>
         <div class="page-body">
@@ -3461,45 +3461,177 @@ function populateProdVolSelect(){
 
 function renderProductions(){
   const filter=document.getElementById('productions-filter-status')?.value||''
-  let filtered=filter?allProductions.filter(p=>p.status===filter):allProductions
-  document.getElementById('productions-count-label').textContent=`${filtered.length} production${filtered.length!==1?'s':''}`
+  // Mainstage page: show mainstage only. RS shown as reference cards below.
+  const mainstage=allProductions.filter(p=>p.stage!=='rising_stars'&&(!filter||p.status===filter))
+  const risingStars=allProductions.filter(p=>p.stage==='rising_stars'&&(!filter||p.status===filter))
+  document.getElementById('productions-count-label').textContent=`${mainstage.length} mainstage production${mainstage.length!==1?'s':''}${risingStars.length?' · '+risingStars.length+' Rising Stars (read-only)':''}`
   const grid=document.getElementById('productions-grid')
   const isAdmin=currentUser?.role==='admin'
-  if(!filtered.length){
+
+  let html=''
+  if(!mainstage.length&&!risingStars.length){
     grid.innerHTML=`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🎭</div><p>No productions yet</p>${isAdmin?'<button class="btn btn-primary" onclick="openProductionModal()" style="margin-top:12px">+ New Production</button>':''}</div></div>`
     return
   }
-  grid.innerHTML=filtered.map(p=>{
+
+  // Mainstage cards
+  html+=mainstage.map(p=>{
     const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
     const memberCount=p.members?.length||0
-    const isRS=p.stage==='rising_stars'
-    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer${isRS?';border:1px solid #C4B5FD':''}" onclick="openProductionDetail('${p.id}')">
-      <div style="height:4px;background:${isRS?'var(--purple-600)':col}"></div>
+    return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}')">
+      <div style="height:4px;background:${col}"></div>
       <div style="padding:20px 20px 16px;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div style="font-size:16px;font-weight:600">${p.name}</div>
           <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
         </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:6px">${isRS?'<span style="background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⭐ Rising Stars</span>':''}${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
         ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${p.description}</div>`:''}
-        ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">🎬 Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
         ${auditLine(p.created_at, p.created_by_name, p.updated_at, p.updated_by_name)}
       </div>
       <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
         <div style="font-size:13px;color:var(--text-muted)">👤 ${memberCount} member${memberCount!==1?'s':''}</div>
-        <div style="display:flex;gap:6px;align-items:center">
-          ${isRS?'<span style="font-size:11px;color:var(--purple-600);font-weight:500">Managed in Youth →</span>':''}
-          ${isAdmin&&!isRS?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEditProductionModal('${p.id}')">Edit</button>`:''}
-          ${isAdmin&&!isRS?`<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>`:''}
-          ${isRS?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();navTo('rising-stars-page')">Go to Rising Stars</button>`:''}
+        <div style="display:flex;gap:6px">
+          ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openEditProductionModal('${p.id}')">Edit</button>`:''}
+          ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProduction('${p.id}')">Delete</button>`:''}
         </div>
       </div>
     </div>`
   }).join('')
+
+  // Rising Stars reference section (read-only)
+  if(risingStars.length){
+    html+=`<div style="grid-column:1/-1;margin-top:${mainstage.length?'24px':'0'}">
+      <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+        ⭐ Rising Stars Productions
+        <span style="font-size:11px;background:var(--purple-50);color:var(--purple-600);padding:2px 8px;border-radius:10px;font-weight:600">Managed under Education & Programming</span>
+        <button class="btn btn-secondary btn-sm" onclick="navTo('rising-stars-page')">Go to Rising Stars →</button>
+      </div>
+    </div>`
+    html+=risingStars.map(p=>{
+      const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
+      return `<div class="card" style="padding:0;overflow:hidden;opacity:0.85;border:1px solid #C4B5FD">
+        <div style="height:4px;background:var(--purple-600)"></div>
+        <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-size:15px;font-weight:600">${p.name}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">${PROD_STATUS_LABELS[p.status]||p.status}</span>
+            <button class="btn btn-secondary btn-sm" onclick="navTo('rising-stars-page')">Manage →</button>
+          </div>
+        </div>
+      </div>`
+    }).join('')
+  }
+
+  grid.innerHTML=html
 }
 
-function openProductionDetail(prodId){
+
+function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes){
+  var bg = (PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A'])[0]
+  var col = (PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A'])[1]
+  var s = '<div style="display:grid;grid-template-columns:220px 1fr;gap:24px">'
+  // ── Left sidebar ──
+  s += '<div class="profile-card">'
+  s += '<div style="font-size:48px;text-align:center;margin-bottom:12px">🎭</div>'
+  s += '<div style="text-align:center;margin-bottom:16px"><span style="background:'+bg+';color:'+col+';padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600">'+PROD_STATUS_LABELS[p.status]+'</span></div>'
+  s += '<hr class="divider"/>'
+  s += '<div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">'
+  s += '<div>🎬 '+(PROD_TYPE_LABELS[p.production_type]||p.production_type)+'</div>'
+  if(p.start_date) s += '<div>📅 '+formatDate(p.start_date)+'</div>'
+  if(p.end_date)   s += '<div>🏁 '+formatDate(p.end_date)+'</div>'
+  if(p.director)   s += '<div>🎭 '+p.director+'</div>'
+  if(p.venue)      s += '<div>📍 '+p.venue+'</div>'
+  if(p.description)s += '<div style="margin-top:8px">'+p.description+'</div>'
+  s += '</div>'
+  s += '<hr class="divider"/>'
+  s += '<div style="text-align:center;margin-bottom:16px">'
+  s += '<div style="font-size:28px;font-weight:700;color:var(--teal-600)">'+members.length+'</div>'
+  s += '<div style="font-size:12px;color:var(--text-muted)">Total Members</div></div>'
+  s += '<hr class="divider"/>'
+  // Required waivers
+  var rw = p.required_waivers||[]
+  s += '<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Required Waivers</div>'
+  if(!rw.length){
+    s += '<div style="font-size:12px;color:var(--text-hint)">None assigned</div>'
+  } else {
+    rw.forEach(function(w){
+      var xBtn = isAdmin ? '<button onclick="removeProdWaiverUI(\'' + p.id + '\',\'' + w.id + '\')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>' : ''
+      s += '<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">' + w.waiver_name + xBtn + '</div>'
+    })
+  }
+  if(isAdmin){
+    var available = waiverTypes.filter(function(wt){ return !rw.find(function(r){ return r.waiver_type_id===wt.id }) })
+    s += '<select onchange="addProdWaiverUI(\'' + p.id + '\',this)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;cursor:pointer;margin-top:4px;width:100%">'
+    s += '<option value="">+ Add required waiver</option>'
+    available.forEach(function(wt){ s += '<option value="'+wt.id+'">'+wt.name+'</option>' })
+    s += '</select>'
+  }
+  s += '</div>'
+  s += '</div>' // end profile-card
+
+  // ── Right content ──
+  s += '<div>'
+  // Tab strip
+  s += '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
+  s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>🎭 Cast &amp; Crew</button>"
+  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>⭐ Youth Cast</button>"
+  if(isAdmin) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
+  s += '</div>'
+
+  // Members tab
+  s += '<div id="prodtab-members" class="card" style="padding:20px">'
+  s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">'
+  s += '<div style="font-size:15px;font-weight:600">Cast &amp; Crew</div>'
+  if(isAdmin) s += '<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\'' + p.id + '\')">+ Add Member</button>'
+  s += '</div>'
+  if(!members.length){
+    s += '<div style="color:var(--text-muted);font-size:13px">No members added yet</div>'
+  } else {
+    Object.entries(byDept).forEach(function(entry){
+      var dept = entry[0], mems = entry[1]
+      s += '<div style="margin-bottom:20px">'
+      s += '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">'+dept+'</div>'
+      mems.forEach(function(mem){
+        s += '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+        s += avatarHTML(mem.volunteer_name,36)
+        s += '<div style="flex:1"><div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile(\'' + mem.volunteer_id + '\')">'+mem.volunteer_name+'</div>'
+        s += '<div style="font-size:12px;color:var(--text-muted)">'+mem.role+'</div></div>'
+        s += '<span style="font-size:11px;font-weight:500;color:'+(memberStatusColors[mem.status]||'var(--text-muted)')+'">'+mem.status+'</span>'
+        if(isAdmin) s += '<div style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal(\'' + mem.id + '\',\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember(\'' + mem.id + '\',\'' + p.id + '\')">✕</button></div>'
+        s += '</div>'
+      })
+      s += '</div>'
+    })
+  }
+  s += '</div>' // end members tab
+
+  // Youth cast tab (RS only)
+  if(p.stage==='rising_stars'){
+    s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
+    s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    s += '<div style="font-size:15px;font-weight:600">⭐ Youth Cast Members</div>'
+    if(isAdmin) s += '<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Enroll Youth</button>'
+    s += '</div>'
+    s += '<div id="youth-prod-members-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
+    s += '</div>'
+  }
+
+  // Portal content tab
+  s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
+  s += '</div>' // end right column
+  s += '</div>' // end grid
+  return s
+}
+
+
+let prodDetailFromPage = 'productions'
+function openProductionDetail(prodId, fromPage){
   currentProdId=prodId
+  prodDetailFromPage = fromPage||(allProductions.find(p=>p.id===prodId)?.stage==='rising_stars'?'rising-stars-page':'productions')
   const p=allProductions.find(p=>p.id===prodId)
   if(!p) return
   const isAdmin=currentUser?.role==='admin'
@@ -3507,16 +3639,13 @@ function openProductionDetail(prodId){
 
   document.getElementById('production-detail-header').innerHTML=`
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-secondary btn-sm" onclick="navTo('productions')">← Back</button>
+      <button class="btn btn-secondary btn-sm" onclick="navTo(prodDetailFromPage)">← Back</button>
       <div>
         <div class="page-title">${p.name}</div>
         <div class="page-subtitle">${PROD_TYPE_LABELS[p.production_type]||p.production_type} · <span style="color:${col}">${PROD_STATUS_LABELS[p.status]}</span></div>
       </div>
     </div>
-    ${isAdmin?`<div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="openEditProductionModal('${p.id}')">Edit Production</button>
-      <button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>
-    </div>`:''}`
+    ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button><button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
 
   // Group members by department
   const members=p.members||[]
@@ -3528,86 +3657,10 @@ function openProductionDetail(prodId){
   })
   const memberStatusColors={confirmed:'var(--green-600)',pending:'var(--amber-600)',dropped:'var(--text-hint)'}
 
-  document.getElementById('production-detail-content').innerHTML=`
-    <div style="display:grid;grid-template-columns:220px 1fr;gap:24px">
-      <div class="profile-card">
-        <div style="font-size:48px;text-align:center;margin-bottom:12px">🎭</div>
-        <div style="text-align:center;margin-bottom:16px">
-          <span style="background:${bg};color:${col};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600">${PROD_STATUS_LABELS[p.status]}</span>
-        </div>
-        <hr class="divider"/>
-        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
-          <div>🎬 ${PROD_TYPE_LABELS[p.production_type]||p.production_type}</div>
-          ${p.start_date?`<div>📅 ${formatDate(p.start_date)}</div>`:''}
-          ${p.end_date?`<div>🏁 ${formatDate(p.end_date)}</div>`:''}
-          ${p.description?`<div style="margin-top:8px">${p.description}</div>`:''}
-        </div>
-        <hr class="divider"/>
-        <div style="text-align:center;margin-bottom:16px">
-          <div style="font-size:28px;font-weight:700;color:var(--teal-600)">${members.length}</div>
-          <div style="font-size:12px;color:var(--text-muted)">Total Members</div>
-        </div>
-        <hr class="divider"/>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Required Waivers</div>
-          ${(p.required_waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-hint)">None assigned</div>':
-            (p.required_waivers||[]).map(w=>`<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">${w.waiver_name}${isAdmin?`<button onclick="removeProdWaiverUI('${p.id}','${w.id}')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>`:''}  </div>`).join('')}
-          ${isAdmin?`<select onchange="addProdWaiverUI('${p.id}',this)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;cursor:pointer;margin-top:4px;width:100%">
-            <option value="">+ Add required waiver</option>
-            ${waiverTypes.filter(wt=>!(p.required_waivers||[]).find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
-          </select>`:''}
-        </div>
-      </div>
-      <div>
-        <!-- Tab strip -->
-        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
-          <button id="prodtab-btn-members" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProductionTab('members')">🎭 Cast & Crew</button>
-          ${p.stage==='rising_stars'?`<button id="prodtab-btn-youth" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProductionTab('youth')">⭐ Youth Cast</button>`:''}
-          ${isAdmin&&p.stage==='rising_stars'?`<button id="prodtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProductionTab('portal')">🏠 Portal Content</button>`:''}
-        </div>
-
-        <!-- Members tab -->
-        <div id="prodtab-members" class="card" style="padding:20px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-            <div style="font-size:15px;font-weight:600">Cast & Crew</div>
-            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openAddMemberModal('${p.id}')">+ Add Member</button>`:''}
-          </div>
-          ${!members.length?'<div style="color:var(--text-muted);font-size:13px">No members added yet</div>':
-            Object.entries(byDept).map(([dept,mems])=>`
-              <div style="margin-bottom:20px">
-                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">${dept}</div>
-                ${mems.map(m=>`
-                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-                    ${avatarHTML(m.volunteer_name,36)}
-                    <div style="flex:1">
-                      <div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${m.volunteer_id}')">${m.volunteer_name}</div>
-                      <div style="font-size:12px;color:var(--text-muted)">${m.role}</div>
-                    </div>
-                    <span style="font-size:11px;font-weight:500;color:${memberStatusColors[m.status]||'var(--text-muted)'}">${m.status}</span>
-                    ${isAdmin?`<div style="display:flex;gap:4px">
-                      <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal('${m.id}','${p.id}')">Edit</button>
-                      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember('${m.id}','${p.id}')">✕</button>
-                    </div>`:''}
-                  </div>`).join('')}
-            </div>`).join('')}
-        </div>
-
-        <!-- Youth Cast tab (Rising Stars only) -->
-        ${p.stage==='rising_stars'?`<div id="prodtab-youth" class="card" style="padding:20px;display:none">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <div style="font-size:15px;font-weight:600">⭐ Youth Cast Members</div>
-            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll('${p.id}')">+ Enroll Youth</button>`:''}
-          </div>
-          <div id="youth-prod-members-${p.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
-        </div>`:''}
-        <!-- Portal content tab (Rising Stars only) -->
-        <div id="prodtab-portal" style="display:none">
-          ${renderProductionPortalHTML(p.id)}
-        </div>
-      </div>
-    </div>`
+  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes)
 
   window._currentProductionDetailId = p.id
+  if(isAdmin) document.getElementById('prodtab-portal-inner-'+p.id).innerHTML = renderProductionPortalHTML(p.id)
   navTo('production-detail')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   if(p.stage==='rising_stars') setTimeout(()=>loadYouthProdMembers(p.id),100)
@@ -7335,7 +7388,7 @@ function renderRisingStarsPage(){
       const memberCount = p.members?.length||0
       const youthCount = 0 // loaded async per card
       const events = allEvents.filter(e=>e.production_id===p.id)
-      return`<div class="card" style="padding:0;overflow:hidden">
+      return`<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}','rising-stars-page')">
         <div style="height:5px;background:var(--purple-600)"></div>
         <div style="padding:20px">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:12px">

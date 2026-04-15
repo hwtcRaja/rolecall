@@ -455,7 +455,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <!-- DASHBOARD -->
       <section class="page active" id="page-dashboard">
         <div class="page-header">
-          <div><div class="page-title">Dashboard</div><div class="page-subtitle">Overview of your volunteer program</div></div>
+          <div><div class="page-title">Dashboard</div><div class="page-subtitle">HWTC — Programs, productions, volunteers & participants</div></div>
           <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
         </div>
         <div class="page-body">
@@ -1022,29 +1022,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">📋 Waiver Types</div>
               <div id="waiver-types-list" style="margin-bottom:16px"></div>
               <button class="btn btn-primary btn-sm" onclick="openNewWaiverTypeModal()">+ New Waiver Type</button>
-            </div>
-
-            <!-- Events -->
-            <div class="settings-section" style="grid-column:1/-1">
-              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🎭 Events</div>
-              <div id="events-list" style="margin-bottom:16px"></div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-                <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Event Name *</div><input type="text" id="new-event-name" placeholder="e.g. Spring Showcase" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-                <div style="min-width:140px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Date</div><input type="date" id="new-event-date" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-                <div style="min-width:110px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Start Time</div><input type="time" id="new-event-start" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-                <div style="min-width:110px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">End Time</div><input type="time" id="new-event-end" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-                <button class="btn btn-primary btn-sm" onclick="addEvent()" style="height:36px;align-self:flex-end">Add</button>
-              </div>
-            </div>
-
-            <!-- Youth Programs -->
-            <div class="settings-section">
-              <div style="font-weight:600;font-size:15px;margin-bottom:16px">🧒 Youth Programs</div>
-              <div id="youth-programs-list" style="margin-bottom:16px"></div>
-              <div class="inline-input-row">
-                <input type="text" id="new-program-name" placeholder="e.g. Summer Theater Camp"/>
-                <button class="btn btn-primary btn-sm" onclick="addYouthProgram()">Add</button>
-              </div>
             </div>
 
             <!-- Email Templates -->
@@ -2016,10 +1993,15 @@ async function renderDashboard(){
     }
     if(activeProds.length){
       apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:12px;margin-bottom:8px">Productions</div>'
-      apHTML += activeProds.map(p=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProductionDetail(\''+p.id+'\')">'
-        +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
-        +'<span style="font-size:11px;color:var(--text-muted)">'+(p.members?.length||0)+' members</span>'
-        +'</div>').join('')
+      apHTML += activeProds.map(p=>{
+        const isRS = p.stage==='rising_stars'
+        const count = isRS ? (p.members?.length||0) : (p.members?.length||0)
+        const label = isRS ? count+' crew' : count+' members'
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProductionDetail(\''+p.id+'\')">'
+          +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
+          +'<span style="font-size:11px;color:var(--text-muted)">'+label+'</span>'
+          +'</div>'
+      }).join('')
     }
     ap.innerHTML = apHTML || '<div style="font-size:13px;color:var(--text-muted)">No active programs or productions</div>'
   }
@@ -4096,6 +4078,7 @@ function renderUsersManagement(users){
           <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Status:</span>
           <span style="font-size:12px;padding:4px 10px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'};font-weight:600">${u.active!==false?'Active':'Inactive'}</span>
           ${!isSelf?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" style="padding:4px 10px;font-size:12px" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:''}
+          ${!isSelf?`<button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:12px" onclick="resetUserPassword('${u.id}','${u.name}')">🔑 Reset Password</button>`:''}
         </div>
       </div>
     </div>`
@@ -4109,6 +4092,15 @@ async function toggleUser(uid,currentlyActive){
   if(res.error){toast(res.error,'error');return}
   toast(`User ${res.active?'activated':'deactivated'}`,res.active?'success':'')
   loadSettings()
+}
+
+async function resetUserPassword(uid, name){
+  const pw = prompt(`Set new password for ${name}:\n(minimum 6 characters)`)
+  if(!pw||!pw.trim()) return
+  if(pw.trim().length < 6){ toast('Password must be at least 6 characters','error'); return }
+  const res = await api(`/api/users/${uid}/reset-password`,'POST',{password:pw.trim()})
+  if(res.error){ toast(res.error,'error'); return }
+  toast(`Password reset for ${name}`)
 }
 
 
@@ -6471,7 +6463,6 @@ function renderProductionPortalHTML(pid){
       <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">📁 Files</button>
       <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">🎭 About</button>
       <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">👥 Meet the Team</button>
-      <button class="portal-sub-btn" data-ptab="conflicts" onclick="switchProdPortalTab('conflicts',this)">⚔️ Conflicts</button>
     </div>
 
     <!-- Announcements -->
@@ -6575,18 +6566,7 @@ function renderProductionPortalHTML(pid){
         <div id="prod-team-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
       </div>
     </div>
-
-    <!-- Conflicts -->
-    <div id="pptab-conflicts-${pid}" style="display:none">
-      <div class="card" style="padding:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:14px;font-weight:700">⚔️ Conflicts & Callouts</div>
-          <button class="btn btn-primary btn-sm" onclick="openAddConflictModal('${pid}')">+ Add Conflict</button>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Self-reported callouts show automatically. Admin-entered conflicts and approved requests also appear here and on the sign-in sheet.</div>
-        <div id="prod-conflicts-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
-      </div>
-    </div>`
+`
 }
 
 function switchProductionTab(tab){

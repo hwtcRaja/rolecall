@@ -1575,6 +1575,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-group"><label>Description</label><textarea id="prod-desc" placeholder="Brief description…"></textarea></div>
+      <div class="form-group"><label>Production Photo / Poster URL</label><input type="url" id="prod-image-url" placeholder="https://drive.google.com/… or any image URL"/><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Shows on the production card. Use a Google Drive image link or any direct image URL.</div></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-production')">Cancel</button>
@@ -3479,7 +3480,7 @@ function renderProductions(){
     const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
     const memberCount=p.members?.length||0
     return `<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}')">
-      <div style="height:4px;background:${col}"></div>
+      ${p.image_url?`<div style="height:140px;overflow:hidden;background:#1a1a2e"><img src="${p.image_url}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.style.height='4px';this.style.display='none'"/></div>`:`<div style="height:4px;background:${col}"></div>`}
       <div style="padding:20px 20px 16px;border-bottom:1px solid var(--border)">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
           <div style="font-size:16px;font-weight:600">${p.name}</div>
@@ -3579,6 +3580,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   s += '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
   s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>🎭 Cast &amp; Crew</button>"
   if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>⭐ Youth Cast</button>"
+  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>📅 Schedule &amp; Conflicts</button>"
   if(isAdmin) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
   s += '</div>'
 
@@ -3620,6 +3622,8 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
     s += '</div>'
   }
 
+  // Schedule & Conflicts tab
+  s += '<div id="prodtab-schedule" style="display:none"><div id="prod-sched-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
   // Portal content tab
   s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
   s += '</div>' // end right column
@@ -3669,7 +3673,7 @@ function openProductionDetail(prodId, fromPage){
 function openProductionModal(){
   document.getElementById('production-modal-title').textContent='New Production'
   document.getElementById('prod-edit-id').value=''
-  ;['prod-name','prod-desc'].forEach(id=>document.getElementById(id).value='')
+  ;['prod-name','prod-desc','prod-image-url'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
   document.getElementById('prod-start').value=''
   document.getElementById('prod-end').value=''
   document.getElementById('prod-type').value='musical'
@@ -3689,6 +3693,7 @@ function openEditProductionModal(pid){
   document.getElementById('prod-edit-id').value=p.id
   document.getElementById('prod-name').value=p.name||''
   document.getElementById('prod-desc').value=p.description||''
+  const imgEl=document.getElementById('prod-image-url'); if(imgEl) imgEl.value=p.image_url||''
   document.getElementById('prod-start').value=p.start_date||''
   document.getElementById('prod-end').value=p.end_date||''
   document.getElementById('prod-type').value=p.production_type||'musical'
@@ -3714,6 +3719,7 @@ async function saveProduction(){
     start_date:document.getElementById('prod-start').value||null,
     end_date:document.getElementById('prod-end').value||null,
     description:document.getElementById('prod-desc').value.trim(),
+    image_url:document.getElementById('prod-image-url')?.value.trim()||null,
     default_elic_id:document.getElementById('prod-default-elic')?.value||null
   }
   let res
@@ -5302,6 +5308,7 @@ let ysiCurrentFilter = {category:'program', parentId:'', eventId:''}
 let ysiData = []
 let ysiRoster = []
 let ysiAdultRoster = []  // for rising stars — adult crew
+let ysiConflicts = {}    // youth_id → conflict for today's event
 
 function initYouthSignIn(){
   setYsiCategory('program')
@@ -5431,20 +5438,23 @@ async function loadProgramSignIn(programId, eventId, isAdmin){
 
 async function loadRisingStarsSignIn(prodId, eventId, isAdmin){
   const prod = allProductions.find(p=>p.id===prodId)
-
-  // Youth = enrolled youth production members
-  const youthMembers = await api('/api/productions/'+prodId+'/youth-members')
+  const param = eventId ? 'event_id='+eventId : ''
+  const [youthMembers, rawConflicts] = await Promise.all([
+    api('/api/productions/'+prodId+'/youth-members'),
+    api('/api/productions/'+prodId+'/conflicts')
+  ])
   ysiRoster = youthMembers.map(m=>({
     id: m.youth_id, first_name: m.first_name, last_name: m.last_name,
     dob: m.dob, status: 'active', member_id: m.id
   }))
-
-  // Sign-in records
-  const param = eventId ? 'event_id='+eventId : ''
   ysiData = param ? await api('/api/youth-sign-ins?'+param) : []
-
-  // Adults = production members (volunteers)
   ysiAdultRoster = prod?.members || []
+
+  // Build conflict lookup by youth_id (today's approved conflicts for this event or general)
+  const today = new Date().toISOString().split('T')[0]
+  ysiConflicts = {}
+  ;(rawConflicts||[]).filter(c=>c.approved&&(!c.event_date||c.event_date===today)&&(!eventId||!c.event_id||c.event_id===eventId))
+    .forEach(c=>{ if(c.youth_id) ysiConflicts[c.youth_id]=c })
 
   renderRisingStarsSheet(prod?.name||'Rising Stars', eventId, isAdmin)
 }
@@ -5525,24 +5535,32 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
 }
 
 function buildYsiCard(y, rec, isIn, isAdmin){
-  const bg = isIn ? 'var(--green-light)' : 'var(--surface)'
-  const border = isIn ? '#86EFAD' : 'var(--border)'
-  const sinceStr = isIn ? 'Here since '+new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : 'Not signed in'
-  return `<div style="background:${bg};border:2px solid ${border};border-radius:var(--radius-lg);padding:16px">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      ${avatarHTML(y.first_name+' '+y.last_name,40)}
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:14px">${y.first_name} ${y.last_name}</div>
-        <div style="font-size:12px;color:${isIn?'var(--green-600)':'var(--text-hint)'}">${sinceStr}</div>
-        ${rec&&isIn?`<div style="font-size:11px;color:var(--text-muted)">By: ${rec.signed_in_by||'—'}</div>`:''}
-      </div>
-      <div style="font-size:13px;font-weight:700;color:${isIn?'var(--green)':'var(--hint)'}">${isIn?'✅':'◯'}</div>
-    </div>
-    ${isAdmin?`<div style="display:flex;gap:6px">
-      ${!isIn?`<button class="btn btn-primary btn-sm" style="flex:1" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}
-      ${isIn?`<button class="btn btn-secondary btn-sm" style="flex:1" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}
-    </div>`:''}
-  </div>`
+  const conflict = ysiConflicts[y.id]
+  const conflictStyle = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
+  const conflictLabel = {absent:'🔴 Absent',sick:'🤒 Sick',late:'🟡 Late',leaving_early:'🟠 Leaving Early'}
+  const conflictBg = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
+  const bg = conflict ? conflictBg[conflict.status]||'#fef2f2' : isIn ? 'var(--green-light)' : 'var(--surface)'
+  const border = conflict ? (conflictStyle[conflict.status]||'#dc2626') : isIn ? '#86EFAD' : 'var(--border)'
+  const sinceStr = isIn ? 'Here since '+new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : conflict ? '' : 'Not signed in'
+  return '<div style="background:'+bg+';border:2px solid '+border+';border-radius:var(--radius-lg);padding:16px">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+    +avatarHTML(y.first_name+' '+y.last_name,40)
+    +'<div style="flex:1;min-width:0">'
+    +'<div style="font-weight:700;font-size:14px">'+y.first_name+' '+y.last_name+'</div>'
+    +(conflict
+      ? '<div style="font-size:12px;font-weight:700;color:'+(conflictStyle[conflict.status]||'#dc2626')+'">'+(conflictLabel[conflict.status]||conflict.status)+(conflict.notes?' — '+conflict.notes:'')+'</div>'
+        +'<div style="font-size:11px;color:var(--text-muted)">'+(conflict.source==='portal'?'Self-reported':'Staff entered')+'</div>'
+      : '<div style="font-size:12px;color:'+(isIn?'var(--green-600)':'var(--text-hint)')+'">'+sinceStr+'</div>'
+        +(rec&&isIn?'<div style="font-size:11px;color:var(--text-muted)">By: '+(rec.signed_in_by||'—')+'</div>':'')
+    )
+    +'</div>'
+    +'<div style="font-size:16px;font-weight:700">'+(conflict?(conflictLabel[conflict.status]||'⚠️').split(' ')[0]:isIn?'✅':'◯')+'</div>'
+    +'</div>'
+    +(isAdmin&&!conflict?'<div style="display:flex;gap:6px">'
+      +(!isIn?'<button class="btn btn-primary btn-sm" style="flex:1" onclick="ysiDropOff(\''+y.id+'\',\''+y.first_name+' '+y.last_name+'\')">Drop Off</button>':'')
+      +(isIn?'<button class="btn btn-secondary btn-sm" style="flex:1" onclick="ysiPickUp(\''+rec.id+'\',\''+y.id+'\',\''+y.first_name+' '+y.last_name+'\')">Pick Up</button>':'')
+      +'</div>':'')
+    +'</div>'
 }
 
 function renderRisingStarsSheet(label, eventId, isAdmin){
@@ -5570,16 +5588,28 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
       </div>
     </div>
     ${ysiView==='card'
-      ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">${ysiRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||'<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">No enrolled participants. Enroll youth from Programs & Classes.</div>'}</div>`
-      : `<div class="card"><table><thead><tr><th>Name</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}</tr></thead><tbody>
-          ${ysiRoster.map(y=>{const rec=activeSignIn[y.id];const isIn=!!rec;return`<tr style="${isIn?'background:var(--teal-50)':''}">
-            <td><div style="display:flex;align-items:center;gap:8px">${avatarHTML(y.first_name+' '+y.last_name,28)}<span style="font-weight:500">${y.first_name} ${y.last_name}</span></div></td>
-            <td style="font-size:13px">${rec?new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'}</td>
-            <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_in_by||'—'}</td>
-            <td style="font-size:13px">${rec?.signed_out_at?new Date(rec.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">Present</span>'}</td>
-            <td style="font-size:13px;color:var(--text-muted)">${rec?.signed_out_by||'—'}</td>
-            ${isAdmin?`<td>${!isIn?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff('${y.id}','${y.first_name} ${y.last_name}')">Drop Off</button>`:''}${isIn?`<button class="btn btn-secondary btn-sm" onclick="ysiPickUp('${rec.id}','${y.id}','${y.first_name} ${y.last_name}')">Pick Up</button>`:''}</td>`:''}</tr>`}).join('')||`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:16px;color:var(--text-muted)">No enrolled participants</td></tr>`}
-        </tbody></table></div>`}
+      ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">'+( ysiRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||'<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">No enrolled participants. Enroll youth from Programs & Classes.</div>' )+'</div>'
+      : '<div class="card"><table><thead><tr><th>Name</th><th>Status / Conflict</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th>'+(isAdmin?'<th></th>':'')+'</tr></thead><tbody>'
+        + (ysiRoster.map(y=>{
+            const rec=activeSignIn[y.id]; const isIn=!!rec
+            const conflict=ysiConflicts[y.id]
+            const conflictLabel={absent:'🔴 Absent',sick:'🤒 Sick',late:'🟡 Late',leaving_early:'🟠 Leaving Early'}
+            const rowBg = conflict?'background:#fff7f7':isIn?'background:var(--teal-50)':''
+            return '<tr style="'+rowBg+'">'
+              +'<td><div style="display:flex;align-items:center;gap:8px">'+avatarHTML(y.first_name+' '+y.last_name,28)+'<span style="font-weight:500">'+y.first_name+' '+y.last_name+'</span></div></td>'
+              +'<td style="font-size:13px">'+(conflict?'<span style="font-weight:700;color:'+(conflict.status.includes('absent')||conflict.status==='sick'?'#dc2626':'#d97706')+'">'+(conflictLabel[conflict.status]||conflict.status)+'</span>'+(conflict.notes?' <span style="color:var(--text-muted);font-size:11px">'+conflict.notes+'</span>':'')+(conflict.source==='portal'?' <span style="color:var(--text-hint);font-size:10px">(self)</span>':''):'<span style="color:var(--green-600)">'+( isIn?'✅ Present':'–' )+'</span>')+'</td>'
+              +'<td style="font-size:13px">'+(rec?new Date(rec.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—')+'</td>'
+              +'<td style="font-size:13px;color:var(--text-muted)">'+(rec?.signed_in_by||'—')+'</td>'
+              +'<td style="font-size:13px">'+(rec?.signed_out_at?new Date(rec.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'<span style="color:var(--amber-600);font-weight:600">'+( isIn?'Present':'–')+'</span>')+'</td>'
+              +(isAdmin&&!conflict?'<td>'
+                +(!isIn?'<button class="btn btn-primary btn-sm" onclick="ysiDropOff(\''+y.id+'\',\''+y.first_name+' '+y.last_name+'\')">Drop Off</button>':'')
+                +(isIn?'<button class="btn btn-secondary btn-sm" onclick="ysiPickUp(\''+rec.id+'\',\''+y.id+'\',\''+y.first_name+' '+y.last_name+'\')">Pick Up</button>':'')
+                +'</td>':'')
+              +(isAdmin&&conflict?'<td><span style="font-size:11px;color:var(--text-hint)">'+(conflict.source==='portal'?'Self-reported':'Staff')+'</span></td>':'')
+              +'</tr>'
+          }).join('')
+          || '<tr><td colspan="'+(isAdmin?6:5)+'" style="text-align:center;padding:16px;color:var(--text-muted)">No enrolled participants</td></tr>' )
+        +'</tbody></table></div>'}
   </div>`
 
   // Adult crew section — simple check-in list
@@ -6361,22 +6391,126 @@ function renderProductionPortalHTML(pid){
 
 function switchProductionTab(tab){
   const pid = window._currentProductionDetailId
-  const mDiv = document.getElementById('prodtab-members')
-  const yDiv = document.getElementById('prodtab-youth')
-  const pDiv = document.getElementById('prodtab-portal')
-  const mBtn = document.getElementById('prodtab-btn-members')
-  const yBtn = document.getElementById('prodtab-btn-youth')
-  const pBtn = document.getElementById('prodtab-btn-portal')
-  if(mDiv) mDiv.style.display = tab==='members'?'':'none'
-  if(yDiv) yDiv.style.display = tab==='youth'?'':'none'
-  if(pDiv) pDiv.style.display = tab==='portal'?'':'none'
-  ;[{btn:mBtn,id:'members'},{btn:yBtn,id:'youth'},{btn:pBtn,id:'portal'}].forEach(({btn,id})=>{
-    if(!btn) return
-    btn.style.borderBottomColor = tab===id?'var(--teal-mid)':'transparent'
-    btn.style.color = tab===id?'var(--teal-dark)':'var(--text-muted)'
+  const tabs = ['members','youth','schedule','portal']
+  tabs.forEach(t=>{
+    const el = document.getElementById('prodtab-'+t)
+    if(el) el.style.display = t===tab?'':'none'
+    const btn = document.getElementById('prodtab-btn-'+t)
+    if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal-mid)':'transparent'; btn.style.color=t===tab?'var(--teal-dark)':'var(--text-muted)' }
   })
   if(tab==='portal') loadProductionPortalContent(pid)
   if(tab==='youth' && pid) loadYouthProdMembers(pid)
+  if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
+}
+
+async function loadProductionScheduleConflicts(pid){
+  const el = document.getElementById('prod-sched-conflicts-'+pid)
+  if(!el) return
+  const isAdmin = currentUser?.role==='admin'
+  const [events, conflicts] = await Promise.all([
+    Promise.resolve(allEvents.filter(e=>e.production_id===pid).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))),
+    api('/api/productions/'+pid+'/conflicts')
+  ])
+  const today = new Date().toISOString().split('T')[0]
+  const byEvent = {}
+  conflicts.forEach(c=>{ const k=c.event_id||'__none__'; if(!byEvent[k]) byEvent[k]=[]; byEvent[k].push(c) })
+  const statusStyle = {
+    absent:       'background:#fef2f2;color:#dc2626',
+    sick:         'background:#fef2f2;color:#dc2626',
+    late:         'background:#fffbeb;color:#d97706',
+    leaving_early:'background:#fffbeb;color:#d97706'
+  }
+  const statusLabel = {absent:'Absent',sick:'Sick',late:'Late',leaving_early:'Leaving Early'}
+
+  // Add Conflict modal helper
+  const evOptions = events.map(e=>'<option value="'+e.id+'">'+e.name+(e.event_date?' ('+formatDate(e.event_date)+')':'')+'</option>').join('')
+  const addForm = isAdmin ? '<div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:20px">'
+    +'<div style="font-size:13px;font-weight:700;margin-bottom:10px">+ Add Conflict</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Person</label>'
+    +'<select id="sc-person-'+pid+'" style="width:100%;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    +'<option value="">— Select —</option>'
+    +'<optgroup label="Youth Cast">'+allYouth.map(y=>'<option value="youth:'+y.id+'">'+y.first_name+' '+y.last_name+'</option>').join('')+'</optgroup>'
+    +'</select></div>'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Event</label>'
+    +'<select id="sc-event-'+pid+'" style="width:100%;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    +'<option value="">— No specific event —</option>'+evOptions+'</select></div>'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+    +'<select id="sc-status-'+pid+'" style="width:100%;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    +'<option value="absent">Absent</option><option value="sick">Sick</option><option value="late">Late</option><option value="leaving_early">Leaving Early</option>'
+    +'</select></div></div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Notes (optional)</label>'
+    +'<input type="text" id="sc-notes-'+pid+'" placeholder="Any notes…" style="width:100%;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px"/></div>'
+    +'<button class="btn btn-primary btn-sm" onclick="submitScConflict(\''+pid+'\')">Add Conflict</button>'
+    +'</div>' : ''
+
+  // Group events with their conflicts
+  let html = addForm
+  if(!events.length){
+    html += '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
+    el.innerHTML = html; return
+  }
+  // Un-attached conflicts
+  const loose = byEvent['__none__']||[]
+  // Events list
+  html += events.map(e=>{
+    const evConflicts = byEvent[e.id]||[]
+    const isToday = e.event_date===today
+    const isPast = e.event_date && e.event_date<today
+    return '<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden">'
+      +'<div style="padding:10px 14px;background:'+(isToday?'var(--teal-50)':isPast?'var(--bg)':'var(--surface)')
+      +';display:flex;align-items:center;justify-content:space-between;gap:10px">'
+      +'<div>'
+      +'<div style="font-size:14px;font-weight:600">'+e.name+(isToday?' <span style="background:var(--teal-mid);color:#fff;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700">TODAY</span>':'')+'</div>'
+      +'<div style="font-size:12px;color:var(--text-muted)">'+(e.event_date?formatDate(e.event_date):'No date')+(e.start_time?' · '+fmtTime(e.start_time):'')+'</div>'
+      +'</div>'
+      +'<span style="font-size:12px;color:var(--text-muted)">'+evConflicts.length+' conflict'+(evConflicts.length!==1?'s':'')+'</span>'
+      +'</div>'
+      +(evConflicts.length?'<div style="padding:0 14px">'
+        +evConflicts.map(c=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+          +'<div><div style="font-size:13px;font-weight:600">'+(c.person_name||'Unknown')+'</div>'
+          +(c.notes?'<div style="font-size:12px;color:var(--text-muted)">'+c.notes+'</div>':'')
+          +'<div style="font-size:11px;color:var(--text-hint)">'+(c.source==='portal'?'Self-reported':'Staff')+(c.approved?'':' · Pending approval')+'</div>'
+          +'</div>'
+          +'<div style="display:flex;align-items:center;gap:8px">'
+          +'<span style="'+statusStyle[c.status]+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">'+statusLabel[c.status]+'</span>'
+          +(!c.approved&&isAdmin?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')">✅</button>':'')
+          +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\').then(()=>loadProductionScheduleConflicts(\''+pid+'\'))">✕</button>':'')
+          +'</div></div>'
+        ).join('')
+        +'</div>':'')
+      +'</div>'
+  }).join('')
+  if(loose.length){
+    html += '<div style="margin-top:16px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Not tied to a specific event</div>'
+    html += loose.map(c=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+      +'<div><div style="font-size:13px;font-weight:600">'+(c.person_name||'Unknown')+'</div>'
+      +(c.notes?'<div style="font-size:12px;color:var(--text-muted)">'+c.notes+'</div>':'')
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span style="'+statusStyle[c.status]+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">'+statusLabel[c.status]+'</span>'
+      +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\').then(()=>loadProductionScheduleConflicts(\''+pid+'\'))">✕</button>':'')
+      +'</div></div>'
+    ).join('')+'</div>'
+  }
+  el.innerHTML = html
+}
+
+async function submitScConflict(pid){
+  const personVal = document.getElementById('sc-person-'+pid)?.value
+  const eventId = document.getElementById('sc-event-'+pid)?.value||null
+  const status = document.getElementById('sc-status-'+pid)?.value||'absent'
+  const notes = document.getElementById('sc-notes-'+pid)?.value.trim()||''
+  if(!personVal){toast('Select a person','error');return}
+  const [type,id] = personVal.split(':')
+  const payload = {status, notes, source:'admin', approved:true, event_id:eventId||null}
+  if(type==='youth') payload.youth_id = id
+  else payload.volunteer_id = id
+  await api('/api/productions/'+pid+'/conflicts','POST',payload)
+  document.getElementById('sc-person-'+pid).value=''
+  document.getElementById('sc-notes-'+pid).value=''
+  await loadProductionScheduleConflicts(pid)
+  toast('Conflict added')
 }
 
 function switchProdPortalTab(tab, btn){
@@ -7388,8 +7522,8 @@ function renderRisingStarsPage(){
       const memberCount = p.members?.length||0
       const youthCount = 0 // loaded async per card
       const events = allEvents.filter(e=>e.production_id===p.id)
-      return`<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProductionDetail('${p.id}','rising-stars-page')">
-        <div style="height:5px;background:var(--purple-600)"></div>
+      return`<div class="card" style="padding:0;overflow:hidden">
+        ${p.image_url?`<div style="height:160px;overflow:hidden;background:#1a1a2e"><img src="${p.image_url}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.style.height='5px';this.style.display='none'"/></div>`:`<div style="height:5px;background:var(--purple-600)"></div>`}
         <div style="padding:20px">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:12px">
             <div>
@@ -7437,9 +7571,10 @@ function renderRisingStarsPage(){
               (events.length>3?`<div style="font-size:11px;color:var(--text-hint);padding:4px 0">+${events.length-3} more</div>`:'')}
           </div>
 
-          <!-- Sign-In Sheet link -->
-          <div style="margin-top:12px">
-            <button class="btn btn-secondary btn-sm" style="width:100%" onclick="navToRSSignIn('${p.id}')">📝 Open Sign-In Sheet</button>
+          <!-- Action buttons -->
+          <div style="margin-top:12px;display:flex;gap:6px">
+            <button class="btn btn-primary btn-sm" style="flex:1" onclick="openProductionDetail('${p.id}','rising-stars-page')">⚙️ Manage</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1" onclick="event.stopPropagation();navToRSSignIn('${p.id}')">📝 Sign-In</button>
           </div>
         </div>
       </div>`

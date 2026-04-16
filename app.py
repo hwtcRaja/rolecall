@@ -2137,8 +2137,7 @@ def remove_event_elic(evid, rid):
 
 @app.route('/api/checklist-items')
 def get_checklist_items():
-    err = require_auth()
-    if err: return err
+    # No auth required — kiosk needs this without a session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, created_at')
     conn.close()

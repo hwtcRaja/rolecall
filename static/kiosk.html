@@ -886,8 +886,8 @@ function renderElicMenu(){
     } else if(mins!==null && mins>60){
       // Locked — show countdown
       actionArea='<div style="display:flex;align-items:center;gap:12px">'
-        +'<button disabled style="background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:not-allowed">🔒 Opens in</button>'
-        +'<div id="cd-'+e.id+'" style="font-size:22px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums">—</div>'
+        +'<button disabled style="background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:not-allowed">🔒 Opens at '+fmtTime(e.start_time)+'</button>'
+        +'<div id="cd-'+e.id+'" style="font-size:20px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums">—</div>'
         +'</div>'
     } else {
       actionArea='<button class="elic-open-btn" onclick="handleElicOpenIdx('+idx+')">🟢 Open Event</button>'
@@ -946,8 +946,12 @@ function startCountdownTimers(){
           renderElicMenu()
           return
         }
-        const h=Math.floor(mins/60), m=Math.floor(mins%60), s=Math.floor((mins*60)%60)
-        el.textContent=(h>0?h+'h ':'')+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s'
+        const totalSecs=Math.max(0,Math.round((start-now)/1000))
+        const d=Math.floor(totalSecs/86400)
+        const h=Math.floor((totalSecs%86400)/3600)
+        const m=Math.floor((totalSecs%3600)/60)
+        const s=totalSecs%60
+        el.textContent=(d>0?d+'d ':'')+String(h).padStart(2,'0')+'h '+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s'
       }catch(ex){}
     })
   },1000)

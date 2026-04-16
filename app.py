@@ -428,6 +428,19 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        # email settings
+        """CREATE TABLE IF NOT EXISTS email_settings (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            resend_api_key TEXT DEFAULT '',
+            from_email TEXT DEFAULT 'info@hwtco.org',
+            report_recipients TEXT DEFAULT '',
+            alert_pending_hours BOOLEAN DEFAULT TRUE,
+            alert_profile_updates BOOLEAN DEFAULT TRUE,
+            alert_callouts BOOLEAN DEFAULT TRUE,
+            alert_waiver_expiry BOOLEAN DEFAULT TRUE,
+            auto_send_checklist_report BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "INSERT INTO email_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
@@ -2267,6 +2280,11 @@ def kiosk_close_event():
             'INSERT INTO event_checklist_responses (id,event_log_id,checklist_item_id,label,item_type,response) VALUES (%s,%s,%s,%s,%s,%s)',
             (str(uuid.uuid4()), lid, r.get('item_id',''), r['label'], r['item_type'], r.get('response','')))
     conn.commit(); conn.close()
+    # Send checklist report email (non-blocking)
+    try:
+        send_checklist_report(event_id)
+    except Exception as e:
+        app.logger.error(f'Report email error: {e}')
     return jsonify({'ok': True})
 
 @app.route('/api/kiosk/event-status/<event_id>')
@@ -3394,7 +3412,20 @@ def portal_callout():
         (id, production_id, event_id, youth_id, status, source, notes, approved, created_by_portal)
         VALUES (%s,%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
         (cid, production_id, d.get('event_id') or None, youth_id, status, d.get('notes','')))
-    conn.commit(); conn.close()
+    conn.commit()
+    # Alert email for callouts
+    try:
+        s = get_email_settings()
+        if s.get('alert_callouts') and s.get('report_recipients'):
+            prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+            yth  = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
+            prod_name = prod['name'] if prod else 'production'
+            yth_name  = f"{yth['first_name']} {yth['last_name']}" if yth else 'A cast member'
+            send_email(s['report_recipients'],
+                f'RoleCall — Callout: {yth_name} ({status.title()})',
+                f'<p style="font-family:sans-serif"><strong>{yth_name}</strong> has called out as <strong>{status.replace("_"," ").title()}</strong> for <strong>{prod_name}</strong>.<br><br>Log in to RoleCall to view conflicts.</p>')
+    except Exception: pass
+    conn.close()
     return jsonify({'ok': True, 'id': cid})
 
 # ── Mark notification as read ──
@@ -3538,4 +3569,280 @@ def reset_user_password(uid):
     execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (pw_hash, uid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  EMAIL — RESEND INTEGRATION
+# ═══════════════════════════════════════════════════════════════
+
+def get_email_settings():
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM email_settings WHERE id=1')
+    conn.close()
+    return row or {}
+
+def send_email(to_emails, subject, html_body, from_email=None):
+    """Send via Resend API. to_emails can be a string or list."""
+    settings = get_email_settings()
+    api_key = settings.get('resend_api_key','').strip()
+    if not api_key:
+        app.logger.warning('Resend API key not configured — email not sent')
+        return False
+    from_addr = from_email or settings.get('from_email','info@hwtco.org')
+    if isinstance(to_emails, str):
+        to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
+    if not to_emails:
+        return False
+    try:
+        import requests as req
+        resp = req.post('https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
+            timeout=10)
+        if resp.status_code not in (200, 201):
+            app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
+            return False
+        return True
+    except Exception as e:
+        app.logger.error(f'Email send error: {e}')
+        return False
+
+def build_checklist_report_html(event_id, conn=None):
+    """Build HTML report for opening + closing checklists for an event."""
+    close_conn = conn is None
+    if close_conn:
+        conn = get_db()
+    evt = fetchone(conn, '''SELECT e.*, p.name as production_name, yp.name as program_name
+        FROM events e
+        LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN youth_programs yp ON e.program_id=yp.id
+        WHERE e.id=%s''', (event_id,))
+    if not evt:
+        if close_conn: conn.close()
+        return None
+
+    # Get all logs for this event
+    logs = fetchall(conn, '''SELECT el.*, v.name as elic_name
+        FROM event_logs el
+        JOIN elics ec ON el.elic_id=ec.id
+        JOIN volunteers v ON ec.volunteer_id=v.id
+        WHERE el.event_id=%s ORDER BY el.timestamp''', (event_id,))
+
+    open_log = next((l for l in logs if l['action']=='open'), None)
+    close_log = next((l for l in reversed(logs) if l['action']=='close'), None)
+
+    open_responses = []
+    close_responses = []
+    if open_log:
+        open_responses = fetchall(conn, 'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY created_at', (open_log['id'],))
+    if close_log:
+        close_responses = fetchall(conn, 'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY created_at', (close_log['id'],))
+
+    # Sign-in summary
+    sign_ins = fetchall(conn, '''SELECT ys.*, y.first_name, y.last_name
+        FROM youth_sign_ins ys JOIN youth_participants y ON ys.youth_id=y.id
+        WHERE ys.event_id=%s ORDER BY ys.signed_in_at''', (event_id,))
+
+    if close_conn: conn.close()
+
+    event_date = evt.get('event_date','') or ''
+    event_name = evt.get('name','Event')
+    context = evt.get('production_name') or evt.get('program_name') or ''
+    elic_name = open_log['elic_name'] if open_log else (close_log['elic_name'] if close_log else '—')
+
+    def fmt_ts(ts):
+        if not ts: return '—'
+        try:
+            from datetime import datetime
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts.replace('Z',''))
+            return ts.strftime('%I:%M %p')
+        except:
+            return str(ts)
+
+    def response_row(r):
+        resp = r.get('response') or ''
+        if r['item_type'] == 'checkbox':
+            icon = '✅' if resp.lower() in ('true','yes','1') else '❌'
+            val = icon
+        elif r['item_type'] == 'rating':
+            try: val = '⭐' * int(resp) if resp else '—'
+            except: val = resp or '—'
+        else:
+            val = resp or '—'
+        return f'''<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151">{r['label']}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;text-align:center">{val}</td>
+        </tr>'''
+
+    def section(title, color, responses, ts_label='', ts_val='', elic=''):
+        rows = ''.join(response_row(r) for r in responses) if responses else '<tr><td colspan="2" style="padding:12px;color:#9ca3af;text-align:center">No responses recorded</td></tr>'
+        meta = ''
+        if ts_val: meta += f'<span style="margin-right:16px">🕐 {ts_label}: {ts_val}</span>'
+        if elic: meta += f'<span>👤 ELIC: {elic}</span>'
+        return f'''
+        <div style="margin-bottom:28px">
+          <h2 style="font-size:16px;font-weight:700;color:#fff;background:{color};padding:10px 16px;border-radius:8px 8px 0 0;margin:0">
+            {title}
+          </h2>
+          {f'<div style="background:#f9fafb;padding:8px 16px;font-size:13px;color:#6b7280;border:1px solid #e5e7eb;border-top:none">{meta}</div>' if meta else ''}
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
+            <thead><tr>
+              <th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Item</th>
+              <th style="padding:8px 12px;background:#f9fafb;text-align:center;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;width:80px">Response</th>
+            </tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>'''
+
+    # Sign-in table
+    si_rows = ''
+    if sign_ins:
+        for s in sign_ins:
+            name = f"{s.get('first_name','')} {s.get('last_name','')}".strip()
+            si_time = fmt_ts(s.get('signed_in_at'))
+            so_time = fmt_ts(s.get('signed_out_at')) if s.get('signed_out_at') else '<span style="color:#f59e0b">Not signed out</span>'
+            si_rows += f'<tr><td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">{name}</td><td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">{si_time}</td><td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">{so_time}</td></tr>'
+    else:
+        si_rows = '<tr><td colspan="3" style="padding:12px;color:#9ca3af;text-align:center">No sign-in records</td></tr>'
+
+    sign_in_section = f'''
+    <div style="margin-bottom:28px">
+      <h2 style="font-size:16px;font-weight:700;color:#fff;background:#0d6e6e;padding:10px 16px;border-radius:8px 8px 0 0;margin:0">
+        👥 Attendance ({len(sign_ins)} participants)
+      </h2>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-top:none">
+        <thead><tr>
+          <th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Name</th>
+          <th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Signed In</th>
+          <th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Signed Out</th>
+        </tr></thead>
+        <tbody>{si_rows}</tbody>
+      </table>
+    </div>'''
+
+    open_ts = fmt_ts(open_log['timestamp']) if open_log else '—'
+    close_ts = fmt_ts(close_log['timestamp']) if close_log else '—'
+
+    html = f'''<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f3f4f6;margin:0;padding:24px">
+    <div style="max-width:680px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 32px;color:#fff">
+        <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;opacity:0.7;margin-bottom:6px">HWTC — RoleCall Event Report</div>
+        <div style="font-size:24px;font-weight:800;margin-bottom:4px">{event_name}</div>
+        <div style="opacity:0.85;font-size:14px">
+          {f'📅 {event_date}' if event_date else ''}
+          {f' &nbsp;·&nbsp; {context}' if context else ''}
+          {f' &nbsp;·&nbsp; 👤 {elic_name}' if elic_name else ''}
+        </div>
+        <div style="margin-top:12px;display:flex;gap:20px;font-size:13px;opacity:0.8">
+          <span>🟢 Opened: {open_ts}</span>
+          <span>🔴 Closed: {close_ts}</span>
+          <span>👥 {len(sign_ins)} attended</span>
+        </div>
+      </div>
+
+      <div style="padding:28px 32px">
+        {section('🟢 Opening Checklist', '#16a34a', open_responses, 'Opened', open_ts, open_log['elic_name'] if open_log else '')}
+        {section('🔴 Closing Checklist', '#dc2626', close_responses, 'Closed', close_ts, close_log['elic_name'] if close_log else '')}
+        {sign_in_section}
+      </div>
+
+      <!-- Footer -->
+      <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;font-size:12px;color:#9ca3af;text-align:center">
+        Generated by RoleCall &nbsp;·&nbsp; Horizon West Theatre Company &nbsp;·&nbsp; {event_date}
+      </div>
+    </div>
+    </body></html>'''
+    return html
+
+
+def send_checklist_report(event_id):
+    settings = get_email_settings()
+    if not settings.get('auto_send_checklist_report'): return
+    recipients = settings.get('report_recipients','').strip()
+    if not recipients: return
+    html = build_checklist_report_html(event_id)
+    if not html: return
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT name, event_date FROM events WHERE id=%s', (event_id,))
+    conn.close()
+    name = evt['name'] if evt else 'Event'
+    date = evt['event_date'] if evt else ''
+    subject = f'Event Report — {name}' + (f' ({date})' if date else '')
+    send_email(recipients, subject, html)
+
+
+# ── Email Settings API ──
+
+@app.route('/api/email-settings', methods=['GET'])
+def get_email_settings_api():
+    err = require_admin()
+    if err: return err
+    s = get_email_settings()
+    # Never expose the full API key
+    if s.get('resend_api_key'):
+        s = dict(s)
+        s['resend_api_key'] = '••••••••' + s['resend_api_key'][-4:] if len(s.get('resend_api_key','')) > 4 else '••••••••'
+    return jsonify(s)
+
+@app.route('/api/email-settings', methods=['PUT'])
+def update_email_settings_api():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    # Only update api_key if a real value was submitted (not the masked version)
+    key_val = d.get('resend_api_key','').strip()
+    if key_val and '•' not in key_val:
+        execute(conn, 'UPDATE email_settings SET resend_api_key=%s WHERE id=1', (key_val,))
+    execute(conn, '''UPDATE email_settings SET
+        from_email=%s, report_recipients=%s,
+        alert_pending_hours=%s, alert_profile_updates=%s,
+        alert_callouts=%s, alert_waiver_expiry=%s,
+        auto_send_checklist_report=%s, updated_at=NOW()
+        WHERE id=1''', (
+        d.get('from_email','info@hwtco.org'),
+        d.get('report_recipients',''),
+        d.get('alert_pending_hours', True),
+        d.get('alert_profile_updates', True),
+        d.get('alert_callouts', True),
+        d.get('alert_waiver_expiry', True),
+        d.get('auto_send_checklist_report', True)
+    ))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/email-settings/test', methods=['POST'])
+def test_email():
+    err = require_admin()
+    if err: return err
+    settings = get_email_settings()
+    ok = send_email(
+        settings.get('report_recipients',''),
+        'RoleCall — Test Email',
+        '<h2 style="font-family:sans-serif">✅ Your Resend email is working!</h2><p style="font-family:sans-serif">This is a test from RoleCall. If you received this, email alerts are configured correctly.</p>'
+    )
+    return jsonify({'ok': ok, 'error': None if ok else 'Send failed — check API key and recipients'})
+
+@app.route('/api/email-settings/send-report/<event_id>', methods=['POST'])
+def send_report_now(event_id):
+    err = require_admin()
+    if err: return err
+    settings = get_email_settings()
+    recipients = settings.get('report_recipients','').strip()
+    if not recipients:
+        return jsonify({'error': 'No report recipients configured in Settings → Email'}), 400
+    html = build_checklist_report_html(event_id)
+    if not html:
+        return jsonify({'error': 'Event not found'}), 404
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT name, event_date FROM events WHERE id=%s', (event_id,))
+    conn.close()
+    name = evt['name'] if evt else 'Event'
+    date = evt['event_date'] if evt else ''
+    subject = f'Event Report — {name}' + (f' ({date})' if date else '')
+    ok = send_email(recipients, subject, html)
+    return jsonify({'ok': ok})
 

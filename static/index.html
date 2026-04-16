@@ -3738,12 +3738,14 @@ async function addYouthProgram(){
 }
 
 async function deleteYouthProgram(pid){
-  if(!confirm('Delete this program?')) return
-  await api(`/api/youth-programs/${pid}`,'DELETE')
-  allPrograms=allPrograms.filter(p=>p.id!==pid)
+  if(!confirm('Delete this program? This will also remove all enrollments.')) return
+  const res = await api(`/api/youth-programs/${pid}`,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  allPrograms = allPrograms.filter(p=>p.id!==pid)
+  renderYouthProgramsPage()
   renderYouthProgramsSettings()
   populateProgramsDropdown()
-  toast('Deleted')
+  toast('Program deleted')
 }
 
 async function deleteEmailTemplateById(tid){

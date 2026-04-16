@@ -4035,48 +4035,54 @@ def kiosk_begin_session():
 
 @app.route('/api/kiosk/session/stop', methods=['POST'])
 def kiosk_stop_session():
-    d = request.json
+    d = request.json or {}
     vol_id = d.get('volunteer_id')
     role   = d.get('role','')
     if not vol_id:
         return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
-    session = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
-    if not session:
-        conn.close()
-        return jsonify({'error': 'No active session found'}), 400
-    # Calculate hours
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    started = session['started_at']
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    elapsed_hours = round((now - started).total_seconds() / 3600, 2)
-    elapsed_hours = max(0.25, elapsed_hours)  # minimum 15 min
-    # Close session
-    execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed', role=%s WHERE id=%s",
-            (elapsed_hours, role or session['role'], session['id']))
-    # Submit to pending_hours
-    pid = str(uuid.uuid4())
-    today = now.strftime('%Y-%m-%d')
-    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-            (pid, vol_id, session['event_name'] or 'Volunteer Session', session['event_id'],
-             today, elapsed_hours, role or session['role'], 'Recorded via kiosk timer'))
-    conn.commit()
-    # Alert email
     try:
-        s = get_email_settings()
-        if s.get('alert_pending_hours'):
-            recipients = get_recipient_emails(s)
-            vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (vol_id,))
-            vol_name = vol['name'] if vol else 'A volunteer'
-            if recipients:
-                send_email(recipients,
-                    'RoleCall — Hours Submitted: ' + vol_name,
-                    '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>' + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>' + (session['event_name'] or 'a session') + '</strong>.</p>')
-    except Exception: pass
-    conn.close()
-    return jsonify({'ok': True, 'hours': elapsed_hours})
+        session = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
+        if not session:
+            conn.close()
+            return jsonify({'error': 'No active session found'}), 400
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        started = session['started_at']
+        if hasattr(started, 'tzinfo') and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        elapsed_hours = round((now - started).total_seconds() / 3600, 2)
+        elapsed_hours = max(0.25, elapsed_hours)
+        execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed', role=%s WHERE id=%s",
+                (elapsed_hours, role or session['role'], session['id']))
+        pid = str(uuid.uuid4())
+        today = now.strftime('%Y-%m-%d')
+        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+                (pid, vol_id, session['event_name'] or 'Volunteer Session', session['event_id'],
+                 today, elapsed_hours, role or session['role'], 'Recorded via kiosk timer'))
+        conn.commit()
+        # Alert email — use vol name fetched before closing conn
+        try:
+            s = get_email_settings()
+            if s.get('alert_pending_hours'):
+                recipients = get_recipient_emails(s)
+                vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (vol_id,))
+                vol_name = vol['name'] if vol else 'A volunteer'
+                if recipients:
+                    send_email(recipients,
+                        'RoleCall — Hours Submitted: ' + vol_name,
+                        '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
+                        + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
+                        + (session['event_name'] or 'a session') + '</strong>.</p>')
+        except Exception as email_err:
+            app.logger.error('Stop session email error: %s', email_err)
+        conn.close()
+        return jsonify({'ok': True, 'hours': elapsed_hours})
+    except Exception as e:
+        app.logger.error('kiosk_stop_session error: %s', e)
+        try: conn.close()
+        except Exception: pass
+        return jsonify({'error': 'Server error stopping session: ' + str(e)}), 500
 
 @app.route('/api/kiosk/session/active/<vol_id>')
 def kiosk_active_session(vol_id):

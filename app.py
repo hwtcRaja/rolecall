@@ -1652,8 +1652,8 @@ def kiosk_events():
         SELECT * FROM events
         WHERE status='open'
            OR (status IN ('draft','published','in_progress')
-               AND event_date >= (CURRENT_DATE - INTERVAL '1 day')
-               AND event_date <= (CURRENT_DATE + INTERVAL '1 day'))
+               AND event_date::date >= (CURRENT_DATE - INTERVAL '1 day')
+               AND event_date::date <= (CURRENT_DATE + INTERVAL '1 day'))
         ORDER BY
             CASE WHEN status='open' THEN 0 ELSE 1 END,
             event_date ASC NULLS LAST
@@ -3234,7 +3234,7 @@ def get_notifications():
     if role in ('admin', 'instructor'):
         # Events in next 7 days
         upcoming_evts = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.program_id, e.production_id
-            FROM events e WHERE e.event_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+            FROM events e WHERE e.event_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
             ORDER BY e.event_date''')
         for evt in upcoming_evts:
             req_waivers = fetchall(conn, '''SELECT wt.id, wt.name FROM event_waivers ew
@@ -3522,7 +3522,7 @@ def portal_production_conflicts(pid):
         FROM production_conflicts pc
         LEFT JOIN events e ON pc.event_id=e.id
         WHERE pc.production_id=%s AND pc.approved=TRUE
-          AND (e.event_date IS NULL OR e.event_date >= CURRENT_DATE)
+          AND (e.event_date IS NULL OR e.event_date::date >= CURRENT_DATE)
         ORDER BY e.event_date ASC NULLS LAST, pc.created_at DESC''', (pid,))
     conn.close()
     # Return full details for own conflicts, just event_id+status for others
@@ -3582,30 +3582,33 @@ def get_email_settings():
     return row or {}
 
 def send_email(to_emails, subject, html_body, from_email=None):
-    """Send via Resend API. to_emails can be a string or list."""
+    """Send via Resend API. Returns (True, None) or (False, error_message)."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
-        app.logger.warning('Resend API key not configured — email not sent')
-        return False
+        return False, 'Resend API key not configured in Settings → Email'
     from_addr = from_email or settings.get('from_email','info@hwtco.org')
     if isinstance(to_emails, str):
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
-        return False
+        return False, 'No recipients configured in Settings → Email'
     try:
         import requests as req
         resp = req.post('https://api.resend.com/emails',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
             timeout=10)
-        if resp.status_code not in (200, 201):
-            app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
-            return False
-        return True
+        if resp.status_code not in (200, 201, 202):
+            try:
+                err_detail = resp.json().get('message') or resp.json().get('name') or resp.text[:120]
+            except:
+                err_detail = resp.text[:120]
+            app.logger.error(f'Resend error {resp.status_code}: {err_detail}')
+            return False, f'Resend {resp.status_code}: {err_detail}'
+        return True, None
     except Exception as e:
         app.logger.error(f'Email send error: {e}')
-        return False
+        return False, str(e)
 
 def build_checklist_report_html(event_id, conn=None):
     """Build HTML report for opening + closing checklists for an event."""
@@ -3771,7 +3774,7 @@ def send_checklist_report(event_id):
     name = evt['name'] if evt else 'Event'
     date = evt['event_date'] if evt else ''
     subject = f'Event Report — {name}' + (f' ({date})' if date else '')
-    send_email(recipients, subject, html)
+    send_email(recipients, subject, html)  # returns tuple, ignored
 
 
 # ── Email Settings API ──
@@ -3819,12 +3822,12 @@ def test_email():
     err = require_admin()
     if err: return err
     settings = get_email_settings()
-    ok = send_email(
+    ok, err = send_email(
         settings.get('report_recipients',''),
         'RoleCall — Test Email',
         '<h2 style="font-family:sans-serif">✅ Your Resend email is working!</h2><p style="font-family:sans-serif">This is a test from RoleCall. If you received this, email alerts are configured correctly.</p>'
     )
-    return jsonify({'ok': ok, 'error': None if ok else 'Send failed — check API key and recipients'})
+    return jsonify({'ok': ok, 'error': err})
 
 @app.route('/api/email-settings/send-report/<event_id>', methods=['POST'])
 def send_report_now(event_id):
@@ -3843,6 +3846,6 @@ def send_report_now(event_id):
     name = evt['name'] if evt else 'Event'
     date = evt['event_date'] if evt else ''
     subject = f'Event Report — {name}' + (f' ({date})' if date else '')
-    ok = send_email(recipients, subject, html)
-    return jsonify({'ok': ok})
+    ok, err = send_email(recipients, subject, html)
+    return jsonify({'ok': ok, 'error': err})
 

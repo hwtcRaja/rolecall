@@ -1124,9 +1124,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                 </div>
               </div>
               <div class="form-group" style="margin-bottom:20px">
-                <label>Report Recipients (comma-separated)</label>
-                <input type="text" id="es-recipients" placeholder="director@hwtco.org, manager@hwtco.org"/>
-                <div style="font-size:11px;color:var(--text-hint);margin-top:3px">These addresses receive event reports and alerts</div>
+                <label>Report Recipients</label>
+                <div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Select which system users receive event reports and alerts. Only users with an email address are shown.</div>
+                <div id="es-recipients-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding:2px 0"></div>
               </div>
 
               <div style="font-weight:600;font-size:13px;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Alert Toggles</div>
@@ -1146,6 +1146,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                 <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
                   <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
                   <div><div style="font-size:13px;font-weight:600">⚔️ Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">⚔️ Conflict added</div><div style="font-size:11px;color:var(--text-muted)">Alert when a conflict is added to a production</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-waivers" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">📋 Waiver expiring</div><div style="font-size:11px;color:var(--text-muted)">Alert when a waiver expires within 14 days</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-not-opened" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">🟡 Event not opened</div><div style="font-size:11px;color:var(--text-muted)">Alert 20 min before start if event not opened</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-not-closed" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">🔴 Event not closed</div><div style="font-size:11px;color:var(--text-muted)">Alert if event not closed 2 hrs after end</div></div>
                 </label>
               </div>
 
@@ -3413,37 +3429,71 @@ async function loadSettings(){
 }
 
 async function loadEmailSettings(){
-  const s = await api('/api/email-settings')
+  const [s, usersData] = await Promise.all([
+    api('/api/email-settings'),
+    api('/api/users')
+  ])
   if(!s || s.error) return
   const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||'' }
   const chk = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val }
   set('es-api-key', s.resend_api_key||'')
   set('es-from-email', s.from_email||'info@hwtco.org')
-  set('es-recipients', s.report_recipients||'')
   chk('es-alert-checklist', s.auto_send_checklist_report!==false)
   chk('es-alert-hours', s.alert_pending_hours!==false)
   chk('es-alert-profiles', s.alert_profile_updates!==false)
   chk('es-alert-callouts', s.alert_callouts!==false)
+  chk('es-alert-conflicts', s.alert_conflicts!==false)
+  chk('es-alert-waivers', s.alert_waivers!==false)
+  chk('es-alert-not-opened', s.alert_event_not_opened!==false)
+  chk('es-alert-not-closed', s.alert_event_not_closed!==false)
+  let savedIds = []
+  try { savedIds = JSON.parse(s.report_recipient_user_ids||'[]') } catch(e){}
+  const listEl = document.getElementById('es-recipients-list')
+  if(listEl && Array.isArray(usersData)){
+    const usersWithEmail = usersData.filter(u=>u.email)
+    if(!usersWithEmail.length){
+      listEl.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No system users with email addresses found.</div>'
+    } else {
+      listEl.innerHTML = usersWithEmail.map(u=>
+        '<label id="es-rcpt-label-'+u.id+'" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:'+(savedIds.includes(u.id)?'var(--teal-50)':'var(--surface)')+'">'+
+        '<input type="checkbox" data-user-id="'+u.id+'" class="es-recipient-cb" '+(savedIds.includes(u.id)?'checked':'')+' style="width:15px;height:15px;accent-color:var(--teal-400)"/>'+
+        '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+u.name+'</div>'+
+        '<div style="font-size:11px;color:var(--text-muted)">'+u.email+' &middot; '+u.role+'</div></div></label>'
+      ).join('')
+      // Attach change handlers
+      listEl.querySelectorAll('.es-recipient-cb').forEach(function(cb){
+        cb.addEventListener('change', function(){
+          var lbl = document.getElementById('es-rcpt-label-'+this.dataset.userId)
+          if(lbl) lbl.style.background = this.checked ? 'var(--teal-50)' : 'var(--surface)'
+        })
+      })
+    }
+  }
 }
 
 async function saveEmailSettings(){
   const get = id => document.getElementById(id)?.value?.trim()||''
   const chk = id => document.getElementById(id)?.checked||false
+  const selectedIds = [...document.querySelectorAll('.es-recipient-cb:checked')].map(el=>el.dataset.userId)
   const data = {
     resend_api_key: get('es-api-key'),
     from_email: get('es-from-email')||'info@hwtco.org',
-    report_recipients: get('es-recipients'),
+    report_recipient_user_ids: selectedIds,
     auto_send_checklist_report: chk('es-alert-checklist'),
     alert_pending_hours: chk('es-alert-hours'),
     alert_profile_updates: chk('es-alert-profiles'),
     alert_callouts: chk('es-alert-callouts'),
-    alert_waiver_expiry: chk('es-alert-hours')
+    alert_conflicts: chk('es-alert-conflicts'),
+    alert_waivers: chk('es-alert-waivers'),
+    alert_event_not_opened: chk('es-alert-not-opened'),
+    alert_event_not_closed: chk('es-alert-not-closed'),
+    alert_waiver_expiry: chk('es-alert-waivers')
   }
   const res = await api('/api/email-settings','PUT',data)
   const statusEl = document.getElementById('email-settings-status')
   if(res.ok){
     toast('Email settings saved!','success')
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Settings saved</span>'
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">&#x2713; Settings saved</span>'
   } else {
     toast(res.error||'Error saving','error')
   }
@@ -3451,14 +3501,14 @@ async function saveEmailSettings(){
 
 async function testEmail(){
   const statusEl = document.getElementById('email-settings-status')
-  if(statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sending test…</span>'
+  if(statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sending test...</span>'
   const res = await api('/api/email-settings/test','POST')
   if(res.ok){
     toast('Test email sent! Check your inbox.','success')
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Test email sent successfully</span>'
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">&#x2713; Test email sent successfully</span>'
   } else {
-    toast(res.error||'Send failed — check API key','error')
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">✗ '+( res.error||'Failed')+'</span>'
+    toast(res.error||'Send failed -- check API key','error')
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">&#x2717; '+(res.error||'Failed')+'</span>'
   }
 }
 
@@ -3467,6 +3517,18 @@ async function sendEventReport(eventId){
   if(res.ok) toast('Report sent to recipients!','success')
   else toast(res.error||'Send failed','error')
 }
+
+let _eventAlertInterval = null
+function startEventAlertPolling(){
+  if(_eventAlertInterval) return
+  _eventAlertInterval = setInterval(function(){
+    if(currentUser && currentUser.role==='admin'){
+      api('/api/email-settings/check-events','POST').catch(function(){})
+    }
+  }, 5*60*1000)
+}
+setTimeout(startEventAlertPolling, 15000)
+
 
 // Interest types
 function renderInterestTypesSettings(){

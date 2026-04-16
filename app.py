@@ -3707,6 +3707,18 @@ def build_checklist_report_html(event_id, conn=None):
     sign_ins = fetchall(conn, """SELECT ys.*, y.first_name, y.last_name
         FROM youth_sign_ins ys JOIN youth_participants y ON ys.youth_id=y.id
         WHERE ys.event_id=%s ORDER BY ys.signed_in_at""", (event_id,))
+    # Approved volunteer hours for this event
+    vol_hours_approved = fetchall(conn, """SELECT h.*, v.name as volunteer_name
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.event_id=%s ORDER BY v.name""", (event_id,))
+    # Pending volunteer hours for this event (submitted but not yet approved)
+    vol_hours_pending = fetchall(conn, """SELECT ph.*, v.name as volunteer_name
+        FROM pending_hours ph JOIN volunteers v ON ph.volunteer_id=v.id
+        WHERE ph.event_id=%s ORDER BY v.name""", (event_id,))
+    # Kiosk timer sessions for this event
+    kiosk_sessions = fetchall(conn, """SELECT ks.*, v.name as volunteer_name
+        FROM kiosk_sessions ks JOIN volunteers v ON ks.volunteer_id=v.id
+        WHERE ks.event_id=%s AND ks.status='completed' ORDER BY v.name""", (event_id,))
     if close_conn: conn.close()
 
     def fmt_ts(ts):
@@ -3756,7 +3768,52 @@ def build_checklist_report_html(event_id, conn=None):
                     '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">' + so + '</td>'
                     '</tr>')
     if not si_rows:
-        si_rows = '<tr><td colspan="3" style="padding:12px;color:#9ca3af;text-align:center">No sign-in records</td></tr>'
+        si_rows = '<tr><td colspan="3" style="padding:12px;color:#9ca3af;text-align:center">No participant sign-in records for this event</td></tr>'
+
+    # Build volunteer hours rows — combine approved, pending, and kiosk sessions
+    vol_rows = ''
+    total_vol_hours = 0.0
+    seen_vol = {}  # dedupe by volunteer_id + source
+    for h in vol_hours_approved:
+        key = str(h['volunteer_id']) + '_approved'
+        if key not in seen_vol:
+            seen_vol[key] = True
+            hrs = float(h['hours'] or 0)
+            total_vol_hours += hrs
+            vol_rows += ('<tr style="background:#f0fdf4">'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">' + (h['volunteer_name'] or '—') + '</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">' + (h['role'] or '—') + '</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:700">' + str(hrs) + 'h</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:13px"><span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Approved</span></td>'
+                '</tr>')
+    for h in vol_hours_pending:
+        key = str(h['volunteer_id']) + '_pending'
+        if key not in seen_vol:
+            seen_vol[key] = True
+            hrs = float(h['hours'] or 0)
+            total_vol_hours += hrs
+            source = 'Kiosk timer' if (h.get('notes') or '').startswith('Recorded via kiosk') else 'Manual entry'
+            vol_rows += ('<tr>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">' + (h['volunteer_name'] or '—') + '</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px">' + (h['role'] or '—') + '</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:700">' + str(hrs) + 'h</td>'
+                '<td style="padding:7px 12px;border-bottom:1px solid #e5e7eb;font-size:13px"><span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Pending · ' + source + '</span></td>'
+                '</tr>')
+    if not vol_rows:
+        vol_rows = '<tr><td colspan="4" style="padding:12px;color:#9ca3af;text-align:center">No volunteer hours recorded for this event</td></tr>'
+
+    vol_total_str = str(round(total_vol_hours, 2)) + 'h total'
+    volunteer_section = ('<div style="margin-bottom:28px">'
+        '<h2 style="font-size:16px;font-weight:700;color:#fff;background:#1d4ed8;padding:10px 16px;border-radius:8px 8px 0 0;margin:0">'
+        '&#x1F91D; Volunteer Hours (' + str(len(seen_vol)) + ' volunteer' + ('s' if len(seen_vol)!=1 else '') + ' &nbsp;&middot;&nbsp; ' + vol_total_str + ')</h2>'
+        '<table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-top:none">'
+        '<thead><tr>'
+        '<th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Volunteer</th>'
+        '<th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Role</th>'
+        '<th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Hours</th>'
+        '<th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Status</th>'
+        '</tr></thead>'
+        '<tbody>' + vol_rows + '</tbody></table></div>')
 
     event_date = evt.get('event_date','') or ''
     event_name = evt.get('name','Event')
@@ -3776,12 +3833,13 @@ def build_checklist_report_html(event_id, conn=None):
               '<div style="margin-top:12px;display:flex;gap:20px;font-size:13px;opacity:0.8">'
               '<span>&#x1F7E2; Opened: ' + open_ts + '</span>'
               '<span>&#x1F534; Closed: ' + close_ts + '</span>'
-              '<span>&#x1F465; ' + str(len(sign_ins)) + ' attended</span>'
+              '<span>&#x1F91D; ' + str(len(seen_vol)) + ' volunteer' + ('s' if len(seen_vol)!=1 else '') + '</span>'
+              '<span>&#x1F465; ' + str(len(sign_ins)) + ' participant' + ('s' if len(sign_ins)!=1 else '') + '</span>'
               '</div></div>')
 
     attendance_section = ('<div style="margin-bottom:28px">'
                           '<h2 style="font-size:16px;font-weight:700;color:#fff;background:#0d6e6e;padding:10px 16px;border-radius:8px 8px 0 0;margin:0">'
-                          '&#x1F465; Attendance (' + str(len(sign_ins)) + ' participants)</h2>'
+                          '&#x1F465; Participant Sign-Ins (' + str(len(sign_ins)) + ' participant' + ('s' if len(sign_ins)!=1 else '') + ')</h2>'
                           '<table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-top:none">'
                           '<thead><tr>'
                           '<th style="padding:8px 12px;background:#f9fafb;text-align:left;font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Name</th>'
@@ -3798,6 +3856,7 @@ def build_checklist_report_html(event_id, conn=None):
             + '<div style="padding:28px 32px">'
             + section('&#x1F7E2; Opening Checklist', '#16a34a', open_responses, 'Opened', open_ts, open_log['elic_name'] if open_log else '')
             + section('&#x1F534; Closing Checklist', '#dc2626', close_responses, 'Closed', close_ts, close_log['elic_name'] if close_log else '')
+            + volunteer_section
             + attendance_section
             + '</div>' + footer
             + '</div></body></html>')

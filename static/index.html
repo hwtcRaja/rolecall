@@ -1106,6 +1106,55 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               </div>
             </div>
 
+
+            <!-- Email / Notifications Settings -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="font-weight:600;font-size:15px;margin-bottom:6px">📧 Email & Notifications</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+                <div class="form-group">
+                  <label>Resend API Key</label>
+                  <input type="password" id="es-api-key" placeholder="re_••••••••••••••••••••••"/>
+                  <div style="font-size:11px;color:var(--text-hint);margin-top:3px">From your Resend dashboard → API Keys</div>
+                </div>
+                <div class="form-group">
+                  <label>From Email</label>
+                  <input type="email" id="es-from-email" value="info@hwtco.org" placeholder="info@hwtco.org"/>
+                  <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Must be a verified domain in Resend</div>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:20px">
+                <label>Report Recipients (comma-separated)</label>
+                <input type="text" id="es-recipients" placeholder="director@hwtco.org, manager@hwtco.org"/>
+                <div style="font-size:11px;color:var(--text-hint);margin-top:3px">These addresses receive event reports and alerts</div>
+              </div>
+
+              <div style="font-weight:600;font-size:13px;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Alert Toggles</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-checklist" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">📋 Auto-send event report</div><div style="font-size:11px;color:var(--text-muted)">Email report when an event is closed</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-hours" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">⏱ Hours submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when volunteer submits hours</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-profiles" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">👤 Profile change request</div><div style="font-size:11px;color:var(--text-muted)">Alert when participant requests a change</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">⚔️ Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
+                </label>
+              </div>
+
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-primary" onclick="saveEmailSettings()">💾 Save Email Settings</button>
+                <button class="btn btn-secondary" onclick="testEmail()">📤 Send Test Email</button>
+              </div>
+              <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
+            </div>
             <!-- User Management -->
             <div class="settings-section" style="grid-column:1/-1">
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users & Roles</div>
@@ -1995,15 +2044,24 @@ async function renderDashboard(){
       apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:12px;margin-bottom:8px">Productions</div>'
       apHTML += activeProds.map(p=>{
         const isRS = p.stage==='rising_stars'
-        const count = isRS ? (p.members?.length||0) : (p.members?.length||0)
-        const label = isRS ? count+' crew' : count+' members'
+        const adultCount = p.members?.length||0
+        const countSpan = isRS
+          ? '<span id="dash-rs-count-'+p.id+'" style="font-size:11px;color:var(--text-muted)">loading…</span>'
+          : '<span style="font-size:11px;color:var(--text-muted)">'+adultCount+' members</span>'
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProductionDetail(\''+p.id+'\')">'
           +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
-          +'<span style="font-size:11px;color:var(--text-muted)">'+label+'</span>'
+          +countSpan
           +'</div>'
       }).join('')
     }
     ap.innerHTML = apHTML || '<div style="font-size:13px;color:var(--text-muted)">No active programs or productions</div>'
+    // Load RS youth enrolled counts asynchronously
+    activeProds.filter(p=>p.stage==='rising_stars').forEach(p=>{
+      api('/api/productions/'+p.id+'/youth-members').then(ym=>{
+        const el = document.getElementById('dash-rs-count-'+p.id)
+        if(el) el.textContent = (Array.isArray(ym)?ym.length:0)+' enrolled'
+      }).catch(()=>{})
+    })
   }
 }
 
@@ -3350,6 +3408,64 @@ async function loadSettings(){
   populateInterestFilter()
   buildInterestCheckboxes()
   populateProgramsDropdown()
+  // Load email settings
+  loadEmailSettings()
+}
+
+async function loadEmailSettings(){
+  const s = await api('/api/email-settings')
+  if(!s || s.error) return
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||'' }
+  const chk = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val }
+  set('es-api-key', s.resend_api_key||'')
+  set('es-from-email', s.from_email||'info@hwtco.org')
+  set('es-recipients', s.report_recipients||'')
+  chk('es-alert-checklist', s.auto_send_checklist_report!==false)
+  chk('es-alert-hours', s.alert_pending_hours!==false)
+  chk('es-alert-profiles', s.alert_profile_updates!==false)
+  chk('es-alert-callouts', s.alert_callouts!==false)
+}
+
+async function saveEmailSettings(){
+  const get = id => document.getElementById(id)?.value?.trim()||''
+  const chk = id => document.getElementById(id)?.checked||false
+  const data = {
+    resend_api_key: get('es-api-key'),
+    from_email: get('es-from-email')||'info@hwtco.org',
+    report_recipients: get('es-recipients'),
+    auto_send_checklist_report: chk('es-alert-checklist'),
+    alert_pending_hours: chk('es-alert-hours'),
+    alert_profile_updates: chk('es-alert-profiles'),
+    alert_callouts: chk('es-alert-callouts'),
+    alert_waiver_expiry: chk('es-alert-hours')
+  }
+  const res = await api('/api/email-settings','PUT',data)
+  const statusEl = document.getElementById('email-settings-status')
+  if(res.ok){
+    toast('Email settings saved!','success')
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Settings saved</span>'
+  } else {
+    toast(res.error||'Error saving','error')
+  }
+}
+
+async function testEmail(){
+  const statusEl = document.getElementById('email-settings-status')
+  if(statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sending test…</span>'
+  const res = await api('/api/email-settings/test','POST')
+  if(res.ok){
+    toast('Test email sent! Check your inbox.','success')
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✓ Test email sent successfully</span>'
+  } else {
+    toast(res.error||'Send failed — check API key','error')
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">✗ '+( res.error||'Failed')+'</span>'
+  }
+}
+
+async function sendEventReport(eventId){
+  const res = await api('/api/email-settings/send-report/'+eventId,'POST')
+  if(res.ok) toast('Report sent to recipients!','success')
+  else toast(res.error||'Send failed','error')
 }
 
 // Interest types
@@ -4703,6 +4819,7 @@ async function loadEventLogs(){
   const actionColors={open:'var(--green-600)',close:'var(--teal-600)'}
   const actionLabels={open:'🟢 Opened',close:'🔒 Closed'}
   const typeIcon={checkbox:'☑️',text:'📝',rating:'⭐'}
+  const isAdmin = currentUser?.role==='admin'
   el.innerHTML=logs.map(log=>`
     <div class="card" style="padding:20px;margin-bottom:16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:${log.checklist?.length?'16px':'0'}">
@@ -4710,10 +4827,11 @@ async function loadEventLogs(){
           <div style="font-size:16px;font-weight:600">${log.event_name}</div>
           <div style="font-size:13px;color:var(--text-muted);margin-top:2px">${log.event_date?formatDate(log.event_date):''}</div>
         </div>
-        <div style="text-align:right">
+        <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div style="font-size:13px;font-weight:600;color:${actionColors[log.action]||'var(--text-muted)'}">${actionLabels[log.action]||log.action}</div>
           <div style="font-size:12px;color:var(--text-muted)">${log.elic_name}</div>
           <div style="font-size:11px;color:var(--text-hint)">${formatDate((log.timestamp||'').split('T')[0])} ${(log.timestamp||'').split('T')[1]?.substring(0,5)||''}</div>
+          ${log.action==='close'&&isAdmin?`<button class="btn btn-secondary btn-sm" style="font-size:11px;margin-top:4px" onclick="sendEventReport('${log.event_id}')">📧 Send Report</button>`:''}
         </div>
       </div>
       ${log.checklist?.length?`

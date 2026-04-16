@@ -8,6 +8,7 @@ import uuid
 import json
 from datetime import datetime, date
 from werkzeug.utils import secure_filename
+import requests
 
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
@@ -3593,8 +3594,7 @@ def send_email(to_emails, subject, html_body, from_email=None):
     if not to_emails:
         return False, 'No recipients configured in Settings → Email'
     try:
-        import requests as req
-        resp = req.post('https://api.resend.com/emails',
+        resp = requests.post('https://api.resend.com/emails',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
             timeout=10)

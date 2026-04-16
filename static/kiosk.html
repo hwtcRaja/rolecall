@@ -915,9 +915,15 @@ async function doOpenEvent(){
 
 async function startClose(evid,evname){
   closingEvent={id:evid,name:evname}
-  // Load checklist items
-  const r=await fetch('/api/checklist-items')
-  checklistItems=await r.json()
+  try {
+    const r=await fetch('/api/checklist-items')
+    const data=await r.json()
+    checklistItems=Array.isArray(data)?data:[]
+    if(!Array.isArray(data)) console.error('checklist-items returned non-array:',data)
+  } catch(e) {
+    checklistItems=[]
+    console.error('Failed to load checklist items:',e)
+  }
   clResponses={}
   renderChecklist()
   showScreen('screen-checklist')
@@ -966,11 +972,16 @@ async function submitChecklist(){
     item_id:item.id,label:item.label,item_type:item.item_type,
     response:clResponses[item.id]||''
   }))
-  const r=await fetch('/api/kiosk/close-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses})})
-  const d=await r.json()
-  if(d.error){alert(d.error);return}
-  elicEventList=elicEventList.map(e=>e.id===closingEvent.id?{...e,current_status:'close',status:'closed'}:e)
-  showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
+  try {
+    const r=await fetch('/api/kiosk/close-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses})})
+    let d
+    try { d=await r.json() } catch(e){ alert('Server error closing event ('+r.status+'). Please try again.'); return }
+    if(d.error){alert(d.error);return}
+    elicEventList=elicEventList.map(e=>e.id===closingEvent.id?{...e,current_status:'close',status:'closed'}:e)
+    showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
+  } catch(err) {
+    alert('Network error: '+err.message+'. Please check connection and try again.')
+  }
 }
 
 

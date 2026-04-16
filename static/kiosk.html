@@ -886,7 +886,7 @@ function renderElicMenu(){
     } else if(mins!==null && mins>60){
       // Locked — show countdown
       actionArea='<div style="display:flex;align-items:center;gap:12px">'
-        +'<button disabled style="background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:not-allowed">🔒 Opens at '+fmtTime(e.start_time)+'</button>'
+        +(function(){var parts=e.start_time.toString().split(':');var startMs=new Date(e.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00').getTime();var unlockMs=startMs-60*60*1000;var ud=new Date(unlockMs);var uh=ud.getHours(),um=ud.getMinutes();var ampm=uh>=12?'pm':'am',hr12=uh%12||12;var timeStr=hr12+':'+(um<10?'0':'')+um+ampm;var dateStr=(ud.getMonth()+1)+'/'+(ud.getDate())+'/'+(String(ud.getFullYear()).slice(-2));return '<button disabled style="background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:not-allowed">&#x1F512; Opens at '+timeStr+' on '+dateStr+'</button>';})()
         +'<div id="cd-'+e.id+'" style="font-size:20px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums">—</div>'
         +'</div>'
     } else {

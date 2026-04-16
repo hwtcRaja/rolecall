@@ -377,6 +377,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .modal-footer{padding:12px 16px}
 }
 </style>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body>
 
@@ -412,31 +413,31 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <nav class="sidebar-nav">
         <!-- MAIN THEATER -->
         <div class="nav-section">RoleCall</div>
-        <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon">📊</span>Dashboard</div>
-        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon">👥</span>Volunteers</div>
-        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon">⏱</span>Time Tracking</div>
-        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon">✉️</span>Email</div>
-        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon">📅</span>Events &amp; Calendar</div>
+        <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard">📊</span>Dashboard</div>
+        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers">👥</span>Volunteers</div>
+        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours">⏱</span>Time Tracking</div>
+        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email">✉️</span>Email</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events">📅</span>Events &amp; Calendar</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">🎭 Mainstage</div>
-        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon">🎬</span>Productions</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon">📋</span>Cast Sign-In</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions">🎬</span>Productions</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin">📋</span>Cast Sign-In</div>
 
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">🎓 Education &amp; Programming</div>
-        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon">👦</span>Participants</div>
-        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon">📚</span>Programs &amp; Classes</div>
-        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon">⭐</span>Rising Stars</div>
-        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon">🏠</span>Participant Portal</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon">📝</span>Sign-In</div>
+        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth">👦</span>Participants</div>
+        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs">📚</span>Programs &amp; Classes</div>
+        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars">⭐</span>Rising Stars</div>
+        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin">📝</span>Sign-In</div>
 
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
-        <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon">📋</span>Event Logs</div>
-        <div class="nav-item admin-only" onclick="navTo('notifications',this)"><span class="nav-icon">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
-        <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon">⚙️</span>Settings</div>
+        <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
+        <div class="nav-item admin-only" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
+        <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
         <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -1170,6 +1171,184 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                 <button class="btn btn-secondary" onclick="testEmail()">📤 Send Test Email</button>
               </div>
               <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
+            </div>
+
+            <!-- Nav Icons Settings -->
+            <div class="settings-section" style="grid-column:1/-1">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
+                <div>
+                  <div style="font-weight:600;font-size:15px;margin-bottom:4px">🎨 Nav Icons</div>
+                  <div style="font-size:13px;color:var(--text-muted)">Replace nav emojis with <a href="https://lucide.dev/icons/" target="_blank" style="color:var(--teal-600)">Lucide icons</a>. Type an icon name, see a live preview, then save.</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button class="btn btn-secondary btn-sm" onclick="resetNavIcons()">Reset to Emojis</button>
+                  <button class="btn btn-primary btn-sm" onclick="saveNavIcons()">💾 Save Icons</button>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--text-hint);margin-bottom:16px">Example icon names: <code>users</code>, <code>calendar</code>, <code>clock</code>, <code>bell</code>, <code>settings</code>, <code>file-check</code>, <code>star</code></div>
+              <div id="nav-icons-list">
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-dashboard">
+        <span style="font-size:16px">📊</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Dashboard</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-dashboard" placeholder="layout-dashboard" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('dashboard',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-volunteers">
+        <span style="font-size:16px">👥</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Volunteers</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-volunteers" placeholder="users" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('volunteers',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-waivers">
+        <span style="font-size:16px">📄</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Waivers</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-waivers" placeholder="file-check" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('waivers',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-hours">
+        <span style="font-size:16px">⏱</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Time Tracking</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-hours" placeholder="clock" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('hours',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-email">
+        <span style="font-size:16px">✉️</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Email</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-email" placeholder="mail" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('email',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-events">
+        <span style="font-size:16px">📅</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Events & Calendar</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-events" placeholder="calendar" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('events',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-productions">
+        <span style="font-size:16px">🎬</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Productions</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-productions" placeholder="film" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('productions',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-cast-signin">
+        <span style="font-size:16px">📋</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Cast Sign-In</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-cast-signin" placeholder="clipboard-list" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('cast-signin',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-youth">
+        <span style="font-size:16px">👦</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Participants</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-youth" placeholder="users-round" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('youth',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-programs">
+        <span style="font-size:16px">📚</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Programs & Classes</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-programs" placeholder="book-open" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('programs',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars">
+        <span style="font-size:16px">⭐</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Rising Stars</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-rising-stars" placeholder="star" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('rising-stars',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-portal-admin">
+        <span style="font-size:16px">🏠</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Participant Portal</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-portal-admin" placeholder="home" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('portal-admin',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-youth-signin">
+        <span style="font-size:16px">📝</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Sign-In</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-youth-signin" placeholder="log-in" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('youth-signin',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-event-logs">
+        <span style="font-size:16px">📋</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Event Logs</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-event-logs" placeholder="scroll-text" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('event-logs',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-notifications">
+        <span style="font-size:16px">🔔</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Notifications</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-notifications" placeholder="bell" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('notifications',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-settings">
+        <span style="font-size:16px">⚙️</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Settings</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-settings" placeholder="settings" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('settings',this.value)"/>
+      </div>
+    </div>
+              </div>
             </div>
             <!-- User Management -->
             <div class="settings-section" style="grid-column:1/-1">
@@ -1952,6 +2131,8 @@ async function loadAllData(){
   populateYouthFilters()
   populateProgramsDropdown()
   populateProdVolSelect()
+  // Apply saved nav icons
+  api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error) applyNavIcons(icons) }).catch(function(){})
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3426,7 +3607,95 @@ async function loadSettings(){
   populateProgramsDropdown()
   // Load email settings
   loadEmailSettings()
+  loadNavIconSettings()
 }
+
+// ── NAV ICON DEFAULTS (emoji fallbacks) ──
+const NAV_ICON_DEFAULTS = {
+  dashboard:'📊', volunteers:'👥', waivers:'📄', hours:'⏱', email:'✉️',
+  events:'📅', productions:'🎬', 'cast-signin':'📋', youth:'👦', programs:'📚',
+  'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝',
+  'event-logs':'📋', notifications:'🔔', settings:'⚙️'
+}
+
+let _currentNavIcons = {}
+
+async function loadNavIconSettings(){
+  const icons = await api('/api/nav-icons')
+  if(!icons || icons.error) return
+  _currentNavIcons = icons
+  Object.entries(icons).forEach(([key, name])=>{
+    const input = document.getElementById('ni-input-'+key)
+    if(input) input.value = name
+    previewNavIcon(key, name)
+  })
+  applyNavIcons(icons)
+}
+
+function toCamelCase(str){
+  return str.replace(/-([a-z])/g, function(_,c){ return c.toUpperCase() }).replace(/^([a-z])/, function(c){ return c.toUpperCase() })
+}
+
+function getLucideSvg(iconName, size, strokeWidth){
+  size = size||16; strokeWidth = strokeWidth||1.8
+  try {
+    var iconKey = toCamelCase(iconName.trim().toLowerCase())
+    var svg = lucide.createElement(lucide.icons[iconKey])
+    if(!svg) return null
+    svg.style.width = size+'px'; svg.style.height = size+'px'
+    svg.style.strokeWidth = strokeWidth; svg.style.display = 'block'
+    return svg
+  } catch(e){ return null }
+}
+
+function previewNavIcon(key, iconName){
+  var preview = document.getElementById('ni-preview-'+key)
+  if(!preview) return
+  var name = (iconName||'').trim().toLowerCase()
+  if(!name){ preview.innerHTML = '<span style="font-size:16px">'+(NAV_ICON_DEFAULTS[key]||'')+'</span>'; return }
+  var svg = getLucideSvg(name, 18, 1.8)
+  if(svg){ preview.innerHTML = ''; preview.appendChild(svg) }
+  else { preview.innerHTML = '<span style="font-size:11px;color:var(--red-600)" title="Icon not found">?</span>' }
+}
+
+function applyNavIcons(icons){
+  Object.entries(icons).forEach(function(entry){
+    var key = entry[0], iconName = entry[1]
+    var span = document.getElementById('ni-'+key)
+    if(!span) return
+    var name = (iconName||'').trim().toLowerCase()
+    if(!name){ span.innerHTML = NAV_ICON_DEFAULTS[key]||''; return }
+    var svg = getLucideSvg(name, 16, 1.8)
+    if(svg){ span.innerHTML = ''; span.appendChild(svg) }
+  })
+}
+
+async function saveNavIcons(){
+  var keys = Object.keys(NAV_ICON_DEFAULTS)
+  var data = {}
+  keys.forEach(function(key){
+    var input = document.getElementById('ni-input-'+key)
+    data[key] = input ? input.value.trim().toLowerCase() : ''
+  })
+  var res = await api('/api/nav-icons','PUT',data)
+  if(res.ok){ _currentNavIcons = data; applyNavIcons(data); toast('Nav icons saved!','success') }
+  else toast(res.error||'Error saving','error')
+}
+
+async function resetNavIcons(){
+  if(!confirm('Reset all nav icons back to emojis?')) return
+  var keys = Object.keys(NAV_ICON_DEFAULTS)
+  keys.forEach(function(key){
+    var input = document.getElementById('ni-input-'+key)
+    if(input){ input.value=''; previewNavIcon(key,'') }
+    var span = document.getElementById('ni-'+key)
+    if(span) span.innerHTML = NAV_ICON_DEFAULTS[key]||''
+  })
+  var data = {}; keys.forEach(function(k){ data[k]='' })
+  await api('/api/nav-icons','PUT',data)
+  toast('Icons reset to emojis')
+}
+
 
 async function loadEmailSettings(){
   const [s, usersData] = await Promise.all([

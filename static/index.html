@@ -377,7 +377,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .modal-footer{padding:12px 16px}
 }
 </style>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body>
 
@@ -2131,8 +2130,10 @@ async function loadAllData(){
   populateYouthFilters()
   populateProgramsDropdown()
   populateProdVolSelect()
-  // Apply saved nav icons
-  api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error) applyNavIcons(icons) }).catch(function(){})
+  // Apply saved nav icons (only if lucide loaded)
+  setTimeout(function(){
+    api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error && window.lucide) applyNavIcons(icons) }).catch(function(){})
+  }, 500)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3637,13 +3638,15 @@ function toCamelCase(str){
 }
 
 function getLucideSvg(iconName, size, strokeWidth){
+  if(!window.lucide || window._lucideFailed) return null
   size = size||16; strokeWidth = strokeWidth||1.8
   try {
-    var iconKey = toCamelCase(iconName.trim().toLowerCase())
+    var iconKey = toCamelCase((iconName||'').trim().toLowerCase())
+    if(!iconKey || !lucide.icons || !lucide.icons[iconKey]) return null
     var svg = lucide.createElement(lucide.icons[iconKey])
     if(!svg) return null
     svg.style.width = size+'px'; svg.style.height = size+'px'
-    svg.style.strokeWidth = strokeWidth; svg.style.display = 'block'
+    svg.style.strokeWidth = String(strokeWidth); svg.style.display = 'block'
     return svg
   } catch(e){ return null }
 }
@@ -8580,5 +8583,6 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 }
 
 </script>
+<script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" async onerror="window._lucideFailed=true"></script>
 </body>
 </html>

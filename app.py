@@ -449,6 +449,9 @@ def init_db():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_closed BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
+        """CREATE TABLE IF NOT EXISTS nav_icons (
+            key TEXT PRIMARY KEY,
+            lucide_name TEXT NOT NULL)""",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
         # meet the team
@@ -1136,6 +1139,9 @@ def delete_youth_program(pid):
     err = require_admin()
     if err: return err
     conn = get_db()
+    # Clear any FK references that don't cascade
+    execute(conn, 'UPDATE youth_sign_ins SET program_id=NULL WHERE program_id=%s', (pid,))
+    execute(conn, 'UPDATE events SET program_id=NULL WHERE program_id=%s', (pid,))
     execute(conn, 'DELETE FROM youth_programs WHERE id=%s', (pid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -3958,3 +3964,56 @@ def check_event_alerts():
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'alerts': alerts_sent})
+
+# ═══════════════════════════════════════════════════════════════
+#  NAV ICONS
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/nav-icons', methods=['GET'])
+def get_nav_icons():
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT key, lucide_name FROM nav_icons')
+    conn.close()
+    return jsonify({r['key']: r['lucide_name'] for r in rows})
+
+@app.route('/api/nav-icons', methods=['PUT'])
+def save_nav_icons():
+    err = require_admin()
+    if err: return err
+    d = request.json  # {key: lucide_name, ...}
+    conn = get_db()
+    for key, name in d.items():
+        if name:
+            execute(conn, '''INSERT INTO nav_icons (key, lucide_name) VALUES (%s,%s)
+                ON CONFLICT (key) DO UPDATE SET lucide_name=EXCLUDED.lucide_name''', (key, name))
+        else:
+            execute(conn, 'DELETE FROM nav_icons WHERE key=%s', (key,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  NAV ICONS
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/nav-icons', methods=['GET'])
+def get_nav_icons():
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT key, lucide_name FROM nav_icons')
+    conn.close()
+    return jsonify({r['key']: r['lucide_name'] for r in rows})
+
+@app.route('/api/nav-icons', methods=['PUT'])
+def save_nav_icons():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    for key, name in d.items():
+        if name:
+            execute(conn, '''INSERT INTO nav_icons (key, lucide_name) VALUES (%s,%s)
+                ON CONFLICT (key) DO UPDATE SET lucide_name=EXCLUDED.lucide_name''', (key, name))
+        else:
+            execute(conn, 'DELETE FROM nav_icons WHERE key=%s', (key,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})

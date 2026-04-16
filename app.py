@@ -4049,6 +4049,11 @@ def kiosk_stop_session():
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
         started = session['started_at']
+        # Handle string, naive datetime, or tz-aware datetime
+        if isinstance(started, str):
+            started = started.replace('Z','').replace(' ','T')
+            try: started = datetime.fromisoformat(started)
+            except Exception: started = datetime.strptime(started[:19], '%Y-%m-%dT%H:%M:%S')
         if hasattr(started, 'tzinfo') and started.tzinfo is None:
             started = started.replace(tzinfo=timezone.utc)
         elapsed_hours = round((now - started).total_seconds() / 3600, 2)

@@ -629,13 +629,13 @@ async function goStopVolunteering(){
       body: JSON.stringify({volunteer_id: selVol.id, role})
     })
     const d = await r.json()
-    if(d.error){ alert(d.error); return }
+    if(d.error){ alert('Error: ' + d.error); return }
     hideActiveSessionBanner()
     showConfirm('✅','Thank You!',
       d.hours+'h submitted for approval.',
       'Your time has been recorded. Thanks for volunteering!',
       ()=>showScreen('screen-vol-menu'))
-  } catch(err){ alert('Error stopping session. Please try again.') }
+  } catch(err){ alert('Network error stopping session: ' + err.message) }
 }
 
 function showActiveSessionBanner(role){

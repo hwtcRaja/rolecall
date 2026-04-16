@@ -768,8 +768,17 @@ def delete_event(eid):
     err = require_admin()
     if err: return err
     conn = get_db()
-    execute(conn, 'DELETE FROM events WHERE id=%s', (eid,))
-    conn.commit(); conn.close()
+    try:
+        # Clear non-cascade FK references before deleting
+        execute(conn, 'UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
+        execute(conn, 'UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
+        execute(conn, 'DELETE FROM events WHERE id=%s', (eid,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+    conn.close()
     return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
@@ -4105,22 +4114,16 @@ def kiosk_stop_session():
         if not session:
             conn.close()
             return jsonify({'error': 'No active session found'}), 400
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        started = session['started_at']
-        # Handle string, naive datetime, or tz-aware datetime
-        if isinstance(started, str):
-            started = started.replace('Z','').replace(' ','T')
-            try: started = datetime.fromisoformat(started)
-            except Exception: started = datetime.strptime(started[:19], '%Y-%m-%dT%H:%M:%S')
-        if hasattr(started, 'tzinfo') and started.tzinfo is None:
-            started = started.replace(tzinfo=timezone.utc)
-        elapsed_hours = round((now - started).total_seconds() / 3600, 2)
-        elapsed_hours = max(0.25, elapsed_hours)
+        # Use DB's own clock to avoid Python UTC vs DB Eastern timezone mismatch
+        time_row = fetchone(conn, "SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) as secs FROM kiosk_sessions WHERE id=%s", (session['id'],))
+        elapsed_secs = float(time_row['secs']) if time_row and time_row['secs'] else 0
+        elapsed_hours = round(elapsed_secs / 3600, 2)
+        elapsed_hours = max(0.25, elapsed_hours)  # minimum 15 min
+        today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+        today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
         execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed', role=%s WHERE id=%s",
                 (elapsed_hours, role or session['role'], session['id']))
         pid = str(uuid.uuid4())
-        today = now.strftime('%Y-%m-%d')
         execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
                 (pid, vol_id, session['event_name'] or 'Volunteer Session', session['event_id'],
                  today, elapsed_hours, role or session['role'], 'Recorded via kiosk timer'))

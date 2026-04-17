@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --teal-50:#E8F4F8;--teal-100:#A8D4E0;--teal-200:#5AADC2;--teal-400:#1b708d;--teal-600:#145466;--teal-800:#0d3d4d;--teal-900:#082830;
+  --teal:#145466;--teal-dark:#0d3d4d;--teal-mid:#1b708d;--teal-light:#E8F4F8;--teal-50:#E8F4F8;--teal-100:#A8D4E0;--teal-200:#5AADC2;--teal-400:#1b708d;--teal-600:#145466;--teal-800:#0d3d4d;--teal-900:#082830;
   --gray-50:#F7F7F5;--gray-100:#EFEFEC;--gray-200:#D9D9D4;--gray-400:#9B9B94;--gray-600:#5F5E5A;--gray-800:#2C2C28;--gray-900:#1A1A17;
   --amber-50:#FAEEDA;--amber-200:#EF9F27;--amber-600:#854F0B;
   --red-50:#FCEBEB;--red-200:#F09595;--red-600:#A32D2D;
@@ -604,6 +604,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sat</div>
             </div>
             <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
+            <!-- Calendar legend -->
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+              <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Legend:</span>
+              <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(124,58,237,0.12);border:1px solid #5b21b6"></span>RS: Rising Stars</span>
+              <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(190,24,93,0.1);border:1px solid #9d174d"></span>Prod: Production</span>
+              <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(21,128,61,0.1);border:1px solid #166534"></span>Class: Program/Class</span>
+              <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg);border:1px solid var(--border)"></span>Standalone event</span>
+            </div>
           </div>
           <!-- Day View -->
           <div id="ev-day-view" style="display:none">
@@ -1038,7 +1046,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
               <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="jane@example.com"/></div>
               <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
-              <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option><option value="instructor">Instructor (portal access)</option><option value="stage_manager">Stage Manager</option></select></div>
+              <div class="form-group">
+                <label>Access Level</label>
+                <select id="new-user-role">
+                  <option value="staff">Staff (set permissions below)</option>
+                  <option value="admin">Administrator (full access)</option>
+                </select>
+              </div>
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
             </div>
 
@@ -1352,8 +1366,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             </div>
             <!-- User Management -->
             <div class="settings-section" style="grid-column:1/-1">
-              <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users & Roles</div>
-              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Set each user's role to control what they can access. Changes take effect on their next login.</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div style="font-weight:600;font-size:15px">👥 System Users & Permissions</div>
+              </div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
               <div id="users-management-list"></div>
             </div>
 
@@ -1951,6 +1967,7 @@ const AVATAR_COLORS = [
 // ═══════════════════════════════════════════════════════════════
 function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
 function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
+function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
 function formatDate(d){
   if(!d) return '—'
   const dt = new Date(d+'T00:00:00')
@@ -2002,8 +2019,15 @@ function switchTab(el,tabId){
 async function api(path,method='GET',body=null){
   const opts={method,credentials:'include',headers:{}}
   if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}
-  const res=await fetch(path,opts)
-  return res.json()
+  try {
+    const res=await fetch(path,opts)
+    if(!res.ok && res.headers.get('content-type')&&!res.headers.get('content-type').includes('json')){
+      return {error: 'Server error '+res.status}
+    }
+    return res.json()
+  } catch(e){
+    return {error: e.message||'Network error'}
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2028,8 +2052,9 @@ async function loginSuccess(user){
   document.getElementById('auth-error').style.display='none'
   document.getElementById('sidebar-avatar').textContent=initials(user.name)
   document.getElementById('sidebar-name').textContent=user.name
-  document.getElementById('sidebar-role').textContent=user.role==='admin'?'Administrator':'Board Member'
-  applyRoleUI()
+  const isAdmin = user.role==='admin'
+  document.getElementById('sidebar-role').textContent=isAdmin?'Administrator':'Staff'
+  applyPermissionUI()
   await loadAllData()
   navTo('dashboard')
   pollPendingCount()
@@ -2043,31 +2068,59 @@ async function handleLogout(){
   document.getElementById('login-email').value=''
   document.getElementById('login-password').value=''
 }
-function applyRoleUI(){
-  const role=currentUser?.role||'board'
-  const isAdmin=role==='admin'
-  const isInstructor=role==='instructor'
-  const isElic=role==='elic'
 
-  // admin-only elements
-  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'':'none')
+// Map nav item text/id to permission section key
+const NAV_PERM_MAP = {
+  'dashboard':        null,           // always visible
+  'volunteers':       'volunteers',
+  'waivers':          'volunteers',
+  'hours':            'hours',
+  'email':            'email',
+  'events':           'events',
+  'productions':      'productions',
+  'production-signin':'productions',
+  'youth':            'youth',
+  'youth-programs-page': 'programs',
+  'rising-stars-page':'rising_stars',
+  'portal-admin':     'portal_admin',
+  'youth-signin':     'kiosk',
+  'event-logs':       'reports',
+  'notifications':    'settings',
+  'settings':         'settings',
+}
 
-  // Hide irrelevant nav for instructors (can see events, calendar, youth only)
-  if(isInstructor||isElic){
-    document.querySelectorAll('.nav-item').forEach(nav=>{
-      const txt=nav.textContent.trim()
-      const allowed=isInstructor
-        ?['Events &amp; Calendar','Participants','Programs &amp; Classes','Rising Stars','Sign-In','Dashboard']
-        :['Dashboard'] // ELIC just uses kiosk
-      const show=allowed.some(a=>txt.includes(a))
-      nav.style.display=show?'':'none'
-    })
-    // Hide nav sections if all children hidden
-    document.querySelectorAll('.nav-section').forEach(sec=>{
-      const next=sec.nextElementSibling
-      if(next&&next.style.display==='none') sec.style.display='none'
-    })
-  }
+function canView(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
+function canEdit(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='edit' }
+
+function applyPermissionUI(){
+  const isAdmin = currentUser?.role==='admin'
+
+  // Show/hide nav items based on permissions
+  document.querySelectorAll('.nav-item').forEach(nav=>{
+    // Find which section this nav item maps to
+    const onclick = nav.getAttribute('onclick')||''
+    const match = onclick.match(/navTo\('([^']+)'/)
+    const pageKey = match ? match[1] : null
+    const section = pageKey ? NAV_PERM_MAP[pageKey] : null
+    const visible = canView(section)
+    nav.style.display = visible ? '' : 'none'
+  })
+
+  // admin-only elements (edit actions)
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    el.style.display = isAdmin ? '' : 'none'
+  })
+
+  // Hide nav section headers if all children are hidden
+  document.querySelectorAll('.nav-section').forEach(sec=>{
+    let sibling = sec.nextElementSibling
+    let anyVisible = false
+    while(sibling && !sibling.classList.contains('nav-section')){
+      if(sibling.classList.contains('nav-item') && sibling.style.display !== 'none') anyVisible = true
+      sibling = sibling.nextElementSibling
+    }
+    sec.style.display = anyVisible ? '' : 'none'
+  })
 }
 window.addEventListener('DOMContentLoaded',async()=>{
   const data=await api('/api/auth/me')
@@ -4038,8 +4091,11 @@ async function createUser(){
   if(!name||!email||!password){toast('All fields required','error');return}
   const res=await api('/api/users','POST',{name,email,password,role})
   if(res.error){toast(res.error,'error');return}
-  toast('User created!','success')
+  toast('User created! '+(role!=='admin'?'Now set their permissions below.':''),'success')
   ;['new-user-name','new-user-email','new-user-password'].forEach(id=>document.getElementById(id).value='')
+  // Reload users list so new user appears with permission matrix
+  const users = await api('/api/users')
+  if(Array.isArray(users)) renderUsersManagement(users)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4533,72 +4589,298 @@ async function unenrollYouth(eid,yid){
 //  USER MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
+let _usersCache = {}
+
 function renderUsersManagement(users){
-  const el=document.getElementById('users-management-list')
+  const el = document.getElementById('users-management-list')
   if(!el) return
-  const roleColors={
-    admin:['var(--teal-50)','var(--teal-600)'],
-    board:['var(--blue-50)','var(--blue-600)'],
-    instructor:['var(--purple-50)','var(--purple-600)'],
-    elic:['var(--amber-50)','var(--amber-600)']
-  }
-  const roleDesc={
-    admin:'Full access — can manage everything',
-    board:'Read-only — can view but not edit',
-    instructor:'Can manage events, calendar, and youth programs',
-    elic:'Kiosk only — can open and close events'
-  }
-  el.innerHTML=users.map(u=>{
-    const isSelf=u.id===currentUser?.id
-    const[rbg,rcol]=roleColors[u.role]||roleColors.board
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:10px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
-      <div style="flex:0 0 40px">${avatarHTML(u.name,40)}</div>
-      <div style="flex:1;min-width:180px">
-        <div style="font-weight:600;font-size:15px;margin-bottom:2px">${u.name} ${isSelf?'<span style="font-size:11px;color:var(--text-hint)">(You)</span>':''}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${u.email}</div>
-        <div style="font-size:12px;color:var(--text-hint);margin-top:4px">${roleDesc[u.role]||''}</div>
+  // Cache users by ID for modal lookup
+  users.forEach(u=>{ _usersCache[u.id]=u })
+
+  el.innerHTML = '<div style="background:var(--bg);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)">'
+    + users.map(u=>{
+    const isSelf = u.id === currentUser?.id
+    const isAdmin = u.role === 'admin'
+    let perms = {}
+    try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
+    const editCount = PERM_SECTIONS.filter(s=>perms[s.key]==='edit').length
+    const viewCount  = PERM_SECTIONS.filter(s=>perms[s.key]==='view').length
+    const permSummary = isAdmin
+      ? '<span style="background:#0d3d4d;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Admin</span>'
+      : (editCount===0&&viewCount===0
+        ? '<span style="background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">No access</span>'
+        : '<span style="font-size:11px;color:var(--text-muted)">'+editCount+' edit · '+viewCount+' view</span>')
+    const statusDot = u.active!==false
+      ? '<span style="width:7px;height:7px;border-radius:50%;background:var(--green-600);display:inline-block"></span>'
+      : '<span style="width:7px;height:7px;border-radius:50%;background:var(--red-600);display:inline-block"></span>'
+
+    return `<div style="display:grid;grid-template-columns:24px 1fr auto auto;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border)" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background=''">
+      <div title="${u.active!==false?'Active':'Inactive'}">${statusDot}</div>
+      <div>
+        <div style="font-size:13px;font-weight:600">${u.name} ${isSelf?'<span style="font-size:10px;color:var(--text-hint);font-weight:400">(you)</span>':''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${u.email}</div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Role:</span>
-          ${isSelf
-            ?`<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:${rbg};color:${rcol};font-weight:600">${u.role.charAt(0).toUpperCase()+u.role.slice(1)}</span>`
-            :`<select onchange="changeUserRole('${u.id}',this.value)" style="padding:5px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;background:${rbg};color:${rcol};font-weight:600">
-              <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-              <option value="board" ${u.role==='board'?'selected':''}>Board</option>
-              <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor</option>
-              <option value="stage_manager" ${u.role==='stage_manager'?'selected':''}>Stage Manager</option>
-              <option value="elic" ${u.role==='elic'?'selected':''}>ELIC</option>
-            </select>`}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Status:</span>
-          <span style="font-size:12px;padding:4px 10px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'};font-weight:600">${u.active!==false?'Active':'Inactive'}</span>
-          ${!isSelf?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" style="padding:4px 10px;font-size:12px" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:''}
-          ${!isSelf?`<button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:12px" onclick="resetUserPassword('${u.id}','${u.name}')">🔑 Reset Password</button>`:''}
-        </div>
+      <div>${permSummary}</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal('${u.id}')">✏️ Edit</button>
+        ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name.replace(/'/g,"\\'")}')">✕</button>`:''}
       </div>
     </div>`
-  }).join('')
+  }).join('') + '</div>'
 }
 
-async function toggleUser(uid,currentlyActive){
-  const action=currentlyActive?'deactivate':'activate'
-  if(!confirm(`Are you sure you want to ${action} this user?`)) return
-  const res=await api(`/api/users/${uid}/toggle`,'POST')
-  if(res.error){toast(res.error,'error');return}
-  toast(`User ${res.active?'activated':'deactivated'}`,res.active?'success':'')
-  loadSettings()
+function openUserEditModal(uid){
+  const u = _usersCache[uid]
+  if(!u){ toast('User not found','error'); return }
+  const existing = document.getElementById('user-edit-modal')
+  if(existing) existing.remove()
+
+  let perms = {}
+  try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
+  const isAdmin = u.role === 'admin'
+
+  // ── Build overlay shell ──
+  const overlay = document.createElement('div')
+  overlay.id = 'user-edit-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+
+  const card = document.createElement('div')
+  card.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:580px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
+  overlay.appendChild(card)
+
+  // ── Header ──
+  card.innerHTML = `
+    <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:16px;font-weight:700">Edit: ${u.name}</div>
+      <button onclick="document.getElementById('user-edit-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+    </div>
+    <div style="padding:20px 24px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Account Info</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Name</label>
+        <input type="text" id="ue-name-${uid}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+        <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>
+        <input type="email" id="ue-email-${uid}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400;opacity:0.7">(leave blank to keep current)</span></label>
+        <input type="password" id="ue-pw-${uid}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')">💾 Save Info</button>
+        <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'")}')">📧 Email Temp Password</button>
+        <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${uid}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
+      </div>
+      <div id="perm-section-${uid}"></div>
+    </div>`
+
+  // ── Permissions — built entirely with createElement, no innerHTML for inputs ──
+  const permSection = card.querySelector('#perm-section-'+uid)
+  if(isAdmin){
+    permSection.innerHTML = '<div style="background:var(--teal-50);border-radius:var(--radius);padding:12px;font-size:13px;">Administrator — full access to everything.</div>'
+  } else {
+    // Header + buttons
+    const hdr = document.createElement('div')
+    hdr.innerHTML = `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Section Permissions</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-secondary btn-sm" id="grant-all-${uid}">Grant All Edit</button>
+        <button class="btn btn-secondary btn-sm" id="revoke-all-${uid}">Revoke All</button>
+        <span id="perm-save-status-${uid}" style="font-size:12px;color:var(--text-muted);align-self:center"></span>
+      </div>`
+    permSection.appendChild(hdr)
+
+    // Table
+    const table = document.createElement('table')
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px'
+    table.innerHTML = `<thead><tr>
+      <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-size:10px;text-transform:uppercase">Section</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">No Access</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">View Only</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">View &amp; Edit</th>
+    </tr></thead>`
+    const tbody = document.createElement('tbody')
+    table.appendChild(tbody)
+
+    PERM_SECTIONS.forEach(s=>{
+      const curVal = perms[s.key] || 'none'
+      const tr = document.createElement('tr')
+      tr.style.borderBottom = '1px solid var(--border)'
+
+      const tdLabel = document.createElement('td')
+      tdLabel.style.cssText = 'padding:9px 8px;font-weight:500'
+      tdLabel.textContent = s.label
+      tr.appendChild(tdLabel)
+
+      const tdDesc = document.createElement('td')
+      tdDesc.style.cssText = 'padding:9px 8px;font-size:11px;color:var(--text-muted)'
+      tdDesc.textContent = s.desc
+      tr.appendChild(tdDesc)
+
+      const tdSel = document.createElement('td')
+      tdSel.style.cssText = 'padding:9px 8px;text-align:right'
+
+      const sel = document.createElement('select')
+      sel.id = 'perm-sel-' + uid + '-' + s.key
+      sel.style.cssText = 'padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none;background:var(--surface);cursor:pointer'
+      ;[['none','No Access'],['view','View Only'],['edit','View & Edit']].forEach(([val,label])=>{
+        const opt = document.createElement('option')
+        opt.value = val
+        opt.textContent = label
+        if(val === curVal) opt.selected = true
+        sel.appendChild(opt)
+      })
+      // Color the select based on value
+      const colorSel = ()=>{
+        const colors = {none:'var(--text-muted)',view:'var(--blue-600)',edit:'var(--green-600)'}
+        sel.style.color = colors[sel.value]||'var(--text-muted)'
+        sel.style.fontWeight = sel.value==='none'?'400':'700'
+      }
+      colorSel()
+      sel.addEventListener('change', colorSel)
+      tdSel.appendChild(sel)
+      tr.appendChild(tdSel)
+      tbody.appendChild(tr)
+    })
+    permSection.appendChild(table)
+
+    // Save button
+    const saveBtn = document.createElement('button')
+    saveBtn.className = 'btn btn-primary btn-sm'
+    saveBtn.style.marginTop = '14px'
+    saveBtn.textContent = '💾 Save Permissions'
+    saveBtn.onclick = () => saveUserPermissions(uid)
+    permSection.appendChild(saveBtn)
+
+    // Grant/Revoke wired up now that elements exist
+    card.querySelector('#grant-all-'+uid).onclick = () => {
+      tbody.querySelectorAll('input[type="radio"]').forEach(r=>{ r.checked = (r.value==='edit') })
+    }
+    card.querySelector('#revoke-all-'+uid).onclick = () => {
+      tbody.querySelectorAll('input[type="radio"]').forEach(r=>{ r.checked = (r.value==='none') })
+    }
+  }
+
+  document.body.appendChild(overlay)
+}
+
+
+async function saveUserEdits(uid){
+  const name  = document.getElementById('ue-name-'+uid)?.value.trim()
+  const email = document.getElementById('ue-email-'+uid)?.value.trim()
+  const pw    = document.getElementById('ue-pw-'+uid)?.value
+  const status = document.getElementById('ue-status-'+uid)
+  if(!name||!email){ toast('Name and email required','error'); return }
+  const body = {name, email}
+  if(pw && pw.length >= 6) body.password = pw
+  else if(pw && pw.length > 0){ toast('Password must be at least 6 characters','error'); return }
+  const res = await api('/api/users/'+uid,'PUT',body)
+  if(res && res.ok){
+    if(_usersCache[uid]){ _usersCache[uid].name=name; _usersCache[uid].email=email }
+    const modal = document.getElementById('user-edit-modal')
+    if(modal) modal.remove()
+    const users = await api('/api/users')
+    if(Array.isArray(users)) renderUsersManagement(users)
+    toast('Account updated!','success')
+  } else {
+    toast((res&&res.error)||'Error saving','error')
+  }
+}
+
+async function sendResetLink(uid, name){
+  if(!confirm('Send a temporary password to '+name+'\'s email address?')) return
+  const res = await api('/api/users/'+uid+'/send-reset-link','POST')
+  if(res.ok) toast('Temporary password emailed to '+name,'success')
+  else toast(res.error||'Failed to send email','error')
+}
+
+async function confirmDeleteUser(uid, name){
+  if(!confirm('Permanently delete '+name+'? This cannot be undone.')) return
+  const res = await api('/api/users/'+uid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('User deleted','success')
+  const users = await api('/api/users')
+  if(Array.isArray(users)) renderUsersManagement(users)
+}
+
+function permChanged(uid){ /* no-op, kept for compat */ }
+
+function grantAllEdit(uid){
+  PERM_SECTIONS.forEach(s=>{
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    if(sel){ sel.value='edit'; sel.dispatchEvent(new Event('change')) }
+  })
+}
+
+function revokeAll(uid){
+  PERM_SECTIONS.forEach(s=>{
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    if(sel){ sel.value='none'; sel.dispatchEvent(new Event('change')) }
+  })
+}
+
+async function saveUserPermissions(uid){
+  const perms = {}
+  PERM_SECTIONS.forEach(s=>{
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    perms[s.key] = sel ? sel.value : 'none'
+  })
+
+  const statusEl = document.getElementById('perm-save-status-'+uid)
+  if(statusEl) statusEl.textContent = 'Saving…'
+
+  const res = await api('/api/users/'+uid+'/permissions','PUT', perms)
+
+  if(res && res.ok){
+    if(_usersCache[uid]) _usersCache[uid].role_permissions = JSON.stringify(perms)
+    const modal = document.getElementById('user-edit-modal')
+    if(modal) modal.remove()
+    const users = await api('/api/users')
+    if(Array.isArray(users)) renderUsersManagement(users)
+    toast('Permissions saved!','success')
+  } else {
+    const msg = (res && res.error) || 'Save failed'
+    toast(msg,'error')
+    if(statusEl) statusEl.textContent = '✗ '+msg
+  }
+}
+
+async function toggleUser(uid, currentlyActive){
+  const action = currentlyActive ? 'deactivate' : 'activate'
+  if(!confirm('Are you sure you want to '+action+' this user?')) return
+  const res = await api('/api/users/'+uid+'/toggle','POST')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('User '+(res.active?'activated':'deactivated'), res.active?'success':'')
+  const users = await api('/api/users')
+  if(Array.isArray(users)) renderUsersManagement(users)
+  // Refresh modal if open
+  const modal = document.getElementById('user-edit-modal')
+  if(modal) modal.remove()
 }
 
 async function resetUserPassword(uid, name){
-  const pw = prompt(`Set new password for ${name}:\n(minimum 6 characters)`)
+  const pw = prompt('Set new password for '+name+':\n(minimum 6 characters)')
   if(!pw||!pw.trim()) return
   if(pw.trim().length < 6){ toast('Password must be at least 6 characters','error'); return }
-  const res = await api(`/api/users/${uid}/reset-password`,'POST',{password:pw.trim()})
+  const res = await api('/api/users/'+uid+'/reset-password','POST',{password:pw.trim()})
   if(res.error){ toast(res.error,'error'); return }
-  toast(`Password reset for ${name}`)
+  toast('Password reset for '+name)
 }
+
+const PERM_SECTIONS = [
+  {key:'volunteers',   label:'Volunteers',         desc:'Volunteer profiles & history'},
+  {key:'events',       label:'Events & Calendar',  desc:'Create and manage events'},
+  {key:'hours',        label:'Time Tracking',      desc:'Hours, approvals, kiosk sessions'},
+  {key:'email',        label:'Email',              desc:'Send emails & manage templates'},
+  {key:'productions',  label:'Productions',        desc:'Cast, crew, production detail'},
+  {key:'rising_stars', label:'Rising Stars',       desc:'RS productions and portal content'},
+  {key:'youth',        label:'Participants',        desc:'Youth profiles & guardians'},
+  {key:'programs',     label:'Programs & Classes', desc:'Program enrollment & schedule'},
+  {key:'portal_admin', label:'Portal Content',     desc:'Announcements, files, team'},
+  {key:'kiosk',        label:'Sign-In / Kiosk',    desc:'Open and close events on kiosk'},
+  {key:'reports',      label:'Reports & Logs',     desc:'Event logs, email reports'},
+  {key:'settings',     label:'Settings',           desc:'Users, system configuration'},
+]
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -5439,9 +5721,22 @@ function renderCalendar(events){
         const isAdminCal=currentUser?.role==='admin'
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
         const calElicStr=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
-        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;line-height:1.4">
+        // Context label: what this event belongs to
+        let ctxLabel='', ctxStyle=''
+        if(e.production_stage==='rising_stars'){
+          ctxLabel='RS: '+(e.production_name||'Rising Stars')
+          ctxStyle='background:rgba(124,58,237,0.12);color:#5b21b6'
+        } else if(e.production_name){
+          ctxLabel='Prod: '+e.production_name
+          ctxStyle='background:rgba(190,24,93,0.1);color:#9d174d'
+        } else if(e.program_name){
+          ctxLabel='Class: '+e.program_name
+          ctxStyle='background:rgba(21,128,61,0.1);color:#166534'
+        }
+        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}${e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;line-height:1.4">
           <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}<span style="opacity:0.75;font-weight:400">${calTimeStr}</span></div>
-          ${calElicStr?`<div style="font-size:10px;font-weight:400;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ELIC: ${calElicStr}</div>`:''}
+          ${ctxLabel?`<div style="font-size:9px;font-weight:700;margin-top:2px;padding:1px 4px;border-radius:3px;display:inline-block;${ctxStyle};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${ctxLabel}</div>`:''}
+          ${!ctxLabel&&calElicStr?`<div style="font-size:10px;font-weight:400;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ELIC: ${calElicStr}</div>`:''}
         </div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
@@ -7043,7 +7338,6 @@ function renderProductionPortalHTML(pid, stage){
             <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Performance Location</label>
             <input type="text" id="prod-perf-location-${pid}" placeholder="e.g. 123 Main St, Orlando FL…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
-          <div>
         </div>
         <div style="margin-bottom:14px">
           <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description / Director's Note</label>
@@ -7273,7 +7567,19 @@ function switchProdPortalTab(tab, btn){
   document.querySelectorAll('.portal-sub-btn').forEach(b=>b.classList.remove('active'))
   if(btn) btn.classList.add('active')
   if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
-  if(tab==='team') loadTeamMembers(pid)
+  if(tab==='team'){
+    const teamEl = document.getElementById('pptab-team-'+pid)
+    if(teamEl) loadTeamMembers(pid)
+    else {
+      // Fallback: team panel not found, try re-rendering portal
+      const inner = document.getElementById('prodtab-portal-inner-'+pid)
+      if(inner && inner.innerHTML.trim()===''){
+        const prod = allProductions.find(p=>p.id===pid)
+        if(prod) inner.innerHTML = renderProductionPortalHTML(pid, prod.stage)
+      }
+      setTimeout(()=>loadTeamMembers(pid), 100)
+    }
+  }
   if(tab==='about') loadProductionAbout(pid)
   if(tab==='conflicts') loadProductionConflicts(pid)
   if(tab==='overview') loadProductionOverview(pid)
@@ -7467,7 +7773,7 @@ function renderAnnRow(a, pid, isDraft){
     +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
     +(isDraft
       ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Publish</button>'
-      :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:linear-gradient(135deg,var(--teal-dark),var(--teal-mid));color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
+      :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
     )
     +'<button onclick="editAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\',\''+(a.status||'published')+'\')" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Edit</button>'
     +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'
@@ -7610,16 +7916,17 @@ async function saveProductionAbout(pid){
 // ── Meet the Team ──
 async function loadTeamMembers(pid){
   const el = document.getElementById('prod-team-list-'+pid)
-  if(!el) return
+  if(!el){ console.warn('loadTeamMembers: prod-team-list-'+pid+' not found'); return }
+  el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">Loading team members…</div>'
   let members
   try {
     members = await api('/api/productions/'+pid+'/team')
   } catch(e) {
-    el.innerHTML='<div style="font-size:13px;color:var(--red-600)">Error loading team members. Please try again.</div>'
+    el.innerHTML='<div style="font-size:13px;color:var(--red-600)">Error loading: '+e.message+'</div>'
     return
   }
   if(!members || members.error || !Array.isArray(members)){
-    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.'+(members&&members.error?' ('+members.error+')':'')+'</div>'
     return
   }
   if(!members.length){
@@ -7627,18 +7934,52 @@ async function loadTeamMembers(pid){
     return
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">'
-    + members.map(m=>'<div style="border:1.5px solid var(--border-md);border-radius:var(--radius-lg);overflow:hidden">'
-      +(m.headshot_url?'<img src="'+m.headshot_url+'" style="width:100%;height:160px;object-fit:cover;display:block" onerror="this.style.display=\'none\'"/>':'<div style="width:100%;height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:36px">👤</div>')
-      +'<div style="padding:12px">'
-      +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
-      +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
-      +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">'+m.bio+'</div>':'')
-      +'<div style="margin-top:10px;display:flex;gap:6px">'
-      +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>'
-      +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px">✕</button>'
-      +'</div></div></div>'
-    ).join('')
+    + members.map(m=>{
+      const hasPhoto = !!m.headshot_url
+      const clickAttr = 'onclick="openTeamMemberModal('+JSON.stringify(m).replace(/"/g,'&quot;')+')" style="cursor:pointer"'
+      return '<div id="team-card-'+m.id+'" style="border:1.5px solid var(--border-md);border-radius:var(--radius-lg);overflow:hidden">'
+        +(hasPhoto
+          ?'<div '+clickAttr+' style="height:160px;overflow:hidden;background:var(--bg);position:relative"><img src="'+m.headshot_url+'" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.innerHTML=\'<div style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:36px&quot;>👤</div>\'"/><div style="position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,0.45);border-radius:6px;padding:2px 6px;font-size:10px;color:#fff;font-weight:600">TAP TO EXPAND</div></div>'
+          :(m.bio?'<div '+clickAttr+' style="width:100%;height:60px;background:var(--teal-50);display:flex;align-items:center;justify-content:center;font-size:28px">👤</div>':'<div style="width:100%;height:60px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:28px">👤</div>'))
+        +'<div style="padding:12px">'
+        +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
+        +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
+        +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4;max-height:48px;overflow:hidden;position:relative">'+m.bio+'<span style="position:absolute;bottom:0;right:0;background:linear-gradient(to right,transparent,var(--surface) 50%);padding-left:20px;font-size:11px;color:var(--teal);font-weight:700;cursor:pointer" onclick="openTeamMemberModal('+JSON.stringify(m).replace(/"/g,'&quot;')+')">Read more</span></div>':'')
+        +'<div style="margin-top:10px;display:flex;gap:6px">'
+        +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">✏️ Edit</button>'
+        +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px">✕</button>'
+        +'</div></div></div>'
+    }).join('')
     + '</div>'
+}
+
+function openTeamMemberModal(m){
+  const existing = document.getElementById('team-member-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'team-member-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)">'
+    // Photo header
+    +(m.headshot_url
+      ?'<div style="height:280px;overflow:hidden;border-radius:var(--radius-lg) var(--radius-lg) 0 0"><img src="'+m.headshot_url+'" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.style.display=\'none\'"/></div>'
+      :'<div style="height:80px;background:var(--teal-50);border-radius:var(--radius-lg) var(--radius-lg) 0 0;display:flex;align-items:center;justify-content:center;font-size:48px">👤</div>')
+    // Content
+    +'<div style="padding:24px">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">'
+    +'<div>'
+    +'<div style="font-size:20px;font-weight:800">'+m.name+'</div>'
+    +(m.role?'<div style="font-size:13px;color:var(--teal-dark);font-weight:600;margin-top:3px">'+m.role+'</div>':'')
+    +'</div>'
+    +'<button onclick="document.getElementById(\'team-member-modal\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);line-height:1;padding:0">×</button>'
+    +'</div>'
+    +(m.bio
+      ?'<div style="font-size:14px;color:var(--text-muted);line-height:1.7;margin-top:16px;white-space:pre-wrap">'+m.bio+'</div>'
+      :'')
+    +'</div></div>'
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
 }
 async function addTeamMember(pid){
   const name = document.getElementById('team-name-'+pid)?.value.trim()
@@ -7662,17 +8003,34 @@ async function deleteTeamMember(pid, mid){
   toast('Removed')
 }
 async function editTeamMember(pid, mid){
+  const el = document.getElementById('team-card-'+mid)
+  if(!el) return
   const members = await api('/api/productions/'+pid+'/team')
   const m = members.find(x=>x.id===mid)
   if(!m) return
-  const name = prompt('Name:', m.name)
-  if(!name) return
-  const role = prompt('Role:', m.role||'')
-  const headshot_url = prompt('Headshot URL:', m.headshot_url||'')
-  const bio = prompt('Bio:', m.bio||'')
-  await api('/api/productions/'+pid+'/team/'+mid,'PUT',{name, role:role||'', headshot_url:headshot_url||'', bio:bio||'', sort_order:m.sort_order||0})
+  el.innerHTML =
+    '<div style="padding:12px">'
+    +'<div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px">Editing</div>'
+    +'<input id="te-name-'+mid+'" value="'+escHtml(m.name||'')+'" placeholder="Name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<input id="te-role-'+mid+'" value="'+escHtml(m.role||'')+'" placeholder="Role / Title" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<input id="te-headshot-'+mid+'" value="'+escHtml(m.headshot_url||'')+'" placeholder="Headshot URL (https://…)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<textarea id="te-bio-'+mid+'" placeholder="Short bio…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:60px;resize:vertical;margin-bottom:8px">'+escHtml(m.bio||'')+'</textarea>'
+    +'<div style="display:flex;gap:6px">'
+    +'<button onclick="saveTeamMember(\''+pid+'\',\''+mid+'\')" class="btn btn-primary btn-sm">💾 Save</button>'
+    +'<button onclick="loadTeamMembers(\''+pid+'\')" class="btn btn-secondary btn-sm">Cancel</button>'
+    +'</div></div>'
+}
+
+async function saveTeamMember(pid, mid){
+  const name = document.getElementById('te-name-'+mid)?.value.trim()
+  const role = document.getElementById('te-role-'+mid)?.value.trim()||''
+  const headshot_url = document.getElementById('te-headshot-'+mid)?.value.trim()||''
+  const bio = document.getElementById('te-bio-'+mid)?.value.trim()||''
+  if(!name){ toast('Name required','error'); return }
+  const res = await api('/api/productions/'+pid+'/team/'+mid,'PUT',{name, role, headshot_url, bio, sort_order:0})
+  if(res.error){ toast(res.error,'error'); return }
   await loadTeamMembers(pid)
-  toast('Updated!')
+  toast('Team member updated!')
 }
 
 // ── Conflicts ──
@@ -8525,7 +8883,7 @@ function renderRisingStarsPage(){
               <div style="font-size:17px;font-weight:700;margin-bottom:4px">${p.name}</div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROD_STATUS_LABELS[p.status]||p.status}</span>
-                <span style="background:var(--purple-50);color:var(--purple-600);padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">⭐ Rising Stars</span>
+                <span style="background:var(--purple-50);color:var(--purple-600);padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">RS: Rising Stars</span>
               </div>
             </div>
             ${isAdmin?`<div style="display:flex;gap:4px;flex-shrink:0">

@@ -4639,76 +4639,131 @@ function openUserEditModal(uid){
   try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
   const isAdmin = u.role === 'admin'
 
+  // ── Build overlay shell ──
   const overlay = document.createElement('div')
   overlay.id = 'user-edit-modal'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
 
-  const matrixHTML = isAdmin
-    ? '<div style="background:var(--teal-50);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--teal-dark)">Administrator — has full access to everything.</div>'
-    : `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Section Permissions</div>
-       <div style="display:flex;gap:8px;margin-bottom:10px">
-         <button class="btn btn-secondary btn-sm" onclick="grantAllEdit('${uid}')">Grant All Edit</button>
-         <button class="btn btn-secondary btn-sm" onclick="revokeAll('${uid}')">Revoke All</button>
-         <span id="perm-save-status-${uid}" style="font-size:12px;color:var(--text-muted);align-self:center"></span>
-       </div>
-       <table style="width:100%;border-collapse:collapse;font-size:12px" id="perm-table-${uid}">
-         <thead><tr>
-           <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Section</th>
-           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">No Access</th>
-           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">View</th>
-           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Edit</th>
-         </tr></thead>
-         <tbody>
-           ${PERM_SECTIONS.map(s=>`
-             <tr style="border-bottom:1px solid var(--border)">
-               <td style="padding:8px 8px;font-size:13px;font-weight:500">${s.label}</td>
-               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="none" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
-               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="view" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
-               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="edit" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
-             </tr>`).join('')}
-         </tbody>
-       </table>
-       <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="saveUserPermissions('${uid}')">💾 Save Permissions</button>`
+  const card = document.createElement('div')
+  card.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:580px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
+  overlay.appendChild(card)
 
-  overlay.innerHTML = `
-    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
-      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <div style="font-size:16px;font-weight:700">Edit: ${u.name}</div>
-        <button onclick="document.getElementById('user-edit-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+  // ── Header ──
+  card.innerHTML = `
+    <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:16px;font-weight:700">Edit: ${u.name}</div>
+      <button onclick="document.getElementById('user-edit-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+    </div>
+    <div style="padding:20px 24px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Account Info</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Name</label>
+        <input type="text" id="ue-name-${uid}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+        <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>
+        <input type="email" id="ue-email-${uid}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
       </div>
-      <div style="padding:20px 24px">
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Account Info</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-          <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Name</label>
-          <input type="text" id="ue-name-${uid}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-          <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>
-          <input type="email" id="ue-email-${uid}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
-        </div>
-        <div style="margin-bottom:14px">
-          <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400;opacity:0.7">(leave blank to keep current)</span></label>
-          <input type="password" id="ue-pw-${uid}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-          <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')">💾 Save Info</button>
-          <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'") }')">📧 Email Temp Password</button>
-          <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${uid}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
-        </div>
-        ${matrixHTML}
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400;opacity:0.7">(leave blank to keep current)</span></label>
+        <input type="password" id="ue-pw-${uid}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')">💾 Save Info</button>
+        <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'")}')">📧 Email Temp Password</button>
+        <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${uid}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
+      </div>
+      <div id="perm-section-${uid}"></div>
     </div>`
 
-  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
-  document.body.appendChild(overlay)
+  // ── Permissions — built entirely with createElement, no innerHTML for inputs ──
+  const permSection = card.querySelector('#perm-section-'+uid)
+  if(isAdmin){
+    permSection.innerHTML = '<div style="background:var(--teal-50);border-radius:var(--radius);padding:12px;font-size:13px;">Administrator — full access to everything.</div>'
+  } else {
+    // Header + buttons
+    const hdr = document.createElement('div')
+    hdr.innerHTML = `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Section Permissions</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-secondary btn-sm" id="grant-all-${uid}">Grant All Edit</button>
+        <button class="btn btn-secondary btn-sm" id="revoke-all-${uid}">Revoke All</button>
+        <span id="perm-save-status-${uid}" style="font-size:12px;color:var(--text-muted);align-self:center"></span>
+      </div>`
+    permSection.appendChild(hdr)
 
-  // Set radio checked state via JS AFTER DOM is live — reliable across all browsers
-  if(!isAdmin){
+    // Table
+    const table = document.createElement('table')
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px'
+    table.innerHTML = `<thead><tr>
+      <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-size:10px;text-transform:uppercase">Section</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">No Access</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">View Only</th>
+      <th style="text-align:center;padding:6px 14px;color:var(--text-muted);font-size:10px;text-transform:uppercase">View &amp; Edit</th>
+    </tr></thead>`
+    const tbody = document.createElement('tbody')
+    table.appendChild(tbody)
+
     PERM_SECTIONS.forEach(s=>{
-      const val = perms[s.key] || 'none'
-      const inputs = overlay.querySelectorAll(`input[data-uid="${uid}"][data-section="${s.key}"]`)
-      inputs.forEach(input=>{ input.checked = (input.dataset.val === val) })
+      const curVal = perms[s.key] || 'none'
+      const tr = document.createElement('tr')
+      tr.style.borderBottom = '1px solid var(--border)'
+
+      const tdLabel = document.createElement('td')
+      tdLabel.style.cssText = 'padding:9px 8px;font-weight:500'
+      tdLabel.textContent = s.label
+      tr.appendChild(tdLabel)
+
+      const tdDesc = document.createElement('td')
+      tdDesc.style.cssText = 'padding:9px 8px;font-size:11px;color:var(--text-muted)'
+      tdDesc.textContent = s.desc
+      tr.appendChild(tdDesc)
+
+      const tdSel = document.createElement('td')
+      tdSel.style.cssText = 'padding:9px 8px;text-align:right'
+
+      const sel = document.createElement('select')
+      sel.id = 'perm-sel-' + uid + '-' + s.key
+      sel.style.cssText = 'padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none;background:var(--surface);cursor:pointer'
+      ;[['none','No Access'],['view','View Only'],['edit','View & Edit']].forEach(([val,label])=>{
+        const opt = document.createElement('option')
+        opt.value = val
+        opt.textContent = label
+        if(val === curVal) opt.selected = true
+        sel.appendChild(opt)
+      })
+      // Color the select based on value
+      const colorSel = ()=>{
+        const colors = {none:'var(--text-muted)',view:'var(--blue-600)',edit:'var(--green-600)'}
+        sel.style.color = colors[sel.value]||'var(--text-muted)'
+        sel.style.fontWeight = sel.value==='none'?'400':'700'
+      }
+      colorSel()
+      sel.addEventListener('change', colorSel)
+      tdSel.appendChild(sel)
+      tr.appendChild(tdSel)
+      tbody.appendChild(tr)
     })
+    permSection.appendChild(table)
+
+    // Save button
+    const saveBtn = document.createElement('button')
+    saveBtn.className = 'btn btn-primary btn-sm'
+    saveBtn.style.marginTop = '14px'
+    saveBtn.textContent = '💾 Save Permissions'
+    saveBtn.onclick = () => saveUserPermissions(uid)
+    permSection.appendChild(saveBtn)
+
+    // Grant/Revoke wired up now that elements exist
+    card.querySelector('#grant-all-'+uid).onclick = () => {
+      tbody.querySelectorAll('input[type="radio"]').forEach(r=>{ r.checked = (r.value==='edit') })
+    }
+    card.querySelector('#revoke-all-'+uid).onclick = () => {
+      tbody.querySelectorAll('input[type="radio"]').forEach(r=>{ r.checked = (r.value==='none') })
+    }
   }
+
+  document.body.appendChild(overlay)
 }
+
 
 async function saveUserEdits(uid){
   const name  = document.getElementById('ue-name-'+uid)?.value.trim()
@@ -4751,20 +4806,24 @@ async function confirmDeleteUser(uid, name){
 function permChanged(uid){ /* no-op, kept for compat */ }
 
 function grantAllEdit(uid){
-  document.querySelectorAll(`input[data-uid="${uid}"][data-val="edit"]`).forEach(r=>r.checked=true)
+  PERM_SECTIONS.forEach(s=>{
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    if(sel){ sel.value='edit'; sel.dispatchEvent(new Event('change')) }
+  })
 }
 
 function revokeAll(uid){
-  document.querySelectorAll(`input[data-uid="${uid}"][data-val="none"]`).forEach(r=>r.checked=true)
+  PERM_SECTIONS.forEach(s=>{
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    if(sel){ sel.value='none'; sel.dispatchEvent(new Event('change')) }
+  })
 }
 
 async function saveUserPermissions(uid){
   const perms = {}
   PERM_SECTIONS.forEach(s=>{
-    // Use data attributes — reliable after innerHTML insertion
-    const inputs = Array.from(document.querySelectorAll(`input[data-uid="${uid}"][data-section="${s.key}"]`))
-    const checked = inputs.find(i=>i.checked)
-    perms[s.key] = checked ? checked.dataset.val : 'none'
+    const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
+    perms[s.key] = sel ? sel.value : 'none'
   })
 
   const statusEl = document.getElementById('perm-save-status-'+uid)

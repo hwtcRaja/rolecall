@@ -516,6 +516,7 @@ async function selectContext(type, id, name, color){
     const panel = document.getElementById('program-detail')
     panel.style.display = ''
     document.getElementById('detail-hero').innerHTML = '<div class="detail-hero-name">'+name+'</div><div class="detail-hero-meta" id="detail-hero-meta">Loading…</div>'
+    document.getElementById('detail-hero').style.background = ''  // reset any previous production branding
     document.getElementById('detail-tabs').innerHTML = ''
     document.getElementById('detail-tab-contents').innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading…</div>'
 
@@ -552,6 +553,17 @@ async function selectContext(type, id, name, color){
         prodVenue = p.venue||''
         prodPerfLocation = p.performance_location||''
         prodPerfDates = p.start_date ? fmtDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' – '+fmtDate(p.end_date):'') : ''
+        // Apply portal branding to hero
+        const hero = document.getElementById('detail-hero')
+        if(hero){
+          if(p.portal_image_url){
+            hero.style.background = 'linear-gradient(rgba(0,0,0,0.45),rgba(0,0,0,0.55)), url('+p.portal_image_url+') center/cover no-repeat'
+          } else if(p.portal_color){
+            hero.style.background = 'linear-gradient(135deg,'+p.portal_color+','+p.portal_color+'bb)'
+          } else {
+            hero.style.background = ''  // fallback to CSS class default
+          }
+        }
       }
     }
 

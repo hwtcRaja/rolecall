@@ -6993,6 +6993,13 @@ function renderProductionPortalHTML(pid, stage){
             <input type="text" id="prod-venue-${pid}" placeholder="e.g. Main Stage, Black Box…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Performance Location</label>
+            <input type="text" id="prod-perf-location-${pid}" placeholder="e.g. 123 Main St, Orlando FL…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+          </div>
+          <div>
+        </div>
         <div style="margin-bottom:14px">
           <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description / Director's Note</label>
           <textarea id="prod-description-${pid}" placeholder="About this production, director's note…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:100px;resize:vertical"></textarea>
@@ -7089,11 +7096,19 @@ async function loadProductionScheduleConflicts(pid){
     +'<button class="btn btn-primary btn-sm" onclick="submitScConflict(\''+pid+'\')">Add Conflict</button>'
     +'</div>' : ''
 
+  // Add event button for admins
+  const addEventBtn = isAdmin ? '<div style="margin-bottom:16px">'
+    +'<button class="btn btn-primary btn-sm" onclick="openEventModalForParent(\''+pid+'\',null)">+ New Event</button>'
+    +'<span style="font-size:12px;color:var(--text-muted);margin-left:10px">Events added here appear on the main calendar</span>'
+    +'</div>' : ''
+
   // Group events with their conflicts
-  let html = addForm
+  let html = addEventBtn + addForm
   if(!events.length){
-    html += '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
-    el.innerHTML = html; return
+    html += addEventBtn ? '' : '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
+    if(!isAdmin) el.innerHTML = html + '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
+    else el.innerHTML = html
+    return
   }
   // Un-attached conflicts
   const loose = byEvent['__none__']||[]
@@ -7206,13 +7221,22 @@ async function loadProductionOverview(pid){
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">Venue</div>'
         +'<div style="font-size:14px;font-weight:600">'+(prod?.venue||'—')+'</div>'
       +'</div>'
+      +(prod?.performance_location?'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">Performance Location</div>'
+        +'<div style="font-size:13px;font-weight:600">'+prod.performance_location+'</div>'
+      +'</div>':'')
       +'<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px">'
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#854d0e;margin-bottom:4px">Today</div>'
         +'<div style="font-size:12px;font-weight:600;color:#854d0e">'+todayLabel+'</div>'
       +'</div>'
+      +(upcoming.find(e=>e.event_date>today)?'<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#166534;margin-bottom:4px">Next Rehearsal</div>'
+        +'<div style="font-size:13px;font-weight:700;color:#166534">'+formatDate(upcoming.find(e=>e.event_date>today).event_date)+'</div>'
+        +(upcoming.find(e=>e.event_date>today).start_time?'<div style="font-size:11px;color:#16a34a">'+fmtTime(upcoming.find(e=>e.event_date>today).start_time)+'</div>':'')
+      +'</div>':'')
     +'</div>'
-    // Run dates
-    +(prod?.start_date?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;padding:8px 12px;background:var(--bg);border-radius:var(--radius)">📅 Run dates: <strong>'+formatDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?' → '+formatDate(prod.end_date):'')+'</strong></div>':'')
+    // Performance dates
+    +(prod?.start_date?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;padding:8px 12px;background:var(--bg);border-radius:var(--radius)">🎭 Performance Dates: <strong>'+formatDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?' → '+formatDate(prod.end_date):'')+'</strong>'+(prod.performance_location?' &nbsp;·&nbsp; 📍 '+prod.performance_location:'')+'</div>':'')
     // Today's events alert
     +(todayEvts.length?'<div style="background:#fef9c3;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">'
       +'<div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:6px">📅 Today\'s Schedule</div>'
@@ -7387,20 +7411,22 @@ async function loadProductionAbout(pid){
   if(!prod) return
   const d = document.getElementById('prod-director-'+pid)
   const v = document.getElementById('prod-venue-'+pid)
+  const pl = document.getElementById('prod-perf-location-'+pid)
   const desc = document.getElementById('prod-description-'+pid)
   if(d) d.value = prod.director||''
   if(v) v.value = prod.venue||''
+  if(pl) pl.value = prod.performance_location||''
   if(desc) desc.value = prod.description||''
 }
 async function saveProductionAbout(pid){
   const director = document.getElementById('prod-director-'+pid)?.value.trim()||''
   const venue = document.getElementById('prod-venue-'+pid)?.value.trim()||''
+  const performance_location = document.getElementById('prod-perf-location-'+pid)?.value.trim()||''
   const description = document.getElementById('prod-description-'+pid)?.value.trim()||''
-  const res = await api('/api/productions/'+pid+'/about','PUT',{director, venue, description})
+  const res = await api('/api/productions/'+pid+'/about','PUT',{director, venue, performance_location, description})
   if(res.error){toast(res.error,'error');return}
-  // Update local
   const prod = allProductions.find(p=>p.id===pid)
-  if(prod){prod.director=director; prod.venue=venue; prod.description=description}
+  if(prod){prod.director=director; prod.venue=venue; prod.performance_location=performance_location; prod.description=description}
   const saved = document.getElementById('prod-about-saved-'+pid)
   if(saved){saved.textContent='✓ Saved'; setTimeout(()=>saved.textContent='',2000)}
   toast('Production info saved!')

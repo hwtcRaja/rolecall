@@ -3543,9 +3543,11 @@ def update_production_about(pid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE productions SET description=%s, venue=%s, director=%s,
-        performance_location=%s WHERE id=%s''',
+        performance_location=%s, start_date=%s, end_date=%s WHERE id=%s''',
         (d.get('description',''), d.get('venue',''), d.get('director',''),
-         d.get('performance_location',''), pid))
+         d.get('performance_location',''),
+         d.get('start_date') or None, d.get('end_date') or None,
+         pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

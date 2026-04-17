@@ -3525,7 +3525,10 @@ def mark_notification_read():
 @app.route('/api/productions/<pid>/team', methods=['GET'])
 def get_team(pid):
     conn = get_db()
-    members = fetchall(conn, 'SELECT * FROM production_team_members WHERE production_id=%s ORDER BY sort_order,name', (pid,))
+    try:
+        members = fetchall(conn, 'SELECT * FROM production_team_members WHERE production_id=%s ORDER BY sort_order,name', (pid,))
+    except Exception:
+        members = []
     conn.close()
     return jsonify(members)
 

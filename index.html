@@ -4274,6 +4274,21 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   s += '<input type="text" id="pinfo-perfloc-'+p.id+'" value="'+((p.performance_location||'').replace(/"/g,'&quot;'))+'" placeholder="e.g. 123 Main St, Orlando FL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
   s += '<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Description / Director\'s Note</label>'
   s += '<textarea id="pinfo-desc-'+p.id+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical">'+((p.description||'').replace(/</g,'&lt;'))+'</textarea></div>'
+  s += '<div style="border-top:1px solid var(--border);margin:16px 0 14px;padding-top:14px">'
+  s += '<div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.4px">🎨 Portal Branding</div>'
+  s += '<div style="display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;margin-bottom:12px">'
+  s += '<div style="display:flex;flex-direction:column;gap:4px;align-items:center">'
+  s += '<label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Hero Color</label>'
+  s += '<input type="color" id="pinfo-color-'+p.id+'" value="'+(p.portal_color||'#0d3d4d')+'" style="width:52px;height:40px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer;padding:2px" oninput="previewPortalColor(\''+p.id+'\',this.value)"/>'
+  s += '<button onclick="document.getElementById(\'pinfo-color-'+p.id+'\').value=\'#0d3d4d\';previewPortalColor(\''+p.id+'\',\'#0d3d4d\')" style="font-size:10px;color:var(--text-muted);background:none;border:none;cursor:pointer">Reset</button>'
+  s += '</div>'
+  s += '<div id="pinfo-color-preview-'+p.id+'" style="border-radius:var(--radius);height:56px;background:'+(p.portal_image_url?'url('+p.portal_image_url+') center/cover':'linear-gradient(135deg,'+(p.portal_color||'#0d3d4d')+','+(p.portal_color ? p.portal_color+'cc' : '#1b708d')+')')+';display:flex;align-items:center;padding:10px 14px">'
+  s += '<div style="font-size:14px;font-weight:800;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.4)">'+p.name+'</div>'
+  s += '</div></div>'
+  s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Background Image URL <span style="font-weight:400;text-transform:none">(optional — overrides color)</span></label>'
+  s += '<input type="url" id="pinfo-imgurl-'+p.id+'" value="'+((p.portal_image_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://drive.google.com/… or any direct image URL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" oninput="previewPortalColor(\''+p.id+'\',document.getElementById(\'pinfo-color-'+p.id+'\').value)"/>'
+  s += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tip: use a direct image link. For Google Drive: open image → Share → Copy link, then change <code>open?id=</code> to <code>uc?id=</code>.</div>'
+  s += '</div></div>'
   s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">💾 Save Info</button>'
   s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
   s += '</div>'
@@ -7092,14 +7107,28 @@ async function saveProductionInfo(pid){
   const start_date = document.getElementById('pinfo-start-'+pid)?.value||null
   const end_date = document.getElementById('pinfo-end-'+pid)?.value||null
   const description = document.getElementById('pinfo-desc-'+pid)?.value.trim()||''
+  const portal_color = document.getElementById('pinfo-color-'+pid)?.value||null
+  const portal_image_url = document.getElementById('pinfo-imgurl-'+pid)?.value.trim()||null
   const res = await api('/api/productions/'+pid+'/about','PUT',
-    {director, venue, performance_location, description, start_date, end_date})
+    {director, venue, performance_location, description, start_date, end_date, portal_color, portal_image_url})
   if(res.error){ toast(res.error,'error'); return }
   const prod = allProductions.find(p=>p.id===pid)
-  if(prod){ Object.assign(prod,{director,venue,performance_location,description,start_date,end_date}) }
+  if(prod){ Object.assign(prod,{director,venue,performance_location,description,start_date,end_date,portal_color,portal_image_url}) }
   const saved = document.getElementById('pinfo-saved-'+pid)
   if(saved){ saved.textContent='✓ Saved'; setTimeout(()=>saved.textContent='',2000) }
   toast('Production info saved!')
+}
+
+function previewPortalColor(pid, color){
+  const preview = document.getElementById('pinfo-color-preview-'+pid)
+  if(!preview) return
+  const imgUrl = document.getElementById('pinfo-imgurl-'+pid)?.value.trim()
+  if(imgUrl){
+    preview.style.background = 'url('+imgUrl+') center/cover'
+  } else {
+    // Create a slightly lighter shade for the gradient end
+    preview.style.background = 'linear-gradient(135deg,'+color+','+color+'99)'
+  }
 }
 
 async function loadProductionScheduleConflicts(pid){
@@ -7582,7 +7611,13 @@ async function saveProductionAbout(pid){
 async function loadTeamMembers(pid){
   const el = document.getElementById('prod-team-list-'+pid)
   if(!el) return
-  const members = await api('/api/productions/'+pid+'/team')
+  let members
+  try {
+    members = await api('/api/productions/'+pid+'/team')
+  } catch(e) {
+    el.innerHTML='<div style="font-size:13px;color:var(--red-600)">Error loading team members. Please try again.</div>'
+    return
+  }
   if(!members || members.error || !Array.isArray(members)){
     el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
     return

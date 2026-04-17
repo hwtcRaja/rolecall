@@ -523,11 +523,13 @@ async function selectContext(type, id, name, color){
     const endpoint = type==='program'?'/api/portal/program/'+id+'/events':'/api/portal/production/'+id+'/events'
     const conflictsUrl = type==='production' ? '/api/portal/production/'+id+'/conflicts'+(activeChildId?'?youth_id='+activeChildId:'') : null
     const teamUrl = type==='production' ? '/api/productions/'+id+'/team' : null
-    const [events, profileData, conflicts, teamMembers] = await Promise.all([
+    const generalUrl = type==='production' ? '/api/productions/'+id+'/general-content' : null
+    const [events, profileData, conflicts, teamMembers, generalContent] = await Promise.all([
       fetch(endpoint).then(r=>r.json()).catch(()=>[]),
       activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
       conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]) : Promise.resolve([]),
-      teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]) : Promise.resolve([])
+      teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]) : Promise.resolve([]),
+      generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null) : Promise.resolve(null)
     ])
     // Build conflict lookup by event_id
     const conflictByEvent = {}
@@ -568,6 +570,13 @@ async function selectContext(type, id, name, color){
       {id:'announcements', label:'📢 Announcements ('+contextAnnouncements.length+')'},
       {id:'files',      label:'📁 Files ('+contextFiles.length+')'},
     ]
+    if(type==='production'){
+      const rsCheck = activeChildData.productions?.find(p=>p.id===id)
+      if(!rsCheck || rsCheck.stage==='rising_stars' || type==='production'){
+        tabDefs.unshift({id:'general', label:'📋 General Info'})
+        tabDefs.unshift({id:'overview', label:'📊 Overview'})
+      }
+    }
     if(type==='production' && teamMembers.length) tabDefs.push({id:'team', label:'👥 Meet the Team'})
     if(type==='production') tabDefs.push({id:'conflicts', label:'⚔️ Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
     if(profileData) tabDefs.push({id:'profile', label:'👤 Profile'})
@@ -628,6 +637,12 @@ async function selectContext(type, id, name, color){
       profileHTML = buildProfileTab(y, activeChildId)
     }
 
+    // Build Overview HTML
+    const overviewHTML = buildProductionOverviewHTML(activeChildData.productions?.find(p=>p.id===id), events, contextAnnouncements)
+
+    // Build General Info HTML
+    const generalHTML = buildGeneralInfoHTML(generalContent)
+
     // Build Meet the Team HTML
     const teamHTML = buildTeamHTML(teamMembers)
 
@@ -639,6 +654,8 @@ async function selectContext(type, id, name, color){
       '<div class="tab-content active" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
       +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
       +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
+      +(type==='production'?'<div class="tab-content" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
+      +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
       +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
       +(profileData?'<div class="tab-content" id="dtab-profile" style="padding:20px">'+profileHTML+'</div>':'')
@@ -858,6 +875,62 @@ function showCalloutForEvent(eventId, eventName){
     if(d.ok){ toast(CONFLICT_LABELS[s]+' for '+eventName+' — the team has been notified.'); selectContext(activeContextType, activeContextId, '', '') }
     else toast(d.error||'Error submitting callout','error')
   })
+}
+
+function buildGeneralInfoHTML(content){
+  const html = content && content.html_content ? content.html_content : ''
+  if(!html || html==='<p><br></p>' || html.trim()===''){
+    return '<div class="empty-state"><div class="icon">\uD83D\uDCCB</div>No general info posted yet.</div>'
+  }
+  return '<div style="line-height:1.7;font-size:14px;color:var(--text)">'+html+'</div>'
+}
+
+function buildProductionOverviewHTML(prod, events, announcements){
+  if(!prod) return '<div class="empty-state"><div class="icon">\uD83C\uDFAD</div>Production info loading\u2026</div>'
+  const today = new Date().toISOString().split('T')[0]
+  const todayLabel = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+  const upcoming = (events||[]).filter(e=>!e.event_date||e.event_date>=today).slice(0,6)
+  const todayEvts = (events||[]).filter(e=>e.event_date===today)
+  const recentAnns = (announcements||[]).slice(0,3)
+  let html = ''
+  // Info cards
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px">'
+  html += '<div style="background:var(--teal-50);border:1.5px solid var(--teal-100);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:3px">Production</div><div style="font-size:13px;font-weight:700">'+(prod.name||'\u2014')+'</div></div>'
+  if(prod.director) html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Director</div><div style="font-size:13px;font-weight:600">'+prod.director+'</div></div>'
+  if(prod.venue)    html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Venue</div><div style="font-size:13px;font-weight:600">'+prod.venue+'</div></div>'
+  html += '<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#854d0e;margin-bottom:3px">Today</div><div style="font-size:12px;font-weight:600;color:#854d0e">'+todayLabel+'</div></div>'
+  html += '</div>'
+  // Run dates
+  if(prod.start_date) html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;padding:8px 12px;background:var(--bg);border-radius:var(--radius)">\uD83D\uDCC5 Run dates: <strong>'+fmtDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?' \u2192 '+fmtDate(prod.end_date):'')+'</strong></div>'
+  // Today's events
+  if(todayEvts.length){
+    html += '<div style="background:#fef9c3;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
+    html += '<div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:6px">\uD83D\uDCC5 Today\'s Schedule</div>'
+    html += todayEvts.map(e=>'<div style="font-size:13px;color:#92400e;display:flex;justify-content:space-between"><span>'+e.name+'</span><span>'+(e.start_time?fmtTime(e.start_time):'')+(e.end_time?' \u2013 '+fmtTime(e.end_time):'')+'</span></div>').join('')
+    html += '</div>'
+  }
+  // Upcoming
+  if(upcoming.length){
+    html += '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCC6 Upcoming Schedule</div>'
+    html += upcoming.map(e=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="font-size:13px;font-weight:500">'+e.name+'</span>'
+      +'<span style="font-size:12px;color:var(--text-muted)">'+(e.event_date===today?'<span style="background:var(--teal-mid);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px">TODAY</span>':'')+(e.event_date?fmtDate(e.event_date):'No date')+(e.start_time?' \xb7 '+fmtTime(e.start_time):'')+'</span>'
+      +'</div>').join('')
+    html += '</div>'
+  }
+  // Recent announcements
+  if(recentAnns.length){
+    html += '<div><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCE2 Recent Announcements</div>'
+    html += recentAnns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0">'
+      +'<div style="font-size:13px;font-weight:600">'+a.title+'</div>'
+      +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+fmtDateTime(a.created_at)+'</div>'
+      +'</div>').join('')
+    html += '</div>'
+  }
+  if(!upcoming.length && !recentAnns.length && !todayEvts.length){
+    html += '<div class="empty-state"><div class="icon">\uD83D\uDCC5</div>No schedule or announcements yet.</div>'
+  }
+  return html
 }
 
 function buildTeamHTML(members){

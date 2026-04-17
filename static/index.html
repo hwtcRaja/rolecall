@@ -377,6 +377,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .modal-footer{padding:12px 16px}
 }
 </style>
+  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
 <body>
 
@@ -4292,7 +4293,12 @@ function openProductionDetail(prodId, fromPage){
   document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes)
 
   window._currentProductionDetailId = p.id
-  if(isAdmin) document.getElementById('prodtab-portal-inner-'+p.id).innerHTML = renderProductionPortalHTML(p.id)
+  if(isAdmin){
+    document.getElementById('prodtab-portal-inner-'+p.id).innerHTML = renderProductionPortalHTML(p.id,p.stage)
+    if(p.stage==='rising_stars'){
+      setTimeout(function(){ const btn=document.querySelector('#prodtab-portal-inner-'+p.id+' .portal-sub-btn[data-ptab="overview"]'); if(btn) btn.click() },50)
+    }
+  }
   navTo('production-detail')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   if(p.stage==='rising_stars') setTimeout(()=>loadYouthProdMembers(p.id),100)
@@ -6909,30 +6915,35 @@ async function openProgramDetail(programId){
 
 
 // ── PRODUCTION PORTAL TAB ──
-function renderProductionPortalHTML(pid){
+function renderProductionPortalHTML(pid, stage){
+  const isRS = stage==='rising_stars'
   return `
-    <!-- Portal sub-tabs -->
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;scrollbar-width:none">
-      <button class="portal-sub-btn active" data-ptab="announcements" onclick="switchProdPortalTab('announcements',this)">📢 Announcements</button>
+      ${isRS?'<button class="portal-sub-btn" data-ptab="overview" onclick="switchProdPortalTab(\'overview\',this)">📊 Overview</button>':''}
+      ${isRS?'<button class="portal-sub-btn" data-ptab="general" onclick="switchProdPortalTab(\'general\',this)">📋 General Info</button>':''}
+      <button class="portal-sub-btn ${isRS?'':'active'}" data-ptab="announcements" onclick="switchProdPortalTab('announcements',this)">📢 Announcements</button>
       <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">📁 Files</button>
       <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">🎭 About</button>
       <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">👥 Meet the Team</button>
     </div>
 
+    ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
+    ${isRS?`<div id="pptab-general-${pid}" style="display:none"><div id="prod-general-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
+
     <!-- Announcements -->
-    <div id="pptab-announcements-${pid}">
+    <div id="pptab-announcements-${pid}" ${isRS?'style="display:none"':''}>
       <div class="card" style="padding:20px">
         <div style="font-size:14px;font-weight:700;margin-bottom:12px">📢 Announcements</div>
         <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
           <div class="form-group" style="margin-bottom:10px">
-            <input type="text" id="prod-ann-title-${pid}" placeholder="Title…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+            <input type="text" id="prod-ann-title-${pid}" placeholder="Title\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
           <div class="form-group" style="margin-bottom:10px">
-            <textarea id="prod-ann-body-${pid}" placeholder="Message…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:70px;resize:vertical"></textarea>
+            <textarea id="prod-ann-body-${pid}" placeholder="Message\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:70px;resize:vertical"></textarea>
           </div>
           <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}')">📢 Post</button>
         </div>
-        <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+        <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading\u2026</div></div>
       </div>
     </div>
 
@@ -7150,20 +7161,137 @@ async function submitScConflict(pid){
 function switchProdPortalTab(tab, btn){
   const pid = window._currentProductionDetailId
   if(!pid) return
-  // Hide all sub-tabs
-  ;['announcements','files','about','team','conflicts'].forEach(t=>{
+  ;['announcements','files','about','team','conflicts','overview','general'].forEach(t=>{
     const el = document.getElementById('pptab-'+t+'-'+pid)
     if(el) el.style.display = t===tab?'':'none'
   })
-  document.querySelectorAll('.portal-sub-btn').forEach(b=>{
-    b.classList.remove('active')
-  })
+  document.querySelectorAll('.portal-sub-btn').forEach(b=>b.classList.remove('active'))
   if(btn) btn.classList.add('active')
-  // Load data for tab
   if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
   if(tab==='team') loadTeamMembers(pid)
   if(tab==='about') loadProductionAbout(pid)
   if(tab==='conflicts') loadProductionConflicts(pid)
+  if(tab==='overview') loadProductionOverview(pid)
+  if(tab==='general') loadProductionGeneralInfo(pid)
+}
+
+async function loadProductionOverview(pid){
+  const el = document.getElementById('prod-overview-inner-'+pid)
+  if(!el) return
+  const prod = allProductions.find(p=>p.id===pid)
+  const [content, annContent] = await Promise.all([
+    api('/api/productions/'+pid+'/general-content').catch(()=>({html_content:''})),
+    api('/api/portal/instructor/content/production/'+pid).catch(()=>({announcements:[]}))
+  ])
+  const evts = allEvents.filter(e=>e.production_id===pid).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = evts.filter(e=>!e.event_date||e.event_date>=today).slice(0,5)
+  const past = evts.filter(e=>e.event_date&&e.event_date<today).slice(-3).reverse()
+  const todayEvts = evts.filter(e=>e.event_date===today)
+  const recentAnns = (annContent.announcements||[]).slice(0,3)
+  const todayLabel = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+
+  el.innerHTML = ''
+    // Stats row
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px">'
+      +'<div style="background:var(--teal-50);border:1.5px solid var(--teal-100);border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:4px">Production</div>'
+        +'<div style="font-size:14px;font-weight:700">'+(prod?.name||'—')+'</div>'
+      +'</div>'
+      +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">Director</div>'
+        +'<div style="font-size:14px;font-weight:600">'+(prod?.director||'—')+'</div>'
+      +'</div>'
+      +'<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">Venue</div>'
+        +'<div style="font-size:14px;font-weight:600">'+(prod?.venue||'—')+'</div>'
+      +'</div>'
+      +'<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#854d0e;margin-bottom:4px">Today</div>'
+        +'<div style="font-size:12px;font-weight:600;color:#854d0e">'+todayLabel+'</div>'
+      +'</div>'
+    +'</div>'
+    // Run dates
+    +(prod?.start_date?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;padding:8px 12px;background:var(--bg);border-radius:var(--radius)">📅 Run dates: <strong>'+formatDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?' → '+formatDate(prod.end_date):'')+'</strong></div>':'')
+    // Today's events alert
+    +(todayEvts.length?'<div style="background:#fef9c3;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px">'
+      +'<div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:6px">📅 Today\'s Schedule</div>'
+      +todayEvts.map(e=>'<div style="font-size:13px;color:#92400e;display:flex;justify-content:space-between"><span>'+e.name+'</span><span>'+(e.start_time?fmtTime(e.start_time):'')+(e.end_time?' – '+fmtTime(e.end_time):'')+'</span></div>').join('')
+      +'</div>':'')
+    // Upcoming schedule
+    +'<div style="margin-bottom:20px">'
+      +'<div style="font-size:13px;font-weight:700;margin-bottom:8px">📆 Upcoming Schedule</div>'
+      +(upcoming.length
+        ? upcoming.map(e=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
+            +'<span style="font-size:13px;font-weight:500">'+e.name+'</span>'
+            +'<span style="font-size:12px;color:var(--text-muted)">'+(e.event_date===today?'<span style="background:var(--teal-mid);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px">TODAY</span>':'')+(e.event_date?formatDate(e.event_date):'No date')+(e.start_time?' &middot; '+fmtTime(e.start_time):'')+'</span>'
+            +'</div>').join('')
+        : '<div style="font-size:13px;color:var(--text-muted)">No upcoming events scheduled</div>')
+    +'</div>'
+    // Recent announcements
+    +(recentAnns.length?'<div>'
+      +'<div style="font-size:13px;font-weight:700;margin-bottom:8px">📢 Recent Announcements</div>'
+      +recentAnns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0">'
+        +'<div style="font-size:13px;font-weight:600">'+a.title+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+formatDateTime(a.created_at)+'</div>'
+        +'</div>').join('')
+      +'</div>':'')
+}
+
+let _quillInstances = {}
+
+async function loadProductionGeneralInfo(pid){
+  const el = document.getElementById('prod-general-inner-'+pid)
+  if(!el) return
+  const contentData = await api('/api/productions/'+pid+'/general-content').catch(()=>({html_content:''}))
+  el.innerHTML = '<div class="card" style="padding:20px">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +'<div style="font-size:15px;font-weight:700">✏️ Production Notes & Info</div>'
+    +'<button class="btn btn-primary btn-sm" onclick="saveGeneralContent(\''+pid+'\')">💾 Save</button>'
+    +'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Write notes, welcome messages, reminders, or any info for your cast. Formatting is preserved in the family portal.</div>'
+    +'<div id="quill-toolbar-'+pid+'">'
+    +'<span class="ql-formats"><select class="ql-header"><option selected></option><option value="1">H1</option><option value="2">H2</option><option value="3">H3</option></select></span>'
+    +'<span class="ql-formats"><button class="ql-bold"></button><button class="ql-italic"></button><button class="ql-underline"></button><button class="ql-strike"></button></span>'
+    +'<span class="ql-formats"><select class="ql-color"></select><select class="ql-background"></select></span>'
+    +'<span class="ql-formats"><select class="ql-size"><option value="small"></option><option selected></option><option value="large"></option><option value="huge"></option></select></span>'
+    +'<span class="ql-formats"><button class="ql-list" value="ordered"></button><button class="ql-list" value="bullet"></button></span>'
+    +'<span class="ql-formats"><select class="ql-align"></select></span>'
+    +'<span class="ql-formats"><button class="ql-link"></button><button class="ql-clean"></button></span>'
+    +'</div>'
+    +'<div id="quill-editor-'+pid+'" style="min-height:320px;font-size:14px"></div>'
+    +'<div id="general-save-status-'+pid+'" style="font-size:12px;color:var(--green);margin-top:8px"></div>'
+    +'</div>'
+  setTimeout(function(){
+    if(window.Quill){
+      if(_quillInstances[pid]) { delete _quillInstances[pid] }
+      _quillInstances[pid] = new Quill('#quill-editor-'+pid, {
+        modules:{ toolbar:'#quill-toolbar-'+pid }, theme:'snow'
+      })
+      if(contentData && contentData.html_content && contentData.html_content!=='<p><br></p>'){
+        _quillInstances[pid].root.innerHTML = contentData.html_content
+      }
+    }
+  }, 150)
+}
+
+async function saveGeneralContent(pid){
+  const quill = _quillInstances[pid]
+  const html = quill ? quill.root.innerHTML : ''
+  const res = await api('/api/productions/'+pid+'/general-content','PUT',{html_content:html})
+  const statusEl = document.getElementById('general-save-status-'+pid)
+  if(res.ok){
+    toast('Saved!','success')
+    if(statusEl) statusEl.textContent = '\u2713 Saved at '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+  } else toast(res.error||'Error saving','error')
+}
+
+async function pushAnnouncement(pid, aid){
+  const res = await api('/api/productions/'+pid+'/announcements/'+aid+'/push','POST')
+  if(res.ok){
+    toast('\uD83D\uDCE8 Sent to '+(res.sent_to||0)+' recipient'+(res.sent_to!==1?'s':'')+'!','success')
+    loadProductionPortalContent(pid)
+  } else toast(res.error||'Failed to send','error')
 }
 
 async function loadProductionPortalContent(pid){
@@ -7181,11 +7309,20 @@ function renderProductionAnnouncements(pid, anns){
   const el = document.getElementById('prod-ann-list-'+pid)
   if(!el) return
   el.innerHTML = !anns.length ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>' :
-    anns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">'
-      +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>'
-      +'<div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">'+a.title+'</div>'
+    anns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+      +'<div style="flex:1">'
+      +'<div style="font-size:13px;font-weight:700;margin-bottom:4px">'+a.title+'</div>'
       +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap">'+a.body+'</div>'
-      +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>'
+      +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)
+        +(a.pushed_at?' &nbsp;·&nbsp; <span style="color:var(--green);font-weight:600">\uD83D\uDCE8 Pushed '+formatDateTime(a.pushed_at)+(a.push_count>1?' ('+a.push_count+'x)':'')+'</span>':'')
+      +'</div>'
+      +'</div>'
+      +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">'
+      +'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:var(--teal);color:#fff;border:none;border-radius:8px;padding:5px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap" title="Email this announcement to enrolled cast families">\uD83D\uDCE8 Push</button>'
+      +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint);padding:0 2px">×</button>'
+      +'</div>'
+      +'</div>'
       +'</div>').join('')
 }
 
@@ -8583,6 +8720,7 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 }
 
 </script>
+<script src="https://cdn.quilljs.com/1.3.7/quill.min.js" async></script>
 <script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" async onerror="window._lucideFailed=true"></script>
 </body>
 </html>

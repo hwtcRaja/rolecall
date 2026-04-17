@@ -1487,11 +1487,12 @@ def update_production(pid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s,default_elic_id=%s WHERE id=%s',
+    execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s,default_elic_id=%s,image_url=%s WHERE id=%s',
             (d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
-             d.get('default_elic_id') or None, pid))
+             d.get('default_elic_id') or None,
+             d.get('image_url') or None, pid))
     conn.commit()
     prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = fetchall(conn, '''

@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --teal-50:#E8F4F8;--teal-100:#A8D4E0;--teal-200:#5AADC2;--teal-400:#1b708d;--teal-600:#145466;--teal-800:#0d3d4d;--teal-900:#082830;
+  --teal:#145466;--teal-dark:#0d3d4d;--teal-mid:#1b708d;--teal-light:#E8F4F8;--teal-50:#E8F4F8;--teal-100:#A8D4E0;--teal-200:#5AADC2;--teal-400:#1b708d;--teal-600:#145466;--teal-800:#0d3d4d;--teal-900:#082830;
   --gray-50:#F7F7F5;--gray-100:#EFEFEC;--gray-200:#D9D9D4;--gray-400:#9B9B94;--gray-600:#5F5E5A;--gray-800:#2C2C28;--gray-900:#1A1A17;
   --amber-50:#FAEEDA;--amber-200:#EF9F27;--amber-600:#854F0B;
   --red-50:#FCEBEB;--red-200:#F09595;--red-600:#A32D2D;
@@ -4601,7 +4601,7 @@ function renderUsersManagement(users){
 
     const headerBg = isAdmin ? 'var(--teal-50)' : 'var(--surface)'
     const badge = isAdmin
-      ? '<span style="background:var(--teal);color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Administrator</span>'
+      ? '<span style="background:#0d3d4d;color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Administrator</span>'
       : '<span style="background:var(--bg);color:var(--text-muted);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">Staff</span>'
 
     // Permission summary for non-admin
@@ -7627,7 +7627,7 @@ function renderAnnRow(a, pid, isDraft){
     +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
     +(isDraft
       ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Publish</button>'
-      :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:linear-gradient(135deg,var(--teal-dark),var(--teal-mid));color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
+      :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
     )
     +'<button onclick="editAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\',\''+(a.status||'published')+'\')" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Edit</button>'
     +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'

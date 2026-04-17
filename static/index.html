@@ -4210,6 +4210,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>🎭 Cast &amp; Crew</button>"
   if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
   s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>📅 Schedule &amp; Conflicts</button>"
+  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>⚙️ Info</button>"
   if(isAdmin) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
   s += '</div>'
 
@@ -4253,6 +4254,29 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
 
   // Schedule & Conflicts tab
   s += '<div id="prodtab-schedule" style="display:none"><div id="prod-sched-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
+
+  // Info tab
+  s += '<div id="prodtab-info" class="card" style="padding:20px;display:none">'
+  s += '<div style="font-size:14px;font-weight:700;margin-bottom:16px">⚙️ Production Info</div>'
+  s += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'
+  s += '<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Director</label>'
+  s += '<input type="text" id="pinfo-director-'+p.id+'" value="'+((p.director||'').replace(/"/g,'&quot;'))+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
+  s += '<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Venue</label>'
+  s += '<input type="text" id="pinfo-venue-'+p.id+'" value="'+((p.venue||'').replace(/"/g,'&quot;'))+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
+  s += '</div>'
+  s += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'
+  s += '<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>'
+  s += '<input type="date" id="pinfo-start-'+p.id+'" value="'+(p.start_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
+  s += '<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">End Date</label>'
+  s += '<input type="date" id="pinfo-end-'+p.id+'" value="'+(p.end_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
+  s += '</div>'
+  s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Performance Location</label>'
+  s += '<input type="text" id="pinfo-perfloc-'+p.id+'" value="'+((p.performance_location||'').replace(/"/g,'&quot;'))+'" placeholder="e.g. 123 Main St, Orlando FL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>'
+  s += '<div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Description / Director\'s Note</label>'
+  s += '<textarea id="pinfo-desc-'+p.id+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical">'+((p.description||'').replace(/</g,'&lt;'))+'</textarea></div>'
+  s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">💾 Save Info</button>'
+  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
+  s += '</div>'
   // Portal content tab
   s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
   s += '</div>' // end right column
@@ -7043,7 +7067,7 @@ function renderProductionPortalHTML(pid, stage){
 
 function switchProductionTab(tab){
   const pid = window._currentProductionDetailId
-  const tabs = ['members','youth','schedule','portal']
+  const tabs = ['members','youth','schedule','info','portal']
   tabs.forEach(t=>{
     const el = document.getElementById('prodtab-'+t)
     if(el) el.style.display = t===tab?'':'none'
@@ -7053,6 +7077,23 @@ function switchProductionTab(tab){
   if(tab==='portal') loadProductionPortalContent(pid)
   if(tab==='youth' && pid) loadYouthProdMembers(pid)
   if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
+}
+
+async function saveProductionInfo(pid){
+  const director = document.getElementById('pinfo-director-'+pid)?.value.trim()||''
+  const venue = document.getElementById('pinfo-venue-'+pid)?.value.trim()||''
+  const performance_location = document.getElementById('pinfo-perfloc-'+pid)?.value.trim()||''
+  const start_date = document.getElementById('pinfo-start-'+pid)?.value||null
+  const end_date = document.getElementById('pinfo-end-'+pid)?.value||null
+  const description = document.getElementById('pinfo-desc-'+pid)?.value.trim()||''
+  const res = await api('/api/productions/'+pid+'/about','PUT',
+    {director, venue, performance_location, description, start_date, end_date})
+  if(res.error){ toast(res.error,'error'); return }
+  const prod = allProductions.find(p=>p.id===pid)
+  if(prod){ Object.assign(prod,{director,venue,performance_location,description,start_date,end_date}) }
+  const saved = document.getElementById('pinfo-saved-'+pid)
+  if(saved){ saved.textContent='✓ Saved'; setTimeout(()=>saved.textContent='',2000) }
+  toast('Production info saved!')
 }
 
 async function loadProductionScheduleConflicts(pid){
@@ -7120,11 +7161,15 @@ async function loadProductionScheduleConflicts(pid){
     return '<div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden">'
       +'<div style="padding:10px 14px;background:'+(isToday?'var(--teal-50)':isPast?'var(--bg)':'var(--surface)')
       +';display:flex;align-items:center;justify-content:space-between;gap:10px">'
-      +'<div>'
+      +'<div style="flex:1">'
       +'<div style="font-size:14px;font-weight:600">'+e.name+(isToday?' <span style="background:var(--teal-mid);color:#fff;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700">TODAY</span>':'')+'</div>'
       +'<div style="font-size:12px;color:var(--text-muted)">'+(e.event_date?formatDate(e.event_date):'No date')+(e.start_time?' · '+fmtTime(e.start_time):'')+'</div>'
       +'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'
       +'<span style="font-size:12px;color:var(--text-muted)">'+evConflicts.length+' conflict'+(evConflicts.length!==1?'s':'')+'</span>'
+      +(isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openEventModal(\''+e.id+'\')">✏️ Edit</button>':'')
+      +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="deleteEventFromSchedule(\''+e.id+'\',\''+pid+'\')">✕</button>':'')
+      +'</div>'
       +'</div>'
       +(evConflicts.length?'<div style="padding:0 14px">'
         +evConflicts.map(c=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
@@ -7154,6 +7199,16 @@ async function loadProductionScheduleConflicts(pid){
     ).join('')+'</div>'
   }
   el.innerHTML = html
+}
+
+async function deleteEventFromSchedule(eid, pid){
+  if(!confirm('Delete this event? This cannot be undone.')) return
+  const res = await api('/api/events/'+eid,'DELETE')
+  if(res.ok){
+    allEvents = allEvents.filter(e=>e.id!==eid)
+    loadProductionScheduleConflicts(pid)
+    toast('Event deleted')
+  } else toast(res.error||'Error deleting event','error')
 }
 
 async function submitScConflict(pid){

@@ -471,6 +471,7 @@ def init_db():
             key TEXT PRIMARY KEY,
             lucide_name TEXT NOT NULL)""",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
         # meet the team
         """CREATE TABLE IF NOT EXISTS production_team_members (
@@ -3541,8 +3542,10 @@ def update_production_about(pid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, '''UPDATE productions SET description=%s, venue=%s, director=%s WHERE id=%s''',
-        (d.get('description',''), d.get('venue',''), d.get('director',''), pid))
+    execute(conn, '''UPDATE productions SET description=%s, venue=%s, director=%s,
+        performance_location=%s WHERE id=%s''',
+        (d.get('description',''), d.get('venue',''), d.get('director',''),
+         d.get('performance_location',''), pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

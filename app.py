@@ -458,6 +458,7 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
+        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
@@ -629,7 +630,14 @@ def login():
     session['user_id'] = user['id']
     session['user_name'] = user['name']
     session['role'] = user['role']
-    return jsonify({'id': user['id'], 'name': user['name'], 'email': user['email'], 'role': user['role']})
+    # Store permissions in session for fast checking
+    if user['role'] == 'admin':
+        session['permissions'] = '{}'  # admin bypasses all checks
+    else:
+        session['permissions'] = user.get('role_permissions') or '{}'
+    perms_dict = {'id': user['id'], 'name': user['name'], 'email': user['email'],
+                  'role': user['role'], 'permissions': json.loads(session['permissions'] or '{}')}
+    return jsonify(perms_dict)
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
@@ -639,7 +647,16 @@ def logout():
 @app.route('/api/auth/me')
 def me():
     if 'user_id' not in session: return jsonify({'user': None})
-    return jsonify({'user': {'id': session['user_id'], 'name': session['user_name'], 'role': session['role']}})
+    conn = get_db()
+    u = fetchone(conn, 'SELECT id, name, email, role, role_permissions FROM users WHERE id=%s', (session['user_id'],))
+    conn.close()
+    if not u: return jsonify({'user': None})
+    perms = {}
+    if u['role'] != 'admin':
+        try: perms = json.loads(u.get('role_permissions') or '{}')
+        except Exception: perms = {}
+    return jsonify({'user': {'id': u['id'], 'name': u['name'], 'email': u['email'],
+                             'role': u['role'], 'permissions': perms}})
 
 # ─────────────────────────────────────────────
 #  INTEREST TYPES
@@ -1432,8 +1449,8 @@ def create_user():
     uid_ = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO users (id,name,email,password_hash,role) VALUES (%s,%s,%s,%s,%s)',
-                (uid_, d['name'], d['email'], pw_hash, d.get('role','board')))
+        execute(conn, 'INSERT INTO users (id,name,email,password_hash,role,role_permissions) VALUES (%s,%s,%s,%s,%s,%s)',
+                (uid_, d['name'], d['email'], pw_hash, d.get('role','staff'), '{}'))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4022,7 +4039,12 @@ def check_event_alerts():
     import uuid as _uuid
     from datetime import datetime, timezone
 
-    now_utc = datetime.now(timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    est = ZoneInfo('America/New_York')
+    now_est = datetime.now(est)
     conn = get_db()
     alerts_sent = []
 
@@ -4039,8 +4061,8 @@ def check_event_alerts():
         for evt in events:
             try:
                 time_str = str(evt['start_time'])[:5]
-                start_dt = datetime.strptime(evt['event_date'] + ' ' + time_str, '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc)
-                mins_until = (start_dt - now_utc).total_seconds() / 60
+                start_dt = datetime.strptime(evt['event_date'] + ' ' + time_str, '%Y-%m-%d %H:%M').replace(tzinfo=est)
+                mins_until = (start_dt - now_est).total_seconds() / 60
                 # Alert window: between 25 and 15 minutes before start
                 if -5 <= mins_until <= 25:
                     subj = 'RoleCall Reminder -- Open Event Soon: ' + evt['name']
@@ -4070,8 +4092,8 @@ def check_event_alerts():
         for evt in events:
             try:
                 time_str = str(evt['end_time'])[:5]
-                end_dt = datetime.strptime(evt['event_date'] + ' ' + time_str, '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc)
-                mins_late = (now_utc - end_dt).total_seconds() / 60
+                end_dt = datetime.strptime(evt['event_date'] + ' ' + time_str, '%Y-%m-%d %H:%M').replace(tzinfo=est)
+                mins_late = (now_est - end_dt).total_seconds() / 60
                 if mins_late >= 120:
                     subj = 'RoleCall Alert -- Event Not Closed: ' + evt['name']
                     body = ('<p style="font-family:sans-serif">Event <strong>' + evt['name'] + '</strong> was scheduled to end at '
@@ -4161,7 +4183,7 @@ def kiosk_stop_session():
         if not session:
             conn.close()
             return jsonify({'error': 'No active session found'}), 400
-        # Use DB's own clock to avoid Python UTC vs DB Eastern timezone mismatch
+        # Use DB clock (already Eastern per connection options)
         time_row = fetchone(conn, "SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) as secs FROM kiosk_sessions WHERE id=%s", (session['id'],))
         elapsed_secs = float(time_row['secs']) if time_row and time_row['secs'] else 0
         elapsed_hours = round(elapsed_secs / 3600, 2)
@@ -4379,4 +4401,76 @@ def portal_contact_production():
         send_email(elic_email, '\U0001f514 Portal message for ' + prod_name + ': ' + subject, alert_html)
 
     return jsonify({'ok': ok, 'sent_to': len(to_emails), 'error': err_msg})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  PERMISSION SYSTEM
+# ═══════════════════════════════════════════════════════════════
+
+# All sections and their keys
+PERMISSION_SECTIONS = [
+    ('volunteers',    'Volunteers',           'View and manage volunteer profiles'),
+    ('events',        'Events & Calendar',    'View and create events'),
+    ('hours',         'Time Tracking',        'View and approve volunteer hours'),
+    ('email',         'Email',                'Send emails and manage templates'),
+    ('productions',   'Productions',          'View and manage productions'),
+    ('rising_stars',  'Rising Stars',         'Rising Stars productions and portal'),
+    ('youth',         'Participants',         'View and manage youth participants'),
+    ('programs',      'Programs & Classes',   'View and manage programs'),
+    ('portal_admin',  'Portal Content',       'Manage portal announcements and files'),
+    ('kiosk',         'Sign-In / Kiosk',      'Open and close events on kiosk'),
+    ('reports',       'Reports & Logs',       'View event logs and email reports'),
+    ('settings',      'Settings',             'Manage system settings and users'),
+]
+
+def get_user_permissions(user_id):
+    """Returns dict of {section: 'none'|'view'|'edit'} for a user."""
+    conn = get_db()
+    u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (user_id,))
+    conn.close()
+    if not u: return {}
+    if u['role'] == 'admin': return {k: 'edit' for k,_,_ in PERMISSION_SECTIONS}
+    try:
+        perms = json.loads(u['role_permissions'] or '{}')
+    except Exception:
+        perms = {}
+    return perms
+
+def has_permission(section, level='view'):
+    """Check if current session user has permission. level: 'view' or 'edit'."""
+    if 'user_id' not in session: return False
+    if session.get('role') == 'admin': return True
+    try:
+        perms = json.loads(session.get('permissions') or '{}')
+    except Exception:
+        perms = {}
+    p = perms.get(section, 'none')
+    if level == 'view': return p in ('view', 'edit')
+    if level == 'edit': return p == 'edit'
+    return False
+
+def require_permission(section, level='view'):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if not has_permission(section, level):
+        return jsonify({'error': 'Permission denied'}), 403
+    return None
+
+@app.route('/api/users/<uid>/permissions', methods=['PUT'])
+def update_user_permissions(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json  # {section: 'none'|'view'|'edit', ...}
+    conn = get_db()
+    execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
+            (json.dumps(d), uid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/permissions/sections')
+def get_permission_sections():
+    err = require_auth()
+    if err: return err
+    return jsonify([{'key':k,'label':l,'desc':d} for k,l,d in PERMISSION_SECTIONS])
 

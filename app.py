@@ -449,6 +449,14 @@ def init_db():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_closed BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
+        """CREATE TABLE IF NOT EXISTS production_general_content (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            html_content TEXT DEFAULT '',
+            updated_at TIMESTAMP DEFAULT NOW(),
+            updated_by TEXT)""",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
             id TEXT PRIMARY KEY,
             volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
@@ -4159,4 +4167,93 @@ def kiosk_active_session(vol_id):
     if not session:
         return jsonify({'active': False})
     return jsonify({'active': True, 'session': dict(session), 'started_at': str(session['started_at'])})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  PRODUCTION GENERAL CONTENT (WYSIWYG)
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/productions/<pid>/general-content', methods=['GET'])
+def get_general_content(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM production_general_content WHERE production_id=%s', (pid,))
+    conn.close()
+    return jsonify(row or {'html_content': '', 'updated_at': None})
+
+@app.route('/api/productions/<pid>/general-content', methods=['PUT'])
+def save_general_content(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    uid = session.get('user_id')
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM production_general_content WHERE production_id=%s', (pid,))
+    if existing:
+        execute(conn, 'UPDATE production_general_content SET html_content=%s, updated_at=NOW(), updated_by=%s WHERE production_id=%s',
+                (d.get('html_content',''), uid, pid))
+    else:
+        execute(conn, 'INSERT INTO production_general_content (id, production_id, html_content, updated_by) VALUES (%s,%s,%s,%s)',
+                (str(__import__('uuid').uuid4()), pid, d.get('html_content',''), uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/announcements/<aid>/push', methods=['POST'])
+def push_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    ann = fetchone(conn, '''SELECT pa.*, u.name as author_name
+        FROM portal_announcements pa LEFT JOIN users u ON pa.author_id=u.id
+        WHERE pa.id=%s AND pa.production_id=%s''', (aid, pid))
+    if not ann:
+        conn.close()
+        return jsonify({'error': 'Announcement not found'}), 404
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (pid,))
+    prod_name = prod['name'] if prod else 'Production'
+    # Get emails of all cast families + enrolled youth guardians
+    guardian_emails = fetchall(conn, '''
+        SELECT DISTINCT yg.email FROM youth_production_members ypm
+        JOIN youth_participants y ON ypm.youth_id=y.id
+        JOIN youth_guardians yg ON yg.youth_id=y.id
+        WHERE ypm.production_id=%s AND yg.email IS NOT NULL AND yg.email!=\'\'
+    ''', (pid,))
+    # Also get portal family emails where a member is in this production
+    family_emails = fetchall(conn, '''
+        SELECT DISTINCT f.passphrase FROM families f
+        JOIN youth_participants y ON y.family_id=f.id
+        JOIN youth_production_members ypm ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s
+    ''', (pid,))
+    # Collect unique emails
+    emails = list(set(r['email'] for r in guardian_emails if r.get('email')))
+    # Also include report recipients
+    settings = get_email_settings()
+    for e in get_recipient_emails(settings):
+        if e not in emails:
+            emails.append(e)
+    if not emails:
+        conn.close()
+        return jsonify({'error': 'No email addresses found for cast families'}), 400
+    portal_url = 'https://your-app.railway.app/portal'
+    html = ('<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:600px;margin:0 auto">'
+            '<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:24px 28px;border-radius:10px 10px 0 0;color:#fff">'
+            '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">HWTC — ' + prod_name + '</div>'
+            '<div style="font-size:22px;font-weight:800">' + ann['title'] + '</div>'
+            '</div>'
+            '<div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px 28px;border-radius:0 0 10px 10px">'
+            '<div style="font-size:15px;color:#374151;line-height:1.6;margin-bottom:20px">' + ann['body'] + '</div>'
+            '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px 18px">'
+            '<div style="font-size:13px;font-weight:600;color:#166534;margin-bottom:4px">View in the Portal</div>'
+            '<div style="font-size:13px;color:#166534">Log into the participant portal to see the full production info, files, schedule and more.</div>'
+            '</div>'
+            '<div style="margin-top:20px;font-size:12px;color:#9ca3af">Sent from RoleCall &middot; Horizon West Theatre Company</div>'
+            '</div></div>')
+    ok, err_msg = send_email(emails, 'New Announcement: ' + ann['title'] + ' — ' + prod_name, html)
+    if ok:
+        execute(conn, 'UPDATE portal_announcements SET pushed_at=NOW(), push_count=COALESCE(push_count,0)+1 WHERE id=%s', (aid,))
+        conn.commit()
+    conn.close()
+    return jsonify({'ok': ok, 'sent_to': len(emails), 'error': err_msg})
 

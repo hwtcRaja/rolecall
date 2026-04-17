@@ -4582,10 +4582,16 @@ async function unenrollYouth(eid,yid){
 //  USER MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
+let _usersCache = {}
+
 function renderUsersManagement(users){
   const el = document.getElementById('users-management-list')
   if(!el) return
-  el.innerHTML = users.map(u=>{
+  // Cache users by ID for modal lookup
+  users.forEach(u=>{ _usersCache[u.id]=u })
+
+  el.innerHTML = '<div style="background:var(--bg);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)">'
+    + users.map(u=>{
     const isSelf = u.id === currentUser?.id
     const isAdmin = u.role === 'admin'
     let perms = {}
@@ -4601,7 +4607,7 @@ function renderUsersManagement(users){
       ? '<span style="width:7px;height:7px;border-radius:50%;background:var(--green-600);display:inline-block"></span>'
       : '<span style="width:7px;height:7px;border-radius:50%;background:var(--red-600);display:inline-block"></span>'
 
-    return `<div style="display:grid;grid-template-columns:24px 1fr auto auto;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);hover:background:var(--bg)" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background=''">
+    return `<div style="display:grid;grid-template-columns:24px 1fr auto auto;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border)" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background=''">
       <div title="${u.active!==false?'Active':'Inactive'}">${statusDot}</div>
       <div>
         <div style="font-size:13px;font-weight:600">${u.name} ${isSelf?'<span style="font-size:10px;color:var(--text-hint);font-weight:400">(you)</span>':''}</div>
@@ -4609,14 +4615,16 @@ function renderUsersManagement(users){
       </div>
       <div>${permSummary}</div>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal(${JSON.stringify(u).replace(/"/g,'&quot;')})">✏️ Edit</button>
-        ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name}')">✕</button>`:''}
+        <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal('${u.id}')">✏️ Edit</button>
+        ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name.replace(/'/g,"\\'")}')">✕</button>`:''}
       </div>
     </div>`
-  }).join('')
+  }).join('') + '</div>'
 }
 
-function openUserEditModal(u){
+function openUserEditModal(uid){
+  const u = _usersCache[uid]
+  if(!u){ toast('User not found','error'); return }
   const existing = document.getElementById('user-edit-modal')
   if(existing) existing.remove()
 

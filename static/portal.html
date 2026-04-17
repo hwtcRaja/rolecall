@@ -579,7 +579,7 @@ async function selectContext(type, id, name, color){
     }
     if(type==='production' && teamMembers.length) tabDefs.push({id:'team', label:'👥 Meet the Team'})
     if(type==='production') tabDefs.push({id:'conflicts', label:'⚔️ Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
-    if(profileData) tabDefs.push({id:'profile', label:'👤 Profile'})
+    // Profile tab removed — shown at top of page instead
 
     document.getElementById('detail-tabs').innerHTML = ''
     tabDefs.forEach((t,i)=>{
@@ -658,7 +658,7 @@ async function selectContext(type, id, name, color){
       +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
       +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
-      +(profileData?'<div class="tab-content" id="dtab-profile" style="padding:20px">'+profileHTML+'</div>':'')
+      // profile tab removed
 
     document.getElementById('detail-tab-contents').innerHTML = tabHTML
     panel.scrollIntoView({behavior:'smooth', block:'nearest'})
@@ -921,8 +921,8 @@ function buildProductionOverviewHTML(prod, events, announcements){
   // Recent announcements
   if(recentAnns.length){
     html += '<div><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCE2 Recent Announcements</div>'
-    html += recentAnns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0">'
-      +'<div style="font-size:13px;font-weight:600">'+a.title+'</div>'
+    html += recentAnns.map(a=>'<div onclick="switchDetailTab(\'announcements\',document.querySelector(\'.tab-btn[data-tab=\'announcements\']\'))" style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;cursor:pointer;transition:opacity 0.15s" onmouseenter="this.style.opacity=\'0.8\'" onmouseleave="this.style.opacity=\'1\'">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:13px;font-weight:600">'+a.title+'</div><span style="font-size:11px;color:var(--teal-600);font-weight:600">View →</span></div>'
       +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+fmtDateTime(a.created_at)+'</div>'
       +'</div>').join('')
     html += '</div>'

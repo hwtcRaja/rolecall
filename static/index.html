@@ -6959,13 +6959,19 @@ function renderProductionPortalHTML(pid, stage){
       <div class="card" style="padding:20px">
         <div style="font-size:14px;font-weight:700;margin-bottom:12px">📢 Announcements</div>
         <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px" id="prod-ann-form-label-${pid}">+ New Announcement</div>
+          <input type="hidden" id="prod-ann-edit-id-${pid}" value=""/>
           <div class="form-group" style="margin-bottom:10px">
             <input type="text" id="prod-ann-title-${pid}" placeholder="Title\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
           </div>
-          <div class="form-group" style="margin-bottom:10px">
-            <textarea id="prod-ann-body-${pid}" placeholder="Message\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:70px;resize:vertical"></textarea>
+          <div class="form-group" style="margin-bottom:12px">
+            <textarea id="prod-ann-body-${pid}" placeholder="Message\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}')">📢 Post</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}',false)">📢 Post</button>
+            <button class="btn btn-secondary btn-sm" onclick="postProductionAnnouncement('${pid}',true)">💾 Save as Draft</button>
+            <button id="prod-ann-cancel-${pid}" class="btn btn-secondary btn-sm" style="display:none;color:var(--text-muted)" onclick="resetAnnForm('${pid}')">✕ Cancel Edit</button>
+          </div>
         </div>
         <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading\u2026</div></div>
       </div>
@@ -7387,22 +7393,58 @@ async function loadProductionPortalContent(pid){
 function renderProductionAnnouncements(pid, anns){
   const el = document.getElementById('prod-ann-list-'+pid)
   if(!el) return
-  el.innerHTML = !anns.length ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>' :
-    anns.map(a=>'<div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0">'
-      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
-      +'<div style="flex:1">'
-      +'<div style="font-size:13px;font-weight:700;margin-bottom:4px">'+a.title+'</div>'
-      +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap">'+a.body+'</div>'
-      +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)
-        +(a.pushed_at?' &nbsp;·&nbsp; <span style="color:var(--green);font-weight:600">\uD83D\uDCE8 Pushed '+formatDateTime(a.pushed_at)+(a.push_count>1?' ('+a.push_count+'x)':'')+'</span>':'')
-      +'</div>'
-      +'</div>'
-      +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">'
-      +'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:linear-gradient(135deg,#0d6e6e,#0d9488);color:#fff;border:none;border-radius:var(--radius);padding:8px 16px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(13,110,110,0.3)" title="Send email notification to enrolled cast families">\uD83D\uDCE8 Push to Families</button>'
-      +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint);padding:0 2px">×</button>'
-      +'</div>'
-      +'</div>'
-      +'</div>').join('')
+  if(!anns.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>'; return }
+
+  const drafts = anns.filter(a=>(a.status||'published')==='draft')
+  const published = anns.filter(a=>(a.status||'published')==='published')
+
+  let html = ''
+
+  // Drafts section
+  if(drafts.length){
+    html += '<div style="margin-bottom:20px">'
+    html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:8px">Drafts</div>'
+    html += drafts.map(a=>renderAnnRow(a,pid,true)).join('')
+    html += '</div>'
+  }
+
+  // Published section
+  if(published.length){
+    if(drafts.length) html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:8px">Published</div>'
+    html += published.map(a=>renderAnnRow(a,pid,false)).join('')
+  }
+
+  el.innerHTML = html
+}
+
+function renderAnnRow(a, pid, isDraft){
+  const statusBadge = isDraft
+    ? '<span style="background:#fef9c3;color:#854d0e;border:1px solid #fde047;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">DRAFT</span>'
+    : '<span style="background:var(--green-light);color:var(--green);border:1px solid #86efac;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">PUBLISHED</span>'
+  const pushInfo = a.pushed_at
+    ? '<div style="font-size:11px;color:var(--green);margin-top:4px">📨 Last pushed '+formatDateTime(a.pushed_at)+(a.push_count>1?' ('+a.push_count+'×)':'')+'</div>'
+    : ''
+  return '<div style="border:1.5px solid '+(isDraft?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;background:'+(isDraft?'#fefce8':'var(--surface)')+'">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px">'
+    +'<div style="flex:1">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+    +statusBadge
+    +'<span style="font-size:13px;font-weight:700">'+a.title+'</span>'
+    +'</div>'
+    +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">'+a.body+'</div>'
+    +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>'
+    +pushInfo
+    +'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
+    +(isDraft
+      ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Publish</button>'
+      :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:linear-gradient(135deg,var(--teal-dark),var(--teal-mid));color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
+    )
+    +'<button onclick="editAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\',\''+(a.status||'published')+'\')" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Edit</button>'
+    +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'
+    +'</div>'
+    +'</div>'
+    +'</div>'
 }
 
 function renderProductionFiles(pid, files, folders){
@@ -7424,19 +7466,68 @@ function renderProductionFiles(pid, files, folders){
   ).join('')
 }
 
-async function postProductionAnnouncement(pid){
+async function postProductionAnnouncement(pid, asDraft){
   const title = document.getElementById('prod-ann-title-'+pid)?.value.trim()
-  const body = document.getElementById('prod-ann-body-'+pid)?.value.trim()
+  const body  = document.getElementById('prod-ann-body-'+pid)?.value.trim()
+  const editId = document.getElementById('prod-ann-edit-id-'+pid)?.value||''
   if(!title||!body){toast('Title and message required','error');return}
-  const res = await api('/api/portal/announcements','POST',{production_id:pid, title, body})
+  const status = asDraft ? 'draft' : 'published'
+  let res
+  if(editId){
+    res = await api('/api/portal/announcements/'+editId,'PUT',{title, body, status})
+  } else {
+    res = await api('/api/portal/announcements','POST',{production_id:pid, title, body, status})
+  }
   if(res.error){toast(res.error,'error');return}
   document.getElementById('prod-ann-title-'+pid).value=''
   document.getElementById('prod-ann-body-'+pid).value=''
+  if(document.getElementById('prod-ann-edit-id-'+pid)) document.getElementById('prod-ann-edit-id-'+pid).value=''
+  resetAnnForm(pid)
   await loadProductionPortalContent(pid)
-  toast('Announcement posted!')
+  toast(asDraft ? 'Saved as draft' : (editId ? 'Announcement updated!' : 'Announcement posted!'), 'success')
 }
+
+function editAnnouncement(pid, aid, titleEnc, bodyEnc, status){
+  const title = decodeURIComponent(titleEnc)
+  const body  = decodeURIComponent(bodyEnc)
+  const titleEl = document.getElementById('prod-ann-title-'+pid)
+  const bodyEl  = document.getElementById('prod-ann-body-'+pid)
+  const editIdEl = document.getElementById('prod-ann-edit-id-'+pid)
+  if(titleEl) titleEl.value = title
+  if(bodyEl)  bodyEl.value  = body
+  if(editIdEl) editIdEl.value = aid
+  // Update form label
+  const label = document.getElementById('prod-ann-form-label-'+pid)
+  if(label) label.textContent = '✏️ Editing Announcement'
+  const cancelBtn = document.getElementById('prod-ann-cancel-'+pid)
+  if(cancelBtn) cancelBtn.style.display = ''
+  titleEl?.focus()
+  titleEl?.scrollIntoView({behavior:'smooth', block:'nearest'})
+}
+
+function resetAnnForm(pid){
+  const label = document.getElementById('prod-ann-form-label-'+pid)
+  if(label) label.textContent = '+ New Announcement'
+  const editIdEl = document.getElementById('prod-ann-edit-id-'+pid)
+  if(editIdEl) editIdEl.value = ''
+  const cancelBtn = document.getElementById('prod-ann-cancel-'+pid)
+  if(cancelBtn) cancelBtn.style.display = 'none'
+  const t = document.getElementById('prod-ann-title-'+pid)
+  const b = document.getElementById('prod-ann-body-'+pid)
+  if(t) t.value = ''; if(b) b.value = ''
+}
+
+async function publishAnnouncement(pid, aid, titleEnc, bodyEnc){
+  const title = decodeURIComponent(titleEnc)
+  const body  = decodeURIComponent(bodyEnc)
+  const res = await api('/api/portal/announcements/'+aid,'PUT',{title, body, status:'published'})
+  if(res.error){ toast(res.error,'error'); return }
+  await loadProductionPortalContent(pid)
+  toast('Published!','success')
+}
+
 async function deleteProductionAnnouncement(pid, aid){
-  if(!confirm('Delete announcement?')) return
+  if(!confirm('Delete this announcement?')) return
   await api('/api/portal/announcements/'+aid,'DELETE')
   await loadProductionPortalContent(pid)
   toast('Deleted')
@@ -7492,6 +7583,10 @@ async function loadTeamMembers(pid){
   const el = document.getElementById('prod-team-list-'+pid)
   if(!el) return
   const members = await api('/api/productions/'+pid+'/team')
+  if(!members || members.error || !Array.isArray(members)){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
+    return
+  }
   if(!members.length){
     el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
     return

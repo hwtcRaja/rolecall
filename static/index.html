@@ -2019,8 +2019,15 @@ function switchTab(el,tabId){
 async function api(path,method='GET',body=null){
   const opts={method,credentials:'include',headers:{}}
   if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}
-  const res=await fetch(path,opts)
-  return res.json()
+  try {
+    const res=await fetch(path,opts)
+    if(!res.ok && res.headers.get('content-type')&&!res.headers.get('content-type').includes('json')){
+      return {error: 'Server error '+res.status}
+    }
+    return res.json()
+  } catch(e){
+    return {error: e.message||'Network error'}
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4706,11 +4713,16 @@ async function saveUserEdits(uid){
   if(pw && pw.length >= 6) body.password = pw
   else if(pw && pw.length > 0){ toast('Password must be at least 6 characters','error'); return }
   const res = await api('/api/users/'+uid,'PUT',body)
-  if(res.error){ toast(res.error,'error'); return }
-  if(status){ status.textContent='✓ Saved'; setTimeout(()=>status.textContent='',3000) }
-  toast('Account updated!','success')
-  const users = await api('/api/users')
-  if(Array.isArray(users)) renderUsersManagement(users)
+  if(res && res.ok){
+    if(_usersCache[uid]){ _usersCache[uid].name=name; _usersCache[uid].email=email }
+    const modal = document.getElementById('user-edit-modal')
+    if(modal) modal.remove()
+    const users = await api('/api/users')
+    if(Array.isArray(users)) renderUsersManagement(users)
+    toast('Account updated!','success')
+  } else {
+    toast((res&&res.error)||'Error saving','error')
+  }
 }
 
 async function sendResetLink(uid, name){
@@ -4753,18 +4765,27 @@ function revokeAll(uid){
 async function saveUserPermissions(uid){
   const perms = {}
   PERM_SECTIONS.forEach(s=>{
-    const r = document.querySelector(`input[name="ep-${uid}-${s.key}"]:checked`) || document.querySelector(`input[name="perm-${uid}-${s.key}"]:checked`)
+    const r = document.querySelector(`input[name="ep-${uid}-${s.key}"]:checked`)
+      || document.querySelector(`input[name="perm-${uid}-${s.key}"]:checked`)
     perms[s.key] = r ? r.value : 'none'
   })
-  const res = await api('/api/users/'+uid+'/permissions','PUT',perms)
   const statusEl = document.getElementById('perm-save-status-'+uid)
-  if(res.ok){
-    toast('Permissions saved!','success')
-    if(statusEl){ statusEl.textContent='✓ Saved'; setTimeout(()=>statusEl.textContent='',3000) }
+  if(statusEl) statusEl.textContent = 'Saving…'
+  const res = await api('/api/users/'+uid+'/permissions','PUT',perms)
+  if(res && res.ok){
+    // Update cache
+    if(_usersCache[uid]) _usersCache[uid].role_permissions = JSON.stringify(perms)
+    // Close modal
+    const modal = document.getElementById('user-edit-modal')
+    if(modal) modal.remove()
+    // Refresh list
     const users = await api('/api/users')
     if(Array.isArray(users)) renderUsersManagement(users)
+    toast('Permissions saved!','success')
   } else {
-    toast(res.error||'Error saving','error')
+    const msg = (res && res.error) || 'Error saving permissions'
+    toast(msg,'error')
+    if(statusEl) statusEl.textContent = '✗ '+msg
   }
 }
 

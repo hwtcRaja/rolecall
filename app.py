@@ -3667,6 +3667,62 @@ def reset_user_password(uid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/users/<uid>', methods=['PUT'])
+def update_user(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    # Update name, email, and optionally password
+    if d.get('password'):
+        pw_hash = hashlib.sha256(d['password'].encode()).hexdigest()
+        execute(conn, 'UPDATE users SET name=%s, email=%s, password_hash=%s WHERE id=%s',
+                (d['name'], d['email'], pw_hash, uid))
+    else:
+        execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
+                (d['name'], d['email'], uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/users/<uid>', methods=['DELETE'])
+def delete_user(uid):
+    err = require_admin()
+    if err: return err
+    if uid == session.get('user_id'):
+        return jsonify({'error': 'You cannot delete your own account'}), 400
+    conn = get_db()
+    execute(conn, 'DELETE FROM users WHERE id=%s', (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/users/<uid>/send-reset-link', methods=['POST'])
+def send_reset_link(uid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    u = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (uid,))
+    conn.close()
+    if not u or not u.get('email'):
+        return jsonify({'error': 'User not found'}), 404
+    # Generate a temporary password and send it
+    import secrets, string
+    temp_pw = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+    pw_hash = hashlib.sha256(temp_pw.encode()).hexdigest()
+    conn = get_db()
+    execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (pw_hash, uid))
+    conn.commit(); conn.close()
+    # Send email
+    settings = get_email_settings()
+    html = ('<p style="font-family:-apple-system,sans-serif">Hi '+u['name']+',</p>'
+            '<p style="font-family:-apple-system,sans-serif">An administrator has reset your RoleCall password.</p>'
+            '<p style="font-family:-apple-system,sans-serif"><strong>Temporary Password:</strong> <code style="background:#f4f4f4;padding:4px 8px;border-radius:4px;font-size:16px">'+temp_pw+'</code></p>'
+            '<p style="font-family:-apple-system,sans-serif">Please log in and change your password immediately.</p>'
+            '<p style="font-family:-apple-system,sans-serif;color:#6b7280;font-size:12px">Sent by RoleCall — Horizon West Theater Company</p>')
+    ok, err_msg = send_email([u['email']], 'Your RoleCall Password Has Been Reset', html)
+    if ok:
+        return jsonify({'ok': True})
+    return jsonify({'error': err_msg or 'Failed to send email'}), 500
+
 
 
 # ═══════════════════════════════════════════════════════════════

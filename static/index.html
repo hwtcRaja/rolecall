@@ -4639,68 +4639,75 @@ function openUserEditModal(uid){
   try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
   const isAdmin = u.role === 'admin'
 
-  const matrixRows = PERM_SECTIONS.map(s=>{
-    const cur = perms[s.key]||'none'
-    return `<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:7px 8px;font-size:13px;font-weight:500">${s.label}</td>
-      <td style="text-align:center;padding:7px 10px"><input type="radio" name="ep-${u.id}-${s.key}" value="none" ${cur==='none'?'checked':''} onchange="permChanged('${u.id}')" style="accent-color:var(--teal);width:15px;height:15px"/></td>
-      <td style="text-align:center;padding:7px 10px"><input type="radio" name="ep-${u.id}-${s.key}" value="view" ${cur==='view'?'checked':''} onchange="permChanged('${u.id}')" style="accent-color:var(--teal);width:15px;height:15px"/></td>
-      <td style="text-align:center;padding:7px 10px"><input type="radio" name="ep-${u.id}-${s.key}" value="edit" ${cur==='edit'?'checked':''} onchange="permChanged('${u.id}')" style="accent-color:var(--teal);width:15px;height:15px"/></td>
-    </tr>`
-  }).join('')
-
   const overlay = document.createElement('div')
   overlay.id = 'user-edit-modal'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+
+  const matrixHTML = isAdmin
+    ? '<div style="background:var(--teal-50);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--teal-dark)">Administrator — has full access to everything.</div>'
+    : `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Section Permissions</div>
+       <div style="display:flex;gap:8px;margin-bottom:10px">
+         <button class="btn btn-secondary btn-sm" onclick="grantAllEdit('${uid}')">Grant All Edit</button>
+         <button class="btn btn-secondary btn-sm" onclick="revokeAll('${uid}')">Revoke All</button>
+         <span id="perm-save-status-${uid}" style="font-size:12px;color:var(--text-muted);align-self:center"></span>
+       </div>
+       <table style="width:100%;border-collapse:collapse;font-size:12px" id="perm-table-${uid}">
+         <thead><tr>
+           <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Section</th>
+           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">No Access</th>
+           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">View</th>
+           <th style="text-align:center;padding:6px 16px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px">Edit</th>
+         </tr></thead>
+         <tbody>
+           ${PERM_SECTIONS.map(s=>`
+             <tr style="border-bottom:1px solid var(--border)">
+               <td style="padding:8px 8px;font-size:13px;font-weight:500">${s.label}</td>
+               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="none" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
+               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="view" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
+               <td style="text-align:center"><input type="radio" data-uid="${uid}" data-section="${s.key}" data-val="edit" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer"></td>
+             </tr>`).join('')}
+         </tbody>
+       </table>
+       <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="saveUserPermissions('${uid}')">💾 Save Permissions</button>`
+
   overlay.innerHTML = `
     <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
-      <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <div style="font-size:16px;font-weight:700">Edit User: ${u.name}</div>
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">Edit: ${u.name}</div>
         <button onclick="document.getElementById('user-edit-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
       </div>
       <div style="padding:20px 24px">
-        <!-- Basic info -->
         <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Account Info</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
           <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Name</label>
-          <input type="text" id="ue-name-${u.id}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+          <input type="text" id="ue-name-${uid}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
           <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>
-          <input type="email" id="ue-email-${u.id}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+          <input type="email" id="ue-email-${uid}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
         </div>
-        <div style="margin-bottom:16px">
-          <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400">(leave blank to keep current)</span></label>
-          <input type="password" id="ue-pw-${u.id}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400;opacity:0.7">(leave blank to keep current)</span></label>
+          <input type="password" id="ue-pw-${uid}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-          <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${u.id}')">💾 Save Info</button>
-          <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${u.id}','${u.name}')">📧 Email Temp Password</button>
-          <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
-          <span id="ue-status-${u.id}" style="font-size:12px;color:var(--green);align-self:center"></span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')">💾 Save Info</button>
+          <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'") }')">📧 Email Temp Password</button>
+          <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${uid}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
         </div>
-        <!-- Permissions matrix (non-admin only) -->
-        ${isAdmin
-          ? '<div style="background:var(--teal-50);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--teal-dark)">Administrator — has full access to everything. No permissions matrix needed.</div>'
-          : `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Section Permissions</div>
-          <div style="display:flex;gap:8px;margin-bottom:10px">
-            <button class="btn btn-secondary btn-sm" onclick="grantAllEdit('${u.id}')">Grant All</button>
-            <button class="btn btn-secondary btn-sm" onclick="revokeAll('${u.id}')">Revoke All</button>
-            <span id="perm-save-status-${u.id}" style="font-size:12px;color:var(--text-muted);align-self:center"></span>
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr>
-              <th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Section</th>
-              <th style="text-align:center;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">None</th>
-              <th style="text-align:center;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">View</th>
-              <th style="text-align:center;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Edit</th>
-            </tr></thead>
-            <tbody>${matrixRows}</tbody>
-          </table>
-          <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="saveUserPermissions('${u.id}')">💾 Save Permissions</button>`
-        }
+        ${matrixHTML}
       </div>
     </div>`
+
   overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+
+  // Set radio checked state via JS AFTER DOM is live — reliable across all browsers
+  if(!isAdmin){
+    PERM_SECTIONS.forEach(s=>{
+      const val = perms[s.key] || 'none'
+      const inputs = overlay.querySelectorAll(`input[data-uid="${uid}"][data-section="${s.key}"]`)
+      inputs.forEach(input=>{ input.checked = (input.dataset.val === val) })
+    })
+  }
 }
 
 async function saveUserEdits(uid){
@@ -4741,49 +4748,39 @@ async function confirmDeleteUser(uid, name){
   if(Array.isArray(users)) renderUsersManagement(users)
 }
 
-function permChanged(uid){
-  const el = document.getElementById('perm-save-status-'+uid)
-  if(el) el.textContent = '● Unsaved changes'
-}
+function permChanged(uid){ /* no-op, kept for compat */ }
 
 function grantAllEdit(uid){
-  PERM_SECTIONS.forEach(s=>{
-    const r = document.querySelector(`input[name="ep-${uid}-${s.key}"][value="edit"]`) || document.querySelector(`input[name="perm-${uid}-${s.key}"][value="edit"]`)
-    if(r) r.checked = true
-  })
-  permChanged(uid)
+  document.querySelectorAll(`input[data-uid="${uid}"][data-val="edit"]`).forEach(r=>r.checked=true)
 }
 
 function revokeAll(uid){
-  PERM_SECTIONS.forEach(s=>{
-    const r = document.querySelector(`input[name="ep-${uid}-${s.key}"][value="none"]`) || document.querySelector(`input[name="perm-${uid}-${s.key}"][value="none"]`)
-    if(r) r.checked = true
-  })
-  permChanged(uid)
+  document.querySelectorAll(`input[data-uid="${uid}"][data-val="none"]`).forEach(r=>r.checked=true)
 }
 
 async function saveUserPermissions(uid){
   const perms = {}
   PERM_SECTIONS.forEach(s=>{
-    const r = document.querySelector(`input[name="ep-${uid}-${s.key}"]:checked`)
-      || document.querySelector(`input[name="perm-${uid}-${s.key}"]:checked`)
-    perms[s.key] = r ? r.value : 'none'
+    // Use data attributes — reliable after innerHTML insertion
+    const inputs = Array.from(document.querySelectorAll(`input[data-uid="${uid}"][data-section="${s.key}"]`))
+    const checked = inputs.find(i=>i.checked)
+    perms[s.key] = checked ? checked.dataset.val : 'none'
   })
+
   const statusEl = document.getElementById('perm-save-status-'+uid)
   if(statusEl) statusEl.textContent = 'Saving…'
-  const res = await api('/api/users/'+uid+'/permissions','PUT',perms)
+
+  const res = await api('/api/users/'+uid+'/permissions','PUT', perms)
+
   if(res && res.ok){
-    // Update cache
     if(_usersCache[uid]) _usersCache[uid].role_permissions = JSON.stringify(perms)
-    // Close modal
     const modal = document.getElementById('user-edit-modal')
     if(modal) modal.remove()
-    // Refresh list
     const users = await api('/api/users')
     if(Array.isArray(users)) renderUsersManagement(users)
     toast('Permissions saved!','success')
   } else {
-    const msg = (res && res.error) || 'Error saving permissions'
+    const msg = (res && res.error) || 'Save failed'
     toast(msg,'error')
     if(statusEl) statusEl.textContent = '✗ '+msg
   }

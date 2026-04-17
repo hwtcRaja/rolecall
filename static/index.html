@@ -1038,7 +1038,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
               <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="jane@example.com"/></div>
               <div class="form-group"><label>Password</label><input type="password" id="new-user-password" placeholder="••••••••"/></div>
-              <div class="form-group"><label>Role</label><select id="new-user-role"><option value="board">Board Member</option><option value="admin">Administrator</option><option value="instructor">Instructor (portal access)</option><option value="stage_manager">Stage Manager</option></select></div>
+              <div class="form-group">
+                <label>Access Level</label>
+                <select id="new-user-role">
+                  <option value="staff">Staff (set permissions below)</option>
+                  <option value="admin">Administrator (full access)</option>
+                </select>
+              </div>
               <button class="btn btn-primary" onclick="createUser()">Add User</button>
             </div>
 
@@ -1352,8 +1358,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             </div>
             <!-- User Management -->
             <div class="settings-section" style="grid-column:1/-1">
-              <div style="font-weight:600;font-size:15px;margin-bottom:16px">👥 System Users & Roles</div>
-              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Set each user's role to control what they can access. Changes take effect on their next login.</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div style="font-weight:600;font-size:15px">👥 System Users & Permissions</div>
+              </div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
               <div id="users-management-list"></div>
             </div>
 
@@ -2029,8 +2037,9 @@ async function loginSuccess(user){
   document.getElementById('auth-error').style.display='none'
   document.getElementById('sidebar-avatar').textContent=initials(user.name)
   document.getElementById('sidebar-name').textContent=user.name
-  document.getElementById('sidebar-role').textContent=user.role==='admin'?'Administrator':'Board Member'
-  applyRoleUI()
+  const isAdmin = user.role==='admin'
+  document.getElementById('sidebar-role').textContent=isAdmin?'Administrator':'Staff'
+  applyPermissionUI()
   await loadAllData()
   navTo('dashboard')
   pollPendingCount()
@@ -2044,31 +2053,59 @@ async function handleLogout(){
   document.getElementById('login-email').value=''
   document.getElementById('login-password').value=''
 }
-function applyRoleUI(){
-  const role=currentUser?.role||'board'
-  const isAdmin=role==='admin'
-  const isInstructor=role==='instructor'
-  const isElic=role==='elic'
 
-  // admin-only elements
-  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'':'none')
+// Map nav item text/id to permission section key
+const NAV_PERM_MAP = {
+  'dashboard':        null,           // always visible
+  'volunteers':       'volunteers',
+  'waivers':          'volunteers',
+  'hours':            'hours',
+  'email':            'email',
+  'events':           'events',
+  'productions':      'productions',
+  'production-signin':'productions',
+  'youth':            'youth',
+  'youth-programs-page': 'programs',
+  'rising-stars-page':'rising_stars',
+  'portal-admin':     'portal_admin',
+  'youth-signin':     'kiosk',
+  'event-logs':       'reports',
+  'notifications':    'settings',
+  'settings':         'settings',
+}
 
-  // Hide irrelevant nav for instructors (can see events, calendar, youth only)
-  if(isInstructor||isElic){
-    document.querySelectorAll('.nav-item').forEach(nav=>{
-      const txt=nav.textContent.trim()
-      const allowed=isInstructor
-        ?['Events &amp; Calendar','Participants','Programs &amp; Classes','Rising Stars','Sign-In','Dashboard']
-        :['Dashboard'] // ELIC just uses kiosk
-      const show=allowed.some(a=>txt.includes(a))
-      nav.style.display=show?'':'none'
-    })
-    // Hide nav sections if all children hidden
-    document.querySelectorAll('.nav-section').forEach(sec=>{
-      const next=sec.nextElementSibling
-      if(next&&next.style.display==='none') sec.style.display='none'
-    })
-  }
+function canView(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
+function canEdit(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='edit' }
+
+function applyPermissionUI(){
+  const isAdmin = currentUser?.role==='admin'
+
+  // Show/hide nav items based on permissions
+  document.querySelectorAll('.nav-item').forEach(nav=>{
+    // Find which section this nav item maps to
+    const onclick = nav.getAttribute('onclick')||''
+    const match = onclick.match(/navTo\('([^']+)'/)
+    const pageKey = match ? match[1] : null
+    const section = pageKey ? NAV_PERM_MAP[pageKey] : null
+    const visible = canView(section)
+    nav.style.display = visible ? '' : 'none'
+  })
+
+  // admin-only elements (edit actions)
+  document.querySelectorAll('.admin-only').forEach(el=>{
+    el.style.display = isAdmin ? '' : 'none'
+  })
+
+  // Hide nav section headers if all children are hidden
+  document.querySelectorAll('.nav-section').forEach(sec=>{
+    let sibling = sec.nextElementSibling
+    let anyVisible = false
+    while(sibling && !sibling.classList.contains('nav-section')){
+      if(sibling.classList.contains('nav-item') && sibling.style.display !== 'none') anyVisible = true
+      sibling = sibling.nextElementSibling
+    }
+    sec.style.display = anyVisible ? '' : 'none'
+  })
 }
 window.addEventListener('DOMContentLoaded',async()=>{
   const data=await api('/api/auth/me')
@@ -4039,8 +4076,11 @@ async function createUser(){
   if(!name||!email||!password){toast('All fields required','error');return}
   const res=await api('/api/users','POST',{name,email,password,role})
   if(res.error){toast(res.error,'error');return}
-  toast('User created!','success')
+  toast('User created! '+(role!=='admin'?'Now set their permissions below.':''),'success')
   ;['new-user-name','new-user-email','new-user-password'].forEach(id=>document.getElementById(id).value='')
+  // Reload users list so new user appears with permission matrix
+  const users = await api('/api/users')
+  if(Array.isArray(users)) renderUsersManagement(users)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4534,53 +4574,161 @@ async function unenrollYouth(eid,yid){
 //  USER MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
+// Permission sections definition (mirrors backend)
+const PERM_SECTIONS = [
+  {key:'volunteers',   label:'Volunteers',         desc:'Volunteer profiles & history'},
+  {key:'events',       label:'Events & Calendar',  desc:'Create and manage events'},
+  {key:'hours',        label:'Time Tracking',      desc:'Hours, approvals, kiosk sessions'},
+  {key:'email',        label:'Email',              desc:'Send emails & manage templates'},
+  {key:'productions',  label:'Productions',        desc:'Cast, crew, production detail'},
+  {key:'rising_stars', label:'Rising Stars',       desc:'RS productions and portal content'},
+  {key:'youth',        label:'Participants',        desc:'Youth profiles & guardians'},
+  {key:'programs',     label:'Programs & Classes', desc:'Program enrollment & schedule'},
+  {key:'portal_admin', label:'Portal Content',     desc:'Announcements, files, team'},
+  {key:'kiosk',        label:'Sign-In / Kiosk',    desc:'Open and close events on kiosk'},
+  {key:'reports',      label:'Reports & Logs',     desc:'Event logs, email reports'},
+  {key:'settings',     label:'Settings',           desc:'Users, system configuration'},
+]
+
 function renderUsersManagement(users){
-  const el=document.getElementById('users-management-list')
+  const el = document.getElementById('users-management-list')
   if(!el) return
-  const roleColors={
-    admin:['var(--teal-50)','var(--teal-600)'],
-    board:['var(--blue-50)','var(--blue-600)'],
-    instructor:['var(--purple-50)','var(--purple-600)'],
-    elic:['var(--amber-50)','var(--amber-600)']
-  }
-  const roleDesc={
-    admin:'Full access — can manage everything',
-    board:'Read-only — can view but not edit',
-    instructor:'Can manage events, calendar, and youth programs',
-    elic:'Kiosk only — can open and close events'
-  }
-  el.innerHTML=users.map(u=>{
-    const isSelf=u.id===currentUser?.id
-    const[rbg,rcol]=roleColors[u.role]||roleColors.board
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:10px;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
-      <div style="flex:0 0 40px">${avatarHTML(u.name,40)}</div>
-      <div style="flex:1;min-width:180px">
-        <div style="font-weight:600;font-size:15px;margin-bottom:2px">${u.name} ${isSelf?'<span style="font-size:11px;color:var(--text-hint)">(You)</span>':''}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${u.email}</div>
-        <div style="font-size:12px;color:var(--text-hint);margin-top:4px">${roleDesc[u.role]||''}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Role:</span>
-          ${isSelf
-            ?`<span style="font-size:12px;padding:4px 12px;border-radius:20px;background:${rbg};color:${rcol};font-weight:600">${u.role.charAt(0).toUpperCase()+u.role.slice(1)}</span>`
-            :`<select onchange="changeUserRole('${u.id}',this.value)" style="padding:5px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;background:${rbg};color:${rcol};font-weight:600">
-              <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-              <option value="board" ${u.role==='board'?'selected':''}>Board</option>
-              <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor</option>
-              <option value="stage_manager" ${u.role==='stage_manager'?'selected':''}>Stage Manager</option>
-              <option value="elic" ${u.role==='elic'?'selected':''}>ELIC</option>
-            </select>`}
+  el.innerHTML = users.map(u=>{
+    const isSelf = u.id === currentUser?.id
+    const isAdmin = u.role === 'admin'
+    let perms = {}
+    try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
+
+    const headerBg = isAdmin ? 'var(--teal-50)' : 'var(--surface)'
+    const badge = isAdmin
+      ? '<span style="background:var(--teal);color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Administrator</span>'
+      : '<span style="background:var(--bg);color:var(--text-muted);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">Staff</span>'
+
+    // Permission summary for non-admin
+    let permSummary = ''
+    if(!isAdmin){
+      const editCount = PERM_SECTIONS.filter(s=>perms[s.key]==='edit').length
+      const viewCount = PERM_SECTIONS.filter(s=>perms[s.key]==='view').length
+      const noneCount = PERM_SECTIONS.length - editCount - viewCount
+      if(editCount===0 && viewCount===0){
+        permSummary = '<span style="color:var(--red-600);font-size:12px;font-weight:600">⚠ No access granted</span>'
+      } else {
+        permSummary = '<span style="font-size:12px;color:var(--text-muted)">'+editCount+' edit · '+viewCount+' view-only · '+noneCount+' hidden</span>'
+      }
+    }
+
+    // Matrix HTML
+    const matrixHTML = isAdmin ? '' : `
+      <div id="perm-matrix-${u.id}" style="display:none;border-top:1px solid var(--border);padding:16px 20px;background:var(--bg)">
+        <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Section Permissions</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:6px 10px;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">Section</th>
+                <th style="text-align:center;padding:6px 14px;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">No Access</th>
+                <th style="text-align:center;padding:6px 14px;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">View Only</th>
+                <th style="text-align:center;padding:6px 14px;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">View & Edit</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${PERM_SECTIONS.map(s=>{
+                const cur = perms[s.key]||'none'
+                const rowStyle = 'border-bottom:1px solid var(--border)'
+                return `<tr style="${rowStyle}">
+                  <td style="padding:8px 10px">
+                    <div style="font-weight:600">${s.label}</div>
+                    <div style="font-size:11px;color:var(--text-hint)">${s.desc}</div>
+                  </td>
+                  <td style="text-align:center;padding:8px 14px">
+                    <input type="radio" name="perm-${u.id}-${s.key}" value="none" ${cur==='none'?'checked':''} onchange="permChanged('${u.id}')" style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer"/>
+                  </td>
+                  <td style="text-align:center;padding:8px 14px">
+                    <input type="radio" name="perm-${u.id}-${s.key}" value="view" ${cur==='view'?'checked':''} onchange="permChanged('${u.id}')" style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer"/>
+                  </td>
+                  <td style="text-align:center;padding:8px 14px">
+                    <input type="radio" name="perm-${u.id}-${s.key}" value="edit" ${cur==='edit'?'checked':''} onchange="permChanged('${u.id}')" style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer"/>
+                  </td>
+                </tr>`
+              }).join('')}
+            </tbody>
+          </table>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Status:</span>
-          <span style="font-size:12px;padding:4px 10px;border-radius:20px;background:${u.active!==false?'var(--green-50)':'var(--red-50)'};color:${u.active!==false?'var(--green-600)':'var(--red-600)'};font-weight:600">${u.active!==false?'Active':'Inactive'}</span>
-          ${!isSelf?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" style="padding:4px 10px;font-size:12px" onclick="toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:''}
-          ${!isSelf?`<button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:12px" onclick="resetUserPassword('${u.id}','${u.name}')">🔑 Reset Password</button>`:''}
+        <div style="display:flex;gap:8px;margin-top:14px;align-items:center">
+          <button class="btn btn-primary btn-sm" onclick="saveUserPermissions('${u.id}')">💾 Save Permissions</button>
+          <button class="btn btn-secondary btn-sm" onclick="grantAllEdit('${u.id}')">Grant All</button>
+          <button class="btn btn-secondary btn-sm" onclick="revokeAll('${u.id}')">Revoke All</button>
+          <span id="perm-save-status-${u.id}" style="font-size:12px;color:var(--green)"></span>
+        </div>
+      </div>`
+
+    return `<div style="background:${headerBg};border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:10px;overflow:hidden">
+      <div style="padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;cursor:${isAdmin?'default':'pointer'}" ${!isAdmin?`onclick="togglePermMatrix('${u.id}')"`:''}>
+        <div style="flex-shrink:0">${avatarHTML(u.name,36)}</div>
+        <div style="flex:1;min-width:160px">
+          <div style="font-weight:700;font-size:14px">${u.name} ${isSelf?'<span style="font-size:11px;color:var(--text-hint);font-weight:400">(You)</span>':''}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${u.email}</div>
+          <div style="margin-top:4px">${permSummary}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${badge}
+          ${!isAdmin?`<span id="perm-expand-${u.id}" style="font-size:11px;color:var(--teal);font-weight:600">▼ Permissions</span>`:''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${!isSelf?`<button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" style="font-size:11px" onclick="event.stopPropagation();toggleUser('${u.id}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>`:''}
+          ${!isSelf?`<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="event.stopPropagation();resetUserPassword('${u.id}','${u.name}')">🔑 Reset PW</button>`:''}
         </div>
       </div>
+      ${matrixHTML}
     </div>`
   }).join('')
+}
+
+function togglePermMatrix(uid){
+  const el = document.getElementById('perm-matrix-'+uid)
+  const arrow = document.getElementById('perm-expand-'+uid)
+  if(!el) return
+  const open = el.style.display !== 'none'
+  el.style.display = open ? 'none' : ''
+  if(arrow) arrow.textContent = open ? '▼ Permissions' : '▲ Permissions'
+}
+
+function permChanged(uid){
+  const el = document.getElementById('perm-save-status-'+uid)
+  if(el) el.textContent = '● Unsaved changes'
+}
+
+function grantAllEdit(uid){
+  PERM_SECTIONS.forEach(s=>{
+    const r = document.querySelector(`input[name="perm-${uid}-${s.key}"][value="edit"]`)
+    if(r) r.checked = true
+  })
+  permChanged(uid)
+}
+
+function revokeAll(uid){
+  PERM_SECTIONS.forEach(s=>{
+    const r = document.querySelector(`input[name="perm-${uid}-${s.key}"][value="none"]`)
+    if(r) r.checked = true
+  })
+  permChanged(uid)
+}
+
+async function saveUserPermissions(uid){
+  const perms = {}
+  PERM_SECTIONS.forEach(s=>{
+    const r = document.querySelector(`input[name="perm-${uid}-${s.key}"]:checked`)
+    perms[s.key] = r ? r.value : 'none'
+  })
+  const res = await api('/api/users/'+uid+'/permissions','PUT',perms)
+  const statusEl = document.getElementById('perm-save-status-'+uid)
+  if(res.ok){
+    toast('Permissions saved!','success')
+    if(statusEl) statusEl.textContent = '✓ Saved'
+    setTimeout(()=>{ if(statusEl) statusEl.textContent='' }, 3000)
+  } else {
+    toast(res.error||'Error saving','error')
+  }
 }
 
 async function toggleUser(uid,currentlyActive){

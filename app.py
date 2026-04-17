@@ -4257,3 +4257,87 @@ def push_announcement(pid, aid):
     conn.close()
     return jsonify({'ok': ok, 'sent_to': len(emails), 'error': err_msg})
 
+
+# ═══════════════════════════════════════════════════════════════
+#  PORTAL — CONTACT PRODUCTION TEAM
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/portal/contact-production', methods=['POST'])
+def portal_contact_production():
+    d = request.json or {}
+    prod_id    = d.get('production_id')
+    from_name  = d.get('from_name','').strip()
+    from_email = d.get('from_email','').strip()
+    subject    = d.get('subject','').strip()
+    message    = d.get('message','').strip()
+
+    if not all([prod_id, from_name, from_email, subject, message]):
+        return jsonify({'error': 'All fields are required'}), 400
+
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT name, default_elic_id FROM productions WHERE id=%s', (prod_id,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    prod_name = prod['name']
+
+    # Collect recipient emails: production members (crew/volunteers)
+    members = fetchall(conn, '''SELECT v.name, v.email FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s AND v.email IS NOT NULL AND v.email!=\'\'
+    ''', (prod_id,))
+
+    # Default ELIC email
+    elic_email = None
+    elic_name = None
+    if prod.get('default_elic_id'):
+        elic = fetchone(conn, '''SELECT v.name, v.email FROM elics el
+            JOIN volunteers v ON el.volunteer_id=v.id
+            WHERE el.id=%s''', (prod['default_elic_id'],))
+        if elic:
+            elic_email = elic.get('email')
+            elic_name  = elic.get('name')
+
+    conn.close()
+
+    # Build recipient list — crew members + ELIC
+    to_emails = list(set(m['email'] for m in members if m.get('email')))
+    if elic_email and elic_email not in to_emails:
+        to_emails.append(elic_email)
+
+    if not to_emails:
+        return jsonify({'error': 'No contact emails found for this production team'}), 400
+
+    # Build HTML email
+    html = ('<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#f3f4f6;margin:0;padding:24px">'
+        '<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">'
+        '<div style="background:linear-gradient(135deg,#4c1d95,#7c3aed);padding:24px 28px;color:#fff">'
+        '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">HWTC \u2014 ' + prod_name + '</div>'
+        '<div style="font-size:20px;font-weight:800;margin-bottom:4px">' + subject + '</div>'
+        '<div style="opacity:0.8;font-size:13px">From: ' + from_name + ' &lt;' + from_email + '&gt;</div>'
+        '</div>'
+        '<div style="padding:24px 28px">'
+        '<div style="font-size:15px;color:#374151;line-height:1.7;white-space:pre-wrap">' + message + '</div>'
+        '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af">'
+        'This message was sent via the RoleCall participant portal for <strong>' + prod_name + '</strong>. '
+        'Reply directly to ' + from_email + ' to respond.'
+        '</div></div></div></body></html>')
+
+    settings = get_email_settings()
+    ok, err_msg = send_email(to_emails, subject + ' (via portal)', html,
+                             from_email=settings.get('from_email','info@hwtco.org'))
+
+    # Also send a separate ELIC alert if they're not already a recipient
+    if elic_email and ok:
+        alert_html = ('<p style="font-family:sans-serif">\U0001f514 <strong>' + (elic_name or 'ELIC') + '</strong>, '
+            'a family has contacted the production team for <strong>' + prod_name + '</strong>.<br><br>'
+            '<strong>From:</strong> ' + from_name + ' (' + from_email + ')<br>'
+            '<strong>Subject:</strong> ' + subject + '<br>'
+            '<strong>Message:</strong><br><blockquote style="border-left:3px solid #7c3aed;margin:8px 0;padding:8px 12px;color:#374151">'
+            + message + '</blockquote>'
+            'You can reply directly to ' + from_email + '.</p>')
+        send_email(elic_email, '\U0001f514 Portal message for ' + prod_name + ': ' + subject, alert_html)
+
+    return jsonify({'ok': ok, 'sent_to': len(to_emails), 'error': err_msg})
+

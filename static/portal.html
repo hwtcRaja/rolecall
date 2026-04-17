@@ -638,7 +638,7 @@ async function selectContext(type, id, name, color){
     }
 
     // Build Overview HTML
-    const overviewHTML = buildProductionOverviewHTML(activeChildData.productions?.find(p=>p.id===id), events, contextAnnouncements)
+    const overviewHTML = buildProductionOverviewHTML(activeChildData.productions?.find(p=>p.id===id), events, contextAnnouncements, conflicts, activeChildId, id)
 
     // Build General Info HTML
     const generalHTML = buildGeneralInfoHTML(generalContent)
@@ -649,12 +649,13 @@ async function selectContext(type, id, name, color){
     // Build Conflicts HTML
     const conflictsHTML = buildPortalConflictsHTML(conflicts, activeChildId, id, events)
 
-    // Set all tab content at once
+    // Set all tab content at once — overview is default for productions, schedule for programs
+    const firstTab = type==='production' ? 'overview' : 'schedule'
     const tabHTML =
-      '<div class="tab-content active" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
+      '<div class="tab-content '+(firstTab==='schedule'?'active':'')+'" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
       +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
       +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
-      +(type==='production'?'<div class="tab-content" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
+      +(type==='production'?'<div class="tab-content '+(firstTab==='overview'?'active':'')+'" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
       +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
@@ -885,52 +886,169 @@ function buildGeneralInfoHTML(content){
   return '<div style="line-height:1.7;font-size:14px;color:var(--text)">'+html+'</div>'
 }
 
-function buildProductionOverviewHTML(prod, events, announcements){
+function buildProductionOverviewHTML(prod, events, announcements, conflicts, childId, prodId){
   if(!prod) return '<div class="empty-state"><div class="icon">\uD83C\uDFAD</div>Production info loading\u2026</div>'
   const today = new Date().toISOString().split('T')[0]
-  const todayLabel = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
-  const upcoming = (events||[]).filter(e=>!e.event_date||e.event_date>=today).slice(0,6)
+  const now = new Date()
+  const todayLabel = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+  const upcoming = (events||[]).filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
   const todayEvts = (events||[]).filter(e=>e.event_date===today)
   const recentAnns = (announcements||[]).slice(0,3)
+  const myConflicts = (conflicts||[]).filter(c=>c.is_mine)
+  const castRole = prod.cast_role || null
+
   let html = ''
-  // Info cards
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px">'
-  html += '<div style="background:var(--teal-50);border:1.5px solid var(--teal-100);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:3px">Production</div><div style="font-size:13px;font-weight:700">'+(prod.name||'\u2014')+'</div></div>'
-  if(prod.director) html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Director</div><div style="font-size:13px;font-weight:600">'+prod.director+'</div></div>'
-  if(prod.venue)    html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Venue</div><div style="font-size:13px;font-weight:600">'+prod.venue+'</div></div>'
-  html += '<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#854d0e;margin-bottom:3px">Today</div><div style="font-size:12px;font-weight:600;color:#854d0e">'+todayLabel+'</div></div>'
+
+  // ── Quick links row ──
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">'
+  html += '<button onclick="switchDetailTab(\'schedule\',document.querySelector(\'.tab-btn[data-tab=schedule]\'))" style="flex:1;min-width:100px;background:var(--teal-50);border:1.5px solid var(--teal-100);border-radius:var(--radius);padding:10px 12px;font-family:inherit;font-size:12px;font-weight:700;color:var(--teal-dark);cursor:pointer;text-align:center">\uD83D\uDCC5 Schedule</button>'
+  html += '<button onclick="switchDetailTab(\'announcements\',document.querySelector(\'.tab-btn[data-tab=announcements]\'))" style="flex:1;min-width:100px;background:#fef9c3;border:1.5px solid #fde047;border-radius:var(--radius);padding:10px 12px;font-family:inherit;font-size:12px;font-weight:700;color:#854d0e;cursor:pointer;text-align:center">\uD83D\uDCE2 Announcements</button>'
+  html += '<button onclick="switchDetailTab(\'files\',document.querySelector(\'.tab-btn[data-tab=files]\'))" style="flex:1;min-width:100px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:10px 12px;font-family:inherit;font-size:12px;font-weight:700;color:#166534;cursor:pointer;text-align:center">\uD83D\uDCC1 Files</button>'
+  html += '<button onclick="openContactModal()" style="flex:1;min-width:100px;background:linear-gradient(135deg,#4c1d95,#7c3aed);border:none;border-radius:var(--radius);padding:10px 12px;font-family:inherit;font-size:12px;font-weight:700;color:#fff;cursor:pointer;text-align:center">\uD83D\uDCE7 Contact Team</button>'
   html += '</div>'
-  // Run dates
-  if(prod.start_date) html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;padding:8px 12px;background:var(--bg);border-radius:var(--radius)">\uD83D\uDCC5 Run dates: <strong>'+fmtDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?' \u2192 '+fmtDate(prod.end_date):'')+'</strong></div>'
-  // Today's events
-  if(todayEvts.length){
-    html += '<div style="background:#fef9c3;border:1.5px solid #fde047;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
-    html += '<div style="font-size:13px;font-weight:700;color:#854d0e;margin-bottom:6px">\uD83D\uDCC5 Today\'s Schedule</div>'
-    html += todayEvts.map(e=>'<div style="font-size:13px;color:#92400e;display:flex;justify-content:space-between"><span>'+e.name+'</span><span>'+(e.start_time?fmtTime(e.start_time):'')+(e.end_time?' \u2013 '+fmtTime(e.end_time):'')+'</span></div>').join('')
+
+  // ── Cast role highlight ──
+  if(castRole){
+    html += '<div style="background:linear-gradient(135deg,#4c1d95,#7c3aed);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;color:#fff;display:flex;align-items:center;gap:12px">'
+    html += '<div style="font-size:28px">\uD83C\uDFAD</div>'
+    html += '<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;opacity:0.75;margin-bottom:3px">Your Role</div>'
+    html += '<div style="font-size:18px;font-weight:800">'+castRole+'</div></div>'
     html += '</div>'
   }
-  // Upcoming
-  if(upcoming.length){
-    html += '<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCC6 Upcoming Schedule</div>'
-    html += upcoming.map(e=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
-      +'<span style="font-size:13px;font-weight:500">'+e.name+'</span>'
-      +'<span style="font-size:12px;color:var(--text-muted)">'+(e.event_date===today?'<span style="background:var(--teal-mid);color:#fff;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;margin-right:4px">TODAY</span>':'')+(e.event_date?fmtDate(e.event_date):'No date')+(e.start_time?' \xb7 '+fmtTime(e.start_time):'')+'</span>'
-      +'</div>').join('')
-    html += '</div>'
+
+  // ── Next event countdown ──
+  const nextEvt = upcoming.find(e=>e.event_date>today||(e.event_date===today&&e.start_time))
+  if(nextEvt){
+    let countdownHTML = ''
+    if(nextEvt.start_time && nextEvt.event_date){
+      const parts = nextEvt.start_time.toString().split(':')
+      const evtDate = new Date(nextEvt.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00')
+      const diffMs = evtDate - now
+      if(diffMs > 0){
+        const totalSecs = Math.floor(diffMs/1000)
+        const d = Math.floor(totalSecs/86400), h = Math.floor((totalSecs%86400)/3600)
+        const m = Math.floor((totalSecs%3600)/60)
+        if(d>0) countdownHTML = 'in '+d+' day'+(d!==1?'s':'')+' '+(h>0?h+'h':'')
+        else if(h>0) countdownHTML = 'in '+h+'h '+m+'m'
+        else countdownHTML = 'in '+m+' min'
+      } else if(nextEvt.event_date===today){
+        countdownHTML = 'Today!'
+      }
+    } else if(nextEvt.event_date===today){
+      countdownHTML = 'Today!'
+    }
+    const isToday = nextEvt.event_date===today
+    html += '<div style="background:'+(isToday?'#fef9c3':'var(--bg)')+';border:1.5px solid '+(isToday?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
+    html += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:'+(isToday?'#854d0e':'var(--text-muted)')+';margin-bottom:6px">Next Event</div>'
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+    html += '<div><div style="font-size:15px;font-weight:700;color:'+(isToday?'#92400e':'var(--text)')+'">'+nextEvt.name+'</div>'
+    html += '<div style="font-size:13px;color:'+(isToday?'#a16207':'var(--text-muted)')+'">'+fmtDate(nextEvt.event_date)+(nextEvt.start_time?' \xb7 '+fmtTime(nextEvt.start_time):'')+'</div></div>'
+    if(countdownHTML) html += '<div style="font-size:18px;font-weight:800;color:'+(isToday?'#d97706':'var(--teal-dark)')+'">'+countdownHTML+'</div>'
+    html += '</div></div>'
   }
-  // Recent announcements
+
+  // ── Info cards row ──
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:14px">'
+  html += '<div style="background:var(--teal-50);border:1.5px solid var(--teal-100);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:3px">Production</div><div style="font-size:12px;font-weight:700">'+(prod.name||'\u2014')+'</div></div>'
+  if(prod.director) html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Director</div><div style="font-size:12px;font-weight:600">'+prod.director+'</div></div>'
+  if(prod.venue) html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Venue</div><div style="font-size:12px;font-weight:600">'+prod.venue+'</div></div>'
+  html += '<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#854d0e;margin-bottom:3px">Today</div><div style="font-size:11px;font-weight:600;color:#854d0e">'+todayLabel+'</div></div>'
+  if(prod.start_date) html += '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:3px">Run Dates</div><div style="font-size:11px;font-weight:600">'+fmtDate(prod.start_date)+(prod.end_date&&prod.end_date!==prod.start_date?'<br>\u2192 '+fmtDate(prod.end_date):'')+'</div></div>'
+  html += '</div>'
+
+  // ── My conflicts summary ──
+  if(myConflicts.length){
+    const upcoming_conflicts = myConflicts.filter(c=>!c.event_date||c.event_date>=today)
+    if(upcoming_conflicts.length){
+      html += '<div onclick="switchDetailTab(\'conflicts\',document.querySelector(\'.tab-btn[data-tab=conflicts]\'))" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between">'
+      html += '<div><div style="font-size:12px;font-weight:700;color:#dc2626">\u26a0\ufe0f '+upcoming_conflicts.length+' Upcoming Conflict'+(upcoming_conflicts.length!==1?'s':'')+' on File</div>'
+      html += '<div style="font-size:11px;color:#9ca3af;margin-top:2px">Tap to view your conflicts</div></div>'
+      html += '<span style="color:#dc2626;font-size:14px">\u203a</span></div>'
+    }
+  }
+
+  // ── Recent announcements ──
   if(recentAnns.length){
-    html += '<div><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCE2 Recent Announcements</div>'
-    html += recentAnns.map(a=>'<div onclick="switchDetailTab(\'announcements\',document.querySelector(\'.tab-btn[data-tab=\'announcements\']\'))" style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;cursor:pointer;transition:opacity 0.15s" onmouseenter="this.style.opacity=\'0.8\'" onmouseleave="this.style.opacity=\'1\'">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:13px;font-weight:600">'+a.title+'</div><span style="font-size:11px;color:var(--teal-600);font-weight:600">View →</span></div>'
+    html += '<div style="margin-bottom:14px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">\uD83D\uDCE2 Recent Announcements</div>'
+    html += recentAnns.map(a=>'<div onclick="switchDetailTab(\'announcements\',document.querySelector(\'.tab-btn[data-tab=announcements]\'))" style="border-left:3px solid var(--teal-mid);padding:8px 12px;margin-bottom:8px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;cursor:pointer">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:13px;font-weight:600">'+a.title+'</div><span style="font-size:11px;color:var(--teal-600);font-weight:600">View \u2192</span></div>'
       +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+fmtDateTime(a.created_at)+'</div>'
       +'</div>').join('')
     html += '</div>'
   }
-  if(!upcoming.length && !recentAnns.length && !todayEvts.length){
-    html += '<div class="empty-state"><div class="icon">\uD83D\uDCC5</div>No schedule or announcements yet.</div>'
+
+  if(!upcoming.length && !recentAnns.length && !todayEvts.length && !castRole){
+    html += '<div class="empty-state"><div class="icon">\uD83D\uDCC5</div>No info available yet.</div>'
   }
+
   return html
+}
+
+// ── Contact Production Team modal ──
+function openContactModal(){
+  // Pre-fill from guardian data if available
+  const guardian = activeChildData?.guardians?.[0] || {}
+  const fromName = guardian.name || ''
+  const fromEmail = guardian.email || ''
+  const prodId = activeContextId
+
+  // Build modal
+  const existing = document.getElementById('contact-modal-overlay')
+  if(existing) existing.remove()
+
+  const overlay = document.createElement('div')
+  overlay.id = 'contact-modal-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+  overlay.innerHTML = '<div style="background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:24px">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
+    +'<div style="font-size:17px;font-weight:800">\uD83D\uDCE7 Contact Production Team</div>'
+    +'<button onclick="document.getElementById(\'contact-modal-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;line-height:1">\xd7</button>'
+    +'</div>'
+    +'<div style="font-size:13px;color:#6b7280;margin-bottom:16px">Your message will be sent to the production team and director.</div>'
+    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Name</label>'
+    +'<input type="text" id="ct-name" value="'+escHtml(fromName)+'" placeholder="Your name" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Email (for replies)</label>'
+    +'<input type="email" id="ct-email" value="'+escHtml(fromEmail)+'" placeholder="your@email.com" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Subject</label>'
+    +'<input type="text" id="ct-subject" placeholder="e.g. Question about rehearsal schedule" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div style="margin-bottom:20px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Message</label>'
+    +'<textarea id="ct-message" placeholder="Write your message here\u2026" rows="5" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;resize:vertical;box-sizing:border-box"></textarea></div>'
+    +'<div id="ct-status" style="font-size:13px;margin-bottom:10px"></div>'
+    +'<button onclick="submitContactForm(\''+prodId+'\')" style="width:100%;background:linear-gradient(135deg,#4c1d95,#7c3aed);color:#fff;border:none;border-radius:10px;padding:14px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">\uD83D\uDCE7 Send Message</button>'
+    +'</div>'
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+async function submitContactForm(prodId){
+  const name    = document.getElementById('ct-name')?.value.trim()
+  const email   = document.getElementById('ct-email')?.value.trim()
+  const subject = document.getElementById('ct-subject')?.value.trim()
+  const message = document.getElementById('ct-message')?.value.trim()
+  const status  = document.getElementById('ct-status')
+  if(!name||!email||!subject||!message){
+    if(status) status.innerHTML = '<span style="color:#dc2626">Please fill in all fields.</span>'
+    return
+  }
+  const btn = document.querySelector('#contact-modal-overlay button[onclick^="submitContactForm"]')
+  if(btn){ btn.disabled=true; btn.textContent='Sending\u2026' }
+  try {
+    const r = await fetch('/api/portal/contact-production',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({production_id:prodId, from_name:name, from_email:email, subject, message})
+    })
+    const d = await r.json()
+    if(d.ok){
+      if(status) status.innerHTML = '<span style="color:#16a34a">\u2713 Message sent to the production team!</span>'
+      setTimeout(()=>{ const ov=document.getElementById('contact-modal-overlay'); if(ov)ov.remove() }, 2000)
+    } else {
+      if(status) status.innerHTML = '<span style="color:#dc2626">'+(d.error||'Failed to send. Please try again.')+'</span>'
+      if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDCE7 Send Message' }
+    }
+  } catch(err){
+    if(status) status.innerHTML = '<span style="color:#dc2626">Network error. Please try again.</span>'
+    if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDCE7 Send Message' }
+  }
 }
 
 function buildTeamHTML(members){

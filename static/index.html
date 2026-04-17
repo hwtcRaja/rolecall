@@ -1951,6 +1951,7 @@ const AVATAR_COLORS = [
 // ═══════════════════════════════════════════════════════════════
 function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
 function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
+function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
 function formatDate(d){
   if(!d) return '—'
   const dt = new Date(d+'T00:00:00')
@@ -7639,14 +7640,16 @@ async function loadTeamMembers(pid){
     return
   }
   el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">'
-    + members.map(m=>'<div style="border:1.5px solid var(--border-md);border-radius:var(--radius-lg);overflow:hidden">'
-      +(m.headshot_url?'<img src="'+m.headshot_url+'" style="width:100%;height:160px;object-fit:cover;display:block" onerror="this.style.display=\'none\'"/>':'<div style="width:100%;height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:36px">👤</div>')
+    + members.map(m=>'<div id="team-card-'+m.id+'" style="border:1.5px solid var(--border-md);border-radius:var(--radius-lg);overflow:hidden">'
+      +(m.headshot_url
+        ?'<div style="height:160px;overflow:hidden;background:var(--bg);position:relative"><img src="'+m.headshot_url+'" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.innerHTML=\'<div style=&quot;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:36px&quot;>👤</div>\'"/></div>'
+        :'<div style="width:100%;height:80px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:36px">👤</div>')
       +'<div style="padding:12px">'
       +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
       +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
       +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">'+m.bio+'</div>':'')
       +'<div style="margin-top:10px;display:flex;gap:6px">'
-      +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>'
+      +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">✏️ Edit</button>'
       +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px">✕</button>'
       +'</div></div></div>'
     ).join('')
@@ -7674,17 +7677,34 @@ async function deleteTeamMember(pid, mid){
   toast('Removed')
 }
 async function editTeamMember(pid, mid){
+  const el = document.getElementById('team-card-'+mid)
+  if(!el) return
   const members = await api('/api/productions/'+pid+'/team')
   const m = members.find(x=>x.id===mid)
   if(!m) return
-  const name = prompt('Name:', m.name)
-  if(!name) return
-  const role = prompt('Role:', m.role||'')
-  const headshot_url = prompt('Headshot URL:', m.headshot_url||'')
-  const bio = prompt('Bio:', m.bio||'')
-  await api('/api/productions/'+pid+'/team/'+mid,'PUT',{name, role:role||'', headshot_url:headshot_url||'', bio:bio||'', sort_order:m.sort_order||0})
+  el.innerHTML =
+    '<div style="padding:12px">'
+    +'<div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px">Editing</div>'
+    +'<input id="te-name-'+mid+'" value="'+escHtml(m.name||'')+'" placeholder="Name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<input id="te-role-'+mid+'" value="'+escHtml(m.role||'')+'" placeholder="Role / Title" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<input id="te-headshot-'+mid+'" value="'+escHtml(m.headshot_url||'')+'" placeholder="Headshot URL (https://…)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
+    +'<textarea id="te-bio-'+mid+'" placeholder="Short bio…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:60px;resize:vertical;margin-bottom:8px">'+escHtml(m.bio||'')+'</textarea>'
+    +'<div style="display:flex;gap:6px">'
+    +'<button onclick="saveTeamMember(\''+pid+'\',\''+mid+'\')" class="btn btn-primary btn-sm">💾 Save</button>'
+    +'<button onclick="loadTeamMembers(\''+pid+'\')" class="btn btn-secondary btn-sm">Cancel</button>'
+    +'</div></div>'
+}
+
+async function saveTeamMember(pid, mid){
+  const name = document.getElementById('te-name-'+mid)?.value.trim()
+  const role = document.getElementById('te-role-'+mid)?.value.trim()||''
+  const headshot_url = document.getElementById('te-headshot-'+mid)?.value.trim()||''
+  const bio = document.getElementById('te-bio-'+mid)?.value.trim()||''
+  if(!name){ toast('Name required','error'); return }
+  const res = await api('/api/productions/'+pid+'/team/'+mid,'PUT',{name, role, headshot_url, bio, sort_order:0})
+  if(res.error){ toast(res.error,'error'); return }
   await loadTeamMembers(pid)
-  toast('Updated!')
+  toast('Team member updated!')
 }
 
 // ── Conflicts ──

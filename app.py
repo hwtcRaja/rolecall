@@ -457,6 +457,9 @@ def init_db():
             updated_by TEXT)""",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
             id TEXT PRIMARY KEY,
             volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
@@ -2970,8 +2973,9 @@ def portal_participant_data(yid):
             LEFT JOIN youth_programs yp ON pa.program_id=yp.id
             LEFT JOIN productions pr ON pa.production_id=pr.id
             LEFT JOIN users u ON pa.author_id=u.id
-            WHERE pa.program_id IN ({','.join(['%s']*len(prog_ids)) if prog_ids else 'NULL'})
-               OR pa.production_id IN ({','.join(['%s']*len(prod_ids)) if prod_ids else 'NULL'})
+            WHERE (pa.program_id IN ({','.join(['%s']*len(prog_ids)) if prog_ids else 'NULL'})
+               OR pa.production_id IN ({','.join(['%s']*len(prod_ids)) if prod_ids else 'NULL'}))
+               AND COALESCE(pa.status,'published')='published'
             ORDER BY pa.created_at DESC''',
             tuple(prog_ids + prod_ids)) if (prog_ids or prod_ids) else []
     # Files
@@ -3020,12 +3024,34 @@ def create_portal_announcement():
     if err: return err
     d = request.json
     aid = str(uuid.uuid4())
+    status = d.get('status', 'published')
     conn = get_db()
     execute(conn, '''INSERT INTO portal_announcements 
-        (id,program_id,production_id,title,body,author_id)
-        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (id,program_id,production_id,title,body,author_id,status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
         (aid, d.get('program_id') or None, d.get('production_id') or None,
-         d['title'], d['body'], session.get('user_id')))
+         d['title'], d['body'], session.get('user_id'), status))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pa.*, u.name as author_name FROM portal_announcements pa
+        LEFT JOIN users u ON pa.author_id=u.id WHERE pa.id=%s''', (aid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/announcements/<aid>', methods=['PUT'])
+def update_portal_announcement(aid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    # Only update title/body if provided and non-empty
+    updates = ['status=%s']
+    params = [d.get('status','published')]
+    if d.get('title'):
+        updates.append('title=%s'); params.append(d['title'])
+    if d.get('body'):
+        updates.append('body=%s'); params.append(d['body'])
+    params.append(aid)
+    execute(conn, 'UPDATE portal_announcements SET '+','.join(updates)+' WHERE id=%s', tuple(params))
     conn.commit()
     row = fetchone(conn, '''SELECT pa.*, u.name as author_name FROM portal_announcements pa
         LEFT JOIN users u ON pa.author_id=u.id WHERE pa.id=%s''', (aid,))

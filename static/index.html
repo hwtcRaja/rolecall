@@ -7273,7 +7273,19 @@ function switchProdPortalTab(tab, btn){
   document.querySelectorAll('.portal-sub-btn').forEach(b=>b.classList.remove('active'))
   if(btn) btn.classList.add('active')
   if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
-  if(tab==='team') loadTeamMembers(pid)
+  if(tab==='team'){
+    const teamEl = document.getElementById('pptab-team-'+pid)
+    if(teamEl) loadTeamMembers(pid)
+    else {
+      // Fallback: team panel not found, try re-rendering portal
+      const inner = document.getElementById('prodtab-portal-inner-'+pid)
+      if(inner && inner.innerHTML.trim()===''){
+        const prod = allProductions.find(p=>p.id===pid)
+        if(prod) inner.innerHTML = renderProductionPortalHTML(pid, prod.stage)
+      }
+      setTimeout(()=>loadTeamMembers(pid), 100)
+    }
+  }
   if(tab==='about') loadProductionAbout(pid)
   if(tab==='conflicts') loadProductionConflicts(pid)
   if(tab==='overview') loadProductionOverview(pid)
@@ -7610,10 +7622,17 @@ async function saveProductionAbout(pid){
 // ── Meet the Team ──
 async function loadTeamMembers(pid){
   const el = document.getElementById('prod-team-list-'+pid)
-  if(!el) return
-  const members = await api('/api/productions/'+pid+'/team')
+  if(!el){ console.warn('loadTeamMembers: prod-team-list-'+pid+' not found'); return }
+  el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">Loading team members…</div>'
+  let members
+  try {
+    members = await api('/api/productions/'+pid+'/team')
+  } catch(e) {
+    el.innerHTML='<div style="font-size:13px;color:var(--red-600)">Error loading: '+e.message+'</div>'
+    return
+  }
   if(!members || members.error || !Array.isArray(members)){
-    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.</div>'
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No team members yet. Add one above.'+(members&&members.error?' ('+members.error+')':'')+'</div>'
     return
   }
   if(!members.length){

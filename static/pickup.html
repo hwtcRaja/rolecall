@@ -403,7 +403,7 @@ function renderPickedUp(pickedUp){
   el.innerHTML = sorted.map(r=>`
     <div class="pickedup-item">
       <div class="check-icon">✓</div>
-      <div class="pickedup-name">${r.first_name} ${(r.last_name||'')[0]||'}.'}</div>
+      <div class="pickedup-name">${r.first_name} ${(r.last_name||'')[0]||''}.</div>
       <div class="pickedup-time">${fmtTime(r.signed_out_at)}</div>
     </div>`).join('')
 }

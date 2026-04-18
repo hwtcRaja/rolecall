@@ -352,12 +352,12 @@ function showAnnouncement(name){
   }
 
   // 90-second countdown
-  let secs = 90
-  timerEl.textContent = 'Clearing in ' + secs + 's'
+  let secs = 6
+  timerEl.textContent = ''
   clearInterval(announceCountdown)
   announceCountdown = setInterval(()=>{
     secs--
-    timerEl.textContent = 'Clearing in ' + secs + 's'
+    timerEl.textContent = ''
     if(secs <= 0){
       clearInterval(announceCountdown)
       window.speechSynthesis?.cancel()

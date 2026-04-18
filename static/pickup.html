@@ -17,12 +17,12 @@ body{
 /* ── Header ── */
 .header{
   background:#0d3d4d;
-  padding:18px 40px;
+  padding:14px 40px;
   display:flex;align-items:center;justify-content:space-between;
   border-bottom:3px solid #145466;
 }
-.header-logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#fff}
-.header-sub{font-size:14px;color:rgba(255,255,255,0.6);margin-top:2px}
+.header-logo{font-size:20px;font-weight:800;letter-spacing:-0.3px;color:#fff}
+.header-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-top:3px}
 .header-time{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;color:#fff}
 .header-date{font-size:13px;color:rgba(255,255,255,0.6);text-align:right;margin-top:2px}
 
@@ -63,10 +63,10 @@ body{
   display:grid;
   grid-template-columns:1fr 320px;
   gap:0;
-  height:calc(100vh - 80px);
+  height:calc(100vh - 84px);
   overflow:hidden;
 }
-.main.announcing{ height:calc(100vh - 80px - 130px) }
+.main.announcing{ height:calc(100vh - 84px - 130px) }
 
 /* ── Waiting section ── */
 .waiting-section{
@@ -193,9 +193,13 @@ body{
 
 <!-- Header -->
 <div class="header">
-  <div>
-    <div class="header-logo">🎭 RoleCall — Pickup Queue</div>
-    <div class="header-sub"><span id="conn-dot"></span><span id="conn-label">Live</span></div>
+  <div style="display:flex;align-items:center;gap:20px">
+    <img src="/static/images/hwtc_logo.png" alt="Horizon West Theater Company" style="height:52px;filter:brightness(0) invert(1);opacity:0.95"/>
+    <div style="width:1px;height:44px;background:rgba(255,255,255,0.2)"></div>
+    <div>
+      <div class="header-logo">Youth Participant Pick-Up Queue</div>
+      <div class="header-sub"><span id="conn-dot"></span><span id="conn-label">Live</span></div>
+    </div>
   </div>
   <div>
     <div class="header-time" id="clock">--:-- --</div>

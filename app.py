@@ -4537,56 +4537,6 @@ def get_permission_sections():
 
 @app.route('/pickup')
 def pickup_page():
-    import time
-    resp = send_from_directory('static', 'pickup.html')
-    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    resp.headers['Pragma'] = 'no-cache'
-    return resp
-
-@app.route('/api/pickup/queue')
-def pickup_queue():
-    """Public endpoint - no auth required. Returns all minors signed in today."""
-    conn = get_db()
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    est = ZoneInfo('America/New_York')
-
-    # Get all youth sign-ins from today (EST), include recently signed out (last 2 hrs)
-    rows = fetchall(conn, '''
-        SELECT
-            ys.id, ys.youth_id, ys.signed_in_at, ys.signed_out_at,
-            y.first_name, y.last_name, y.dob,
-            e.name AS event_name, e.id AS event_id,
-            yp.name AS program_name, yp.id AS program_id,
-            COALESCE(
-                (SELECT name FROM youth_guardians
-                 WHERE youth_id=y.id AND is_primary=1 LIMIT 1),
-                (SELECT name FROM youth_guardians
-                 WHERE youth_id=y.id LIMIT 1)
-            ) AS guardian_name
-        FROM youth_sign_ins ys
-        JOIN youth_participants y ON ys.youth_id = y.id
-        LEFT JOIN events e ON ys.event_id = e.id
-        LEFT JOIN youth_programs yp ON ys.program_id = yp.id
-        WHERE ys.signed_in_at::date = CURRENT_DATE
-          AND (
-            ys.signed_out_at IS NULL
-            OR ys.signed_out_at > NOW() - INTERVAL '2 hours'
-          )
-        ORDER BY ys.signed_in_at ASC
-    ''')
-    conn.close()
-    return jsonify(rows)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  PICKUP DISPLAY — TV Queue
-# ═══════════════════════════════════════════════════════════════
-
-@app.route('/pickup')
-def pickup_page():
     resp = send_from_directory('static', 'pickup.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'

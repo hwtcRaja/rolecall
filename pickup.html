@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Pickup Queue — RoleCall</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'DM Sans',system-ui,sans-serif;
+  background:#0d1b2a;
+  color:#fff;
+  min-height:100vh;
+  overflow:hidden;
+}
+
+/* ── Header ── */
+.header{
+  background:#0d3d4d;
+  padding:14px 40px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:3px solid #145466;
+}
+.header-logo{font-size:20px;font-weight:800;letter-spacing:-0.3px;color:#fff}
+.header-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-top:3px}
+.header-time{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;color:#fff}
+.header-date{font-size:13px;color:rgba(255,255,255,0.6);text-align:right;margin-top:2px}
+
+/* ── Announcement banner ── */
+#announce-banner{
+  display:none;
+  position:relative;
+  background:linear-gradient(135deg,#b45309,#d97706);
+  padding:28px 40px;
+  text-align:center;
+  animation:pulse-bg 1.2s ease-in-out infinite alternate;
+}
+#announce-banner.visible{ display:block }
+@keyframes pulse-bg{
+  from{background:linear-gradient(135deg,#b45309,#d97706)}
+  to{background:linear-gradient(135deg,#d97706,#f59e0b)}
+}
+.announce-name{
+  font-size:52px;font-weight:900;letter-spacing:-1px;
+  color:#fff;text-shadow:0 2px 8px rgba(0,0,0,0.3);
+  animation:bounce-in 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+.announce-msg{
+  font-size:24px;font-weight:600;color:rgba(255,255,255,0.92);
+  margin-top:6px;
+}
+.announce-timer{
+  position:absolute;bottom:10px;right:20px;
+  font-size:12px;color:rgba(255,255,255,0.5);
+}
+@keyframes bounce-in{
+  from{transform:scale(0.5);opacity:0}
+  to{transform:scale(1);opacity:1}
+}
+
+/* ── Main layout ── */
+.main{
+  display:grid;
+  grid-template-columns:1fr 320px;
+  gap:0;
+  height:calc(100vh - 84px);
+  overflow:hidden;
+}
+.main.announcing{ height:calc(100vh - 84px - 130px) }
+
+/* ── Waiting section ── */
+.waiting-section{
+  padding:24px 32px;
+  overflow-y:auto;
+  border-right:2px solid rgba(255,255,255,0.08);
+}
+.section-title{
+  font-size:13px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1.5px;
+  color:rgba(255,255,255,0.4);
+  margin-bottom:20px;
+  display:flex;align-items:center;gap:10px;
+}
+.section-title::after{
+  content:'';flex:1;height:1px;background:rgba(255,255,255,0.1)
+}
+
+/* Group header */
+.group-header{
+  font-size:12px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1px;
+  color:rgba(255,255,255,0.35);
+  padding:12px 0 8px;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+  margin-bottom:10px;
+  margin-top:8px;
+}
+.group-header:first-child{ margin-top:0 }
+
+/* ── Participant chip ── */
+.participant{
+  display:flex;align-items:center;gap:16px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:12px;
+  padding:14px 18px;
+  margin-bottom:10px;
+  transition:all 0.3s ease;
+}
+.participant.new-arrival{
+  animation:slide-in 0.5s cubic-bezier(0.34,1.56,0.64,1);
+  border-color:rgba(20,84,102,0.8);
+  background:rgba(20,84,102,0.3);
+}
+@keyframes slide-in{
+  from{transform:translateX(-30px);opacity:0}
+  to{transform:translateX(0);opacity:1}
+}
+.p-avatar{
+  width:48px;height:48px;border-radius:50%;
+  background:#145466;
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;font-weight:800;color:#fff;
+  flex-shrink:0;
+}
+.p-info{ flex:1;min-width:0 }
+.p-name{ font-size:22px;font-weight:700;line-height:1.2 }
+.p-guardian{ font-size:13px;color:rgba(255,255,255,0.5);margin-top:3px }
+.p-time{
+  font-size:12px;color:rgba(255,255,255,0.35);
+  font-variant-numeric:tabular-nums;
+  flex-shrink:0;text-align:right;
+}
+.p-duration{ font-size:13px;font-weight:600;color:rgba(255,255,255,0.55) }
+
+/* ── Status dot ── */
+.status-dot{
+  width:10px;height:10px;border-radius:50%;
+  flex-shrink:0;
+}
+.dot-waiting{ background:#f59e0b;box-shadow:0 0 8px #f59e0b }
+.dot-ready{
+  background:#10b981;
+  box-shadow:0 0 8px #10b981;
+  animation:dot-pulse 1.5s ease-in-out infinite;
+}
+@keyframes dot-pulse{
+  0%,100%{box-shadow:0 0 4px #10b981}
+  50%{box-shadow:0 0 16px #10b981,0 0 30px rgba(16,185,129,0.4)}
+}
+
+/* ── Sidebar: picked up ── */
+.pickedup-section{
+  padding:24px 20px;
+  overflow-y:auto;
+  background:rgba(0,0,0,0.2);
+}
+.pickedup-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;
+  border-radius:8px;
+  margin-bottom:6px;
+  opacity:0.7;
+  transition:opacity 0.3s;
+}
+.pickedup-item:hover{ opacity:1 }
+.pickedup-name{ font-size:15px;font-weight:600;flex:1 }
+.pickedup-time{ font-size:11px;color:rgba(255,255,255,0.4) }
+.check-icon{
+  width:22px;height:22px;border-radius:50%;
+  background:rgba(16,185,129,0.2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:#10b981;flex-shrink:0;
+}
+
+/* ── Empty state ── */
+.empty{
+  text-align:center;padding:60px 20px;
+  color:rgba(255,255,255,0.25);
+}
+.empty-icon{ font-size:48px;margin-bottom:12px }
+.empty-text{ font-size:16px }
+
+/* ── Connection indicator ── */
+#conn-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:#10b981;display:inline-block;margin-right:6px;
+}
+#conn-dot.offline{ background:#ef4444 }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div style="display:flex;align-items:center;gap:20px">
+    <img src="/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company" style="height:52px;mix-blend-mode:screen;opacity:0.95"/>
+    <div style="width:1px;height:44px;background:rgba(255,255,255,0.2)"></div>
+    <div>
+      <div class="header-logo">Youth Participant Pick-Up Queue</div>
+      <div class="header-sub"><span id="conn-dot"></span><span id="conn-label">Live</span></div>
+    </div>
+  </div>
+  <div>
+    <div class="header-time" id="clock">--:-- --</div>
+    <div class="header-date" id="dateline"></div>
+  </div>
+</div>
+
+<!-- Announcement banner (hidden until triggered) -->
+<div id="announce-banner">
+  <div class="announce-name" id="announce-name"></div>
+  <div class="announce-msg" id="announce-msg"></div>
+  <div class="announce-timer" id="announce-timer"></div>
+</div>
+
+<!-- Main content -->
+<div class="main" id="main-grid">
+  <!-- Left: still waiting -->
+  <div class="waiting-section" id="waiting-section">
+    <div class="section-title">Waiting for pickup</div>
+    <div id="waiting-list"><div class="empty"><div class="empty-icon">👋</div><div class="empty-text">No one signed in yet today</div></div></div>
+  </div>
+  <!-- Right: already picked up -->
+  <div class="pickedup-section">
+    <div class="section-title">Picked up</div>
+    <div id="pickedup-list"><div style="font-size:13px;color:rgba(255,255,255,0.25);text-align:center;padding:20px">None yet</div></div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let prevSignedIn = new Set()
+let announceQueue = []
+let isAnnouncing = false
+let announceTimeout = null
+let announceCountdown = null
+
+// ── Clock ──
+function updateClock(){
+  const now = new Date()
+  const t = now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
+  const d = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+  document.getElementById('clock').textContent = t
+  document.getElementById('dateline').textContent = d
+}
+updateClock()
+setInterval(updateClock, 1000)
+
+// ── Audio: persistent context, unlocked on first interaction ──
+let audioCtx = null
+
+function unlockAudio(){
+  if(audioCtx) return
+  try {
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)()
+    // Play a silent buffer to fully unlock
+    const buf = audioCtx.createBuffer(1,1,22050)
+    const src = audioCtx.createBufferSource()
+    src.buffer = buf; src.connect(audioCtx.destination); src.start(0)
+  } catch(e){ audioCtx = null }
+}
+
+// Unlock on any interaction
+document.addEventListener('click', unlockAudio, {once:false})
+document.addEventListener('touchstart', unlockAudio, {once:false})
+document.addEventListener('keydown', unlockAudio, {once:false})
+// Also try immediately (works if page was interacted with before load)
+unlockAudio()
+
+function playChime(){
+  if(!audioCtx){ unlockAudio(); if(!audioCtx) return }
+  // Resume if suspended (Chrome autoplay policy)
+  if(audioCtx.state === 'suspended') audioCtx.resume()
+
+  const notes = [523.25, 659.25, 783.99] // C5, E5, G5
+  function playSequence(vol){
+    notes.forEach((freq, i) => {
+      const osc  = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.connect(gain); gain.connect(audioCtx.destination)
+      osc.frequency.value = freq
+      osc.type = 'sine'
+      const t = audioCtx.currentTime + i * 0.18
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(vol, t + 0.06)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.65)
+      osc.start(t); osc.stop(t + 0.7)
+    })
+  }
+  playSequence(0.5)
+  setTimeout(()=> playSequence(0.35), 1100)
+  setTimeout(()=> playSequence(0.2),  2000)
+}
+
+// ── Announce queue ──
+function queueAnnouncement(name){
+  announceQueue.push(name)
+  if(!isAnnouncing) processNextAnnouncement()
+}
+
+function processNextAnnouncement(){
+  if(announceQueue.length === 0){ isAnnouncing = false; return }
+  isAnnouncing = true
+  const name = announceQueue.shift()
+  showAnnouncement(name)
+}
+
+function showAnnouncement(name){
+  const banner  = document.getElementById('announce-banner')
+  const nameEl  = document.getElementById('announce-name')
+  const msgEl   = document.getElementById('announce-msg')
+  const timerEl = document.getElementById('announce-timer')
+  const grid    = document.getElementById('main-grid')
+
+  const msg = name + ', your ride is here — please come to the lobby!'
+  nameEl.textContent = name
+  msgEl.textContent  = msg
+  banner.classList.add('visible')
+  grid.classList.add('announcing')
+
+  playChime()
+
+  // Speak after chime (voices may need a moment to load)
+  const speak = ()=>{
+    if(!('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const voices = window.speechSynthesis.getVoices()
+    const preferred = voices.find(v=>
+      v.name.includes('Samantha') ||
+      v.name.includes('Google US English') ||
+      v.name.includes('Microsoft Aria') ||
+      v.name.includes('Karen') ||
+      (v.lang==='en-US' && !v.name.includes('Google'))
+    ) || voices.find(v=>v.lang.startsWith('en'))
+    const say = (text, onDone)=>{
+      const u = new SpeechSynthesisUtterance(text)
+      u.rate = 0.88; u.pitch = 1.0; u.volume = 1.0
+      if(preferred) u.voice = preferred
+      if(onDone) u.onend = onDone
+      window.speechSynthesis.speak(u)
+    }
+    say(msg)
+  }
+
+  if(window.speechSynthesis && window.speechSynthesis.getVoices().length > 0){
+    setTimeout(speak, 1400)
+  } else {
+    // Voices not loaded yet — wait for them
+    window.speechSynthesis.addEventListener('voiceschanged', ()=>setTimeout(speak,1400), {once:true})
+  }
+
+  // 90-second countdown
+  let secs = 6
+  timerEl.textContent = ''
+  clearInterval(announceCountdown)
+  announceCountdown = setInterval(()=>{
+    secs--
+    timerEl.textContent = ''
+    if(secs <= 0){
+      clearInterval(announceCountdown)
+      window.speechSynthesis?.cancel()
+      banner.classList.remove('visible')
+      grid.classList.remove('announcing')
+      setTimeout(processNextAnnouncement, 800)
+    }
+  }, 1000)
+}
+
+// ── Format helpers ──
+function initials(first, last){ return ((first||'')[0]||('')).toUpperCase() + ((last||'')[0]||('')).toUpperCase() }
+function fmtTime(ts){
+  if(!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
+}
+function duration(ts){
+  const mins = Math.floor((Date.now() - new Date(ts)) / 60000)
+  if(mins < 60) return mins + 'm'
+  const h = Math.floor(mins/60), m = mins%60
+  return h + 'h ' + (m>0?m+'m':'')
+}
+
+// ── Render ──
+function render(rows){
+  const waiting = rows.filter(r => !r.signed_out_at)
+  const pickedUp = rows.filter(r => !!r.signed_out_at)
+
+  // Detect newly signed-out (announcement triggers)
+  const currentSignedIn = new Set(waiting.map(r=>r.id))
+  rows.forEach(r=>{
+    if(r.signed_out_at && prevSignedIn.has(r.id)){
+      // This person just got signed out — announce!
+      queueAnnouncement(r.first_name)
+    }
+  })
+  prevSignedIn = currentSignedIn
+
+  renderWaiting(waiting)
+  renderPickedUp(pickedUp)
+}
+
+function renderWaiting(waiting){
+  const el = document.getElementById('waiting-list')
+  if(!waiting.length){
+    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Everyone has been picked up!</div></div>'
+    return
+  }
+
+  // Group by event/program
+  const groups = {}
+  waiting.forEach(r=>{
+    const key = r.event_name || r.program_name || 'General'
+    if(!groups[key]) groups[key] = []
+    groups[key].push(r)
+  })
+
+  const showGroups = Object.keys(groups).length > 1
+
+  el.innerHTML = Object.entries(groups).map(([groupName, members])=>`
+    ${showGroups ? `<div class="group-header">${groupName}</div>` : ''}
+    ${members.map(r=>`
+      <div class="participant" id="p-${r.id}">
+        <div class="status-dot dot-waiting"></div>
+        <div class="p-avatar">${initials(r.first_name, r.last_name)}</div>
+        <div class="p-info">
+          <div class="p-name">${r.first_name} ${(r.last_name||'')[0]||''}.</div>
+          <div class="p-guardian">${r.guardian_name ? 'Guardian: ' + r.guardian_name : ''}</div>
+        </div>
+        <div class="p-time">
+          <div class="p-duration">${duration(r.signed_in_at)}</div>
+          <div>since ${fmtTime(r.signed_in_at)}</div>
+        </div>
+      </div>`).join('')}
+  `).join('')
+}
+
+function renderPickedUp(pickedUp){
+  const el = document.getElementById('pickedup-list')
+  if(!pickedUp.length){
+    el.innerHTML = '<div style="font-size:13px;color:rgba(255,255,255,0.25);text-align:center;padding:20px">None yet</div>'
+    return
+  }
+  // Most recent first
+  const sorted = [...pickedUp].sort((a,b)=>new Date(b.signed_out_at)-new Date(a.signed_out_at))
+  el.innerHTML = sorted.map(r=>`
+    <div class="pickedup-item">
+      <div class="check-icon">✓</div>
+      <div class="pickedup-name">${r.first_name} ${(r.last_name||'')[0]||''}.</div>
+      <div class="pickedup-time">${fmtTime(r.signed_out_at)}</div>
+    </div>`).join('')
+}
+
+// ── Polling ──
+let lastPoll = null
+
+async function poll(){
+  try {
+    const res = await fetch('/api/pickup/queue', {cache:'no-store'})
+    if(!res.ok) throw new Error('HTTP '+res.status)
+    const data = await res.json()
+    render(data)
+    document.getElementById('conn-dot').className = ''
+    document.getElementById('conn-label').textContent = 'Live'
+    lastPoll = Date.now()
+  } catch(e){
+    document.getElementById('conn-dot').className = 'offline'
+    document.getElementById('conn-label').textContent = 'Reconnecting…'
+  }
+}
+
+// poll() called by startDisplay() after user gesture
+setInterval(()=>{ if(document.getElementById("start-overlay").style.display==="none") poll() }, 5000)
+
+// Keep duration timers updating
+setInterval(()=>{
+  document.querySelectorAll('.p-duration').forEach(el=>{
+    const card = el.closest('.participant')
+    if(!card) return
+    const id = card.id.replace('p-','')
+    // Duration updates via full re-render every 5s anyway
+  })
+}, 60000)
+</script>
+
+<div id="start-overlay" style="position:fixed;inset:0;background:#0d1b2a;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px">
+  <img src="/static/images/hwtc_logo_white.png" style="height:70px;mix-blend-mode:screen;opacity:0.95"/>
+  <div style="font-size:18px;color:rgba(255,255,255,0.6);font-family:system-ui,sans-serif">Youth Participant Pick-Up Queue</div>
+  <button onclick="startDisplay()" style="margin-top:16px;background:#145466;color:#fff;border:none;border-radius:12px;padding:20px 48px;font-size:22px;font-weight:700;cursor:pointer;font-family:system-ui,sans-serif;letter-spacing:-0.3px">
+    Tap to Start Display
+  </button>
+  <div style="font-size:13px;color:rgba(255,255,255,0.3);font-family:system-ui,sans-serif">Enables audio announcements</div>
+</div>
+
+<script>
+function startDisplay(){
+  // Unlock audio context with user gesture
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)()
+    ctx.resume()
+  } catch(e){}
+  // Prime speech synthesis
+  if('speechSynthesis' in window){
+    const u = new SpeechSynthesisUtterance('')
+    window.speechSynthesis.speak(u)
+    window.speechSynthesis.cancel()
+  }
+  document.getElementById('start-overlay').style.display = 'none'
+  poll()
+}
+</script>
+</body>
+</html>

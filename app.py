@@ -2446,8 +2446,6 @@ def kiosk_open_event_checklist():
 
 @app.route('/api/youth-sign-ins')
 def get_youth_sign_ins():
-    err = require_auth()
-    if err: return err
     event_id = request.args.get('event_id')
     program_id = request.args.get('program_id')
     conn = get_db()
@@ -2470,8 +2468,6 @@ def get_youth_sign_ins():
 
 @app.route('/api/youth-sign-ins', methods=['POST'])
 def create_youth_sign_in():
-    err = require_auth()
-    if err: return err
     d = request.json
     sid = str(uuid.uuid4())
     conn = get_db()
@@ -2486,8 +2482,6 @@ def create_youth_sign_in():
 
 @app.route('/api/youth-sign-ins/<sid>/sign-out', methods=['POST'])
 def youth_sign_out(sid):
-    err = require_auth()
-    if err: return err
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by=%s WHERE id=%s',

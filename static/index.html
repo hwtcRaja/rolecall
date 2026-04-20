@@ -2858,7 +2858,7 @@ function renderWaivers(){
   })
   const dotClass={valid:'dot-valid',expiring:'dot-expiring',expired:'dot-expired',none:'dot-none'}
   const labelMap={valid:'✅ Valid',expiring:'⚠️ Expiring Soon',expired:'❌ Expired',none:'No Waiver'}
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('volunteers')
   const grid = document.getElementById('waivers-grid')
 
   // Summary counts
@@ -4525,7 +4525,7 @@ function openProductionDetail(prodId, fromPage){
   prodDetailFromPage = fromPage||(allProductions.find(p=>p.id===prodId)?.stage==='rising_stars'?'rising-stars-page':'productions')
   const p=allProductions.find(p=>p.id===prodId)
   if(!p) return
-  const isAdmin=canEdit('productions')
+  const isAdmin=canEdit('productions')||canEdit('rising_stars')
   const canSeePortal=isAdmin||canEdit('portal_admin')||canEdit('rising_stars')
   const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
 
@@ -5646,7 +5646,7 @@ async function loadEventLogs(){
   const actionColors={open:'var(--green-600)',close:'var(--teal-600)'}
   const actionLabels={open:'🟢 Opened',close:'🔒 Closed'}
   const typeIcon={checkbox:'☑️',text:'📝',rating:'⭐'}
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('reports')
   el.innerHTML=logs.map(log=>`
     <div class="card" style="padding:20px;margin-bottom:16px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:${log.checklist?.length?'16px':'0'}">
@@ -5877,12 +5877,12 @@ function renderCalendar(events){
     const dateStr=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const isToday=dateStr===today
     const dayEvents=byDate[dateStr]||[]
-    const isAdminGrid=currentUser?.role==='admin'
+    const isAdminGrid=canEdit('events')
     cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:8px;cursor:${isAdminGrid?'pointer':'default'}" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
       <div style="font-size:13px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
       ${dayEvents.slice(0,3).map(e=>{
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
-        const isAdminCal=currentUser?.role==='admin'
+        const isAdminCal=canEdit('events')
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
         const calElicStr=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
         // Context label: what this event belongs to
@@ -6559,7 +6559,7 @@ async function loadYouthSignInSheet(){
   }
   content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
 
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('rising_stars')||canEdit('youth')
 
   if(cat === 'program'){
     await loadProgramSignIn(parentId, eventId, isAdmin)
@@ -6617,7 +6617,7 @@ function setYsiView(v){
   ysiView = v
   // Re-render based on current category
   const cat = ysiCurrentFilter.category
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('rising_stars')||canEdit('youth')
   if(cat==='rising_stars'){
     const prod = allProductions.find(p=>p.id===ysiCurrentFilter.parentId)
     renderRisingStarsSheet(prod?.name||'Rising Stars', ysiCurrentFilter.eventId, isAdmin)
@@ -7186,7 +7186,7 @@ async function unenrollFromProgram(enrollmentId, programId, name, btn){
 async function openProgramDetail(programId){
   const p = allPrograms.find(p=>p.id===programId)
   if(!p) return
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('programs')
 
   // Build banner
   const type = p.program_type||'class'
@@ -7595,7 +7595,7 @@ function previewPortalColor(pid, color){
 async function loadProductionScheduleConflicts(pid){
   const el = document.getElementById('prod-sched-conflicts-'+pid)
   if(!el) return
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('productions')||canEdit('rising_stars')
   const [events, conflicts] = await Promise.all([
     Promise.resolve(allEvents.filter(e=>e.production_id===pid).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))),
     api('/api/productions/'+pid+'/conflicts')
@@ -9015,7 +9015,7 @@ function renderRisingStarsPage(){
   const search = document.getElementById('rs-search')?.value.toLowerCase()||''
   const filterStatus = document.getElementById('rs-filter-status')?.value||''
   const grid = document.getElementById('rs-page-grid')
-  const isAdmin = currentUser?.role==='admin'
+  const isAdmin = canEdit('rising_stars') || canEdit('productions')
 
   let filtered = allProductions.filter(p=>{
     if(p.stage!=='rising_stars') return false

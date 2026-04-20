@@ -1664,6 +1664,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="form-group"><label>Internal Notes</label><textarea id="edit-event-notes" placeholder="Notes for staff/admins only…"></textarea></div>
       <div style="display:flex;gap:16px;padding:8px 0">
         <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event</label>
+        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-autolog" style="accent-color:var(--teal-400)"/> ⚡ Auto-log full event hours — volunteers get credited for the entire event duration without clocking in/out</label>
       </div>
     </div>
 
@@ -6100,6 +6101,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-production').value=''
     document.getElementById('edit-event-volunteers').value=''
     document.getElementById('edit-event-bgcheck').checked=false
+    document.getElementById('edit-event-autolog').checked=false
     setEventElicUI(null, null)  // reset ELIC
     // If opened from a program or production context, pre-fill parent and default ELIC
     if(eid===null && window._openEventParent){
@@ -6134,6 +6136,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-desc').value=e.description||''
     document.getElementById('edit-event-notes').value=e.notes||''
     document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
+    document.getElementById('edit-event-autolog').checked=!!e.auto_log_hours
   }
   // Reset repeat section
   const repSel=document.getElementById('event-repeat-type')
@@ -6173,7 +6176,8 @@ async function saveEditEvent(){
     expected_volunteers:parseInt(document.getElementById('edit-event-volunteers')?.value)||null,
     description:document.getElementById('edit-event-desc')?.value.trim()||'',
     notes:document.getElementById('edit-event-notes')?.value.trim()||'',
-    requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false
+    requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
+      auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false
   }
 
   // Save the base event

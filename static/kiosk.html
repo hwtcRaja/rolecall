@@ -280,17 +280,17 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <div><div style="font-weight:700;font-size:16px;color:var(--teal-dark)" id="vm-name"></div><div style="font-size:12px;color:var(--muted)">What would you like to do?</div></div>
   </div>
   <!-- Active session banner -->
-  <div id="active-session-banner" style="display:none;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;display:none">
-    <div style="font-size:13px;font-weight:700;margin-bottom:4px">🟢 Currently Volunteering</div>
-    <div style="font-size:11px;opacity:0.85" id="active-session-info">Session active</div>
-    <div style="font-size:28px;font-weight:800;margin:8px 0;font-variant-numeric:tabular-nums" id="active-session-timer">0:00:00</div>
-    <button onclick="goStopVolunteering()" style="background:#fff;color:#166534;border:none;border-radius:8px;padding:10px 24px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;width:100%">🔴 Stop Volunteering</button>
+  <div id="active-session-banner" style="display:none;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border-radius:var(--radius);padding:20px 24px;margin-bottom:14px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px">🟢 Currently Volunteering</div>
+    <div style="font-size:13px;opacity:0.85" id="active-session-info">Session active</div>
+    <div style="font-size:52px;font-weight:900;margin:10px 0 6px;font-variant-numeric:tabular-nums;letter-spacing:-1px;text-align:center" id="active-session-timer">0:00:00</div>
+    <button onclick="goStopVolunteering()" style="background:#fff;color:#166534;border:none;border-radius:12px;padding:18px 24px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer;width:100%;letter-spacing:-0.3px">🔴 Stop Volunteering</button>
   </div>
   <div class="menu-grid" id="vol-menu-grid">
-    <button class="menu-btn" style="background:linear-gradient(135deg,#166534,#16a34a);color:#fff" onclick="kioskAction(goBeginVolunteering)" id="begin-vol-btn">
-      <div class="menu-icon">🟢</div>
-      <div class="menu-label" style="color:#fff">Begin Volunteering</div>
-      <div class="menu-desc" style="color:rgba(255,255,255,0.8)">Start a live timer for your session</div>
+    <button class="menu-btn" style="background:linear-gradient(135deg,#166534,#16a34a);color:#fff;grid-column:1/-1;padding:28px 20px" onclick="kioskAction(goBeginVolunteering)" id="begin-vol-btn">
+      <div class="menu-icon" style="font-size:40px">🟢</div>
+      <div class="menu-label" style="color:#fff;font-size:22px">Begin Volunteering</div>
+      <div class="menu-desc" style="color:rgba(255,255,255,0.85);font-size:15px">Tap here to start your session timer</div>
     </button>
     <button class="menu-btn t" onclick="kioskAction(goEventSelect)">
       <div class="menu-icon">⏱</div>
@@ -441,6 +441,19 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <div style="font-size:32px">🎬</div>
   </div>
   <div class="elic-events" id="elic-events"></div>
+  <button onclick="goElicMasterView()" style="width:100%;max-width:600px;margin-top:16px;padding:16px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);font-family:inherit;font-size:15px;font-weight:700;color:var(--teal-dark);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
+    👥 Volunteer Overview — See who's here &amp; manage clocks
+  </button>
+</div>
+
+<!-- ELIC MASTER VIEW -->
+<div class="screen hidden" id="screen-elic-master">
+  <button class="back-btn" onclick="clearInterval(masterViewInterval);showScreen('screen-elic-menu')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title">Volunteer Overview</div>
+    <div class="screen-sub" id="master-sub">All active volunteer sessions</div>
+  </div>
+  <div id="master-sessions" style="max-width:640px;width:100%;padding:0 16px"></div>
 </div>
 
 
@@ -571,12 +584,15 @@ async function goBeginVolunteering(){
     if(!events.length){
       grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No open events right now</div>'
     } else {
-      grid.innerHTML = events.map(e=>
-        '<button id="bv-evt-'+e.id+'" onclick="bvSelectEvent('+JSON.stringify(e).replace(/"/g,'&quot;')+')" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left">'
-        +'<div>'+e.name+'</div>'
-        +(e.event_date?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtDate(e.event_date)+'</div>':'')
-        +'</button>'
-      ).join('')
+      grid.innerHTML = events.map(e=>{
+        const autoLog = !!e.auto_log_hours
+        const badge = autoLog ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">⚡ Auto-Log Full Hours</div>' : ''
+        return '<button id="bv-evt-'+e.id+'" onclick="bvSelectEvent('+JSON.stringify(e).replace(/"/g,'&quot;')+')" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left">'
+          +'<div>'+e.name+'</div>'
+          +(e.event_date?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtDate(e.event_date)+'</div>':'')
+          +badge
+          +'</button>'
+      }).join('')
     }
   } catch(err){ grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">Could not load events</div>' }
   showScreen('screen-begin-vol')
@@ -601,6 +617,26 @@ async function submitBeginVolunteering(){
   const btn = document.getElementById('bv-begin-btn')
   btn.disabled = true; btn.textContent = 'Starting…'
   const role = document.getElementById('bv-role').value.trim()
+
+  // Auto-log: credit full event hours immediately, no timer
+  if(_bvSelectedEvent && _bvSelectedEvent.auto_log_hours){
+    try {
+      const r = await fetch('/api/kiosk/log-full-event', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role})
+      })
+      const d = await r.json()
+      btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
+      if(d.error){ alert(d.error); return }
+      showConfirm('⚡','Hours Logged!',
+        d.hours+'h submitted for "'+d.event+'".',
+        'You\'ve been credited for the full event. Thanks for volunteering!',
+        ()=>showScreen('screen-vol-menu'))
+    } catch(err){ alert('Error: '+err.message); btn.disabled=false; btn.textContent='🟢 Begin Volunteering' }
+    return
+  }
+
+  // Normal flow: start a live timer session
   try {
     const r = await fetch('/api/kiosk/session/begin', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -748,15 +784,20 @@ async function goWaiverCheck(fromMenu=false){
 function renderWaiverCheck(fromMenu,allClear){
   const content=document.getElementById('wc-content')
   if(allClear){
-    document.getElementById('wc-title').textContent=fromMenu?'Your Waivers':'✅ All Clear!'
-    document.getElementById('wc-sub').textContent=fromMenu?'All waivers are current':'No action needed'
-    content.innerHTML=`<div class="all-clear">
-      <div style="font-size:44px;margin-bottom:10px">✅</div>
-      <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">All Waivers Current</div>
-      <div style="font-size:14px;color:var(--muted);margin-bottom:18px">No action needed</div>
-      <button onclick="${fromMenu?'showScreen(\'screen-vol-menu\')':'goVolMenu()'}" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:12px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer">${fromMenu?'← Back to Menu':'Continue →'}</button>
-    </div>`
     updateWaiverMenuBtn(0)
+    if(!fromMenu){
+      // Skip all-clear screen entirely — go straight to volunteer menu
+      goVolMenu()
+    } else {
+      document.getElementById('wc-title').textContent='Your Waivers'
+      document.getElementById('wc-sub').textContent='All waivers are current'
+      content.innerHTML=`<div class="all-clear">
+        <div style="font-size:44px;margin-bottom:10px">✅</div>
+        <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">All Waivers Current</div>
+        <div style="font-size:14px;color:var(--muted);margin-bottom:18px">No action needed</div>
+        <button onclick="showScreen('screen-vol-menu')" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:12px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer">← Back to Menu</button>
+      </div>`
+    }
     return
   }
   document.getElementById('wc-title').textContent=`${waiverIssues.length} Waiver${waiverIssues.length>1?'s':''} Need Attention`
@@ -980,6 +1021,72 @@ async function submitOpeningChecklist(){
   // Store responses with open event call
   pendingAction.openingResponses = responses
   await doOpenEvent()
+}
+
+let masterViewInterval = null
+
+async function goElicMasterView(){
+  showScreen('screen-elic-master')
+  await refreshMasterView()
+  // Auto-refresh every 10s
+  clearInterval(masterViewInterval)
+  masterViewInterval = setInterval(refreshMasterView, 10000)
+}
+
+async function refreshMasterView(){
+  const el = document.getElementById('master-sessions')
+  if(!el) return
+  try {
+    const r = await fetch('/api/kiosk/active-sessions')
+    const sessions = await r.json()
+    const sub = document.getElementById('master-sub')
+
+    if(!sessions.length){
+      if(sub) sub.textContent = 'No active sessions right now'
+      el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--muted)">
+        <div style="font-size:40px;margin-bottom:12px">🕐</div>
+        <div style="font-weight:600">No one is currently clocked in</div>
+      </div>`
+      return
+    }
+
+    if(sub) sub.textContent = sessions.length + ' volunteer' + (sessions.length>1?'s':'') + ' currently active'
+
+    el.innerHTML = sessions.map(s=>{
+      const secs = Math.floor(parseFloat(s.elapsed_secs||0))
+      const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), sec = secs%60
+      const elapsed = h+':'+(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec
+      const hrs = (secs/3600).toFixed(2)
+      const init = (s.volunteer_name||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()
+      return `<div style="background:var(--surface);border:2px solid #86efad;border-radius:var(--radius);padding:16px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;border-radius:50%;background:#166534;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0">${init}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:16px">${s.volunteer_name}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${s.event_name||'General volunteering'}${s.role?' · '+s.role:''}</div>
+          <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:#166534;margin-top:4px">${elapsed}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:8px">${hrs}h so far</div>
+          <button onclick="elicStopSession('${s.id}','${s.volunteer_name.replace(/'/g,"\\'")}')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">🔴 Stop Clock</button>
+        </div>
+      </div>`
+    }).join('')
+  } catch(e){
+    document.getElementById('master-sessions').innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">Could not load sessions</div>'
+  }
+}
+
+async function elicStopSession(sessionId, name){
+  if(!confirm('Stop '+name+'\'s clock and submit their hours?')) return
+  try {
+    const r = await fetch('/api/kiosk/session/stop-by-id', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: sessionId})
+    })
+    const d = await r.json()
+    if(d.error){ alert('Error: '+d.error); return }
+    await refreshMasterView()
+  } catch(e){ alert('Network error: '+e.message) }
 }
 
 function renderElicMenu(){

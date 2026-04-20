@@ -458,6 +458,8 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
         "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
@@ -518,6 +520,20 @@ def init_db():
             SELECT DISTINCT ON (label) id FROM checklist_items ORDER BY label, created_at ASC)""",
         """DELETE FROM opening_checklist_items WHERE id NOT IN (
             SELECT DISTINCT ON (label) id FROM opening_checklist_items ORDER BY label, created_at ASC)""",
+        # volunteer interest/application form
+        """CREATE TABLE IF NOT EXISTS volunteer_applications (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            interests TEXT DEFAULT '[]',
+            how_heard TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'pending',
+            reviewed_by TEXT,
+            reviewed_at TIMESTAMP,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
     ]:
         try:
             c.execute(col_sql)
@@ -4561,4 +4577,129 @@ def pickup_queue():
     """)
     conn.close()
     return jsonify(rows)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  VOLUNTEER INTEREST FORM
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/join')
+def join_page():
+    resp = send_from_directory('static', 'join.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+@app.route('/api/join/interest-types')
+def join_interest_types():
+    conn = get_db()
+    types = fetchall(conn, 'SELECT id, name, color FROM interest_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/join/submit', methods=['POST'])
+def join_submit():
+    d = request.json
+    if not d.get('name') or not d.get('email'):
+        return jsonify({'error': 'Name and email are required'}), 400
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO volunteer_applications
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+            (aid, d['name'].strip(), d['email'].strip().lower(),
+             d.get('phone','').strip(),
+             d.get('pronouns','').strip(),
+             d.get('is_adult', True),
+             json.dumps(d.get('interests', [])),
+             d.get('how_heard','').strip(),
+             d.get('notes','').strip()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Submission failed. Please try again.'}), 500
+
+    # Send alert email to org
+    try:
+        settings = get_email_settings()
+        recipients = get_recipient_emails(settings)
+        if recipients:
+            interests_str = ', '.join(d.get('interests', [])) or 'None specified'
+            age_str = '18 or older' if d.get('is_adult', True) else 'Under 18'
+            html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px">
+                <h2 style="color:#0d3d4d">New Volunteer Interest Submission</h2>
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d['name']}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d['email']}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone','—')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
+                </table>
+                <p style="margin-top:20px;color:#666;font-size:13px">Log in to RoleCall to review this submission.</p>
+            </div>'''
+            send_email(recipients, f'New Volunteer Interest — {d["name"]}', html_body)
+    except Exception:
+        pass
+
+    conn.close()
+    return jsonify({'ok': True, 'id': aid})
+
+@app.route('/api/applications')
+def get_applications():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    apps = fetchall(conn, '''SELECT * FROM volunteer_applications ORDER BY created_at DESC''')
+    conn.close()
+    return jsonify(apps)
+
+@app.route('/api/applications/<aid>/approve', methods=['POST'])
+def approve_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    app_row = fetchone(conn, 'SELECT * FROM volunteer_applications WHERE id=%s', (aid,))
+    if not app_row:
+        conn.close(); return jsonify({'error': 'Application not found'}), 404
+
+    # Create volunteer record
+    vid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO volunteers (id, name, email, phone, status, interests, created_by)
+        VALUES (%s,%s,%s,%s,'active',%s,%s)''',
+        (vid, app_row['name'], app_row['email'], app_row.get('phone',''),
+         app_row.get('interests','[]'), session.get('user_name','')))
+
+    # Mark application approved
+    execute(conn, '''UPDATE volunteer_applications
+        SET status='approved', reviewed_by=%s, reviewed_at=NOW(), volunteer_id=%s WHERE id=%s''',
+        (session.get('user_name',''), vid, aid))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
+    conn.close()
+    return jsonify({'ok': True, 'volunteer': vol})
+
+@app.route('/api/applications/<aid>/decline', methods=['POST'])
+def decline_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, '''UPDATE volunteer_applications
+        SET status='not_interested', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
+        (session.get('user_name',''), aid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/applications/<aid>', methods=['DELETE'])
+def delete_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM volunteer_applications WHERE id=%s', (aid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 

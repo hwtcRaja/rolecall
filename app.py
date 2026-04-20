@@ -1632,7 +1632,7 @@ def get_users():
     err = require_admin()
     if err: return err
     conn = get_db()
-    users = fetchall(conn, 'SELECT id,name,email,role,COALESCE(active,TRUE) as active FROM users ORDER BY name')
+    users = fetchall(conn, 'SELECT id,name,email,role,role_permissions,COALESCE(active,TRUE) as active FROM users ORDER BY name')
     conn.close()
     return jsonify(users)
 

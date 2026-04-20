@@ -4,70 +4,45 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Volunteer Interest — Horizon West Theater Company</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17;min-height:100vh}
-
-.page-header{
-  background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);
-  padding:40px 24px 36px;
-  text-align:center;
-  color:#fff;
-}
+.page-header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:40px 24px 36px;text-align:center;color:#fff}
 .logo{height:56px;mix-blend-mode:screen;margin-bottom:20px}
 .page-header h1{font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px}
 .page-header p{font-size:15px;opacity:0.85;max-width:480px;margin:0 auto;line-height:1.6}
-
-.form-wrap{max-width:580px;margin:0 auto;padding:32px 16px 60px}
-
+.form-wrap{max-width:600px;margin:0 auto;padding:32px 16px 60px}
 .card{background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,0.07);padding:28px;margin-bottom:20px}
 .card-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:#5f5e5a;margin-bottom:18px;display:flex;align-items:center;gap:8px}
 .card-title::after{content:'';flex:1;height:1px;background:#efefec}
-
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px}
 .form-group label span{font-weight:400;text-transform:none;color:#9b9b94}
-.form-group input,.form-group select,.form-group textarea{
-  width:100%;padding:11px 14px;
-  border:1.5px solid #e0e0db;border-radius:10px;
-  font-family:inherit;font-size:15px;color:#1a1a17;
-  outline:none;background:#fff;
-  transition:border-color 0.15s;
-}
+.form-group input[type=text],.form-group input[type=email],.form-group input[type=tel],.form-group select,.form-group textarea{width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-family:inherit;font-size:15px;color:#1a1a17;outline:none;background:#fff;transition:border-color 0.15s}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#145466}
 .form-group textarea{min-height:80px;resize:vertical;line-height:1.5}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:480px){.form-row{grid-template-columns:1fr}}
-
-/* Interest tags */
+.check-wrap{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1.5px solid #e0e0db;border-radius:10px;cursor:pointer;transition:border-color 0.15s;user-select:none}
+.check-wrap:hover{border-color:#145466}
+.check-wrap input[type=checkbox]{width:20px;height:20px;accent-color:#145466;cursor:pointer;flex-shrink:0;margin-top:2px}
+.check-label{font-size:15px;font-weight:500}
+.check-sub{font-size:13px;color:#9b9b94;margin-top:2px}
 .tag-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
-.tag{
-  padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;
-  border:2px solid #e0e0db;background:#fff;color:#5f5e5a;
-  cursor:pointer;transition:all 0.15s;user-select:none;
-}
+.tag{padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;border:2px solid #e0e0db;background:#fff;color:#5f5e5a;cursor:pointer;transition:all 0.15s;user-select:none}
 .tag:hover{border-color:#145466;color:#145466}
-.tag.selected{background:#145466;border-color:#145466;color:#fff}
-
-/* Submit */
-.submit-btn{
-  width:100%;padding:16px;background:#145466;color:#fff;
-  border:none;border-radius:12px;font-family:inherit;
-  font-size:17px;font-weight:700;cursor:pointer;
-  transition:background 0.15s;margin-top:8px;
-}
+.tag.sel{background:#145466;border-color:#145466;color:#fff}
+.submit-btn{width:100%;padding:16px;background:#145466;color:#fff;border:none;border-radius:12px;font-family:inherit;font-size:17px;font-weight:700;cursor:pointer;transition:background 0.15s;margin-top:8px}
 .submit-btn:hover{background:#0d3d4d}
 .submit-btn:disabled{background:#9b9b94;cursor:not-allowed}
-
-/* Success state */
 #success-screen{display:none;text-align:center;padding:48px 24px}
 .success-icon{font-size:64px;margin-bottom:16px}
 .success-title{font-size:24px;font-weight:800;color:#0d3d4d;margin-bottom:8px}
-.success-msg{font-size:15px;color:#5f5e5a;line-height:1.6;max-width:400px;margin:0 auto}
-
+.success-msg{font-size:15px;color:#5f5e5a;line-height:1.6;max-width:420px;margin:0 auto}
 .required-note{font-size:12px;color:#9b9b94;margin-bottom:24px}
-.error-msg{color:#a32d2d;font-size:13px;margin-top:6px;display:none}
+.err{color:#a32d2d;font-size:13px;margin-top:6px;display:none}
+.field-err{border-color:#a32d2d!important}
 </style>
 </head>
 <body>
@@ -79,15 +54,12 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 </div>
 
 <div class="form-wrap">
-
-  <!-- Success screen -->
   <div id="success-screen">
     <div class="success-icon">🎭</div>
-    <div class="success-title">Thank you!</div>
-    <div class="success-msg">We've received your interest form and will be in touch soon. We can't wait to have you join the Horizon West family!</div>
+    <div class="success-title">Thank you for your interest!</div>
+    <div class="success-msg">We've received your submission and someone from our team will be in touch soon. We can't wait to welcome you to the Horizon West family!</div>
   </div>
 
-  <!-- Form -->
   <form id="interest-form" onsubmit="submitForm(event)">
     <p class="required-note">Fields marked with * are required.</p>
 
@@ -97,18 +69,48 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
       <div class="form-row">
         <div class="form-group">
           <label>Full Name *</label>
-          <input type="text" id="f-name" placeholder="Jane Smith" required autocomplete="name"/>
-          <div class="error-msg" id="err-name">Please enter your name.</div>
+          <input type="text" id="f-name" placeholder="Jane Smith" autocomplete="name"/>
+          <div class="err" id="err-name">Please enter your name.</div>
         </div>
         <div class="form-group">
           <label>Email Address *</label>
-          <input type="email" id="f-email" placeholder="jane@example.com" required autocomplete="email"/>
-          <div class="error-msg" id="err-email">Please enter a valid email.</div>
+          <input type="email" id="f-email" placeholder="jane@example.com" autocomplete="email"/>
+          <div class="err" id="err-email">Please enter a valid email address.</div>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone Number <span>(optional)</span></label>
+          <input type="tel" id="f-phone" placeholder="(407) 555-0123" autocomplete="tel"/>
+        </div>
+        <div class="form-group">
+          <label>Pronouns <span>(optional)</span></label>
+          <select id="f-pronouns">
+            <option value="">Prefer not to say</option>
+            <option>He/Him</option>
+            <option>She/Her</option>
+            <option>They/Them</option>
+            <option>He/They</option>
+            <option>She/They</option>
+            <option>Ze/Zir</option>
+            <option value="__other__">Other — specify below</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" id="pronouns-other-wrap" style="display:none">
+        <label>Your Pronouns</label>
+        <input type="text" id="f-pronouns-other" placeholder="e.g. Xe/Xem"/>
+      </div>
       <div class="form-group">
-        <label>Phone Number <span>(optional)</span></label>
-        <input type="tel" id="f-phone" placeholder="(407) 555-0123" autocomplete="tel"/>
+        <label>Age *</label>
+        <label class="check-wrap" id="age-wrap">
+          <input type="checkbox" id="f-adult"/>
+          <div>
+            <div class="check-label">I am 18 years of age or older</div>
+            <div class="check-sub">If under 18, a parent or guardian will need to accompany you</div>
+          </div>
+        </label>
+        <div class="err" id="err-age">Please confirm your age.</div>
       </div>
     </div>
 
@@ -116,19 +118,19 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
     <div class="card">
       <div class="card-title">Areas of Interest</div>
       <div class="form-group">
-        <label>What areas would you like to help with? <span>(select all that apply)</span></label>
+        <label>What would you like to help with? <span>(select all that apply)</span></label>
         <div class="tag-grid" id="interest-tags">
-          <div style="font-size:13px;color:#9b9b94">Loading…</div>
+          <div style="font-size:14px;color:#9b9b94;padding:4px 0">Loading options…</div>
         </div>
       </div>
     </div>
 
     <!-- About -->
     <div class="card">
-      <div class="card-title">A Little About You</div>
+      <div class="card-title">A Little More About You</div>
       <div class="form-group">
         <label>How did you hear about us? *</label>
-        <select id="f-heard" required>
+        <select id="f-heard">
           <option value="">— Select one —</option>
           <option>Friend or family member</option>
           <option>Social media (Facebook, Instagram, etc.)</option>
@@ -139,15 +141,15 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
           <option>Local community group</option>
           <option>Other</option>
         </select>
-        <div class="error-msg" id="err-heard">Please select an option.</div>
+        <div class="err" id="err-heard">Please let us know how you found us.</div>
       </div>
       <div class="form-group">
         <label>Anything else you'd like us to know? <span>(optional)</span></label>
-        <textarea id="f-notes" placeholder="Skills, availability, questions…"></textarea>
+        <textarea id="f-notes" placeholder="Skills, availability, questions, anything at all…"></textarea>
       </div>
     </div>
 
-    <div id="submit-error" style="color:#a32d2d;font-size:14px;margin-bottom:12px;display:none;text-align:center"></div>
+    <div id="submit-error" style="display:none;color:#a32d2d;font-size:14px;margin-bottom:12px;text-align:center;background:#fcebeb;padding:12px;border-radius:10px"></div>
     <button type="submit" class="submit-btn" id="submit-btn">Submit Interest Form</button>
   </form>
 </div>
@@ -155,59 +157,82 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 <script>
 let selectedInterests = []
 
+// Pronouns other field
+document.getElementById('f-pronouns').addEventListener('change', function(){
+  document.getElementById('pronouns-other-wrap').style.display = this.value==='__other__' ? '' : 'none'
+})
+
+// Age check styling
+document.getElementById('f-adult').addEventListener('change', function(){
+  document.getElementById('age-wrap').style.borderColor = this.checked ? '#145466' : '#e0e0db'
+  document.getElementById('err-age').style.display = 'none'
+})
+
 async function loadInterests(){
   try {
     const res = await fetch('/api/join/interest-types')
+    if(!res.ok) throw new Error(res.status)
     const types = await res.json()
     const grid = document.getElementById('interest-tags')
-    if(!types.length){
-      grid.innerHTML = '<div style="font-size:13px;color:#9b9b94">No interest areas configured yet.</div>'
+    if(!Array.isArray(types) || !types.length){
+      grid.innerHTML = '<div style="font-size:14px;color:#9b9b94">No interest areas set up yet.</div>'
       return
     }
-    grid.innerHTML = types.map(t=>`
-      <div class="tag" data-id="${t.name}" onclick="toggleTag(this,'${t.name}')">${t.name}</div>
-    `).join('')
+    const colorMap = {teal:'#145466',blue:'#185fa5',amber:'#854f0b',pink:'#be185d',purple:'#6d28d9',green:'#3b6d11',gray:'#5f5e5a',red:'#a32d2d'}
+    grid.innerHTML = types.map(t=>{
+      const bg = colorMap[t.color]||'#145466'
+      return `<div class="tag" onclick="toggleTag(this,'${escStr(t.name)}','${bg}')">${escStr(t.name)}</div>`
+    }).join('')
   } catch(e){
-    document.getElementById('interest-tags').innerHTML = '<div style="font-size:13px;color:#9b9b94">Could not load options.</div>'
+    document.getElementById('interest-tags').innerHTML =
+      '<div style="font-size:14px;color:#9b9b94">Could not load options — please refresh the page.</div>'
   }
 }
 
-function toggleTag(el, name){
-  el.classList.toggle('selected')
-  if(el.classList.contains('selected')){
-    if(!selectedInterests.includes(name)) selectedInterests.push(name)
-  } else {
-    selectedInterests = selectedInterests.filter(i=>i!==name)
-  }
+function escStr(s){ return String(s).replace(/['"<>&]/g, c=>({'\'':'&#39;','"':'&quot;','<':'&lt;','>':'&gt;','&':'&amp;'}[c])) }
+
+function toggleTag(el, name, bg){
+  const on = el.classList.toggle('sel')
+  el.style.background = on ? bg : ''
+  el.style.borderColor = on ? bg : ''
+  el.style.color = on ? '#fff' : ''
+  if(on){ if(!selectedInterests.includes(name)) selectedInterests.push(name) }
+  else { selectedInterests = selectedInterests.filter(i=>i!==name) }
 }
 
 async function submitForm(e){
   e.preventDefault()
-  const name  = document.getElementById('f-name').value.trim()
-  const email = document.getElementById('f-email').value.trim()
-  const heard = document.getElementById('f-heard').value
-  const phone = document.getElementById('f-phone').value.trim()
-  const notes = document.getElementById('f-notes').value.trim()
+  const name   = document.getElementById('f-name').value.trim()
+  const email  = document.getElementById('f-email').value.trim()
+  const phone  = document.getElementById('f-phone').value.trim()
+  const heard  = document.getElementById('f-heard').value
+  const notes  = document.getElementById('f-notes').value.trim()
+  const adult  = document.getElementById('f-adult').checked
+  let pronouns = document.getElementById('f-pronouns').value
+  if(pronouns==='__other__') pronouns = document.getElementById('f-pronouns-other').value.trim()
 
-  // Clear errors
-  document.querySelectorAll('.error-msg').forEach(el=>el.style.display='none')
+  document.querySelectorAll('.err').forEach(el=>el.style.display='none')
+  document.querySelectorAll('.field-err').forEach(el=>el.classList.remove('field-err'))
   document.getElementById('submit-error').style.display = 'none'
 
   let valid = true
-  if(!name){ document.getElementById('err-name').style.display='block'; valid=false }
-  if(!email||!email.includes('@')){ document.getElementById('err-email').style.display='block'; valid=false }
-  if(!heard){ document.getElementById('err-heard').style.display='block'; valid=false }
-  if(!valid) return
+  const fail = (errId, inputId) => {
+    document.getElementById(errId).style.display = 'block'
+    if(inputId) document.getElementById(inputId).classList.add('field-err')
+    valid = false
+  }
+  if(!name)                 fail('err-name','f-name')
+  if(!email||!email.includes('@')) fail('err-email','f-email')
+  if(!heard)                fail('err-heard','f-heard')
+  if(!valid){ document.querySelector('.field-err')?.scrollIntoView({behavior:'smooth',block:'center'}); return }
 
   const btn = document.getElementById('submit-btn')
-  btn.disabled = true
-  btn.textContent = 'Submitting…'
+  btn.disabled = true; btn.textContent = 'Submitting…'
 
   try {
-    const res = await fetch('/api/join/submit', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, email, phone, interests: selectedInterests, how_heard: heard, notes})
+    const res = await fetch('/api/join/submit',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,how_heard:heard,notes})
     })
     const data = await res.json()
     if(data.ok){
@@ -215,16 +240,16 @@ async function submitForm(e){
       document.getElementById('success-screen').style.display = 'block'
       window.scrollTo({top:0,behavior:'smooth'})
     } else {
-      document.getElementById('submit-error').textContent = data.error || 'Something went wrong. Please try again.'
-      document.getElementById('submit-error').style.display = 'block'
-      btn.disabled = false
-      btn.textContent = 'Submit Interest Form'
+      const el = document.getElementById('submit-error')
+      el.textContent = data.error||'Something went wrong. Please try again.'
+      el.style.display = 'block'
+      btn.disabled = false; btn.textContent = 'Submit Interest Form'
     }
-  } catch(e){
-    document.getElementById('submit-error').textContent = 'Network error. Please check your connection and try again.'
-    document.getElementById('submit-error').style.display = 'block'
-    btn.disabled = false
-    btn.textContent = 'Submit Interest Form'
+  } catch(err){
+    const el = document.getElementById('submit-error')
+    el.textContent = 'Network error. Please check your connection and try again.'
+    el.style.display = 'block'
+    btn.disabled = false; btn.textContent = 'Submit Interest Form'
   }
 }
 

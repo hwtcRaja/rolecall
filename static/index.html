@@ -526,7 +526,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- Tab switcher -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0;padding:0 0 0 0">
           <button id="vol-tab-btn-list" onclick="switchVolTab('list')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid var(--teal-400);margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:700;color:var(--teal-dark);cursor:pointer">Volunteers</button>
-          <button id="vol-tab-btn-applications" onclick="switchVolTab('applications')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:600;color:var(--text-muted);cursor:pointer">Applications <span id="app-pending-badge" style="display:none;background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">0</span></button>
+          <button id="vol-tab-btn-applications" onclick="switchVolTab('applications')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:600;color:var(--text-muted);cursor:pointer">New Interests <span id="app-pending-badge" style="display:none;background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">0</span></button>
         </div>
         <!-- Volunteers list tab -->
         <div id="vol-tab-list" class="page-body">
@@ -551,8 +551,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div id="vol-tab-applications" class="page-body" style="display:none">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
             <div>
-              <div style="font-size:14px;font-weight:700">Volunteer Interest Form Submissions</div>
-              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Review and approve applicants to add them to your volunteer list. Share the form at <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px">/join</code></div>
+              <div style="font-size:14px;font-weight:700">Volunteer Interest Submissions</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">New submissions from your interest form. Add them to your volunteer list or mark as not interested. Share the form at <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px">/join</code></div>
             </div>
             <button class="btn btn-secondary btn-sm" onclick="copyJoinLink()">📋 Copy Form Link</button>
           </div>
@@ -2383,62 +2383,67 @@ function renderApplications(apps){
   if(!apps.length){
     el.innerHTML = `<div style="text-align:center;padding:48px 20px;color:var(--text-muted)">
       <div style="font-size:32px;margin-bottom:12px">📋</div>
-      <div style="font-weight:600;margin-bottom:6px">No applications yet</div>
-      <div style="font-size:13px">Share your form link and submissions will appear here.</div>
+      <div style="font-weight:600;margin-bottom:6px">No submissions yet</div>
+      <div style="font-size:13px">Share your interest form link and submissions will appear here.</div>
     </div>`
     return
   }
 
   const pending  = apps.filter(a=>a.status==='pending')
   const approved = apps.filter(a=>a.status==='approved')
-  const declined = apps.filter(a=>a.status==='declined')
+  const declined = apps.filter(a=>a.status==='declined'||a.status==='not_interested')
 
   const renderCard = (a, showActions) => {
     let interests = []
     try { interests = JSON.parse(a.interests||'[]') } catch(e){}
     const statusBadge = {
-      pending:  'background:#fef9c3;color:#854d0e;border:1px solid #fde047',
-      approved: 'background:var(--green-50);color:var(--green-600);border:1px solid #86efac',
-      declined: 'background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200)',
+      pending:        'background:#fef9c3;color:#854d0e;border:1px solid #fde047',
+      approved:       'background:var(--green-50);color:var(--green-600);border:1px solid #86efac',
+      declined:       'background:var(--bg);color:var(--text-muted);border:1px solid var(--border)',
+      not_interested: 'background:var(--bg);color:var(--text-muted);border:1px solid var(--border)',
     }[a.status] || ''
-    const statusLabel = {pending:'Pending Review', approved:'Approved', declined:'Declined'}[a.status] || a.status
+    const statusLabel = {pending:'New Submission', approved:'Added to Volunteers', declined:'Not Right Now', not_interested:'Not Right Now'}[a.status] || a.status
 
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:10px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
             <div style="font-size:15px;font-weight:700">${escHtml(a.name)}</div>
+            ${a.pronouns?`<span style="font-size:12px;color:var(--text-muted)">${escHtml(a.pronouns)}</span>`:''}
             <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;${statusBadge}">${statusLabel}</span>
           </div>
           <div style="font-size:13px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px">
             <span>✉️ ${escHtml(a.email)}</span>
             ${a.phone?`<span>📞 ${escHtml(a.phone)}</span>`:''}
-            ${a.how_heard?`<span>🔍 ${escHtml(a.how_heard)}</span>`:''}
+            <span>${a.is_adult===false?'<span style="color:var(--amber-600);font-weight:600">Under 18</span>':'18+'}</span>
+            ${a.how_heard?`<span style="color:var(--text-hint)">via ${escHtml(a.how_heard)}</span>`:''}
             <span style="color:var(--text-hint)">Submitted ${formatDateTime(a.created_at)}</span>
           </div>
           ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>`<span style="background:var(--teal-50);color:var(--teal-600);border:1px solid var(--teal-100);padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(i)}</span>`).join('')}</div>`:''}
-          ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md)"><em>${escHtml(a.notes)}</em></div>`:''}
+          ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md);margin-top:4px"><em>${escHtml(a.notes)}</em></div>`:''}
         </div>
-        ${showActions?`
-        <div style="display:flex;gap:8px;flex-shrink:0;align-items:flex-start">
-          <button class="btn btn-primary btn-sm" onclick="approveApplication('${a.id}')">✓ Approve & Add</button>
-          <button class="btn btn-danger btn-sm" onclick="declineApplication('${a.id}')">✕ Decline</button>
-        </div>`:''}
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
+          ${showActions?`
+            <button class="btn btn-primary btn-sm" onclick="approveApplication('${a.id}')">+ Add to Volunteer Pool</button>
+            <button class="btn btn-secondary btn-sm" onclick="declineApplication('${a.id}')">Not Right Now</button>
+          `:''}
+          <button class="btn btn-sm" style="font-size:11px;color:var(--text-hint);border-color:var(--border)" onclick="deleteApplication('${a.id}')">Delete</button>
+        </div>
       </div>
     </div>`
   }
 
   let html = ''
   if(pending.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">${pending.length} Pending Review</div>`
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">${pending.length} New Submissions</div>`
     html += pending.map(a=>renderCard(a, true)).join('')
   }
   if(approved.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${pending.length?'20px':0} 0 10px">${approved.length} Approved</div>`
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${pending.length?'20px':0} 0 10px">${approved.length} Added to Volunteers</div>`
     html += approved.map(a=>renderCard(a, false)).join('')
   }
   if(declined.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${approved.length||pending.length?'20px':0} 0 10px">${declined.length} Declined</div>`
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${approved.length||pending.length?'20px':0} 0 10px">${declined.length} Not Right Now</div>`
     html += declined.map(a=>renderCard(a, false)).join('')
   }
   el.innerHTML = html
@@ -2447,7 +2452,7 @@ function renderApplications(apps){
 async function approveApplication(aid){
   const res = await api('/api/applications/'+aid+'/approve','POST')
   if(res.error){ toast(res.error,'error'); return }
-  toast('Applicant added to volunteers!','success')
+  toast('Added to volunteer list!','success')
   loadApplications()
   // Refresh volunteer list in background
   const vols = await api('/api/volunteers')
@@ -2455,10 +2460,18 @@ async function approveApplication(aid){
 }
 
 async function declineApplication(aid){
-  if(!confirm('Decline this application?')) return
+  if(!confirm('Move to "Not Right Now"?')) return
   const res = await api('/api/applications/'+aid+'/decline','POST')
   if(res.error){ toast(res.error,'error'); return }
-  toast('Application declined')
+  toast('Moved to Not Right Now')
+  loadApplications()
+}
+
+async function deleteApplication(aid){
+  if(!confirm('Permanently delete this submission?')) return
+  const res = await api('/api/applications/'+aid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Submission deleted')
   loadApplications()
 }
 

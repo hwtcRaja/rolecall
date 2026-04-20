@@ -4379,7 +4379,8 @@ function renderProductions(){
 }
 
 
-function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes){
+function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes, canSeePortal){
+  if(canSeePortal===undefined) canSeePortal=isAdmin
   var bg = (PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A'])[0]
   var col = (PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A'])[1]
   var s = '<div style="display:grid;grid-template-columns:220px 1fr;gap:24px">'
@@ -4549,7 +4550,7 @@ function openProductionDetail(prodId, fromPage){
   })
   const memberStatusColors={confirmed:'var(--green-600)',pending:'var(--amber-600)',dropped:'var(--text-hint)'}
 
-  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes)
+  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes, canSeePortal)
 
   window._currentProductionDetailId = p.id
   if(canSeePortal){

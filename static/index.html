@@ -430,14 +430,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth">👦</span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs">📚</span>Programs &amp; Classes</div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars">⭐</span>Rising Stars</div>
-        <div class="nav-item admin-only" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
+        <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin">📝</span>Sign-In</div>
 
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
-        <div class="nav-item admin-only" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
-        <div class="nav-item admin-only" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
-        <div class="nav-item admin-only" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
+        <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
+        <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
       <div class="sidebar-user">
         <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -945,7 +945,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- EVENT LOGS -->
-      <section class="page admin-only" id="page-event-logs">
+      <section class="page" id="page-event-logs">
         <div class="page-header">
           <div><div class="page-title">Event Logs</div><div class="page-subtitle">ELIC open/close records and closing checklists</div></div>
         </div>
@@ -955,7 +955,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PENDING HOURS -->
-      <section class="page admin-only" id="page-notifications">
+      <section class="page" id="page-notifications">
         <div class="page-header">
           <div><div class="page-title">🔔 Notifications</div><div class="page-subtitle">Everything that needs your attention</div></div>
           <div class="page-actions">
@@ -977,7 +977,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PORTAL ADMIN -->
-      <section class="page admin-only" id="page-portal-admin">
+      <section class="page" id="page-portal-admin">
         <div class="page-header">
           <div>
             <div class="page-title">🏠 Participant Portal</div>
@@ -1024,7 +1024,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- SETTINGS -->
-      <section class="page admin-only" id="page-settings">
+      <section class="page" id="page-settings">
         <div class="page-header"><div><div class="page-title">Settings</div><div class="page-subtitle">System administration</div></div></div>
         <div class="page-body">
           <div class="settings-grid">
@@ -2124,9 +2124,24 @@ function applyPermissionUI(){
     nav.style.display = visible ? '' : 'none'
   })
 
-  // admin-only elements (edit actions)
+  // admin-only elements — map each to its section so staff with edit can see them too
+  const adminOnlySectionMap = {
+    'openVolModal':       'volunteers',
+    'openEventModal':     'events',
+    'openLogTimeModal':   'hours',
+    'openProductionModal':'productions',
+    'openYouthModal':     'youth',
+    'openSaveTemplateModal': 'email',
+  }
   document.querySelectorAll('.admin-only').forEach(el=>{
-    el.style.display = isAdmin ? '' : 'none'
+    if(isAdmin){ el.style.display = ''; return }
+    // Check if this element's action maps to an editable section
+    const onclick = el.getAttribute('onclick') || el.innerHTML || ''
+    let show = false
+    for(const [fn, sec] of Object.entries(adminOnlySectionMap)){
+      if(onclick.includes(fn) && canEdit(sec)){ show = true; break }
+    }
+    el.style.display = show ? '' : 'none'
   })
 
   // Hide nav section headers if all children are hidden
@@ -2539,7 +2554,7 @@ function updateBulkActions(){
 async function openProfile(volId){
   currentVolId=volId
   const v=await api(`/api/volunteers/${volId}`)
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('volunteers')
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
   document.getElementById('profile-header').innerHTML=buildProfileBanner({
@@ -2780,7 +2795,7 @@ function renderHours(){
   document.getElementById('h-total').textContent=total
   document.getElementById('h-events').textContent=events
   document.getElementById('h-avg').textContent=vols>0?(total/vols).toFixed(1):0
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('hours')
   const tbody=document.getElementById('hours-table-body')
   if(!filtered.length){
     tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">⏱</div><p>No time logged yet</p></div></td></tr>`
@@ -3350,7 +3365,7 @@ function exportYouthCSV(programId){
 async function openYouthProfile(yid){
   currentYouthId=yid
   const y=await api(`/api/youth/${yid}`)
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('youth')
   const age=calcAge(y.dob)
   const [bg,col]=avatarColors(y.first_name+y.last_name)
 
@@ -4300,7 +4315,7 @@ function renderProductions(){
   const risingStars=allProductions.filter(p=>p.stage==='rising_stars'&&(!filter||p.status===filter))
   document.getElementById('productions-count-label').textContent=`${mainstage.length} mainstage production${mainstage.length!==1?'s':''}${risingStars.length?' · '+risingStars.length+' Rising Stars (read-only)':''}`
   const grid=document.getElementById('productions-grid')
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('productions')
 
   let html=''
   if(!mainstage.length&&!risingStars.length){
@@ -4510,7 +4525,7 @@ function openProductionDetail(prodId, fromPage){
   prodDetailFromPage = fromPage||(allProductions.find(p=>p.id===prodId)?.stage==='rising_stars'?'rising-stars-page':'productions')
   const p=allProductions.find(p=>p.id===prodId)
   if(!p) return
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('productions')
   const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
 
   document.getElementById('production-detail-header').innerHTML=`
@@ -5925,7 +5940,7 @@ function renderEventsList(events){
     byMonth[m].push(e)
   })
 
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('events')
   let out=''
   Object.keys(byMonth).sort().reverse().forEach(m=>{
     const label=new Date(m+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'})
@@ -5970,7 +5985,7 @@ function openEventDetail(eid){
   currentEventId=eid
   const e=allEvents.find(e=>e.id===eid)
   if(!e) return
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('events')
   const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
   const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
 
@@ -6808,7 +6823,7 @@ function loadProdSignInSheet(){
 
   const prod=allProductions.find(p=>p.id===prodId)
   const members=prod?.members||[]
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('productions')
 
   content.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
@@ -6932,7 +6947,7 @@ function renderYouthProgramsPage(){
     return true
   })
   const grid=document.getElementById('youth-programs-grid')
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('programs')
   const sub=document.getElementById('youth-programs-subtitle')
   if(sub) sub.textContent=filtered.length+' program'+(filtered.length!==1?'s':'')+' · '+allYouth.length+' participants'
   if(!filtered.length){
@@ -8717,7 +8732,7 @@ async function loadAuthorizedPickups(yid){
   const container=document.getElementById('ytab-pickups-content-'+yid)
   if(!container) return
   const pickups=await api('/api/youth/'+yid+'/authorized-pickups')
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('youth')
   container.innerHTML=
     (isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}')">+ Add Authorized Person</button></div>`:'')+
     (!pickups.length?'<div style="color:var(--text-muted);font-size:13px">No authorized pickups on file</div>':
@@ -8951,7 +8966,7 @@ async function loadYouthProdMembers(prodId){
   const container=document.getElementById('youth-prod-members-'+prodId)
   if(!container) return
   const members=await api('/api/productions/'+prodId+'/youth-members')
-  const isAdmin=currentUser?.role==='admin'
+  const isAdmin=canEdit('rising_stars')
   if(!members.length){
     container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No cast members enrolled yet.'+(isAdmin?' Use "+ Enroll" to add cast members.':'')+'</div>'
     return

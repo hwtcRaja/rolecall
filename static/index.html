@@ -523,7 +523,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <button class="btn btn-primary admin-only" onclick="openVolModal()">+ Add Volunteer</button>
           </div>
         </div>
-        <div class="page-body">
+        <!-- Tab switcher -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0;padding:0 0 0 0">
+          <button id="vol-tab-btn-list" onclick="switchVolTab('list')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid var(--teal-400);margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:700;color:var(--teal-dark);cursor:pointer">Volunteers</button>
+          <button id="vol-tab-btn-applications" onclick="switchVolTab('applications')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:600;color:var(--text-muted);cursor:pointer">Applications <span id="app-pending-badge" style="display:none;background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">0</span></button>
+        </div>
+        <!-- Volunteers list tab -->
+        <div id="vol-tab-list" class="page-body">
           <div class="search-bar">
             <div class="search-input-wrap"><span>🔍</span><input type="text" id="vol-search" placeholder="Search by name or email…" oninput="renderVolunteers()"></div>
             <select class="filter-select" id="filter-status" onchange="renderVolunteers()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
@@ -540,6 +546,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <span id="selected-count" style="font-size:13px;font-weight:500;color:var(--teal-600)">0 selected</span>
             <button class="btn btn-secondary btn-sm" onclick="emailSelected()">✉️ Email Selected</button>
           </div>
+        </div>
+        <!-- Applications tab -->
+        <div id="vol-tab-applications" class="page-body" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:14px;font-weight:700">Volunteer Interest Form Submissions</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Review and approve applicants to add them to your volunteer list. Share the form at <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px">/join</code></div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="copyJoinLink()">📋 Copy Form Link</button>
+          </div>
+          <div id="applications-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
         </div>
       </section>
 
@@ -2143,7 +2160,7 @@ function navTo(page,el){
     if(n.textContent.trim().toLowerCase().replace(/\s+/g,'-').startsWith(page.replace('_','-'))) n.classList.add('active')
   })
   if(page==='dashboard') renderDashboard()
-  if(page==='volunteers') renderVolunteers()
+  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
   if(page==='hours') renderHours()
   if(page==='waivers') renderWaivers()
   if(page==='email') renderEmailPage()
@@ -2326,6 +2343,123 @@ function populateInterestFilter(){
   const cur=sel.value
   sel.innerHTML='<option value="">All Interests</option>'+interestTypes.map(t=>`<option value="${t.name}">${t.name}</option>`).join('')
   sel.value=cur
+}
+
+function switchVolTab(tab){
+  ;['list','applications'].forEach(t=>{
+    const panel = document.getElementById('vol-tab-'+t)
+    const btn   = document.getElementById('vol-tab-btn-'+t)
+    if(panel) panel.style.display = t===tab ? '' : 'none'
+    if(btn){
+      btn.style.borderBottomColor = t===tab ? 'var(--teal-400)' : 'transparent'
+      btn.style.color = t===tab ? 'var(--teal-dark)' : 'var(--text-muted)'
+      btn.style.fontWeight = t===tab ? '700' : '600'
+    }
+  })
+  if(tab==='applications') loadApplications()
+}
+
+function copyJoinLink(){
+  const url = window.location.origin + '/join'
+  navigator.clipboard.writeText(url).then(()=>toast('Link copied! '+url,'success'))
+    .catch(()=>{ prompt('Copy this link:', url) })
+}
+
+async function loadApplications(){
+  const el = document.getElementById('applications-list')
+  if(!el) return
+  const apps = await api('/api/applications')
+  if(!Array.isArray(apps)){ el.innerHTML='<div style="color:var(--red-600);padding:20px">Failed to load applications.</div>'; return }
+  renderApplications(apps)
+  // Update badge
+  const pending = apps.filter(a=>a.status==='pending').length
+  const badge = document.getElementById('app-pending-badge')
+  if(badge){ badge.textContent=pending; badge.style.display=pending?'':'none' }
+}
+
+function renderApplications(apps){
+  const el = document.getElementById('applications-list')
+  if(!el) return
+  if(!apps.length){
+    el.innerHTML = `<div style="text-align:center;padding:48px 20px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:12px">📋</div>
+      <div style="font-weight:600;margin-bottom:6px">No applications yet</div>
+      <div style="font-size:13px">Share your form link and submissions will appear here.</div>
+    </div>`
+    return
+  }
+
+  const pending  = apps.filter(a=>a.status==='pending')
+  const approved = apps.filter(a=>a.status==='approved')
+  const declined = apps.filter(a=>a.status==='declined')
+
+  const renderCard = (a, showActions) => {
+    let interests = []
+    try { interests = JSON.parse(a.interests||'[]') } catch(e){}
+    const statusBadge = {
+      pending:  'background:#fef9c3;color:#854d0e;border:1px solid #fde047',
+      approved: 'background:var(--green-50);color:var(--green-600);border:1px solid #86efac',
+      declined: 'background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200)',
+    }[a.status] || ''
+    const statusLabel = {pending:'Pending Review', approved:'Approved', declined:'Declined'}[a.status] || a.status
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:10px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <div style="font-size:15px;font-weight:700">${escHtml(a.name)}</div>
+            <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;${statusBadge}">${statusLabel}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px">
+            <span>✉️ ${escHtml(a.email)}</span>
+            ${a.phone?`<span>📞 ${escHtml(a.phone)}</span>`:''}
+            ${a.how_heard?`<span>🔍 ${escHtml(a.how_heard)}</span>`:''}
+            <span style="color:var(--text-hint)">Submitted ${formatDateTime(a.created_at)}</span>
+          </div>
+          ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>`<span style="background:var(--teal-50);color:var(--teal-600);border:1px solid var(--teal-100);padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(i)}</span>`).join('')}</div>`:''}
+          ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md)"><em>${escHtml(a.notes)}</em></div>`:''}
+        </div>
+        ${showActions?`
+        <div style="display:flex;gap:8px;flex-shrink:0;align-items:flex-start">
+          <button class="btn btn-primary btn-sm" onclick="approveApplication('${a.id}')">✓ Approve & Add</button>
+          <button class="btn btn-danger btn-sm" onclick="declineApplication('${a.id}')">✕ Decline</button>
+        </div>`:''}
+      </div>
+    </div>`
+  }
+
+  let html = ''
+  if(pending.length){
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">${pending.length} Pending Review</div>`
+    html += pending.map(a=>renderCard(a, true)).join('')
+  }
+  if(approved.length){
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${pending.length?'20px':0} 0 10px">${approved.length} Approved</div>`
+    html += approved.map(a=>renderCard(a, false)).join('')
+  }
+  if(declined.length){
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${approved.length||pending.length?'20px':0} 0 10px">${declined.length} Declined</div>`
+    html += declined.map(a=>renderCard(a, false)).join('')
+  }
+  el.innerHTML = html
+}
+
+async function approveApplication(aid){
+  const res = await api('/api/applications/'+aid+'/approve','POST')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Applicant added to volunteers!','success')
+  loadApplications()
+  // Refresh volunteer list in background
+  const vols = await api('/api/volunteers')
+  if(Array.isArray(vols)){ volunteers = vols; renderVolunteers() }
+}
+
+async function declineApplication(aid){
+  if(!confirm('Decline this application?')) return
+  const res = await api('/api/applications/'+aid+'/decline','POST')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Application declined')
+  loadApplications()
 }
 
 function renderVolunteers(){

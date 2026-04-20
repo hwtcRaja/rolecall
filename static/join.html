@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Volunteer Interest — Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17;min-height:100vh}
+
+.page-header{
+  background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);
+  padding:40px 24px 36px;
+  text-align:center;
+  color:#fff;
+}
+.logo{height:56px;mix-blend-mode:screen;margin-bottom:20px}
+.page-header h1{font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px}
+.page-header p{font-size:15px;opacity:0.85;max-width:480px;margin:0 auto;line-height:1.6}
+
+.form-wrap{max-width:580px;margin:0 auto;padding:32px 16px 60px}
+
+.card{background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,0.07);padding:28px;margin-bottom:20px}
+.card-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:#5f5e5a;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.card-title::after{content:'';flex:1;height:1px;background:#efefec}
+
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px}
+.form-group label span{font-weight:400;text-transform:none;color:#9b9b94}
+.form-group input,.form-group select,.form-group textarea{
+  width:100%;padding:11px 14px;
+  border:1.5px solid #e0e0db;border-radius:10px;
+  font-family:inherit;font-size:15px;color:#1a1a17;
+  outline:none;background:#fff;
+  transition:border-color 0.15s;
+}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#145466}
+.form-group textarea{min-height:80px;resize:vertical;line-height:1.5}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.form-row{grid-template-columns:1fr}}
+
+/* Interest tags */
+.tag-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.tag{
+  padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;
+  border:2px solid #e0e0db;background:#fff;color:#5f5e5a;
+  cursor:pointer;transition:all 0.15s;user-select:none;
+}
+.tag:hover{border-color:#145466;color:#145466}
+.tag.selected{background:#145466;border-color:#145466;color:#fff}
+
+/* Submit */
+.submit-btn{
+  width:100%;padding:16px;background:#145466;color:#fff;
+  border:none;border-radius:12px;font-family:inherit;
+  font-size:17px;font-weight:700;cursor:pointer;
+  transition:background 0.15s;margin-top:8px;
+}
+.submit-btn:hover{background:#0d3d4d}
+.submit-btn:disabled{background:#9b9b94;cursor:not-allowed}
+
+/* Success state */
+#success-screen{display:none;text-align:center;padding:48px 24px}
+.success-icon{font-size:64px;margin-bottom:16px}
+.success-title{font-size:24px;font-weight:800;color:#0d3d4d;margin-bottom:8px}
+.success-msg{font-size:15px;color:#5f5e5a;line-height:1.6;max-width:400px;margin:0 auto}
+
+.required-note{font-size:12px;color:#9b9b94;margin-bottom:24px}
+.error-msg{color:#a32d2d;font-size:13px;margin-top:6px;display:none}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <img src="/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company" class="logo"/>
+  <h1>Volunteer Interest Form</h1>
+  <p>We'd love to have you join our team! Fill out the form below and we'll be in touch soon.</p>
+</div>
+
+<div class="form-wrap">
+
+  <!-- Success screen -->
+  <div id="success-screen">
+    <div class="success-icon">🎭</div>
+    <div class="success-title">Thank you!</div>
+    <div class="success-msg">We've received your interest form and will be in touch soon. We can't wait to have you join the Horizon West family!</div>
+  </div>
+
+  <!-- Form -->
+  <form id="interest-form" onsubmit="submitForm(event)">
+    <p class="required-note">Fields marked with * are required.</p>
+
+    <!-- Contact info -->
+    <div class="card">
+      <div class="card-title">Contact Information</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="f-name" placeholder="Jane Smith" required autocomplete="name"/>
+          <div class="error-msg" id="err-name">Please enter your name.</div>
+        </div>
+        <div class="form-group">
+          <label>Email Address *</label>
+          <input type="email" id="f-email" placeholder="jane@example.com" required autocomplete="email"/>
+          <div class="error-msg" id="err-email">Please enter a valid email.</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Phone Number <span>(optional)</span></label>
+        <input type="tel" id="f-phone" placeholder="(407) 555-0123" autocomplete="tel"/>
+      </div>
+    </div>
+
+    <!-- Interests -->
+    <div class="card">
+      <div class="card-title">Areas of Interest</div>
+      <div class="form-group">
+        <label>What areas would you like to help with? <span>(select all that apply)</span></label>
+        <div class="tag-grid" id="interest-tags">
+          <div style="font-size:13px;color:#9b9b94">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="card">
+      <div class="card-title">A Little About You</div>
+      <div class="form-group">
+        <label>How did you hear about us? *</label>
+        <select id="f-heard" required>
+          <option value="">— Select one —</option>
+          <option>Friend or family member</option>
+          <option>Social media (Facebook, Instagram, etc.)</option>
+          <option>Google / web search</option>
+          <option>Attended a show or event</option>
+          <option>My child is enrolled</option>
+          <option>Flyer or poster</option>
+          <option>Local community group</option>
+          <option>Other</option>
+        </select>
+        <div class="error-msg" id="err-heard">Please select an option.</div>
+      </div>
+      <div class="form-group">
+        <label>Anything else you'd like us to know? <span>(optional)</span></label>
+        <textarea id="f-notes" placeholder="Skills, availability, questions…"></textarea>
+      </div>
+    </div>
+
+    <div id="submit-error" style="color:#a32d2d;font-size:14px;margin-bottom:12px;display:none;text-align:center"></div>
+    <button type="submit" class="submit-btn" id="submit-btn">Submit Interest Form</button>
+  </form>
+</div>
+
+<script>
+let selectedInterests = []
+
+async function loadInterests(){
+  try {
+    const res = await fetch('/api/join/interest-types')
+    const types = await res.json()
+    const grid = document.getElementById('interest-tags')
+    if(!types.length){
+      grid.innerHTML = '<div style="font-size:13px;color:#9b9b94">No interest areas configured yet.</div>'
+      return
+    }
+    grid.innerHTML = types.map(t=>`
+      <div class="tag" data-id="${t.name}" onclick="toggleTag(this,'${t.name}')">${t.name}</div>
+    `).join('')
+  } catch(e){
+    document.getElementById('interest-tags').innerHTML = '<div style="font-size:13px;color:#9b9b94">Could not load options.</div>'
+  }
+}
+
+function toggleTag(el, name){
+  el.classList.toggle('selected')
+  if(el.classList.contains('selected')){
+    if(!selectedInterests.includes(name)) selectedInterests.push(name)
+  } else {
+    selectedInterests = selectedInterests.filter(i=>i!==name)
+  }
+}
+
+async function submitForm(e){
+  e.preventDefault()
+  const name  = document.getElementById('f-name').value.trim()
+  const email = document.getElementById('f-email').value.trim()
+  const heard = document.getElementById('f-heard').value
+  const phone = document.getElementById('f-phone').value.trim()
+  const notes = document.getElementById('f-notes').value.trim()
+
+  // Clear errors
+  document.querySelectorAll('.error-msg').forEach(el=>el.style.display='none')
+  document.getElementById('submit-error').style.display = 'none'
+
+  let valid = true
+  if(!name){ document.getElementById('err-name').style.display='block'; valid=false }
+  if(!email||!email.includes('@')){ document.getElementById('err-email').style.display='block'; valid=false }
+  if(!heard){ document.getElementById('err-heard').style.display='block'; valid=false }
+  if(!valid) return
+
+  const btn = document.getElementById('submit-btn')
+  btn.disabled = true
+  btn.textContent = 'Submitting…'
+
+  try {
+    const res = await fetch('/api/join/submit', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, email, phone, interests: selectedInterests, how_heard: heard, notes})
+    })
+    const data = await res.json()
+    if(data.ok){
+      document.getElementById('interest-form').style.display = 'none'
+      document.getElementById('success-screen').style.display = 'block'
+      window.scrollTo({top:0,behavior:'smooth'})
+    } else {
+      document.getElementById('submit-error').textContent = data.error || 'Something went wrong. Please try again.'
+      document.getElementById('submit-error').style.display = 'block'
+      btn.disabled = false
+      btn.textContent = 'Submit Interest Form'
+    }
+  } catch(e){
+    document.getElementById('submit-error').textContent = 'Network error. Please check your connection and try again.'
+    document.getElementById('submit-error').style.display = 'block'
+    btn.disabled = false
+    btn.textContent = 'Submit Interest Form'
+  }
+}
+
+loadInterests()
+</script>
+</body>
+</html>

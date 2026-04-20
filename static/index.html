@@ -4430,7 +4430,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
   s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>📅 Schedule &amp; Conflicts</button>"
   s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>⚙️ Info</button>"
-  if(isAdmin) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
+  if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>🏠 Portal Content</button>"
   s += '</div>'
 
   // Members tab
@@ -4526,6 +4526,7 @@ function openProductionDetail(prodId, fromPage){
   const p=allProductions.find(p=>p.id===prodId)
   if(!p) return
   const isAdmin=canEdit('productions')
+  const canSeePortal=isAdmin||canEdit('portal_admin')||canEdit('rising_stars')
   const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
 
   document.getElementById('production-detail-header').innerHTML=`
@@ -4551,7 +4552,7 @@ function openProductionDetail(prodId, fromPage){
   document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes)
 
   window._currentProductionDetailId = p.id
-  if(isAdmin){
+  if(canSeePortal){
     document.getElementById('prodtab-portal-inner-'+p.id).innerHTML = renderProductionPortalHTML(p.id,p.stage)
     if(p.stage==='rising_stars'){
       setTimeout(function(){ const btn=document.querySelector('#prodtab-portal-inner-'+p.id+' .portal-sub-btn[data-ptab="overview"]'); if(btn) btn.click() },50)

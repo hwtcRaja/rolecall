@@ -346,6 +346,7 @@ def init_db():
     for col_sql in [
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS auto_log_hours BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
@@ -753,14 +754,15 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
         (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False)))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
+         d.get('auto_log_hours', False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -783,13 +785,14 @@ def update_event(eid):
     d = request.json
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s WHERE id=%s''',
         (d['name'], d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
-         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False), eid))
+         d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
+         d.get('auto_log_hours', False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -4208,6 +4211,88 @@ def save_nav_icons():
 # ═══════════════════════════════════════════════════════════════
 #  KIOSK VOLUNTEER TIMER
 # ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/kiosk/log-full-event', methods=['POST'])
+def kiosk_log_full_event():
+    """Log a volunteer for the full duration of an event (no clock needed)."""
+    d = request.json or {}
+    vol_id   = d.get('volunteer_id')
+    event_id = d.get('event_id')
+    role     = d.get('role','')
+    if not vol_id or not event_id:
+        return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        conn.close(); return jsonify({'error': 'Event not found'}), 404
+    # Calculate hours from start_time and end_time
+    hours = None
+    if evt.get('start_time') and evt.get('end_time'):
+        try:
+            from datetime import datetime as dt
+            fmt = '%H:%M'
+            start = dt.strptime(str(evt['start_time'])[:5], fmt)
+            end   = dt.strptime(str(evt['end_time'])[:5], fmt)
+            diff  = (end - start).seconds / 3600
+            if diff > 0: hours = round(diff, 2)
+        except Exception: pass
+    if not hours:
+        conn.close(); return jsonify({'error': 'Event has no start/end time set. Please set times in the admin panel.'}), 400
+    # Create completed kiosk session
+    today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    sid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,started_at,ended_at,hours,status)
+        VALUES (%s,%s,%s,%s,%s,NOW(),NOW(),%s,'completed')""",
+        (sid, vol_id, event_id, evt['name'], role, hours))
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event — logged via kiosk'))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
+
+@app.route('/api/kiosk/active-sessions')
+def kiosk_active_sessions():
+    """ELIC master view — all currently active volunteer sessions."""
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT ks.id, ks.volunteer_id, ks.event_id, ks.event_name, ks.role,
+               ks.started_at, ks.status,
+               v.name as volunteer_name,
+               EXTRACT(EPOCH FROM (NOW() - ks.started_at)) as elapsed_secs
+        FROM kiosk_sessions ks
+        JOIN volunteers v ON ks.volunteer_id = v.id
+        WHERE ks.status = 'active'
+        ORDER BY ks.started_at ASC
+    """)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/kiosk/session/stop-by-id', methods=['POST'])
+def kiosk_stop_session_by_id():
+    """ELIC can stop any volunteer's session by session ID."""
+    d = request.json or {}
+    sid = d.get('session_id')
+    if not sid:
+        return jsonify({'error': 'Missing session_id'}), 400
+    conn = get_db()
+    session_row = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE id=%s AND status='active'", (sid,))
+    if not session_row:
+        conn.close(); return jsonify({'error': 'Session not found or already stopped'}), 404
+    time_row = fetchone(conn, "SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) as secs FROM kiosk_sessions WHERE id=%s", (sid,))
+    elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
+    elapsed_hours = round(max(0.25, elapsed_secs / 3600), 2)
+    today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed' WHERE id=%s", (elapsed_hours, sid))
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, session_row['volunteer_id'], session_row['event_name'] or 'Volunteer Session',
+         session_row['event_id'], today, elapsed_hours, session_row['role'], 'Stopped by ELIC'))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'hours': elapsed_hours})
 
 @app.route('/api/kiosk/session/begin', methods=['POST'])
 def kiosk_begin_session():

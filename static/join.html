@@ -102,14 +102,17 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
         <input type="text" id="f-pronouns-other" placeholder="e.g. Xe/Xem"/>
       </div>
       <div class="form-group">
-        <label>Age *</label>
-        <label class="check-wrap" id="age-wrap">
-          <input type="checkbox" id="f-adult"/>
-          <div>
-            <div class="check-label">I am 18 years of age or older</div>
-          </div>
-        </label>
-        <div class="err" id="err-age">Please confirm your age.</div>
+        <label>Age</label>
+        <div style="display:flex;gap:10px">
+          <label class="check-wrap" style="flex:1;cursor:pointer">
+            <input type="radio" name="age_range" id="f-adult-yes" value="true" style="width:18px;height:18px;accent-color:#145466;flex-shrink:0;margin-top:2px"/>
+            <div class="check-label">18 or older</div>
+          </label>
+          <label class="check-wrap" style="flex:1;cursor:pointer">
+            <input type="radio" name="age_range" id="f-adult-no" value="false" style="width:18px;height:18px;accent-color:#145466;flex-shrink:0;margin-top:2px"/>
+            <div class="check-label">Under 18</div>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -162,11 +165,6 @@ document.getElementById('f-pronouns').addEventListener('change', function(){
 })
 
 // Age check styling
-document.getElementById('f-adult').addEventListener('change', function(){
-  document.getElementById('age-wrap').style.borderColor = this.checked ? '#145466' : '#e0e0db'
-  document.getElementById('err-age').style.display = 'none'
-})
-
 async function loadInterests(){
   try {
     const res = await fetch('/api/join/interest-types')
@@ -206,7 +204,7 @@ async function submitForm(e){
   const phone  = document.getElementById('f-phone').value.trim()
   const heard  = document.getElementById('f-heard').value
   const notes  = document.getElementById('f-notes').value.trim()
-  const adult  = document.getElementById('f-adult').checked
+  const adult = document.querySelector('input[name="age_range"]:checked')?.value ?? null
   let pronouns = document.getElementById('f-pronouns').value
   if(pronouns==='__other__') pronouns = document.getElementById('f-pronouns-other').value.trim()
 

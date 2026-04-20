@@ -2551,6 +2551,49 @@ function updateBulkActions(){
 // ═══════════════════════════════════════════════════════════════
 //  PROFILE
 // ═══════════════════════════════════════════════════════════════
+function printVolIdCard(volId, volName){
+  const kioskUrl = window.location.origin + '/kiosk?vol=' + volId
+  const qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(kioskUrl)
+  const win = window.open('', '_blank', 'width=420,height=320')
+  win.document.write(`<!DOCTYPE html><html><head><title>Volunteer ID — ${volName}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,system-ui,sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .card{width:3.5in;height:2.2in;border:2px solid #0d3d4d;border-radius:14px;padding:18px 20px;display:flex;align-items:center;gap:16px;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,0.12)}
+    .left{flex:1;min-width:0}
+    .org{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#145466;margin-bottom:6px}
+    .name{font-size:18px;font-weight:800;color:#0d3d4d;line-height:1.2;margin-bottom:8px}
+    .label{font-size:9px;color:#9b9b94;margin-bottom:4px}
+    .tap{font-size:11px;font-weight:600;color:#145466;display:flex;align-items:center;gap:4px;margin-top:8px}
+    .qr-wrap{flex-shrink:0;text-align:center}
+    .qr-wrap img{width:100px;height:100px;display:block}
+    .qr-label{font-size:8px;color:#9b9b94;margin-top:4px}
+    .stripe{height:6px;background:linear-gradient(90deg,#0d3d4d,#145466,#1b708d);border-radius:12px 12px 0 0;position:absolute;top:0;left:0;right:0}
+    @media print{body{min-height:unset}.card{box-shadow:none;border:2px solid #0d3d4d;page-break-inside:avoid}}
+  </style></head><body>
+  <div>
+    <div class="card" style="position:relative">
+      <div class="stripe"></div>
+      <div class="left">
+        <div class="org">Horizon West Theatre Company</div>
+        <div class="name">${volName}</div>
+        <div class="label">Volunteer ID</div>
+        <div class="tap">📱 Tap or scan to check in</div>
+      </div>
+      <div class="qr-wrap">
+        <img src="${qrApiUrl}" alt="QR Code"/>
+        <div class="qr-label">Scan to check in</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <button onclick="window.print()" style="background:#145466;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">🖨️ Print Card</button>
+      <p style="font-size:11px;color:#9b9b94;margin-top:8px">NFC URL: ${kioskUrl}</p>
+    </div>
+  </div>
+  </body></html>`)
+  win.document.close()
+}
+
 async function openProfile(volId){
   currentVolId=volId
   const v=await api(`/api/volunteers/${volId}`)
@@ -2570,9 +2613,12 @@ async function openProfile(volId){
     actions: isAdmin ? [
       {label:'✉️ Email', href:'mailto:'+v.email},
       {label:'Edit', onclick:"openEditVolModal('"+v.id+"')"},
+      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"},
       {label:'🔗 Link Participant', onclick:"openLinkModal('volunteer','"+v.id+"','')"},
       {label:'Delete', onclick:"deleteVol('"+v.id+"')", danger:true}
-    ] : []
+    ] : [
+      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"}
+    ]
   })
 
   document.getElementById('profile-content').innerHTML=`

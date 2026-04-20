@@ -1873,5 +1873,55 @@ function showConfirm(icon,title,sub,note,onBack){
   </div>
 </div>
 <div style="position:fixed;bottom:4px;right:8px;font-size:9px;color:rgba(0,0,0,0.2);pointer-events:none;z-index:1">v2025-04-14c</div>
+
+<!-- NFC Welcome overlay -->
+<div id="nfc-welcome" style="display:none;position:fixed;inset:0;background:linear-gradient(155deg,#0d3d4d,#145466);z-index:9999;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center">
+  <div style="font-size:64px;margin-bottom:20px">👋</div>
+  <div style="font-size:36px;font-weight:900;letter-spacing:-0.5px;margin-bottom:8px" id="nfc-welcome-name">Welcome!</div>
+  <div style="font-size:18px;opacity:0.8">Loading your profile…</div>
+  <div style="margin-top:32px;width:48px;height:4px;border-radius:2px;background:rgba(255,255,255,0.3);overflow:hidden">
+    <div style="height:100%;background:#fff;border-radius:2px;animation:nfc-bar 1.2s ease-in-out infinite"></div>
+  </div>
+</div>
+<style>
+@keyframes nfc-bar{0%{width:0;margin-left:0}50%{width:100%;margin-left:0}100%{width:0;margin-left:100%}}
+</style>
+
+<script>
+// ── NFC / URL param auto-login ──
+(async function checkNFCParam(){
+  const params = new URLSearchParams(window.location.search)
+  const volId = params.get('vol')
+  if(!volId) return
+
+  // Show welcome overlay while fetching
+  const overlay = document.getElementById('nfc-welcome')
+  overlay.style.display = 'flex'
+
+  try {
+    const r = await fetch('/api/kiosk/volunteer-profile/'+volId)
+    if(!r.ok) throw new Error('Not found')
+    const vol = await r.json()
+    if(vol.error) throw new Error(vol.error)
+
+    // Show name briefly
+    document.getElementById('nfc-welcome-name').textContent = 'Welcome, '+vol.name.split(' ')[0]+'!'
+    await new Promise(res=>setTimeout(res, 1200))
+
+    // Hide overlay and load volunteer
+    overlay.style.display = 'none'
+    // Clean URL so Back button works cleanly
+    history.replaceState(null, '', window.location.pathname)
+    // Load interest types then go through normal waiver check flow
+    const ir = await fetch('/api/kiosk/interest-types')
+    allInterestTypes = await ir.json()
+    selVol = vol
+    await goWaiverCheck(false)
+  } catch(e){
+    overlay.style.display = 'none'
+    // Fall through to normal idle screen
+  }
+})()
+</script>
 </body>
 </html>

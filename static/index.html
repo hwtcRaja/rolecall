@@ -4613,6 +4613,7 @@ function renderDonorDetailPage(donor){
           <div style="font-size:13px;opacity:0.8">Total Donated</div>
           <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
             <button onclick="openAddDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">✏️ Edit</button>
+            <button onclick="openMergeDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">🔀 Merge</button>
             <button onclick="openAddDonationModal('${donor.id}')" style="background:#fff;color:${tierColor};border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">+ Log Donation</button>
           </div>
         </div>
@@ -5068,6 +5069,126 @@ async function deleteCampaign(cid){
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
   document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
   toast('Campaign deleted')
+}
+
+function openMergeDonorModal(primaryId){
+  const primary = allDonors.find(d=>d.id===primaryId)
+  if(!primary){ toast('Donor not found','error'); return }
+  const existing = document.getElementById('merge-modal')
+  if(existing) existing.remove()
+
+  // Find donors with similar names to suggest
+  const nameParts = primary.display_name.toLowerCase().split(/\s+/)
+  const similar = allDonors.filter(d=>{
+    if(d.id===primaryId) return false
+    const n = d.display_name.toLowerCase()
+    return nameParts.some(p=>p.length>2 && n.includes(p))
+  }).sort((a,b)=>a.display_name.localeCompare(b.display_name))
+
+  const overlay = document.createElement('div')
+  overlay.id = 'merge-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:16px;font-weight:700">🔀 Merge Donors</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">All donations and history will move to the primary record</div>
+        </div>
+        <button onclick="document.getElementById('merge-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px">
+
+        <!-- Primary donor -->
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Keep this record (primary)</div>
+        <div style="background:var(--teal-50);border:1.5px solid var(--teal-400);border-radius:var(--radius);padding:12px 14px;margin-bottom:20px">
+          <div style="font-weight:700">${escHtml(primary.display_name)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
+            ${primary.email?escHtml(primary.email)+' · ':''}
+            $${parseFloat(primary.total_donated||0).toLocaleString()} total · 
+            ${primary.tier_name||'No tier'}
+          </div>
+        </div>
+
+        <!-- Search for duplicates -->
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Select duplicates to merge in</div>
+        <div class="search-input-wrap" style="margin-bottom:10px">
+          <span>🔍</span>
+          <input type="text" id="merge-search" placeholder="Search donors to merge…" oninput="renderMergeCandidates('${primaryId}')"/>
+        </div>
+        <div id="merge-candidates" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius)">
+          ${renderMergeCandidateList(primaryId, similar)}
+        </div>
+
+        <div id="merge-selected-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)">No duplicates selected</div>
+        <div style="background:#fef9c3;border:1px solid #fde047;border-radius:var(--radius);padding:10px 14px;margin-top:12px;font-size:12px;color:#854d0e">
+          ⚠️ This cannot be undone. The duplicate records will be permanently deleted after their donations are moved.
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button id="merge-confirm-btn" onclick="runMerge('${primaryId}')" class="btn btn-primary" style="flex:1" disabled>🔀 Merge Selected</button>
+          <button onclick="document.getElementById('merge-modal').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+function renderMergeCandidateList(primaryId, candidates){
+  if(!candidates.length) return '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No matching donors found</div>'
+  return candidates.map(d=>`
+    <label style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background=''">
+      <input type="checkbox" value="${d.id}" class="merge-cb" onchange="updateMergeSelection()" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0"/>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escHtml(d.display_name)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">
+          ${d.email?escHtml(d.email)+' · ':''}
+          $${parseFloat(d.total_donated||0).toLocaleString()} total
+          ${d.tier_name?' · '+d.tier_name:''}
+        </div>
+      </div>
+    </label>`).join('')
+}
+
+function renderMergeCandidates(primaryId){
+  const q = document.getElementById('merge-search')?.value.toLowerCase()||''
+  const candidates = allDonors.filter(d=>{
+    if(d.id===primaryId) return false
+    if(!q) return true
+    return d.display_name.toLowerCase().includes(q) || (d.email||'').toLowerCase().includes(q)
+  }).sort((a,b)=>a.display_name.localeCompare(b.display_name))
+  const el = document.getElementById('merge-candidates')
+  if(el) el.innerHTML = renderMergeCandidateList(primaryId, candidates)
+}
+
+function updateMergeSelection(){
+  const checked = [...document.querySelectorAll('.merge-cb:checked')]
+  const btn = document.getElementById('merge-confirm-btn')
+  const summary = document.getElementById('merge-selected-summary')
+  if(!checked.length){
+    btn.disabled = true
+    summary.textContent = 'No duplicates selected'
+  } else {
+    btn.disabled = false
+    const names = checked.map(cb=>{
+      const d = allDonors.find(x=>x.id===cb.value)
+      return d ? d.display_name : cb.value
+    })
+    summary.innerHTML = `<strong>${checked.length}</strong> duplicate${checked.length>1?'s':''} will be merged: ${names.map(n=>'<em>'+escHtml(n)+'</em>').join(', ')}`
+  }
+}
+
+async function runMerge(primaryId){
+  const mergeIds = [...document.querySelectorAll('.merge-cb:checked')].map(cb=>cb.value)
+  if(!mergeIds.length){ toast('Select at least one duplicate to merge','error'); return }
+  const btn = document.getElementById('merge-confirm-btn')
+  btn.disabled = true; btn.textContent = 'Merging…'
+  const res = await api('/api/donors/'+primaryId+'/merge','POST',{merge_ids: mergeIds})
+  if(res.error){ toast(res.error,'error'); btn.disabled=false; btn.textContent='🔀 Merge Selected'; return }
+  document.getElementById('merge-modal').remove()
+  toast('Merged successfully! Donations moved to primary record.','success')
+  await loadDonorsPage()
+  openDonorDetail(primaryId)
 }
 
 function openDonorImportModal(){

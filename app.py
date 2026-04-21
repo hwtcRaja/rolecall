@@ -2889,12 +2889,18 @@ def save_email_settings_route():
 def test_email_route():
     err = require_admin()
     if err: return err
-    d = request.json
-    to = d.get('to','')
-    if not to: return jsonify({'error': 'No recipient'}), 400
+    d = request.json or {}
+    to = d.get('to','').strip()
+    # Fall back to current user's email
+    if not to:
+        conn = get_db()
+        user = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session.get('user_id',''),))
+        conn.close()
+        to = user['email'] if user else ''
+    if not to: return jsonify({'error': 'No recipient email found. Please save your email address in your user profile.'}), 400
     ok, msg = send_email([to], 'RoleCall Test Email',
         '<p style="font-family:sans-serif">This is a test email from RoleCall. If you received this, email is working correctly.</p>')
-    if ok: return jsonify({'ok': True})
+    if ok: return jsonify({'ok': True, 'sent_to': to})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
 # ─────────────────────────────────────────────
@@ -2908,8 +2914,7 @@ def update_user(uid):
     d = request.json
     conn = get_db()
     if d.get('password'):
-        import bcrypt as _bcrypt
-        pw_hash = _bcrypt.hashpw(d['password'].encode(), _bcrypt.gensalt()).decode()
+        pw_hash = hashlib.sha256(d['password'].encode()).hexdigest()
         execute(conn, 'UPDATE users SET name=%s, email=%s, password_hash=%s WHERE id=%s',
             (d['name'], d['email'], pw_hash, uid))
     else:
@@ -2950,17 +2955,30 @@ def send_reset_link(uid):
     conn = get_db()
     user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (uid,))
     if not user: conn.close(); return jsonify({'error': 'User not found'}), 404
-    import bcrypt as _bcrypt, secrets
+    import secrets
     temp_pw = secrets.token_urlsafe(10)
-    pw_hash = _bcrypt.hashpw(temp_pw.encode(), _bcrypt.gensalt()).decode()
+    # Use SHA-256 to match the login route
+    pw_hash = hashlib.sha256(temp_pw.encode()).hexdigest()
     execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (pw_hash, uid))
     conn.commit()
-    s = get_email_settings()
-    ok, msg = send_email([user['email']], 'Your RoleCall Password',
-        f'<p style="font-family:sans-serif">Your temporary password is: <strong>{temp_pw}</strong><br/>Please log in and change it.</p>')
+    html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto">
+        <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px;text-align:center;border-radius:12px 12px 0 0">
+            <h2 style="color:#fff;margin:0">RoleCall — Temporary Password</h2>
+        </div>
+        <div style="padding:28px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
+            <p style="font-size:15px;color:#1a1a17">Hi {user['name']},</p>
+            <p style="font-size:14px;color:#5f5e5a;line-height:1.7">A temporary password has been generated for your RoleCall account. Use it to log in, then change your password right away.</p>
+            <div style="background:#f0f8fa;border-left:4px solid #145466;padding:16px 20px;border-radius:0 8px 8px 0;margin:20px 0;text-align:center">
+                <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Temporary Password</div>
+                <div style="font-size:22px;font-weight:800;font-family:monospace;color:#0d3d4d;letter-spacing:2px">{temp_pw}</div>
+            </div>
+            <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
+        </div>
+    </div>'''
+    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body)
     conn.close()
     if ok: return jsonify({'ok': True})
-    return jsonify({'error': msg or 'Failed to send email'}), 500
+    return jsonify({'error': msg or 'Failed to send email. Check that your Resend API key is configured in Settings → Email.'}), 500
 
 # ─────────────────────────────────────────────
 #  FAMILIES & PORTAL

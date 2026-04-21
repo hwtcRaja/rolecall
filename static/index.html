@@ -4168,13 +4168,14 @@ async function saveEmailSettings(){
 async function testEmail(){
   const statusEl = document.getElementById('email-settings-status')
   if(statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sending test...</span>'
-  const res = await api('/api/email-settings/test','POST')
+  const res = await api('/api/email-settings/test','POST',{})
   if(res.ok){
-    toast('Test email sent! Check your inbox.','success')
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">&#x2713; Test email sent successfully</span>'
+    const msg = res.sent_to ? `Test email sent to ${res.sent_to}!` : 'Test email sent!'
+    toast(msg,'success')
+    if(statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ ${msg}</span>`
   } else {
-    toast(res.error||'Send failed -- check API key','error')
-    if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">&#x2717; '+(res.error||'Failed')+'</span>'
+    toast(res.error||'Send failed — check API key and From Email in settings','error')
+    if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">✗ '+(res.error||'Failed')+'</span>'
   }
 }
 

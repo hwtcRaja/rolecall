@@ -983,6 +983,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <option value="">All</option>
               <option value="inactive">Inactive</option>
             </select>
+            <button class="btn btn-secondary btn-sm" id="donors-filter-dupes-btn" onclick="toggleDupesFilter()" style="white-space:nowrap">⚠️ Show Duplicates</button>
           </div>
           <div id="donors-list"></div>
         </div>
@@ -4429,12 +4430,30 @@ function renderDonorsList(){
 
   let filtered = allDonors.filter(d=>{
     if(statusF && d.status !== statusF && statusF !== '') return false
-    if(!statusF) {} // all
+    if(!statusF) {}
     if(tierF && d.tier_id !== tierF) return false
     if(typeF && d.type !== typeF) return false
     if(q && !d.display_name.toLowerCase().includes(q) && !(d.email||'').toLowerCase().includes(q)) return false
     return true
   })
+
+  // Build duplicate map — donors whose normalized name matches another
+  const normName = n => n.toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim()
+  const nameGroups = {}
+  allDonors.forEach(d=>{
+    const key = normName(d.display_name)
+    if(!nameGroups[key]) nameGroups[key] = []
+    nameGroups[key].push(d.id)
+  })
+  const hasDuplicate = id => {
+    const d = allDonors.find(x=>x.id===id)
+    if(!d) return false
+    return (nameGroups[normName(d.display_name)]||[]).length > 1
+  }
+
+  // Dupes-only filter
+  const dupesOnly = document.getElementById('donors-filter-dupes-btn')?.dataset.active === '1'
+  if(dupesOnly) filtered = filtered.filter(d=>hasDuplicate(d.id))
 
   if(!filtered.length){
     el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
@@ -4467,7 +4486,10 @@ function renderDonorsList(){
           <div style="display:flex;align-items:center;gap:10px">
             <div style="width:36px;height:36px;border-radius:50%;background:${tierColor}22;color:${tierColor};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${typeIcon}</div>
             <div>
-              <div style="font-weight:600;font-size:14px">${escHtml(d.display_name)}</div>
+              <div style="font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px">
+                ${escHtml(d.display_name)}
+                ${hasDuplicate(d.id)?`<span onclick="event.stopPropagation();openMergeDonorModal('${d.id}')" title="Possible duplicate — click to merge" style="font-size:10px;font-weight:700;background:#fef9c3;color:#854d0e;border:1px solid #fde047;padding:1px 6px;border-radius:10px;cursor:pointer;white-space:nowrap">⚠️ Duplicate?</span>`:''}
+              </div>
               ${d.email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(d.email)}</div>`:''}
             </div>
           </div>
@@ -4721,10 +4743,11 @@ function renderDonationRow(d, donorId){
         ${d.thank_you_sent?'<span style="font-size:11px;color:var(--green-600)">✉️ TY sent</span>':''}
         ${d.campaign_name?`<span style="font-size:11px;color:var(--text-muted)">🎯 ${escHtml(d.campaign_name)}</span>`:''}
       </div>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${formatDate(d.donation_date)}${d.notes?' · '+escHtml(d.notes):''}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${formatDate(d.donation_date)}${d.check_number?' · #'+escHtml(d.check_number):''}${d.notes?' · '+escHtml(d.notes):''}</div>
     </div>
     <div style="display:flex;gap:4px;flex-shrink:0">
-      ${!d.thank_you_sent?`<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px" title="Send thank-you email">💌 Thank You</button>`:''}
+      ${!d.thank_you_sent?`<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px" title="Send thank-you email">💌</button>`:''}
+      <button onclick="openEditDonationModal('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px" title="Edit donation">✏️</button>
       <button onclick="deleteDonation('${d.id}','${donorId}')" class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 6px">✕</button>
     </div>
   </div>`
@@ -4781,6 +4804,83 @@ function openAddDonationModal(donorId){
   overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
   document.getElementById('don-amount').focus()
+}
+
+async function openEditDonationModal(donationId, donorId){
+  // Fetch fresh donation data from the donor detail
+  const donor = await api('/api/donors/'+donorId+'/detail')
+  const d = donor?.donations?.find(x=>x.id===donationId)
+  if(!d){ toast('Donation not found','error'); return }
+
+  const existing = document.getElementById('donation-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'donation-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:460px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">✏️ Edit Donation</div>
+        <button onclick="document.getElementById('donation-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Amount *</label>
+            <input type="number" id="don-amount" value="${parseFloat(d.amount)}" min="0" step="0.01" style="font-size:18px;font-weight:700"/></div>
+          <div class="form-group"><label>Date *</label>
+            <input type="date" id="don-date" value="${d.donation_date}"/></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Type</label>
+            <select id="don-type">
+              <option value="cash" ${d.type==='cash'?'selected':''}>Cash / Credit Card</option>
+              <option value="check" ${d.type==='check'?'selected':''}>Check</option>
+              <option value="inkind" ${d.type==='inkind'?'selected':''}>In-Kind</option>
+              <option value="sponsorship" ${d.type==='sponsorship'?'selected':''}>Sponsorship</option>
+            </select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="don-status">
+              <option value="received" ${d.payment_status==='received'?'selected':''}>Received</option>
+              <option value="pending" ${d.payment_status==='pending'?'selected':''}>Pending</option>
+              <option value="pledged" ${d.payment_status==='pledged'?'selected':''}>Pledged</option>
+            </select></div>
+        </div>
+        <div class="form-group"><label>Campaign</label>
+          <select id="don-campaign">
+            <option value="" ${!d.campaign_id?'selected':''}>— General donation —</option>
+            ${allDonorCampaigns.map(c=>`<option value="${c.id}" ${c.id===d.campaign_id?'selected':''}>${escHtml(c.name)}</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Check # / Reference</label>
+          <input type="text" id="don-check" value="${escHtml(d.check_number||'')}"/></div>
+        <div class="form-group"><label>Notes</label>
+          <textarea id="don-notes" style="min-height:60px;resize:vertical">${escHtml(d.notes||'')}</textarea></div>
+        <button class="btn btn-primary" onclick="saveEditDonation('${donationId}','${donorId}')" style="width:100%">💾 Save Changes</button>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveEditDonation(donationId, donorId){
+  const amount = parseFloat(document.getElementById('don-amount').value)
+  const date   = document.getElementById('don-date').value
+  if(!amount || amount<=0){ toast('Please enter a valid amount','error'); return }
+  if(!date){ toast('Please select a date','error'); return }
+  const res = await api('/api/donations/'+donationId,'PUT',{
+    amount, donation_date: date,
+    type:           document.getElementById('don-type').value,
+    payment_status: document.getElementById('don-status').value,
+    campaign_id:    document.getElementById('don-campaign').value||null,
+    check_number:   document.getElementById('don-check').value.trim(),
+    notes:          document.getElementById('don-notes').value.trim(),
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('donation-modal').remove()
+  toast('Donation updated!','success')
+  const donor = await api('/api/donors/'+donorId+'/detail')
+  if(!donor.error) renderDonorDetailPage(donor)
+  const donors = await api('/api/donors')
+  if(Array.isArray(donors)) allDonors = donors
 }
 
 async function saveDonation(donorId){
@@ -5069,6 +5169,18 @@ async function deleteCampaign(cid){
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
   document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
   toast('Campaign deleted')
+}
+
+function toggleDupesFilter(){
+  const btn = document.getElementById('donors-filter-dupes-btn')
+  if(!btn) return
+  const active = btn.dataset.active === '1'
+  btn.dataset.active = active ? '0' : '1'
+  btn.style.background = active ? '' : 'var(--amber-50)'
+  btn.style.borderColor = active ? '' : '#fde047'
+  btn.style.color = active ? '' : '#854d0e'
+  btn.textContent = active ? '⚠️ Show Duplicates' : '⚠️ Showing Duplicates ✕'
+  renderDonorsList()
 }
 
 function openMergeDonorModal(primaryId){

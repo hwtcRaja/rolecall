@@ -2350,6 +2350,1185 @@ def set_donor_tier(did):
     return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
+#  STATIC PAGES
+# ─────────────────────────────────────────────
+
+@app.route('/kiosk')
+def kiosk_page():
+    resp = send_from_directory('static', 'kiosk.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+@app.route('/pickup')
+def pickup_page():
+    return send_from_directory('static', 'pickup.html')
+
+@app.route('/portal')
+def portal_page():
+    resp = send_from_directory('static', 'portal.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+@app.route('/join')
+def join_page():
+    resp = send_from_directory('static', 'join.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+# ─────────────────────────────────────────────
+#  NAV ICONS
+# ─────────────────────────────────────────────
+
+@app.route('/api/nav-icons')
+def get_nav_icons():
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT key, lucide_name FROM nav_icons')
+    conn.close()
+    return jsonify({r['key']: r['lucide_name'] for r in rows})
+
+@app.route('/api/nav-icons', methods=['PUT'])
+def save_nav_icons():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    for key, name in d.items():
+        if name:
+            execute(conn, '''INSERT INTO nav_icons (key, lucide_name) VALUES (%s,%s)
+                ON CONFLICT (key) DO UPDATE SET lucide_name=EXCLUDED.lucide_name''', (key, name))
+        else:
+            execute(conn, 'DELETE FROM nav_icons WHERE key=%s', (key,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  EVENT TYPES
+# ─────────────────────────────────────────────
+
+@app.route('/api/event-types')
+def get_event_types():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    types = fetchall(conn, 'SELECT * FROM event_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/event-types', methods=['POST'])
+def create_event_type():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO event_types (id,name,color,description) VALUES (%s,%s,%s,%s)',
+        (tid, d['name'], d.get('color','blue'), d.get('description','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM event_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/event-types/<tid>', methods=['PUT'])
+def update_event_type(tid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE event_types SET name=%s,color=%s,description=%s WHERE id=%s',
+        (d['name'], d.get('color','blue'), d.get('description',''), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/event-types/<tid>', methods=['DELETE'])
+def delete_event_type(tid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_types WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ELICS
+# ─────────────────────────────────────────────
+
+@app.route('/api/elics')
+def get_elics():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    elics = fetchall(conn, '''SELECT e.*, v.name as volunteer_name
+        FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id ORDER BY v.name''')
+    conn.close()
+    return jsonify(elics)
+
+@app.route('/api/elics', methods=['POST'])
+def create_elic():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    eid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (eid, d['volunteer_id'], d.get('pin','0000'),
+         d.get('is_master', False), json.dumps(d.get('assigned_events',[]))))
+    conn.commit()
+    row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
+        FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/elics/<eid>', methods=['PUT'])
+def update_elic(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s WHERE id=%s',
+        (d['volunteer_id'], d.get('pin','0000'),
+         d.get('is_master',False), json.dumps(d.get('assigned_events',[])), eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/elics/<eid>', methods=['DELETE'])
+def delete_elic(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM elics WHERE id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/elic-auth', methods=['POST'])
+def kiosk_elic_auth():
+    d = request.json
+    pin = d.get('pin','')
+    conn = get_db()
+    elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
+        FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id
+        WHERE e.pin=%s''', (pin,))
+    if not elic:
+        conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
+    # Get assigned events
+    assigned = json.loads(elic.get('assigned_events') or '[]')
+    if elic.get('is_master'):
+        events = fetchall(conn, 'SELECT * FROM events ORDER BY event_date DESC NULLS LAST, name')
+    else:
+        if assigned:
+            placeholders = ','.join(['%s']*len(assigned))
+            events = fetchall(conn, f'SELECT * FROM events WHERE id IN ({placeholders})', tuple(assigned))
+        else:
+            events = []
+    conn.close()
+    return jsonify({'ok': True, 'elic': elic, 'events': events})
+
+# ─────────────────────────────────────────────
+#  CHECKLIST ITEMS
+# ─────────────────────────────────────────────
+
+@app.route('/api/checklist-items')
+def get_checklist_items():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, label')
+    conn.close()
+    return jsonify(items)
+
+@app.route('/api/checklist-items', methods=['POST'])
+def create_checklist_item():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    iid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
+        (iid, d['label'], d.get('required',False), d.get('sort_order',0)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/checklist-items/<iid>', methods=['PUT'])
+def update_checklist_item(iid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
+        (d['label'], d.get('required',False), d.get('sort_order',0), iid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/checklist-items/<iid>', methods=['DELETE'])
+def delete_checklist_item(iid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM checklist_items WHERE id=%s', (iid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/opening-checklist-items')
+def get_opening_checklist_items():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, label')
+    conn.close()
+    return jsonify(items)
+
+@app.route('/api/opening-checklist-items', methods=['POST'])
+def create_opening_checklist_item():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    iid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
+        (iid, d['label'], d.get('required',False), d.get('sort_order',0)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/opening-checklist-items/<iid>', methods=['PUT'])
+def update_opening_checklist_item(iid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
+        (d['label'], d.get('required',False), d.get('sort_order',0), iid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/opening-checklist-items/<iid>', methods=['DELETE'])
+def delete_opening_checklist_item(iid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM opening_checklist_items WHERE id=%s', (iid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  PENDING HOURS
+# ─────────────────────────────────────────────
+
+@app.route('/api/pending-hours')
+def get_pending_hours():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT ph.*, v.name as volunteer_name
+        FROM pending_hours ph LEFT JOIN volunteers v ON ph.volunteer_id=v.id
+        WHERE ph.status='pending' ORDER BY ph.created_at DESC''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/pending-hours/<hid>/approve', methods=['POST'])
+def approve_pending_hours(hid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    ph = fetchone(conn, 'SELECT * FROM pending_hours WHERE id=%s', (hid,))
+    if not ph: conn.close(); return jsonify({'error': 'Not found'}), 404
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO volunteer_hours (id,volunteer_id,event,event_id,date,hours,role,notes,approved,approved_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s)''',
+        (pid, ph['volunteer_id'], ph['event'], ph.get('event_id'),
+         ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''),
+         session.get('user_name','')))
+    execute(conn, "UPDATE pending_hours SET status='approved' WHERE id=%s", (hid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-hours/<hid>/reject', methods=['POST'])
+def reject_pending_hours(hid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE pending_hours SET status='rejected' WHERE id=%s", (hid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ALERTS & NOTIFICATIONS
+# ─────────────────────────────────────────────
+
+@app.route('/api/alerts')
+def get_alerts():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM alerts WHERE status='active'
+        ORDER BY created_at DESC LIMIT 50''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/alerts', methods=['POST'])
+def create_alert():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO alerts (id,type,message,source,status)
+        VALUES (%s,%s,%s,%s,'active')''',
+        (aid, d.get('type','info'), d['message'], d.get('source','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/alerts/<aid>/dismiss', methods=['POST'])
+def dismiss_alert(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE alerts SET status='dismissed' WHERE id=%s", (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  EVENT LOGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/event-logs')
+def get_event_logs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT el.*, e.name as event_name
+        FROM event_logs el LEFT JOIN events e ON el.event_id=e.id
+        ORDER BY el.created_at DESC LIMIT 200''')
+    conn.close()
+    return jsonify(rows)
+
+# ─────────────────────────────────────────────
+#  EMAIL SETTINGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/email-settings')
+def get_email_settings_route():
+    err = require_auth()
+    if err: return err
+    s = get_email_settings()
+    return jsonify(s)
+
+@app.route('/api/email-settings', methods=['PUT'])
+def save_email_settings_route():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    for key, val in d.items():
+        execute(conn, '''INSERT INTO settings (key,value) VALUES (%s,%s)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value''',
+            (key, json.dumps(val)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/email-settings/test', methods=['POST'])
+def test_email_route():
+    err = require_admin()
+    if err: return err
+    d = request.json
+    to = d.get('to','')
+    if not to: return jsonify({'error': 'No recipient'}), 400
+    ok, msg = send_email([to], 'RoleCall Test Email',
+        '<p style="font-family:sans-serif">This is a test email from RoleCall. If you received this, email is working correctly.</p>')
+    if ok: return jsonify({'ok': True})
+    return jsonify({'error': msg or 'Failed to send'}), 500
+
+# ─────────────────────────────────────────────
+#  USERS (additional routes)
+# ─────────────────────────────────────────────
+
+@app.route('/api/users/<uid>', methods=['PUT'])
+def update_user(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    if d.get('password'):
+        import bcrypt as _bcrypt
+        pw_hash = _bcrypt.hashpw(d['password'].encode(), _bcrypt.gensalt()).decode()
+        execute(conn, 'UPDATE users SET name=%s, email=%s, password_hash=%s WHERE id=%s',
+            (d['name'], d['email'], pw_hash, uid))
+    else:
+        execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
+            (d['name'], d['email'], uid))
+    if 'permissions' in d:
+        execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
+            (json.dumps(d['permissions']), uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/users/<uid>', methods=['DELETE'])
+def delete_user(uid):
+    err = require_admin()
+    if err: return err
+    if uid == session.get('user_id'):
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    conn = get_db()
+    execute(conn, 'DELETE FROM users WHERE id=%s', (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/users/<uid>/permissions', methods=['PUT'])
+def update_user_permissions(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
+        (json.dumps(d.get('permissions',{})), uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/users/<uid>/send-reset-link', methods=['POST'])
+def send_reset_link(uid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (uid,))
+    if not user: conn.close(); return jsonify({'error': 'User not found'}), 404
+    import bcrypt as _bcrypt, secrets
+    temp_pw = secrets.token_urlsafe(10)
+    pw_hash = _bcrypt.hashpw(temp_pw.encode(), _bcrypt.gensalt()).decode()
+    execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (pw_hash, uid))
+    conn.commit()
+    s = get_email_settings()
+    ok, msg = send_email([user['email']], 'Your RoleCall Password',
+        f'<p style="font-family:sans-serif">Your temporary password is: <strong>{temp_pw}</strong><br/>Please log in and change it.</p>')
+    conn.close()
+    if ok: return jsonify({'ok': True})
+    return jsonify({'error': msg or 'Failed to send email'}), 500
+
+# ─────────────────────────────────────────────
+#  FAMILIES & PORTAL
+# ─────────────────────────────────────────────
+
+@app.route('/api/families')
+def get_families():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    families = fetchall(conn, '''SELECT f.*, COUNT(y.id) as youth_count
+        FROM families f LEFT JOIN youth y ON y.family_id=f.id
+        GROUP BY f.id ORDER BY f.name''')
+    conn.close()
+    return jsonify(families)
+
+@app.route('/api/families', methods=['POST'])
+def create_family():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO families (id,name,passphrase,email,phone) VALUES (%s,%s,%s,%s,%s)',
+        (fid, d['name'], d.get('passphrase',''), d.get('email',''), d.get('phone','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/families/<fid>', methods=['PUT'])
+def update_family(fid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE families SET name=%s, passphrase=%s, email=%s, phone=%s WHERE id=%s',
+        (d['name'], d.get('passphrase',''), d.get('email',''), d.get('phone',''), fid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/<yid>/passphrase', methods=['PUT'])
+def set_youth_passphrase(yid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE youth SET passphrase=%s WHERE id=%s',
+        (d.get('passphrase',''), yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/auth', methods=['POST'])
+def portal_auth():
+    d = request.json
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    if not passphrase: return jsonify({'error': 'Passphrase required'}), 400
+    conn = get_db()
+    youth = fetchone(conn, '''SELECT y.*, f.name as family_name, f.passphrase as family_passphrase
+        FROM youth y LEFT JOIN families f ON y.family_id=f.id
+        WHERE LOWER(y.passphrase)=%s OR LOWER(f.passphrase)=%s''', (passphrase, passphrase))
+    if not youth: conn.close(); return jsonify({'error': 'Invalid passphrase'}), 401
+    prods = fetchall(conn, '''SELECT p.* FROM productions p
+        JOIN youth_production_members ypm ON ypm.production_id=p.id
+        WHERE ypm.youth_id=%s AND p.stage='rising_stars' ''', (youth['id'],))
+    portal_data = []
+    for p in prods:
+        prod = dict(p)
+        prod['announcements'] = fetchall(conn, '''SELECT * FROM portal_announcements
+            WHERE production_id=%s AND status='published' ORDER BY created_at DESC''', (p['id'],))
+        prod['team'] = fetchall(conn, '''SELECT pm.*, v.name FROM production_members pm
+            JOIN volunteers v ON pm.volunteer_id=v.id WHERE pm.production_id=%s''', (p['id'],))
+        portal_data.append(prod)
+    conn.close()
+    return jsonify({'ok': True, 'youth': youth, 'productions': portal_data})
+
+@app.route('/api/portal/announcements')
+def get_portal_announcements():
+    conn = get_db()
+    prod_id = request.args.get('production_id')
+    if prod_id:
+        rows = fetchall(conn, '''SELECT * FROM portal_announcements
+            WHERE production_id=%s AND status='published' ORDER BY created_at DESC''', (prod_id,))
+    else:
+        rows = fetchall(conn, "SELECT * FROM portal_announcements WHERE status='published' ORDER BY created_at DESC")
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/portal/contact-production', methods=['POST'])
+def portal_contact_production():
+    d = request.json
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (d.get('production_id'),))
+    conn.close()
+    if not prod: return jsonify({'error': 'Not found'}), 404
+    s = get_email_settings()
+    recipients = get_recipient_emails(s)
+    if recipients:
+        send_email(recipients, f'Portal Message: {d.get("subject","")}',
+            f'<p style="font-family:sans-serif">From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
+            f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  PRODUCTIONS (additional routes)
+# ─────────────────────────────────────────────
+
+@app.route('/api/productions/<pid>/youth-members')
+def get_prod_youth_members(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name,
+        y.first_name||' '||y.last_name as name
+        FROM youth_production_members ypm
+        JOIN youth y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/youth-members', methods=['POST'])
+def enroll_youth_in_prod(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
+        VALUES (%s,%s,%s,%s,'enrolled') ON CONFLICT DO NOTHING''',
+        (mid, pid, d['youth_id'], d.get('role','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/youth-members/<mid>', methods=['DELETE'])
+def unenroll_youth_from_prod(pid, mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_production_members WHERE id=%s AND production_id=%s', (mid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/conflicts')
+def get_production_conflicts(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT sc.*, v.name as volunteer_name
+        FROM schedule_conflicts sc
+        LEFT JOIN volunteers v ON sc.volunteer_id=v.id
+        WHERE sc.production_id=%s ORDER BY sc.created_at DESC''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/team')
+def get_production_team(pid):
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+        FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY pm.department, v.name''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/general-content')
+def get_general_content(pid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT general_content FROM productions WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify({'content': row['general_content'] if row else ''})
+
+@app.route('/api/productions/<pid>/general-content', methods=['PUT'])
+def save_general_content(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET general_content=%s WHERE id=%s',
+        (d.get('content',''), pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/about', methods=['PUT'])
+def update_production_about(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, '''UPDATE productions SET
+        director=%s, venue=%s, performance_location=%s,
+        start_date=%s, end_date=%s, description=%s,
+        portal_color=%s, portal_image_url=%s WHERE id=%s''',
+        (d.get('director',''), d.get('venue',''), d.get('performance_location',''),
+         d.get('start_date') or None, d.get('end_date') or None,
+         d.get('description',''), d.get('portal_color',''), d.get('portal_image_url',''), pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/announcements', methods=['POST'])
+def create_portal_announcement(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO portal_announcements
+        (id,production_id,title,body,status,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (aid, pid, d.get('title',''), d.get('body',''),
+         d.get('status','draft'), session.get('user_name','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/announcements/<aid>', methods=['PUT'])
+def update_portal_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, 'UPDATE portal_announcements SET title=%s, body=%s, status=%s WHERE id=%s AND production_id=%s',
+        (d.get('title',''), d.get('body',''), d.get('status','draft'), aid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/announcements/<aid>', methods=['DELETE'])
+def delete_portal_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_announcements WHERE id=%s AND production_id=%s', (aid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/announcements/<aid>/push', methods=['POST'])
+def push_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE portal_announcements SET status='published' WHERE id=%s AND production_id=%s", (aid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/waivers', methods=['POST'])
+def add_prod_waiver(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
+        (rid, pid, d['waiver_type_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
+def remove_prod_waiver(pid, wid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_required_waivers WHERE production_id=%s AND waiver_type_id=%s', (pid, wid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  KIOSK ROUTES
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/interest-types')
+def kiosk_interest_types():
+    conn = get_db()
+    types = fetchall(conn, 'SELECT id, name, color FROM interest_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/kiosk/volunteer-profile/<vol_id>')
+def kiosk_volunteer_profile(vol_id):
+    conn = get_db()
+    vol = fetchone(conn,
+        "SELECT id, name, phone, interests, COALESCE(background_check_status,'none') as background_check_status FROM volunteers WHERE id=%s AND status='active'",
+        (vol_id,))
+    if not vol: conn.close(); return jsonify({'error': 'Not found'}), 404
+    ec = fetchone(conn, 'SELECT name, relationship, phone FROM volunteer_emergency_contacts WHERE volunteer_id=%s ORDER BY created_at DESC LIMIT 1', (vol_id,))
+    vol['emergency_contact'] = ec or {}
+    conn.close()
+    return jsonify(vol)
+
+@app.route('/api/kiosk/volunteers')
+def kiosk_volunteers():
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 2:
+        return jsonify([])
+    conn = get_db()
+    vols = fetchall(conn,
+        "SELECT id, name, phone, interests FROM volunteers WHERE LOWER(name) LIKE %s AND status='active' ORDER BY name LIMIT 20",
+        ('%' + q + '%',))
+    conn.close()
+    return jsonify(vols)
+
+@app.route('/api/kiosk/events')
+def kiosk_events():
+    conn = get_db()
+    events = fetchall(conn, """
+        SELECT * FROM events
+        WHERE status='open'
+           OR (status IN ('draft','published','in_progress')
+               AND event_date::date >= (CURRENT_DATE - INTERVAL '1 day')
+               AND event_date::date <= (CURRENT_DATE + INTERVAL '1 day'))
+        ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, event_date ASC NULLS LAST
+    """)
+    conn.close()
+    return jsonify(events)
+
+@app.route('/api/kiosk/submit', methods=['POST'])
+def kiosk_submit():
+    d = request.json
+    if not d.get('volunteer_id') or not d.get('event') or not d.get('hours'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    try:
+        hours = float(d['hours'])
+        if hours <= 0 or hours > 24:
+            return jsonify({'error': 'Hours must be between 0.5 and 24'}), 400
+    except Exception:
+        return jsonify({'error': 'Invalid hours value'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, d['volunteer_id'], d['event'], d.get('event_id'), today, hours, d.get('role',''), d.get('notes','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/waiver-check')
+def kiosk_waiver_check():
+    vol_id = request.args.get('volunteer_id')
+    if not vol_id: return jsonify({'issues': [], 'all_clear': True})
+    conn = get_db()
+    from datetime import date as _date
+    today = _date.today()
+    required = fetchall(conn, '''SELECT wt.* FROM waiver_types wt
+        WHERE wt.required_for_volunteering=TRUE''')
+    issues = []
+    for wt in required:
+        signed = fetchone(conn, '''SELECT * FROM volunteer_waivers WHERE volunteer_id=%s AND waiver_type_id=%s
+            ORDER BY signed_date DESC LIMIT 1''', (vol_id, wt['id']))
+        if not signed:
+            issues.append({'waiver_type_id': wt['id'], 'name': wt['name'],
+                'description': wt.get('description',''), 'status': 'missing',
+                'can_sign_online': bool(wt.get('can_sign_online')),
+                'template_body': wt.get('template_body','')})
+        elif wt.get('expires_days') and signed.get('expiry_date'):
+            try:
+                exp = __import__('datetime').date.fromisoformat(str(signed['expiry_date'])[:10])
+                if exp < today:
+                    issues.append({'waiver_type_id': wt['id'], 'name': wt['name'],
+                        'description': wt.get('description',''), 'status': 'expired',
+                        'can_sign_online': bool(wt.get('can_sign_online')),
+                        'template_body': wt.get('template_body','')})
+            except Exception:
+                pass
+    conn.close()
+    return jsonify({'issues': issues, 'all_clear': len(issues) == 0})
+
+@app.route('/api/kiosk/sign-waiver', methods=['POST'])
+def kiosk_sign_waiver():
+    d = request.json
+    vol_id = d.get('volunteer_id')
+    waiver_type_id = d.get('waiver_type_id')
+    signed_name = d.get('signed_name', '')
+    if not vol_id or not waiver_type_id: return jsonify({'error': 'Missing fields'}), 400
+    conn = get_db()
+    wt = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (waiver_type_id,))
+    if not wt: conn.close(); return jsonify({'error': 'Waiver type not found'}), 404
+    from datetime import date as _date, timedelta
+    today = _date.today()
+    expiry = None
+    if wt.get('expires_days'):
+        expiry = (today + timedelta(days=int(wt['expires_days']))).isoformat()
+    wid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO volunteer_waivers
+        (id,volunteer_id,waiver_type_id,signed_date,expiry_date,signed_name,signed_via)
+        VALUES (%s,%s,%s,%s,%s,%s,'kiosk')''',
+        (wid, vol_id, waiver_type_id, today.isoformat(), expiry, signed_name))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/update-profile', methods=['POST'])
+def kiosk_update_profile():
+    d = request.json
+    vol_id = d.get('volunteer_id')
+    if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
+    conn = get_db()
+    updates = []
+    params = []
+    if d.get('phone') is not None:
+        updates.append('phone=%s'); params.append(d['phone'])
+    if d.get('interests') is not None:
+        updates.append('interests=%s'); params.append(json.dumps(d['interests']))
+    if updates:
+        execute(conn, f"UPDATE volunteers SET {','.join(updates)} WHERE id=%s", tuple(params + [vol_id]))
+    if d.get('emergency_contact'):
+        ec = d['emergency_contact']
+        existing = fetchone(conn, 'SELECT id FROM volunteer_emergency_contacts WHERE volunteer_id=%s', (vol_id,))
+        if existing:
+            execute(conn, 'UPDATE volunteer_emergency_contacts SET name=%s, relationship=%s, phone=%s WHERE volunteer_id=%s',
+                (ec.get('name',''), ec.get('relationship',''), ec.get('phone',''), vol_id))
+        else:
+            ecid = str(uuid.uuid4())
+            execute(conn, 'INSERT INTO volunteer_emergency_contacts (id,volunteer_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
+                (ecid, vol_id, ec.get('name',''), ec.get('relationship',''), ec.get('phone','')))
+    conn.commit()
+    # Log update request for admin review
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status) VALUES (%s,%s,'Profile Update',CURRENT_DATE,0,'Profile update submitted via kiosk','pending_profile')",
+        (pid, vol_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/session/active/<vol_id>')
+def kiosk_active_session(vol_id):
+    conn = get_db()
+    s = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
+    conn.close()
+    if s: return jsonify({'active': True, 'session': s})
+    return jsonify({'active': False})
+
+@app.route('/api/kiosk/session/begin', methods=['POST'])
+def kiosk_begin_session():
+    d = request.json
+    vol_id   = d.get('volunteer_id')
+    event_id = d.get('event_id')
+    role     = d.get('role','')
+    if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
+    conn = get_db()
+    existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
+    if existing: conn.close(); return jsonify({'error': 'Already volunteering — please stop your current session first.'}), 400
+    event_name = d.get('event_name','')
+    if event_id and not event_name:
+        evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
+        if evt: event_name = evt['name']
+    sid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,status) VALUES (%s,%s,%s,%s,%s,'active')",
+        (sid, vol_id, event_id or None, event_name, role))
+    conn.commit()
+    session_row = fetchone(conn, 'SELECT * FROM kiosk_sessions WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify({'ok': True, 'session_id': sid, 'started_at': str(session_row['started_at'])})
+
+@app.route('/api/kiosk/session/stop', methods=['POST'])
+def kiosk_stop_session():
+    d = request.json or {}
+    vol_id = d.get('volunteer_id')
+    role   = d.get('role','')
+    if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
+    conn = get_db()
+    try:
+        sess = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
+        if not sess: conn.close(); return jsonify({'error': 'No active session found'}), 400
+        time_row = fetchone(conn, "SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) as secs FROM kiosk_sessions WHERE id=%s", (sess['id'],))
+        elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
+        elapsed_hours = round(max(0.25, elapsed_secs / 3600), 2)
+        today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+        today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+        execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed', role=%s WHERE id=%s",
+            (elapsed_hours, role or sess['role'], sess['id']))
+        pid = str(uuid.uuid4())
+        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+            (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
+             today, elapsed_hours, role or sess['role'], 'Recorded via kiosk timer'))
+        conn.commit()
+        try:
+            s = get_email_settings()
+            if s.get('alert_pending_hours'):
+                recipients = get_recipient_emails(s)
+                vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (vol_id,))
+                vol_name = vol['name'] if vol else 'A volunteer'
+                if recipients:
+                    send_email(recipients, 'RoleCall — Hours Submitted: ' + vol_name,
+                        '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
+                        + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
+                        + (sess['event_name'] or 'a session') + '</strong>.</p>')
+        except Exception:
+            pass
+        conn.close()
+        return jsonify({'ok': True, 'hours': elapsed_hours})
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/kiosk/session/stop-by-id', methods=['POST'])
+def kiosk_stop_session_by_id():
+    d = request.json or {}
+    sid = d.get('session_id')
+    if not sid: return jsonify({'error': 'Missing session_id'}), 400
+    conn = get_db()
+    sess = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE id=%s AND status='active'", (sid,))
+    if not sess: conn.close(); return jsonify({'error': 'Session not found or already stopped'}), 404
+    time_row = fetchone(conn, "SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) as secs FROM kiosk_sessions WHERE id=%s", (sid,))
+    elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
+    elapsed_hours = round(max(0.25, elapsed_secs / 3600), 2)
+    today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed' WHERE id=%s", (elapsed_hours, sid))
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, sess['volunteer_id'], sess['event_name'] or 'Volunteer Session',
+         sess['event_id'], today, elapsed_hours, sess['role'], 'Stopped by ELIC'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'hours': elapsed_hours})
+
+@app.route('/api/kiosk/active-sessions')
+def kiosk_active_sessions():
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT ks.id, ks.volunteer_id, ks.event_id, ks.event_name, ks.role,
+               ks.started_at, ks.status, v.name as volunteer_name,
+               EXTRACT(EPOCH FROM (NOW() - ks.started_at)) as elapsed_secs
+        FROM kiosk_sessions ks
+        JOIN volunteers v ON ks.volunteer_id=v.id
+        WHERE ks.status='active' ORDER BY ks.started_at ASC
+    """)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/kiosk/log-full-event', methods=['POST'])
+def kiosk_log_full_event():
+    d = request.json or {}
+    vol_id   = d.get('volunteer_id')
+    event_id = d.get('event_id')
+    role     = d.get('role','')
+    if not vol_id or not event_id: return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
+    hours = None
+    if evt.get('start_time') and evt.get('end_time'):
+        try:
+            from datetime import datetime as _dt
+            fmt = '%H:%M'
+            start = _dt.strptime(str(evt['start_time'])[:5], fmt)
+            end   = _dt.strptime(str(evt['end_time'])[:5], fmt)
+            diff  = (end - start).seconds / 3600
+            if diff > 0: hours = round(diff, 2)
+        except Exception: pass
+    if not hours: conn.close(); return jsonify({'error': 'Event has no start/end time set.'}), 400
+    today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    sid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,started_at,ended_at,hours,status) VALUES (%s,%s,%s,%s,%s,NOW(),NOW(),%s,'completed')",
+        (sid, vol_id, event_id, evt['name'], role, hours))
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event — logged via kiosk'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
+
+@app.route('/api/kiosk/sign-in', methods=['POST'])
+def kiosk_youth_sign_in():
+    d = request.json
+    conn = get_db()
+    yid = d.get('youth_id')
+    eid = d.get('event_id')
+    if not yid: conn.close(); return jsonify({'error': 'Missing youth_id'}), 400
+    existing = fetchone(conn, "SELECT id FROM youth_sign_ins WHERE youth_id=%s AND event_id=%s AND sign_out_time IS NULL", (yid, eid))
+    if existing: conn.close(); return jsonify({'error': 'Already signed in'}), 400
+    sid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO youth_sign_ins (id,youth_id,event_id,sign_in_time) VALUES (%s,%s,%s,NOW())",
+        (sid, yid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/kiosk/sign-out', methods=['POST'])
+def kiosk_youth_sign_out():
+    d = request.json
+    conn = get_db()
+    yid = d.get('youth_id')
+    eid = d.get('event_id')
+    execute(conn, "UPDATE youth_sign_ins SET sign_out_time=NOW() WHERE youth_id=%s AND event_id=%s AND sign_out_time IS NULL",
+        (yid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pickup/queue')
+def pickup_queue():
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+        FROM youth_sign_ins ysi
+        JOIN youth y ON ysi.youth_id=y.id
+        LEFT JOIN events e ON ysi.event_id=e.id
+        WHERE ysi.sign_in_time >= NOW() - INTERVAL '12 hours'
+        ORDER BY e.name, y.last_name, y.first_name
+    """)
+    conn.close()
+    return jsonify(rows)
+
+# ─────────────────────────────────────────────
+#  APPLICATIONS (volunteer interest form)
+# ─────────────────────────────────────────────
+
+@app.route('/api/join/interest-types')
+def join_interest_types():
+    conn = get_db()
+    types = fetchall(conn, 'SELECT id, name, color FROM interest_types ORDER BY name')
+    conn.close()
+    return jsonify(types)
+
+@app.route('/api/join/submit', methods=['POST'])
+def join_submit():
+    d = request.json
+    if not d.get('name') or not d.get('email'):
+        return jsonify({'error': 'Name and email are required'}), 400
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO volunteer_applications
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+            (aid, d['name'].strip(), d['email'].strip().lower(),
+             d.get('phone','').strip(), d.get('pronouns','').strip(),
+             d.get('is_adult', True), json.dumps(d.get('interests', [])),
+             d.get('how_heard','').strip(), d.get('notes','').strip()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': 'Submission failed. Please try again.'}), 500
+    try:
+        s = get_email_settings()
+        recipients = get_recipient_emails(s)
+        if recipients:
+            interests_str = ', '.join(d.get('interests', [])) or 'None specified'
+            age_str = '18 or older' if d.get('is_adult', True) else 'Under 18'
+            html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px">
+                <h2 style="color:#0d3d4d">New Volunteer Interest Submission</h2>
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d['name']}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d['email']}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone','—')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
+                </table>
+            </div>'''
+            send_email(recipients, f'New Volunteer Interest — {d["name"]}', html_body)
+    except Exception:
+        pass
+    conn.close()
+    return jsonify({'ok': True, 'id': aid})
+
+@app.route('/api/applications')
+def get_applications():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    apps = fetchall(conn, 'SELECT * FROM volunteer_applications ORDER BY created_at DESC')
+    conn.close()
+    return jsonify(apps)
+
+@app.route('/api/applications/<aid>/approve', methods=['POST'])
+def approve_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    app_row = fetchone(conn, 'SELECT * FROM volunteer_applications WHERE id=%s', (aid,))
+    if not app_row: conn.close(); return jsonify({'error': 'Not found'}), 404
+    # Create volunteer record
+    vid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO volunteers (id,name,email,phone,status) VALUES (%s,%s,%s,%s,'active') ON CONFLICT (email) DO NOTHING",
+        (vid, app_row['name'], app_row['email'], app_row.get('phone','')))
+    execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
+        (vid, session.get('user_name',''), aid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/applications/<aid>/decline', methods=['POST'])
+def decline_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE volunteer_applications SET status='declined', reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
+        (session.get('user_name',''), aid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/applications/<aid>', methods=['DELETE'])
+def delete_application(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM volunteer_applications WHERE id=%s', (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  PORTAL INSTRUCTOR CONTENT
+# ─────────────────────────────────────────────
+
+@app.route('/api/portal/instructor/content/<context_type>/<context_id>')
+def get_portal_instructor_content(context_type, context_id):
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM portal_files
+        WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
+        (context_type, context_id))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/team-member/<mid>', methods=['PUT'])
+def update_production_member(pid, mid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    execute(conn, '''UPDATE production_members SET role=%s, department=%s, status=%s, bio=%s, photo_url=%s WHERE id=%s AND production_id=%s''',
+        (d.get('role',''), d.get('department',''), d.get('status','confirmed'),
+         d.get('bio',''), d.get('photo_url',''), mid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
 #  RUN
 # ─────────────────────────────────────────────
 

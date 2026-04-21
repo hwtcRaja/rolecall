@@ -958,6 +958,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <div class="page-subtitle" id="donors-subtitle">Loading…</div>
           </div>
           <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="openBulkDonationsModal()">📋 Bulk Edit Donations</button>
             <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">📥 Import CSV</button>
             <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">🎯 Campaigns</button>
             <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()">⭐ Tiers &amp; Benefits</button>
@@ -5169,6 +5170,231 @@ async function deleteCampaign(cid){
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
   document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
   toast('Campaign deleted')
+}
+
+let _bulkDonations = []
+let _bulkEdits = {}  // donationId -> changed fields
+
+async function openBulkDonationsModal(){
+  const existing = document.getElementById('bulk-donations-modal')
+  if(existing) existing.remove()
+
+  const overlay = document.createElement('div')
+  overlay.id = 'bulk-donations-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+      <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:16px;font-weight:700">📋 Bulk Edit Donations</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Edit any cell directly — changes are highlighted. Save all at once when done.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="bulk-edit-count" style="font-size:12px;color:var(--amber-600);font-weight:600;display:none"></span>
+          <button id="bulk-save-btn" onclick="saveBulkDonations()" class="btn btn-primary btn-sm" style="display:none">💾 Save Changes</button>
+          <button onclick="document.getElementById('bulk-donations-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+        </div>
+      </div>
+      <!-- Filters -->
+      <div style="padding:10px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+        <div class="search-input-wrap" style="flex:1;min-width:180px"><span>🔍</span><input type="text" id="bulk-search" placeholder="Search donor name…" oninput="renderBulkTable()"/></div>
+        <select id="bulk-filter-campaign" onchange="renderBulkTable()" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+          <option value="">All Campaigns</option>
+          <option value="__none__">⚠️ No Campaign</option>
+          ${allDonorCampaigns.map(c=>`<option value="${c.id}">${escHtml(c.name)}</option>`).join('')}
+        </select>
+        <select id="bulk-filter-date" onchange="renderBulkTable()" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+          <option value="">All Dates</option>
+          <option value="__missing__">⚠️ Missing Date</option>
+        </select>
+        <span id="bulk-row-count" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <!-- Table -->
+      <div style="flex:1;overflow:auto;padding:0">
+        <div id="bulk-table-wrap">
+          <div style="text-align:center;padding:40px;color:var(--text-muted)">
+            <div style="font-size:24px;margin-bottom:8px">⏳</div>Loading donations…
+          </div>
+        </div>
+      </div>
+      <!-- Footer -->
+      <div style="padding:12px 24px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:var(--bg);border-radius:0 0 var(--radius-lg) var(--radius-lg)">
+        <div style="font-size:12px;color:var(--text-muted)">Click any cell to edit. Tab to move across. Changes save together when you click Save.</div>
+        <div style="display:flex;gap:8px">
+          <button id="bulk-save-btn-2" onclick="saveBulkDonations()" class="btn btn-primary" style="display:none">💾 Save All Changes</button>
+          <button onclick="document.getElementById('bulk-donations-modal').remove()" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+
+  // Load donations
+  _bulkDonations = []
+  _bulkEdits = {}
+  const res = await api('/api/donations/all')
+  if(res.error){ 
+    document.getElementById('bulk-table-wrap').innerHTML = `<div style="text-align:center;padding:40px;color:var(--red-600)">Error loading: ${escHtml(res.error)}</div>`
+    return
+  }
+  _bulkDonations = Array.isArray(res) ? res : []
+  renderBulkTable()
+}
+
+function renderBulkTable(){
+  const wrap = document.getElementById('bulk-table-wrap')
+  if(!wrap) return
+
+  const q = (document.getElementById('bulk-search')?.value||'').toLowerCase()
+  const campF = document.getElementById('bulk-filter-campaign')?.value||''
+  const dateF = document.getElementById('bulk-filter-date')?.value||''
+
+  let rows = _bulkDonations.filter(d=>{
+    if(q && !(d.donor_name||'').toLowerCase().includes(q)) return false
+    if(campF === '__none__' && d.campaign_id) return false
+    if(campF && campF !== '__none__' && d.campaign_id !== campF) return false
+    if(dateF === '__missing__' && d.donation_date) return false
+    return true
+  })
+
+  const countEl = document.getElementById('bulk-row-count')
+  if(countEl) countEl.textContent = rows.length + ' donation' + (rows.length!==1?'s':'')
+
+  if(!rows.length){
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No donations match your filters</div>'
+    return
+  }
+
+  const campOptions = `<option value="">— None —</option>` +
+    allDonorCampaigns.map(c=>`<option value="${c.id}">${escHtml(c.name)}</option>`).join('')
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead style="position:sticky;top:0;z-index:2">
+      <tr style="background:var(--bg);border-bottom:2px solid var(--border)">
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:160px">Donor</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:120px">Amount</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:140px">Date</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:130px">Type</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:130px">Status</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:180px">Campaign</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:120px">Check #</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;min-width:180px">Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+    ${rows.map((d,i)=>{
+      const edited = !!_bulkEdits[d.id]
+      const val = f => _bulkEdits[d.id]?.[f] !== undefined ? _bulkEdits[d.id][f] : d[f]
+      const rowBg = edited ? 'background:#fffbeb' : (i%2===0?'':'background:var(--bg)')
+      const missingDate = !d.donation_date
+      const missingCamp = !d.campaign_id
+
+      return `<tr data-id="${d.id}" data-donor="${d.donor_id}" style="${rowBg};border-bottom:1px solid var(--border)">
+        <td style="padding:6px 12px;font-weight:600;color:var(--text-body)">${escHtml(d.donor_name||'')}</td>
+        <td style="padding:4px 6px">
+          <input type="number" value="${parseFloat(val('amount')||0)}" min="0" step="0.01"
+            style="width:110px;padding:5px 8px;border:1.5px solid ${edited&&_bulkEdits[d.id]?.amount!==undefined?'var(--teal)':'var(--border-md)'};border-radius:6px;font-family:inherit;font-size:13px;font-weight:600"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','amount',this.value)"
+            tabindex="0"/>
+        </td>
+        <td style="padding:4px 6px">
+          <input type="date" value="${val('donation_date')||''}"
+            style="padding:5px 8px;border:1.5px solid ${missingDate?'var(--amber-400)':edited&&_bulkEdits[d.id]?.donation_date!==undefined?'var(--teal)':'var(--border-md)'};border-radius:6px;font-family:inherit;font-size:13px;${missingDate?'background:#fef9c3':''}"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','donation_date',this.value)"
+            tabindex="0"/>
+        </td>
+        <td style="padding:4px 6px">
+          <select style="padding:5px 8px;border:1.5px solid ${edited&&_bulkEdits[d.id]?.type!==undefined?'var(--teal)':'var(--border-md)'};border-radius:6px;font-family:inherit;font-size:13px"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','type',this.value)">
+            ${['cash','check','inkind','sponsorship'].map(t=>`<option value="${t}" ${val('type')===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}
+          </select>
+        </td>
+        <td style="padding:4px 6px">
+          <select style="padding:5px 8px;border:1.5px solid ${edited&&_bulkEdits[d.id]?.payment_status!==undefined?'var(--teal)':'var(--border-md)'};border-radius:6px;font-family:inherit;font-size:13px"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','payment_status',this.value)">
+            ${['received','pending','pledged'].map(s=>`<option value="${s}" ${val('payment_status')===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+          </select>
+        </td>
+        <td style="padding:4px 6px">
+          <select style="padding:5px 8px;border:1.5px solid ${missingCamp?'var(--amber-400)':edited&&_bulkEdits[d.id]?.campaign_id!==undefined?'var(--teal)':'var(--border-md)'};border-radius:6px;font-family:inherit;font-size:13px;min-width:160px;${missingCamp?'background:#fef9c3':''}"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','campaign_id',this.value||null)">
+            ${campOptions.replace(`value="${val('campaign_id')||''}"`,`value="${val('campaign_id')||''}" selected`)}
+          </select>
+        </td>
+        <td style="padding:4px 6px">
+          <input type="text" value="${escHtml(val('check_number')||'')}" placeholder="—"
+            style="width:100px;padding:5px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:13px"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','check_number',this.value)"
+            tabindex="0"/>
+        </td>
+        <td style="padding:4px 6px">
+          <input type="text" value="${escHtml(val('notes')||'')}" placeholder="—"
+            style="width:160px;padding:5px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:13px"
+            onchange="bulkCellChange('${d.id}','${d.donor_id}','notes',this.value)"
+            tabindex="0"/>
+        </td>
+      </tr>`
+    }).join('')}
+    </tbody>
+  </table>`
+}
+
+function bulkCellChange(donationId, donorId, field, value){
+  if(!_bulkEdits[donationId]){
+    // Seed with current values so the save has everything it needs
+    const d = _bulkDonations.find(x=>x.id===donationId)
+    if(d) _bulkEdits[donationId] = {
+      id: donationId, donor_id: donorId,
+      amount: d.amount, donation_date: d.donation_date,
+      type: d.type, payment_status: d.payment_status,
+      campaign_id: d.campaign_id, check_number: d.check_number||'',
+      notes: d.notes||''
+    }
+  }
+  if(_bulkEdits[donationId]) _bulkEdits[donationId][field] = value
+
+  const count = Object.keys(_bulkEdits).length
+  const countEl = document.getElementById('bulk-edit-count')
+  const saveBtn  = document.getElementById('bulk-save-btn')
+  const saveBtn2 = document.getElementById('bulk-save-btn-2')
+  if(countEl){ countEl.textContent = count + ' unsaved change' + (count!==1?'s':''); countEl.style.display = '' }
+  if(saveBtn){ saveBtn.style.display = '' }
+  if(saveBtn2){ saveBtn2.style.display = '' }
+}
+
+async function saveBulkDonations(){
+  const updates = Object.values(_bulkEdits)
+  if(!updates.length){ toast('No changes to save'); return }
+  const btn  = document.getElementById('bulk-save-btn')
+  const btn2 = document.getElementById('bulk-save-btn-2')
+  if(btn){ btn.disabled=true; btn.textContent='Saving…' }
+  if(btn2){ btn2.disabled=true; btn2.textContent='Saving…' }
+
+  const res = await api('/api/donations/bulk-update','POST',{updates})
+
+  if(btn){ btn.disabled=false; btn.textContent='💾 Save Changes' }
+  if(btn2){ btn2.disabled=false; btn2.textContent='💾 Save All Changes' }
+
+  if(res.error){ toast(res.error,'error'); return }
+
+  toast(`✅ ${res.updated} donation${res.updated!==1?'s':''} updated!`,'success')
+  _bulkEdits = {}
+
+  // Reload fresh data
+  const fresh = await api('/api/donations/all')
+  if(Array.isArray(fresh)) _bulkDonations = fresh
+  renderBulkTable()
+
+  // Update count badge
+  const countEl = document.getElementById('bulk-edit-count')
+  if(countEl) countEl.style.display = 'none'
+  if(btn) btn.style.display = 'none'
+  if(btn2) btn2.style.display = 'none'
+
+  // Refresh donors list in background
+  const donors = await api('/api/donors')
+  if(Array.isArray(donors)) allDonors = donors
+  renderDonorsList()
 }
 
 function toggleDupesFilter(){

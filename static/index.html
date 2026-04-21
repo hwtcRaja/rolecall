@@ -435,6 +435,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
+        <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors">💛</span>Donors &amp; Sponsors</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
@@ -945,6 +946,48 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- EVENT LOGS -->
+      <!-- DONORS & SPONSORS -->
+      <section class="page" id="page-donors">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💛 Donors &amp; Sponsors</div>
+            <div class="page-subtitle" id="donors-subtitle">Loading…</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">🎯 Campaigns</button>
+            <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()">⭐ Tiers &amp; Benefits</button>
+            <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <!-- Summary cards -->
+          <div id="donors-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:24px"></div>
+          <!-- Search & filter -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+            <div class="search-input-wrap" style="flex:1;min-width:200px"><span>🔍</span><input type="text" id="donors-search" placeholder="Search donors…" oninput="renderDonorsList()"/></div>
+            <select class="filter-select" id="donors-filter-tier" onchange="renderDonorsList()">
+              <option value="">All Tiers</option>
+            </select>
+            <select class="filter-select" id="donors-filter-type" onchange="renderDonorsList()">
+              <option value="">All Types</option>
+              <option value="individual">Individual</option>
+              <option value="company">Company</option>
+            </select>
+            <select class="filter-select" id="donors-filter-status" onchange="renderDonorsList()">
+              <option value="active">Active</option>
+              <option value="">All</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div id="donors-list"></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-donor-detail" style="overflow-y:auto;background:var(--bg)">
+        <div id="donor-detail-header"></div>
+        <div class="page-body"><div id="donor-detail-content"></div></div>
+      </section>
+
       <section class="page" id="page-event-logs">
         <div class="page-header">
           <div><div class="page-title">Event Logs</div><div class="page-subtitle">ELIC open/close records and closing checklists</div></div>
@@ -2105,6 +2148,8 @@ const NAV_PERM_MAP = {
   'event-logs':       'reports',
   'notifications':    'settings',
   'settings':         'settings',
+  'donors':           'donors',
+  'donor-detail':     'donors',
 }
 
 function canView(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
@@ -2193,6 +2238,7 @@ function navTo(page,el){
   if(page==='settings') loadSettings()
   if(page==='portal-admin'){ renderPortalAdmin() }
   if(page==='notifications') loadNotifications()
+  if(page==='donors') loadDonorsPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4310,6 +4356,722 @@ async function createUser(){
 // ═══════════════════════════════════════════════════════════════
 //  EXPORT
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  DONORS & SPONSORS
+// ═══════════════════════════════════════════════════════════════
+let allDonors = [], allDonorTiers = [], allDonorCampaigns = []
+
+const TIER_COLORS = {
+  red:'#dc2626', pink:'#be185d', purple:'#7c3aed', orange:'#ea580c',
+  amber:'#d97706', green:'#16a34a', teal:'#0d6e6e', blue:'#1d4ed8',
+  gray:'#6b7280'
+}
+
+async function loadDonorsPage(){
+  const [donors, tiers, campaigns, summary] = await Promise.all([
+    api('/api/donors'), api('/api/donor-tiers'),
+    api('/api/donor-campaigns'), api('/api/donors/summary')
+  ])
+  allDonors = Array.isArray(donors) ? donors : []
+  allDonorTiers = Array.isArray(tiers) ? tiers : []
+  allDonorCampaigns = Array.isArray(campaigns) ? campaigns : []
+  renderDonorSummary(summary)
+  renderDonorTierFilter()
+  renderDonorsList()
+  document.getElementById('donors-subtitle').textContent =
+    allDonors.length + ' donor' + (allDonors.length!==1?'s':'')
+}
+
+function renderDonorSummary(s){
+  const el = document.getElementById('donors-summary')
+  if(!el || !s) return
+  const fmt = n => '$' + parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})
+  el.innerHTML = `
+    <div class="stat-card teal" style="cursor:default">
+      <div class="stat-value">${fmt(s.total_raised_this_year)}</div>
+      <div class="stat-label">Raised This Year</div>
+    </div>
+    <div class="stat-card" style="cursor:default">
+      <div class="stat-value">${s.active_donors||0}</div>
+      <div class="stat-label">Active Donors</div>
+    </div>
+    <div class="stat-card" style="cursor:default">
+      <div class="stat-value">${s.new_this_year||0}</div>
+      <div class="stat-label">New This Year</div>
+    </div>
+    <div class="stat-card" style="cursor:default;${s.lapsed_count>0?'background:var(--amber-50)':''}">
+      <div class="stat-value" style="${s.lapsed_count>0?'color:var(--amber-600)':''}">${s.lapsed_count||0}</div>
+      <div class="stat-label">Lapsed (12mo+)</div>
+    </div>`
+}
+
+function renderDonorTierFilter(){
+  const sel = document.getElementById('donors-filter-tier')
+  if(!sel) return
+  sel.innerHTML = '<option value="">All Tiers</option>' +
+    allDonorTiers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')
+}
+
+function renderDonorsList(){
+  const el = document.getElementById('donors-list')
+  if(!el) return
+  const q = (document.getElementById('donors-search')?.value||'').toLowerCase()
+  const tierF = document.getElementById('donors-filter-tier')?.value||''
+  const typeF = document.getElementById('donors-filter-type')?.value||''
+  const statusF = document.getElementById('donors-filter-status')?.value||'active'
+
+  let filtered = allDonors.filter(d=>{
+    if(statusF && d.status !== statusF && statusF !== '') return false
+    if(!statusF) {} // all
+    if(tierF && d.tier_id !== tierF) return false
+    if(typeF && d.type !== typeF) return false
+    if(q && !d.display_name.toLowerCase().includes(q) && !(d.email||'').toLowerCase().includes(q)) return false
+    return true
+  })
+
+  if(!filtered.length){
+    el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:12px">💛</div>
+      <div style="font-weight:600">No donors found</div>
+      <div style="font-size:13px;margin-top:4px">Try adjusting your filters or add your first donor</div>
+    </div>`
+    return
+  }
+
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:2px solid var(--border)">
+      <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Donor</th>
+      <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Tier</th>
+      <th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Total Given</th>
+      <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Last Gift</th>
+      <th style="padding:8px 12px"></th>
+    </tr></thead>
+    <tbody>
+    ${filtered.map(d=>{
+      const tierColor = TIER_COLORS[d.tier_color||'gray']
+      const tierBadge = d.tier_name
+        ? `<span style="background:${tierColor}22;color:${tierColor};border:1px solid ${tierColor}55;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">${d.tier_name}</span>`
+        : '<span style="color:var(--text-hint);font-size:12px">—</span>'
+      const total = '$' + parseFloat(d.total_donated||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})
+      const typeIcon = d.type==='company' ? '🏢' : '👤'
+      const lapsed = d.last_donation_date && (new Date() - new Date(d.last_donation_date)) > 365*24*3600*1000
+      return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openDonorDetail('${d.id}')" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background=''">
+        <td style="padding:12px 12px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:36px;height:36px;border-radius:50%;background:${tierColor}22;color:${tierColor};display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${typeIcon}</div>
+            <div>
+              <div style="font-weight:600;font-size:14px">${escHtml(d.display_name)}</div>
+              ${d.email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(d.email)}</div>`:''}
+            </div>
+          </div>
+        </td>
+        <td style="padding:12px">${tierBadge}</td>
+        <td style="padding:12px;text-align:right;font-weight:700;font-size:14px">${total}</td>
+        <td style="padding:12px;font-size:13px;color:${lapsed?'var(--amber-600)':'var(--text-muted)'}">
+          ${d.last_donation_date ? formatDate(d.last_donation_date) + (lapsed?' ⚠️ Lapsed':'') : '—'}
+        </td>
+        <td style="padding:12px;text-align:right">
+          <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="event.stopPropagation();openDonorDetail('${d.id}')">View →</button>
+        </td>
+      </tr>`
+    }).join('')}
+    </tbody>
+  </table>`
+}
+
+// ── Add/Edit Donor Modal ──
+function openAddDonorModal(donorId=null){
+  const existing = document.getElementById('donor-modal')
+  if(existing) existing.remove()
+  const donor = donorId ? allDonors.find(d=>d.id===donorId) : null
+
+  const overlay = document.createElement('div')
+  overlay.id = 'donor-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:540px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">${donor?'Edit Donor':'Add Donor / Sponsor'}</div>
+        <button onclick="document.getElementById('donor-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Type</label>
+            <select id="dm-type">
+              <option value="individual" ${(!donor||donor.type==='individual')?'selected':''}>Individual / Person</option>
+              <option value="company" ${donor?.type==='company'?'selected':''}>Company / Organization</option>
+            </select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="dm-status">
+              <option value="active" ${(!donor||donor.status==='active')?'selected':''}>Active</option>
+              <option value="inactive" ${donor?.status==='inactive'?'selected':''}>Inactive</option>
+            </select></div>
+        </div>
+        <div class="form-group"><label>Display Name *</label>
+          <input type="text" id="dm-display" value="${escHtml(donor?.display_name||'')}" placeholder="e.g. The Johnson Family or Acme Corp"/></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Legal Name <span style="font-weight:400;color:var(--text-hint)">(for receipts)</span></label>
+            <input type="text" id="dm-legal" value="${escHtml(donor?.legal_name||'')}" placeholder="Full legal name"/></div>
+          <div class="form-group"><label>Recognition Name <span style="font-weight:400;color:var(--text-hint)">(public listing)</span></label>
+            <input type="text" id="dm-recognition" value="${escHtml(donor?.recognition_name||'')}" placeholder="How to credit them publicly"/></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Email</label>
+            <input type="email" id="dm-email" value="${escHtml(donor?.email||'')}" placeholder="email@example.com"/></div>
+          <div class="form-group"><label>Phone</label>
+            <input type="tel" id="dm-phone" value="${escHtml(donor?.phone||'')}" placeholder="(407) 555-0123"/></div>
+        </div>
+        <div class="form-group"><label>Address</label>
+          <input type="text" id="dm-address" value="${escHtml(donor?.address||'')}" placeholder="Mailing address"/></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Website</label>
+            <input type="url" id="dm-website" value="${escHtml(donor?.website||'')}" placeholder="https://…"/></div>
+          <div class="form-group"><label>Internal Priority</label>
+            <select id="dm-rating">
+              <option value="normal" ${(!donor||donor.internal_rating==='normal')?'selected':''}>Normal</option>
+              <option value="high" ${donor?.internal_rating==='high'?'selected':''}>High — key relationship</option>
+              <option value="vip" ${donor?.internal_rating==='vip'?'selected':''}>VIP — board-level attention</option>
+            </select></div>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="dm-anon" ${donor?.is_anonymous?'checked':''} style="accent-color:var(--teal);width:16px;height:16px"/>
+          <label for="dm-anon" style="font-size:13px;font-weight:500;cursor:pointer">Anonymous — do not list publicly</label>
+        </div>
+        <div class="form-group"><label>Notes</label>
+          <textarea id="dm-notes" style="min-height:60px;resize:vertical">${escHtml(donor?.notes||'')}</textarea></div>
+        <button class="btn btn-primary" onclick="saveDonor('${donorId||''}')" style="width:100%">
+          ${donor?'💾 Save Changes':'+ Add Donor'}
+        </button>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveDonor(donorId){
+  const body = {
+    type:             document.getElementById('dm-type').value,
+    display_name:     document.getElementById('dm-display').value.trim(),
+    legal_name:       document.getElementById('dm-legal').value.trim(),
+    recognition_name: document.getElementById('dm-recognition').value.trim(),
+    email:            document.getElementById('dm-email').value.trim(),
+    phone:            document.getElementById('dm-phone').value.trim(),
+    address:          document.getElementById('dm-address').value.trim(),
+    website:          document.getElementById('dm-website').value.trim(),
+    internal_rating:  document.getElementById('dm-rating').value,
+    is_anonymous:     document.getElementById('dm-anon').checked,
+    notes:            document.getElementById('dm-notes').value.trim(),
+    status:           document.getElementById('dm-status').value,
+  }
+  if(!body.display_name){ toast('Display name is required','error'); return }
+  const res = donorId
+    ? await api('/api/donors/'+donorId, 'PUT', body)
+    : await api('/api/donors', 'POST', body)
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('donor-modal').remove()
+  toast(donorId ? 'Donor updated!' : 'Donor added!', 'success')
+  await loadDonorsPage()
+  if(donorId) openDonorDetail(donorId)
+}
+
+// ── Donor Detail ──
+let currentDonorId = null
+async function openDonorDetail(did){
+  currentDonorId = did
+  const donor = await api('/api/donors/'+did+'/detail')
+  if(donor.error){ toast(donor.error,'error'); return }
+  renderDonorDetailPage(donor)
+  navTo('donor-detail')
+}
+
+function renderDonorDetailPage(donor){
+  const tierColor = TIER_COLORS[donor.tier_color||'gray']
+  const total = '$' + parseFloat(donor.total_donated||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+
+  document.getElementById('donor-detail-header').innerHTML = `
+    <div style="background:linear-gradient(135deg,${tierColor},${tierColor}bb);padding:24px 32px;color:#fff">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <button onclick="navTo('donors')" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px">← Back</button>
+          <div style="font-size:24px;font-weight:800">${escHtml(donor.display_name)}</div>
+          ${donor.recognition_name&&donor.recognition_name!==donor.display_name?`<div style="font-size:13px;opacity:0.85;margin-top:2px">Listed as: ${escHtml(donor.recognition_name)}</div>`:''}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+            ${donor.tier_name?`<span style="background:rgba(255,255,255,0.25);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${donor.tier_name}</span>`:''}
+            <span style="background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:20px;font-size:12px">${donor.type==='company'?'🏢 Company':'👤 Individual'}</span>
+            ${donor.is_anonymous?'<span style="background:rgba(0,0,0,0.2);padding:3px 10px;border-radius:20px;font-size:12px">🔒 Anonymous</span>':''}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:36px;font-weight:900">${total}</div>
+          <div style="font-size:13px;opacity:0.8">Total Donated</div>
+          <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
+            <button onclick="openAddDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">✏️ Edit</button>
+            <button onclick="openAddDonationModal('${donor.id}')" style="background:#fff;color:${tierColor};border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">+ Log Donation</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+
+  // Get current tier benefits
+  const tier = allDonorTiers.find(t=>t.id===donor.tier_id)
+
+  document.getElementById('donor-detail-content').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;padding:20px 0">
+      <!-- Left: donations + benefits -->
+      <div>
+        <!-- Donation history -->
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:15px;font-weight:700">💰 Donation History</div>
+            <button class="btn btn-primary btn-sm" onclick="openAddDonationModal('${donor.id}')">+ Log Donation</button>
+          </div>
+          ${!donor.donations.length
+            ? '<div style="color:var(--text-muted);font-size:13px">No donations logged yet.</div>'
+            : donor.donations.map(d=>renderDonationRow(d, donor.id)).join('')}
+        </div>
+
+        <!-- Benefits -->
+        ${tier ? `
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">⭐ ${tier.name} Benefits</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Track which benefits have been used</div>
+          ${tier.benefits.length ? tier.benefits.filter(b=>b.is_trackable).map(b=>{
+            const uses = donor.benefit_usage.filter(u=>u.benefit_id===b.id)
+            return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">${escHtml(b.name)}</div>
+                ${b.description?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(b.description)}</div>`:''}
+                ${uses.length?`<div style="font-size:11px;color:var(--green-600);margin-top:2px">Used ${uses.length}× — last ${formatDateTime(uses[0].used_at)}</div>`:''}
+              </div>
+              <button onclick="recordBenefitUse('${donor.id}','${b.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">
+                ${uses.length ? '+ Use Again' : 'Mark Used'}
+              </button>
+            </div>`
+          }).join('') : '<div style="font-size:13px;color:var(--text-muted)">No trackable benefits for this tier.</div>'}
+        </div>` : ''}
+
+        <!-- Communications log -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:12px">📋 Communication Log</div>
+          ${!donor.communications.length
+            ? '<div style="font-size:13px;color:var(--text-muted)">No communications logged yet.</div>'
+            : donor.communications.map(c=>`
+              <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                  <span style="font-size:11px;font-weight:700;background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:10px">${c.type}</span>
+                  <span style="font-size:12px;font-weight:600">${escHtml(c.subject||'')}</span>
+                  <span style="font-size:11px;color:var(--text-hint);margin-left:auto">${formatDateTime(c.sent_at)}</span>
+                </div>
+                ${c.body?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(c.body)}</div>`:''}
+              </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Right: contact info + tier management -->
+      <div>
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Contact Info</div>
+          ${donor.email?`<div style="font-size:13px;margin-bottom:8px">✉️ <a href="mailto:${escHtml(donor.email)}" style="color:var(--teal)">${escHtml(donor.email)}</a></div>`:''}
+          ${donor.phone?`<div style="font-size:13px;margin-bottom:8px">📞 ${escHtml(donor.phone)}</div>`:''}
+          ${donor.address?`<div style="font-size:13px;margin-bottom:8px">📍 ${escHtml(donor.address)}</div>`:''}
+          ${donor.website?`<div style="font-size:13px;margin-bottom:8px">🌐 <a href="${escHtml(donor.website)}" target="_blank" style="color:var(--teal)">${escHtml(donor.website)}</a></div>`:''}
+          ${!donor.email&&!donor.phone&&!donor.address?'<div style="font-size:13px;color:var(--text-muted)">No contact info on file</div>':''}
+        </div>
+
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Tier Assignment</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Tier is auto-calculated from total giving. Override if needed.</div>
+          <select id="dd-tier-sel" style="width:100%;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:8px">
+            <option value="">— No tier —</option>
+            ${allDonorTiers.map(t=>`<option value="${t.id}" ${t.id===donor.tier_id?'selected':''}>${t.name} ($${parseFloat(t.min_amount).toLocaleString()}+)</option>`).join('')}
+          </select>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:10px">
+            <input type="checkbox" id="dd-tier-override" ${donor.tier_override?'checked':''} style="accent-color:var(--teal)"/>
+            Lock this tier (don't auto-update)
+          </label>
+          <button onclick="saveDonorTier('${donor.id}')" class="btn btn-secondary btn-sm" style="width:100%">Save Tier</button>
+        </div>
+
+        ${donor.notes?`<div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Notes</div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.6">${escHtml(donor.notes)}</div>
+        </div>`:''}
+      </div>
+    </div>`
+}
+
+function renderDonationRow(d, donorId){
+  const amt = '$' + parseFloat(d.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+  const typeColors = {cash:'var(--green-600)',check:'var(--blue-600)',inkind:'var(--purple-600)',sponsorship:'var(--amber-600)'}
+  const col = typeColors[d.type]||'var(--text-muted)'
+  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+    <div style="flex:1">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:15px;font-weight:700">${amt}</span>
+        <span style="font-size:11px;font-weight:700;color:${col};background:${col}18;padding:1px 7px;border-radius:10px;text-transform:capitalize">${d.type}</span>
+        ${d.payment_status==='pending'?'<span style="font-size:11px;color:var(--amber-600);font-weight:600">⏳ Pending</span>':''}
+        ${d.thank_you_sent?'<span style="font-size:11px;color:var(--green-600)">✉️ TY sent</span>':''}
+        ${d.campaign_name?`<span style="font-size:11px;color:var(--text-muted)">🎯 ${escHtml(d.campaign_name)}</span>`:''}
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${formatDate(d.donation_date)}${d.notes?' · '+escHtml(d.notes):''}</div>
+    </div>
+    <div style="display:flex;gap:4px;flex-shrink:0">
+      ${!d.thank_you_sent?`<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px" title="Send thank-you email">💌 Thank You</button>`:''}
+      <button onclick="deleteDonation('${d.id}','${donorId}')" class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 6px">✕</button>
+    </div>
+  </div>`
+}
+
+// ── Add Donation Modal ──
+function openAddDonationModal(donorId){
+  const existing = document.getElementById('donation-modal')
+  if(existing) existing.remove()
+  const today = new Date().toISOString().split('T')[0]
+  const overlay = document.createElement('div')
+  overlay.id = 'donation-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:460px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">Log Donation</div>
+        <button onclick="document.getElementById('donation-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Amount *</label>
+            <input type="number" id="don-amount" placeholder="0.00" min="0" step="0.01" style="font-size:18px;font-weight:700"/></div>
+          <div class="form-group"><label>Date *</label>
+            <input type="date" id="don-date" value="${today}"/></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-group"><label>Type</label>
+            <select id="don-type">
+              <option value="cash">Cash / Credit Card</option>
+              <option value="check">Check</option>
+              <option value="inkind">In-Kind</option>
+              <option value="sponsorship">Sponsorship</option>
+            </select></div>
+          <div class="form-group"><label>Status</label>
+            <select id="don-status">
+              <option value="received">Received</option>
+              <option value="pending">Pending</option>
+              <option value="pledged">Pledged</option>
+            </select></div>
+        </div>
+        <div class="form-group"><label>Campaign <span style="font-weight:400;color:var(--text-hint)">(optional)</span></label>
+          <select id="don-campaign">
+            <option value="">— General donation —</option>
+            ${allDonorCampaigns.filter(c=>c.status==='active').map(c=>`<option value="${c.id}">${escHtml(c.name)}</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Check # / Reference <span style="font-weight:400;color:var(--text-hint)">(optional)</span></label>
+          <input type="text" id="don-check" placeholder="Check number or reference"/></div>
+        <div class="form-group"><label>Notes <span style="font-weight:400;color:var(--text-hint)">(optional)</span></label>
+          <textarea id="don-notes" style="min-height:60px;resize:vertical"></textarea></div>
+        <button class="btn btn-primary" onclick="saveDonation('${donorId}')" style="width:100%">💰 Log Donation</button>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  document.getElementById('don-amount').focus()
+}
+
+async function saveDonation(donorId){
+  const amount = parseFloat(document.getElementById('don-amount').value)
+  const date   = document.getElementById('don-date').value
+  if(!amount || amount<=0){ toast('Please enter a valid amount','error'); return }
+  if(!date){ toast('Please select a date','error'); return }
+  const res = await api('/api/donors/'+donorId+'/donations','POST',{
+    amount, donation_date: date,
+    type:           document.getElementById('don-type').value,
+    payment_status: document.getElementById('don-status').value,
+    campaign_id:    document.getElementById('don-campaign').value||null,
+    check_number:   document.getElementById('don-check').value.trim(),
+    notes:          document.getElementById('don-notes').value.trim(),
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('donation-modal').remove()
+  toast('Donation logged!','success')
+  // Refresh detail view
+  const donor = await api('/api/donors/'+donorId+'/detail')
+  if(!donor.error) renderDonorDetailPage(donor)
+  // Refresh donors list in background
+  const donors = await api('/api/donors')
+  if(Array.isArray(donors)) allDonors = donors
+}
+
+async function sendThankYou(donationId, donorId){
+  if(!confirm('Send a thank-you email for this donation?')) return
+  const res = await api('/api/donations/'+donationId+'/send-thankyou','POST')
+  if(res.ok){
+    toast('Thank-you email sent!','success')
+    const donor = await api('/api/donors/'+donorId+'/detail')
+    if(!donor.error) renderDonorDetailPage(donor)
+  } else {
+    toast(res.error||'Failed to send','error')
+  }
+}
+
+async function deleteDonation(donationId, donorId){
+  if(!confirm('Delete this donation? This will recalculate the donor\'s total and may change their tier.')) return
+  const res = await api('/api/donations/'+donationId,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Donation deleted')
+  const donor = await api('/api/donors/'+donorId+'/detail')
+  if(!donor.error) renderDonorDetailPage(donor)
+  const donors = await api('/api/donors')
+  if(Array.isArray(donors)) allDonors = donors
+}
+
+async function recordBenefitUse(donorId, benefitId){
+  const res = await api('/api/donors/'+donorId+'/benefits/use','POST',{benefit_id:benefitId})
+  if(res.ok){
+    toast('Benefit use recorded!','success')
+    const donor = await api('/api/donors/'+donorId+'/detail')
+    if(!donor.error) renderDonorDetailPage(donor)
+  } else toast(res.error||'Error','error')
+}
+
+async function saveDonorTier(donorId){
+  const tierId  = document.getElementById('dd-tier-sel').value
+  const override = document.getElementById('dd-tier-override').checked
+  const res = await api('/api/donors/'+donorId+'/tier','PUT',{tier_id:tierId||null,override})
+  if(res.ok){
+    toast('Tier saved!','success')
+    const donor = await api('/api/donors/'+donorId+'/detail')
+    if(!donor.error) renderDonorDetailPage(donor)
+    const donors = await api('/api/donors')
+    if(Array.isArray(donors)) allDonors = donors
+  } else toast(res.error||'Error','error')
+}
+
+// ── Tiers & Benefits Modal ──
+function openDonorTiersModal(){
+  const existing = document.getElementById('tiers-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'tiers-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:680px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1">
+        <div style="font-size:16px;font-weight:700">⭐ Tiers &amp; Benefits</div>
+        <button onclick="document.getElementById('tiers-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px" id="tiers-modal-body">
+        ${renderTiersModalBody()}
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+function renderTiersModalBody(){
+  return allDonorTiers.map(t=>{
+    const col = TIER_COLORS[t.color||'gray']
+    return `<div style="border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:14px;border-left:4px solid ${col}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <span style="font-size:15px;font-weight:700">${escHtml(t.name)}</span>
+          <span style="font-size:12px;color:var(--text-muted);margin-left:10px">$${parseFloat(t.min_amount).toLocaleString()}${t.max_amount?' – $'+parseFloat(t.max_amount).toLocaleString():'+​'}</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button onclick="editTier('${t.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>
+          <button onclick="deleteTier('${t.id}')" class="btn btn-danger btn-sm" style="font-size:11px">✕</button>
+        </div>
+      </div>
+      ${t.description?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${escHtml(t.description)}</div>`:''}
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Benefits</div>
+      ${(t.benefits||[]).map(b=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="flex:1;font-size:13px">${escHtml(b.name)}${b.description?` <span style="color:var(--text-hint)">— ${escHtml(b.description)}</span>`:''}</div>
+          <span style="font-size:10px;color:${b.is_trackable?'var(--green-600)':'var(--text-hint)'}">${b.is_trackable?'Trackable':'Info only'}</span>
+          <button onclick="deleteBenefit('${b.id}','${t.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:14px">×</button>
+        </div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <input type="text" id="new-benefit-name-${t.id}" placeholder="New benefit name…" style="flex:1;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"/>
+        <button onclick="addBenefit('${t.id}')" class="btn btn-primary btn-sm" style="font-size:11px">+ Add</button>
+      </div>
+    </div>`
+  }).join('') + `
+  <button onclick="openAddTierForm()" class="btn btn-secondary" style="width:100%">+ Add New Tier</button>
+  <div id="add-tier-form" style="display:none;border:1.5px dashed var(--border-md);border-radius:var(--radius-lg);padding:16px;margin-top:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+      <div class="form-group"><label>Tier Name *</label><input type="text" id="new-tier-name" placeholder="e.g. Gold Sponsor"/></div>
+      <div class="form-group"><label>Min Amount</label><input type="number" id="new-tier-min" placeholder="0" min="0"/></div>
+      <div class="form-group"><label>Max Amount</label><input type="number" id="new-tier-max" placeholder="Leave blank = no max" min="0"/></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-bottom:10px">
+      <div class="form-group"><label>Color</label>
+        <select id="new-tier-color">
+          ${Object.keys(TIER_COLORS).map(c=>`<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Description</label><input type="text" id="new-tier-desc" placeholder="Brief tier description…"/></div>
+    </div>
+    <button onclick="saveTier(null)" class="btn btn-primary btn-sm">+ Create Tier</button>
+  </div>`
+}
+
+function openAddTierForm(){
+  document.getElementById('add-tier-form').style.display = ''
+  document.getElementById('new-tier-name').focus()
+}
+
+async function saveTier(tid){
+  const name  = document.getElementById('new-tier-name').value.trim()
+  const min   = parseFloat(document.getElementById('new-tier-min').value||0)
+  const max   = document.getElementById('new-tier-max').value ? parseFloat(document.getElementById('new-tier-max').value) : null
+  const color = document.getElementById('new-tier-color').value
+  const desc  = document.getElementById('new-tier-desc').value.trim()
+  if(!name){ toast('Tier name required','error'); return }
+  const res = await api('/api/donor-tiers','POST',{name,min_amount:min,max_amount:max,color,description:desc})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Tier created!','success')
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  document.getElementById('tiers-modal-body').innerHTML = renderTiersModalBody()
+}
+
+async function deleteTier(tid){
+  if(!confirm('Delete this tier? Donors assigned to it will be untiered.')) return
+  const res = await api('/api/donor-tiers/'+tid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  document.getElementById('tiers-modal-body').innerHTML = renderTiersModalBody()
+  toast('Tier deleted')
+}
+
+async function addBenefit(tierId){
+  const inp = document.getElementById('new-benefit-name-'+tierId)
+  const name = inp?.value.trim()
+  if(!name){ toast('Benefit name required','error'); return }
+  const res = await api('/api/donor-tiers/'+tierId+'/benefits','POST',{name,is_trackable:true})
+  if(res.error){ toast(res.error,'error'); return }
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  document.getElementById('tiers-modal-body').innerHTML = renderTiersModalBody()
+  toast('Benefit added!','success')
+}
+
+async function deleteBenefit(bid, tierId){
+  if(!confirm('Delete this benefit?')) return
+  await api('/api/donor-benefits/'+bid,'DELETE')
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  document.getElementById('tiers-modal-body').innerHTML = renderTiersModalBody()
+}
+
+function editTier(tid){
+  const t = allDonorTiers.find(x=>x.id===tid)
+  if(!t) return
+  // Inline edit — populate add form and scroll to it
+  document.getElementById('add-tier-form').style.display = ''
+  document.getElementById('new-tier-name').value = t.name
+  document.getElementById('new-tier-min').value = t.min_amount
+  document.getElementById('new-tier-max').value = t.max_amount||''
+  document.getElementById('new-tier-color').value = t.color||'gray'
+  document.getElementById('new-tier-desc').value = t.description||''
+  toast('Edit the fields above and click Create Tier — or use the API to update in place.','')
+}
+
+// ── Campaigns Modal ──
+function openDonorCampaignsModal(){
+  const existing = document.getElementById('campaigns-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'campaigns-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">🎯 Campaigns &amp; Funds</div>
+        <button onclick="document.getElementById('campaigns-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px" id="campaigns-modal-body">
+        ${renderCampaignsModalBody()}
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+function renderCampaignsModalBody(){
+  const fmt = n => n ? '$'+parseFloat(n).toLocaleString() : '—'
+  return allDonorCampaigns.map(c=>{
+    const pct = c.goal_amount && c.raised ? Math.min(100,Math.round(parseFloat(c.raised)/parseFloat(c.goal_amount)*100)) : null
+    return `<div style="border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <span style="font-weight:600">${escHtml(c.name)}</span>
+          <span style="font-size:11px;margin-left:8px;padding:2px 7px;border-radius:10px;background:${c.status==='active'?'var(--green-50)':'var(--bg)'};color:${c.status==='active'?'var(--green-600)':'var(--text-muted)'};font-weight:600">${c.status}</span>
+        </div>
+        <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px">×</button>
+      </div>
+      <div style="font-size:13px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap">
+        <span>Raised: <strong>${fmt(c.raised)}</strong></span>
+        ${c.goal_amount?`<span>Goal: <strong>${fmt(c.goal_amount)}</strong></span>`:''}
+        ${c.start_date?`<span>${formatDate(c.start_date)}${c.end_date?' → '+formatDate(c.end_date):''}</span>`:''}
+      </div>
+      ${pct!==null?`<div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:100%;background:var(--green-600);border-radius:3px;width:${pct}%"></div></div>`:''}
+    </div>`
+  }).join('') + `
+  <div style="border:1.5px dashed var(--border-md);border-radius:var(--radius);padding:14px;margin-top:10px">
+    <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">New Campaign</div>
+    <div class="form-group" style="margin-bottom:10px"><label>Name *</label><input type="text" id="new-camp-name" placeholder="e.g. Annual Fund 2025"/></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div class="form-group"><label>Goal Amount</label><input type="number" id="new-camp-goal" placeholder="0.00" min="0" step="0.01"/></div>
+      <div class="form-group"><label>Status</label>
+        <select id="new-camp-status">
+          <option value="active">Active</option>
+          <option value="completed">Completed</option>
+          <option value="archived">Archived</option>
+        </select></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div class="form-group"><label>Start Date</label><input type="date" id="new-camp-start"/></div>
+      <div class="form-group"><label>End Date</label><input type="date" id="new-camp-end"/></div>
+    </div>
+    <div class="form-group" style="margin-bottom:10px"><label>Description</label>
+      <textarea id="new-camp-desc" style="min-height:50px;resize:vertical"></textarea></div>
+    <button onclick="saveCampaign()" class="btn btn-primary btn-sm">+ Create Campaign</button>
+  </div>`
+}
+
+async function saveCampaign(){
+  const name = document.getElementById('new-camp-name').value.trim()
+  if(!name){ toast('Campaign name required','error'); return }
+  const res = await api('/api/donor-campaigns','POST',{
+    name, goal_amount: document.getElementById('new-camp-goal').value||null,
+    status: document.getElementById('new-camp-status').value,
+    start_date: document.getElementById('new-camp-start').value||null,
+    end_date: document.getElementById('new-camp-end').value||null,
+    description: document.getElementById('new-camp-desc').value.trim()
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Campaign created!','success')
+  const campaigns = await api('/api/donor-campaigns')
+  if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
+  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
+}
+
+async function deleteCampaign(cid){
+  if(!confirm('Delete this campaign? Donations tied to it will become general donations.')) return
+  await api('/api/donor-campaigns/'+cid,'DELETE')
+  const campaigns = await api('/api/donor-campaigns')
+  if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
+  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
+  toast('Campaign deleted')
+}
+
+function exportDonorsCSV(){
+  const rows = [['Display Name','Legal Name','Type','Email','Phone','Tier','Total Donated','Last Gift','Status']]
+  allDonors.forEach(d=>rows.push([
+    d.display_name, d.legal_name||'', d.type, d.email||'', d.phone||'',
+    d.tier_name||'', d.total_donated||0, d.last_donation_date||'', d.status
+  ]))
+  downloadCSV('hwtc_donors.csv', rows)
+}
+
 function exportVolCSV(){
   const rows=[['Name','Email','Phone','Birthday','Status','Interests','Waiver Status','Total Hours']]
   volunteers.forEach(v=>rows.push([v.name,v.email,v.phone||'',v.birthday||'',v.status,JSON.parse(v.interests||'[]').join('; '),waiverStatus(v),v.total_hours||0]))
@@ -5091,6 +5853,7 @@ const PERM_SECTIONS = [
   {key:'kiosk',        label:'Sign-In / Kiosk',    desc:'Open and close events on kiosk'},
   {key:'reports',      label:'Reports & Logs',     desc:'Event logs, email reports'},
   {key:'settings',     label:'Settings',           desc:'Users, system configuration'},
+  {key:'donors',       label:'Donors & Sponsors',  desc:'Donor records, donations, tiers'},
 ]
 
 

@@ -436,8 +436,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
         <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors">💛</span>All Donors</div>
-        <div class="nav-item" onclick="openDonorCampaignsModal();navTo('donors',this)"><span class="nav-icon" id="ni-donor-campaigns">🎯</span>Campaigns</div>
-        <div class="nav-item" onclick="openDonorTiersModal();navTo('donors',this)"><span class="nav-icon" id="ni-donor-tiers">⭐</span>Tiers &amp; Benefits</div>
+        <div class="nav-item" onclick="navTo('donor-campaigns',this)"><span class="nav-icon" id="ni-donor-campaigns">🎯</span>Campaigns</div>
+        <div class="nav-item" onclick="navTo('donor-tiers',this)"><span class="nav-icon" id="ni-donor-tiers">⭐</span>Tiers &amp; Benefits</div>
+        <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates">✉️</span>Email Templates</div>
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
@@ -950,6 +951,36 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- EVENT LOGS -->
+      <!-- DONOR CAMPAIGNS PAGE -->
+      <section class="page" id="page-donor-campaigns">
+        <div class="page-header">
+          <div><div class="page-title">🎯 Campaigns &amp; Funds</div><div class="page-subtitle" id="campaigns-page-subtitle">Manage fundraising campaigns</div></div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openAddCampaignForm()">+ New Campaign</button></div>
+        </div>
+        <div class="page-body" id="campaigns-page-body"></div>
+      </section>
+
+      <!-- DONOR TIERS PAGE -->
+      <section class="page" id="page-donor-tiers">
+        <div class="page-header">
+          <div><div class="page-title">⭐ Tiers &amp; Benefits</div><div class="page-subtitle">Configure giving levels and their benefits</div></div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openAddTierForm()">+ New Tier</button></div>
+        </div>
+        <div class="page-body" id="tiers-page-body"></div>
+      </section>
+
+      <!-- DONOR EMAIL TEMPLATES PAGE -->
+      <section class="page" id="page-donor-templates">
+        <div class="page-header">
+          <div>
+            <div class="page-title">✉️ Email Templates</div>
+            <div class="page-subtitle">Customize thank-you emails. Use <code>{{name}}</code>, <code>{{amount}}</code>, <code>{{campaign}}</code>, <code>{{date}}</code> as placeholders.</div>
+          </div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openEditTemplateForm(null)">+ New Template</button></div>
+        </div>
+        <div class="page-body" id="templates-page-body"></div>
+      </section>
+
       <!-- DONORS & SPONSORS -->
       <section class="page" id="page-donors">
         <div class="page-header">
@@ -1459,6 +1490,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           oninput="previewNavIcon('donor-tiers',this.value)"/>
       </div>
     </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donor-templates">
+        <span style="font-size:16px">✉️</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Email Templates</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-donor-templates" placeholder="mail" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('donor-templates',this.value)"/>
+      </div>
               </div>
             </div>
             <!-- User Management -->
@@ -2189,6 +2230,7 @@ const NAV_PERM_MAP = {
   'donor-detail':     'donors',
   'donor-campaigns':  'donors',
   'donor-tiers':      'donors',
+  'donor-templates':  'donors',
 }
 
 function canView(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
@@ -2278,6 +2320,9 @@ function navTo(page,el){
   if(page==='portal-admin'){ renderPortalAdmin() }
   if(page==='notifications') loadNotifications()
   if(page==='donors') loadDonorsPage()
+  if(page==='donor-campaigns') loadCampaignsPage()
+  if(page==='donor-tiers') loadTiersPage()
+  if(page==='donor-templates') loadTemplatesPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3965,7 +4010,7 @@ const NAV_ICON_DEFAULTS = {
   events:'📅', productions:'🎬', 'cast-signin':'📋', youth:'👦', programs:'📚',
   'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝',
   'event-logs':'📋', notifications:'🔔', settings:'⚙️',
-  donors:'💛', 'donor-campaigns':'🎯', 'donor-tiers':'⭐'
+  donors:'💛', 'donor-campaigns':'🎯', 'donor-tiers':'⭐', 'donor-templates':'✉️'
 }
 
 let _currentNavIcons = {}
@@ -4399,7 +4444,7 @@ async function createUser(){
 // ═══════════════════════════════════════════════════════════════
 //  DONORS & SPONSORS
 // ═══════════════════════════════════════════════════════════════
-let allDonors = [], allDonorTiers = [], allDonorCampaigns = []
+let allDonors = [], allDonorTiers = [], allDonorCampaigns = [], allDonorTemplates = []
 
 const TIER_COLORS = {
   red:'#dc2626', pink:'#be185d', purple:'#7c3aed', orange:'#ea580c',
@@ -4940,8 +4985,21 @@ async function saveDonation(donorId){
 }
 
 async function sendThankYou(donationId, donorId){
+  // If templates exist, let user pick one
+  let templateId = null
+  if(allDonorTemplates.length){
+    const thankyouTemplates = allDonorTemplates.filter(t=>t.template_type==='thankyou'||t.template_type==='receipt')
+    if(thankyouTemplates.length > 1){
+      const options = thankyouTemplates.map(t=>`${t.name}${t.is_default?' (default)':''}`)
+      const choice = await showTemplatePicker(thankyouTemplates)
+      if(choice === false) return  // cancelled
+      templateId = choice
+    } else if(thankyouTemplates.length === 1){
+      templateId = thankyouTemplates[0].id
+    }
+  }
   if(!confirm('Send a thank-you email for this donation?')) return
-  const res = await api('/api/donations/'+donationId+'/send-thankyou','POST')
+  const res = await api('/api/donations/'+donationId+'/send-thankyou','POST', templateId?{template_id:templateId}:{})
   if(res.ok){
     toast('Thank-you email sent!','success')
     const donor = await api('/api/donors/'+donorId+'/detail')
@@ -4949,6 +5007,40 @@ async function sendThankYou(donationId, donorId){
   } else {
     toast(res.error||'Failed to send','error')
   }
+}
+
+function showTemplatePicker(templates){
+  return new Promise(resolve=>{
+    const existing = document.getElementById('template-picker-modal')
+    if(existing) existing.remove()
+    const overlay = document.createElement('div')
+    overlay.id = 'template-picker-modal'
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg)">
+        <div style="padding:18px 24px;border-bottom:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:700">Choose Email Template</div>
+        </div>
+        <div style="padding:16px 24px">
+          ${templates.map(t=>`
+            <button onclick="document.getElementById('template-picker-modal').remove();resolve_template_picker('${t.id}')"
+              style="width:100%;text-align:left;padding:12px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:${t.is_default?'var(--teal-50)':'var(--surface)'};margin-bottom:8px;cursor:pointer;font-family:inherit">
+              <div style="font-weight:600">${escHtml(t.name)}${t.is_default?' <span style="font-size:11px;color:var(--teal-dark)">(default)</span>':''}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${escHtml(t.subject)}</div>
+            </button>`).join('')}
+          <button onclick="document.getElementById('template-picker-modal').remove();resolve_template_picker(null)"
+            style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);background:none;cursor:pointer;font-family:inherit;color:var(--text-muted);font-size:13px">
+            Use built-in template
+          </button>
+          <button onclick="document.getElementById('template-picker-modal').remove();resolve_template_picker(false)"
+            style="width:100%;padding:10px;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--text-hint);font-size:12px;margin-top:4px">
+            Cancel
+          </button>
+        </div>
+      </div>`
+    window.resolve_template_picker = val => { resolve(val) }
+    document.body.appendChild(overlay)
+  })
 }
 
 async function deleteDonation(donationId, donorId){
@@ -4985,6 +5077,411 @@ async function saveDonorTier(donorId){
 }
 
 // ── Tiers & Benefits Modal ──
+// ── Campaigns Full Page ──
+async function loadCampaignsPage(){
+  const [campaigns, tiers] = await Promise.all([api('/api/donor-campaigns'), api('/api/donor-tiers')])
+  allDonorCampaigns = Array.isArray(campaigns) ? campaigns : []
+  allDonorTiers = Array.isArray(tiers) ? tiers : []
+  renderCampaignsPage()
+}
+
+function renderCampaignsPage(){
+  const el = document.getElementById('campaigns-page-body')
+  if(!el) return
+  const sub = document.getElementById('campaigns-page-subtitle')
+  if(sub) sub.textContent = allDonorCampaigns.length + ' campaign' + (allDonorCampaigns.length!==1?'s':'')
+  const fmt = n => n ? '$'+parseFloat(n).toLocaleString() : '—'
+
+  if(!allDonorCampaigns.length){
+    el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:12px">🎯</div>
+      <div style="font-weight:600;margin-bottom:6px">No campaigns yet</div>
+      <div style="font-size:13px">Create a campaign to track donations toward a specific goal.</div>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="openAddCampaignForm()">+ New Campaign</button>
+    </div>`
+    return
+  }
+
+  el.innerHTML = `<div id="campaign-edit-area"></div>` +
+    allDonorCampaigns.map(c=>{
+      const pct = c.goal_amount && c.raised ? Math.min(100,Math.round(parseFloat(c.raised)/parseFloat(c.goal_amount)*100)) : null
+      return `<div class="card" style="padding:24px;margin-bottom:16px" id="camp-card-${c.id}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+              <div style="font-size:18px;font-weight:700">${escHtml(c.name)}</div>
+              <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:${c.status==='active'?'var(--green-50)':'var(--bg)'};color:${c.status==='active'?'var(--green-600)':'var(--text-muted)'}">${c.status}</span>
+            </div>
+            ${c.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${escHtml(c.description)}</div>`:''}
+            <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:14px">
+              <div><span style="color:var(--text-muted);font-size:12px">RAISED</span><br/><strong style="font-size:20px;color:var(--teal-dark)">${fmt(c.raised)}</strong></div>
+              ${c.goal_amount?`<div><span style="color:var(--text-muted);font-size:12px">GOAL</span><br/><strong style="font-size:20px">${fmt(c.goal_amount)}</strong></div>`:''}
+              ${c.start_date?`<div><span style="color:var(--text-muted);font-size:12px">DATES</span><br/><strong>${formatDate(c.start_date)}${c.end_date?' → '+formatDate(c.end_date):''}</strong></div>`:''}
+            </div>
+            ${pct!==null?`<div style="margin-top:12px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:4px"><span>Progress</span><span>${pct}%</span></div>
+              <div style="height:8px;background:var(--border);border-radius:4px"><div style="height:100%;background:var(--green-600);border-radius:4px;width:${pct}%;transition:width 0.3s"></div></div>
+            </div>`:''}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" onclick="openEditCampaignInline('${c.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteCampaignPage('${c.id}')">Delete</button>
+          </div>
+        </div>
+      </div>`
+    }).join('')
+}
+
+function openAddCampaignForm(){
+  const area = document.getElementById('campaign-edit-area')
+  if(!area) return
+  area.innerHTML = renderCampaignForm(null)
+  area.scrollIntoView({behavior:'smooth', block:'start'})
+}
+
+function openEditCampaignInline(cid){
+  const c = allDonorCampaigns.find(x=>x.id===cid)
+  if(!c) return
+  const area = document.getElementById('campaign-edit-area')
+  if(area){ area.innerHTML = renderCampaignForm(c); area.scrollIntoView({behavior:'smooth',block:'start'}) }
+}
+
+function renderCampaignForm(c){
+  return `<div class="card" style="padding:24px;margin-bottom:16px;border:2px solid var(--teal-400)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px">${c?'✏️ Edit Campaign':'+ New Campaign'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1"><label>Name *</label>
+        <input type="text" id="cf-name" value="${escHtml(c?.name||'')}" placeholder="e.g. Annual Fund 2025" style="font-size:16px"/></div>
+      <div class="form-group"><label>Goal Amount</label>
+        <input type="number" id="cf-goal" value="${c?.goal_amount||''}" min="0" step="0.01" placeholder="0.00"/></div>
+      <div class="form-group"><label>Status</label>
+        <select id="cf-status">
+          <option value="active" ${(!c||c.status==='active')?'selected':''}>Active</option>
+          <option value="completed" ${c?.status==='completed'?'selected':''}>Completed</option>
+          <option value="archived" ${c?.status==='archived'?'selected':''}>Archived</option>
+        </select></div>
+      <div class="form-group"><label>Start Date</label>
+        <input type="date" id="cf-start" value="${c?.start_date||''}"/></div>
+      <div class="form-group"><label>End Date</label>
+        <input type="date" id="cf-end" value="${c?.end_date||''}"/></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Description</label>
+        <textarea id="cf-desc" style="min-height:70px;resize:vertical">${escHtml(c?.description||'')}</textarea></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn btn-primary" onclick="saveCampaignPage('${c?.id||''}')">💾 ${c?'Save Changes':'Create Campaign'}</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('campaign-edit-area').innerHTML=''">Cancel</button>
+    </div>
+  </div>`
+}
+
+async function saveCampaignPage(cid){
+  const name = document.getElementById('cf-name')?.value.trim()
+  if(!name){ toast('Campaign name is required','error'); return }
+  const body = {
+    name, goal_amount: document.getElementById('cf-goal').value||null,
+    status: document.getElementById('cf-status').value,
+    start_date: document.getElementById('cf-start').value||null,
+    end_date: document.getElementById('cf-end').value||null,
+    description: document.getElementById('cf-desc').value.trim()
+  }
+  const res = cid ? await api('/api/donor-campaigns/'+cid,'PUT',body) : await api('/api/donor-campaigns','POST',body)
+  if(res.error){ toast(res.error,'error'); return }
+  toast(cid?'Campaign updated!':'Campaign created!','success')
+  const campaigns = await api('/api/donor-campaigns')
+  if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
+  renderCampaignsPage()
+  document.getElementById('campaign-edit-area').innerHTML = ''
+}
+
+async function deleteCampaignPage(cid){
+  if(!confirm('Delete this campaign? Donations linked to it will become general donations.')) return
+  const res = await api('/api/donor-campaigns/'+cid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Campaign deleted')
+  const campaigns = await api('/api/donor-campaigns')
+  if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
+  renderCampaignsPage()
+}
+
+// ── Tiers Full Page ──
+async function loadTiersPage(){
+  const tiers = await api('/api/donor-tiers')
+  allDonorTiers = Array.isArray(tiers) ? tiers : []
+  renderTiersPage()
+}
+
+function renderTiersPage(){
+  const el = document.getElementById('tiers-page-body')
+  if(!el) return
+
+  el.innerHTML = `<div id="tier-edit-area"></div>` +
+    allDonorTiers.map(t=>{
+      const col = TIER_COLORS[t.color||'gray']
+      return `<div class="card" style="padding:24px;margin-bottom:16px;border-left:5px solid ${col}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+          <div>
+            <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escHtml(t.name)}</div>
+            <div style="font-size:14px;color:var(--text-muted)">
+              $${parseFloat(t.min_amount).toLocaleString()}${t.max_amount?' – $'+parseFloat(t.max_amount).toLocaleString():'+'}
+            </div>
+            ${t.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${escHtml(t.description)}</div>`:''}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            <button class="btn btn-secondary btn-sm" onclick="openEditTierInline('${t.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTierPage('${t.id}')">Delete</button>
+          </div>
+        </div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Benefits</div>
+        ${(t.benefits||[]).length ? (t.benefits||[]).map(b=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600">${escHtml(b.name)}</div>
+              ${b.description?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(b.description)}</div>`:''}
+            </div>
+            <span style="font-size:11px;color:${b.is_trackable?'var(--green-600)':'var(--text-hint)'};font-weight:600">${b.is_trackable?'Trackable':'Info only'}</span>
+            <button onclick="deleteBenefitPage('${b.id}','${t.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
+          </div>`).join('') : '<div style="font-size:13px;color:var(--text-hint)">No benefits added yet</div>'}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <input type="text" id="nb-name-${t.id}" placeholder="New benefit name…"
+            style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+          <button onclick="addBenefitPage('${t.id}')" class="btn btn-primary btn-sm">+ Add Benefit</button>
+        </div>
+      </div>`
+    }).join('')
+}
+
+function openEditTierInline(tid){
+  const t = allDonorTiers.find(x=>x.id===tid)
+  if(!t) return
+  const area = document.getElementById('tier-edit-area')
+  if(area){ area.innerHTML = renderTierForm(t); area.scrollIntoView({behavior:'smooth',block:'start'}) }
+}
+
+function renderTierForm(t){
+  return `<div class="card" style="padding:24px;margin-bottom:16px;border:2px solid var(--teal-400)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px">${t?'✏️ Edit Tier':'+ New Tier'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1"><label>Tier Name *</label>
+        <input type="text" id="tf-name" value="${escHtml(t?.name||'')}" placeholder="e.g. Gold Sponsor" style="font-size:16px"/></div>
+      <div class="form-group"><label>Min Amount ($)</label>
+        <input type="number" id="tf-min" value="${t?.min_amount||0}" min="0"/></div>
+      <div class="form-group"><label>Max Amount ($) <span style="font-weight:400;color:var(--text-hint)">(blank = no max)</span></label>
+        <input type="number" id="tf-max" value="${t?.max_amount||''}" min="0" placeholder="No maximum"/></div>
+      <div class="form-group"><label>Color</label>
+        <select id="tf-color">
+          ${Object.keys(TIER_COLORS).map(c=>`<option value="${c}" ${(t?.color||'gray')===c?'selected':''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
+        </select></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Description</label>
+        <textarea id="tf-desc" style="min-height:70px;resize:vertical">${escHtml(t?.description||'')}</textarea></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn btn-primary" onclick="saveTierPage('${t?.id||''}')">💾 ${t?'Save Changes':'Create Tier'}</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('tier-edit-area').innerHTML=''">Cancel</button>
+    </div>
+  </div>`
+}
+
+async function saveTierPage(tid){
+  const name = document.getElementById('tf-name')?.value.trim()
+  if(!name){ toast('Tier name is required','error'); return }
+  const body = {
+    name, min_amount: parseFloat(document.getElementById('tf-min').value||0),
+    max_amount: document.getElementById('tf-max').value||null,
+    color: document.getElementById('tf-color').value,
+    description: document.getElementById('tf-desc').value.trim()
+  }
+  const res = tid ? await api('/api/donor-tiers/'+tid,'PUT',body) : await api('/api/donor-tiers','POST',body)
+  if(res.error){ toast(res.error,'error'); return }
+  toast(tid?'Tier updated!':'Tier created!','success')
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  renderTiersPage()
+  document.getElementById('tier-edit-area').innerHTML = ''
+}
+
+async function deleteTierPage(tid){
+  if(!confirm('Delete this tier? Donors assigned to it will lose their tier.')) return
+  const res = await api('/api/donor-tiers/'+tid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Tier deleted')
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  renderTiersPage()
+}
+
+async function addBenefitPage(tierId){
+  const inp = document.getElementById('nb-name-'+tierId)
+  const name = inp?.value.trim()
+  if(!name){ toast('Benefit name required','error'); return }
+  const res = await api('/api/donor-tiers/'+tierId+'/benefits','POST',{name,is_trackable:true})
+  if(res.error){ toast(res.error,'error'); return }
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  renderTiersPage()
+  toast('Benefit added!','success')
+}
+
+async function deleteBenefitPage(bid, tierId){
+  if(!confirm('Delete this benefit?')) return
+  await api('/api/donor-benefits/'+bid,'DELETE')
+  const tiers = await api('/api/donor-tiers')
+  if(Array.isArray(tiers)) allDonorTiers = tiers
+  renderTiersPage()
+}
+
+// ── Email Templates Full Page ──
+async function loadTemplatesPage(){
+  const [templates, tiers] = await Promise.all([api('/api/donor-email-templates'), api('/api/donor-tiers')])
+  allDonorTemplates = Array.isArray(templates) ? templates : []
+  allDonorTiers = Array.isArray(tiers) ? tiers : []
+  renderTemplatesPage()
+}
+
+function renderTemplatesPage(){
+  const el = document.getElementById('templates-page-body')
+  if(!el) return
+
+  el.innerHTML = `<div id="template-edit-area"></div>` +
+    (!allDonorTemplates.length ? `<div style="text-align:center;padding:48px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:12px">✉️</div>
+      <div style="font-weight:600;margin-bottom:6px">No email templates yet</div>
+      <div style="font-size:13px">Create a thank-you template to use when sending donor acknowledgements.</div>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="openEditTemplateForm(null)">+ New Template</button>
+    </div>` :
+    allDonorTemplates.map(t=>`
+      <div class="card" style="padding:24px;margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+              <div style="font-size:16px;font-weight:700">${escHtml(t.name)}</div>
+              ${t.is_default?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-dark);padding:2px 8px;border-radius:20px;font-weight:700">Default</span>':''}
+              <span style="font-size:11px;background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:20px;text-transform:capitalize">${t.template_type}</span>
+            </div>
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px"><strong>Subject:</strong> ${escHtml(t.subject)}</div>
+            ${t.from_email?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px"><strong>From:</strong> ${t.from_name?escHtml(t.from_name)+' &lt;':''}${escHtml(t.from_email)}${t.from_name?'&gt;':''}</div>`:''}
+            <div style="font-size:12px;color:var(--text-hint);margin-top:8px;font-style:italic;background:var(--bg);padding:8px 12px;border-radius:8px;max-height:60px;overflow:hidden">
+              ${escHtml((t.body||'').replace(/<[^>]+>/g,'').substring(0,120))}…
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            ${!t.is_default?`<button class="btn btn-secondary btn-sm" onclick="setDefaultTemplate('${t.id}','${t.template_type}')">Set Default</button>`:''}
+            <button class="btn btn-secondary btn-sm" onclick="openEditTemplateForm('${t.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTemplatePage('${t.id}')">Delete</button>
+          </div>
+        </div>
+      </div>`).join(''))
+}
+
+function openEditTemplateForm(tid){
+  const t = tid ? allDonorTemplates.find(x=>x.id===tid) : null
+  const area = document.getElementById('template-edit-area')
+  if(!area) return
+
+  const defaultBody = t?.body || `<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px;text-align:center;border-radius:12px 12px 0 0">
+    <h1 style="color:#fff;font-size:24px;margin:0">Thank You!</h1>
+  </div>
+  <div style="padding:32px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
+    <p>Dear {{name}},</p>
+    <p>Thank you for your generous contribution of <strong>{{amount}}</strong>{{campaign}}.</p>
+    <p>Date: {{date}}</p>
+    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>
+  </div>
+  <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theatre Company is a 501(c)(3) non-profit organization.</p>
+</div>`
+
+  area.innerHTML = `<div class="card" style="padding:24px;margin-bottom:16px;border:2px solid var(--teal-400)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px">${t?'✏️ Edit Template':'+ New Email Template'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1"><label>Template Name *</label>
+        <input type="text" id="et-name" value="${escHtml(t?.name||'')}" placeholder="e.g. Standard Thank You"/></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Email Subject *</label>
+        <input type="text" id="et-subject" value="${escHtml(t?.subject||'Thank You for Your Support — HWTC')}" placeholder="Subject line"/></div>
+      <div class="form-group"><label>From Name <span style="font-weight:400;color:var(--text-hint)">(optional)</span></label>
+        <input type="text" id="et-from-name" value="${escHtml(t?.from_name||'')}" placeholder="e.g. Horizon West Theatre"/></div>
+      <div class="form-group"><label>From Email <span style="font-weight:400;color:var(--text-hint)">(leave blank for default)</span></label>
+        <input type="email" id="et-from-email" value="${escHtml(t?.from_email||'')}" placeholder="e.g. donors@hwtco.org"/></div>
+      <div class="form-group"><label>Type</label>
+        <select id="et-type">
+          <option value="thankyou" ${(!t||t.template_type==='thankyou')?'selected':''}>Thank You</option>
+          <option value="receipt" ${t?.template_type==='receipt'?'selected':''}>Donation Receipt</option>
+          <option value="general" ${t?.template_type==='general'?'selected':''}>General</option>
+        </select></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px;padding-top:24px">
+        <input type="checkbox" id="et-default" ${t?.is_default?'checked':''} style="accent-color:var(--teal);width:16px;height:16px"/>
+        <label for="et-default" style="font-size:13px;font-weight:500;cursor:pointer">Set as default for this type</label>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Email Body (HTML) <span style="font-weight:400;color:var(--text-hint)">— use {{name}}, {{amount}}, {{campaign}}, {{date}}</span></label>
+        <textarea id="et-body" style="min-height:280px;resize:vertical;font-family:monospace;font-size:12px">${escHtml(defaultBody)}</textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn btn-primary" onclick="saveTemplatePage('${tid||''}')">💾 ${t?'Save Changes':'Create Template'}</button>
+      <button class="btn btn-secondary" onclick="previewTemplate()">👁 Preview</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('template-edit-area').innerHTML=''">Cancel</button>
+    </div>
+  </div>`
+  area.scrollIntoView({behavior:'smooth',block:'start'})
+}
+
+function previewTemplate(){
+  const body = document.getElementById('et-body')?.value||''
+  const preview = body
+    .replace(/\{\{name\}\}/g,'Jane Smith')
+    .replace(/\{\{amount\}\}/g,'$500.00')
+    .replace(/\{\{campaign\}\}/g,' for Annual Fund 2025')
+    .replace(/\{\{date\}\}/g,new Date().toLocaleDateString())
+  const win = window.open('','_blank','width=700,height=600')
+  win.document.write(`<!DOCTYPE html><html><body style="margin:20px;background:#f4f4f4">${preview}</body></html>`)
+  win.document.close()
+}
+
+async function saveTemplatePage(tid){
+  const name    = document.getElementById('et-name')?.value.trim()
+  const subject = document.getElementById('et-subject')?.value.trim()
+  const body    = document.getElementById('et-body')?.value.trim()
+  if(!name){ toast('Template name is required','error'); return }
+  if(!subject){ toast('Subject is required','error'); return }
+  if(!body){ toast('Email body is required','error'); return }
+  const payload = {
+    name, subject, body,
+    from_name:  document.getElementById('et-from-name').value.trim(),
+    from_email: document.getElementById('et-from-email').value.trim(),
+    template_type: document.getElementById('et-type').value,
+    is_default: document.getElementById('et-default').checked
+  }
+  const res = tid ? await api('/api/donor-email-templates/'+tid,'PUT',payload)
+                  : await api('/api/donor-email-templates','POST',payload)
+  if(res.error){ toast(res.error,'error'); return }
+  toast(tid?'Template updated!':'Template created!','success')
+  const templates = await api('/api/donor-email-templates')
+  if(Array.isArray(templates)) allDonorTemplates = templates
+  renderTemplatesPage()
+  document.getElementById('template-edit-area').innerHTML = ''
+}
+
+async function setDefaultTemplate(tid, type){
+  const res = await api('/api/donor-email-templates/'+tid,'PUT',{
+    ...allDonorTemplates.find(t=>t.id===tid), is_default: true
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Set as default template','success')
+  const templates = await api('/api/donor-email-templates')
+  if(Array.isArray(templates)) allDonorTemplates = templates
+  renderTemplatesPage()
+}
+
+async function deleteTemplatePage(tid){
+  if(!confirm('Delete this email template?')) return
+  const res = await api('/api/donor-email-templates/'+tid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Template deleted')
+  const templates = await api('/api/donor-email-templates')
+  if(Array.isArray(templates)) allDonorTemplates = templates
+  renderTemplatesPage()
+}
+
 function openDonorTiersModal(){
   const existing = document.getElementById('tiers-modal')
   if(existing) existing.remove()

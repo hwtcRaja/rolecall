@@ -1428,6 +1428,36 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
           oninput="previewNavIcon('settings',this.value)"/>
       </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donors">
+        <span style="font-size:16px">💛</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">All Donors</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-donors" placeholder="heart" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('donors',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donor-campaigns">
+        <span style="font-size:16px">🎯</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Campaigns</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-donor-campaigns" placeholder="target" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('donor-campaigns',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donor-tiers">
+        <span style="font-size:16px">⭐</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Tiers &amp; Benefits</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-donor-tiers" placeholder="star" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('donor-tiers',this.value)"/>
+      </div>
     </div>
               </div>
             </div>
@@ -3934,7 +3964,8 @@ const NAV_ICON_DEFAULTS = {
   dashboard:'📊', volunteers:'👥', waivers:'📄', hours:'⏱', email:'✉️',
   events:'📅', productions:'🎬', 'cast-signin':'📋', youth:'👦', programs:'📚',
   'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝',
-  'event-logs':'📋', notifications:'🔔', settings:'⚙️'
+  'event-logs':'📋', notifications:'🔔', settings:'⚙️',
+  donors:'💛', 'donor-campaigns':'🎯', 'donor-tiers':'⭐'
 }
 
 let _currentNavIcons = {}
@@ -5097,7 +5128,7 @@ function openDonorCampaignsModal(){
         <button onclick="document.getElementById('campaigns-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
       </div>
       <div style="padding:20px 24px" id="campaigns-modal-body">
-        ${renderCampaignsModalBody()}
+        ${renderCampaignsModalBody() + renderNewCampaignForm()}
       </div>
     </div>`
   overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -5108,23 +5139,55 @@ function renderCampaignsModalBody(){
   const fmt = n => n ? '$'+parseFloat(n).toLocaleString() : '—'
   return allDonorCampaigns.map(c=>{
     const pct = c.goal_amount && c.raised ? Math.min(100,Math.round(parseFloat(c.raised)/parseFloat(c.goal_amount)*100)) : null
-    return `<div style="border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div>
-          <span style="font-weight:600">${escHtml(c.name)}</span>
-          <span style="font-size:11px;margin-left:8px;padding:2px 7px;border-radius:10px;background:${c.status==='active'?'var(--green-50)':'var(--bg)'};color:${c.status==='active'?'var(--green-600)':'var(--text-muted)'};font-weight:600">${c.status}</span>
+    return `<div style="border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px" id="camp-row-${c.id}">
+      <div id="camp-view-${c.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div>
+            <span style="font-weight:600">${escHtml(c.name)}</span>
+            <span style="font-size:11px;margin-left:8px;padding:2px 7px;border-radius:10px;background:${c.status==='active'?'var(--green-50)':'var(--bg)'};color:${c.status==='active'?'var(--green-600)':'var(--text-muted)'};font-weight:600">${c.status}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="showCampaignEditForm('${c.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">✏️ Edit</button>
+            <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>
+          </div>
         </div>
-        <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px">×</button>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap">
+          <span>Raised: <strong>${fmt(c.raised)}</strong></span>
+          ${c.goal_amount?`<span>Goal: <strong>${fmt(c.goal_amount)}</strong></span>`:''}
+          ${c.start_date?`<span>${formatDate(c.start_date)}${c.end_date?' → '+formatDate(c.end_date):''}</span>`:''}
+        </div>
+        ${pct!==null?`<div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:100%;background:var(--green-600);border-radius:3px;width:${pct}%"></div></div>`:''}
       </div>
-      <div style="font-size:13px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap">
-        <span>Raised: <strong>${fmt(c.raised)}</strong></span>
-        ${c.goal_amount?`<span>Goal: <strong>${fmt(c.goal_amount)}</strong></span>`:''}
-        ${c.start_date?`<span>${formatDate(c.start_date)}${c.end_date?' → '+formatDate(c.end_date):''}</span>`:''}
+      <div id="camp-edit-${c.id}" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-group" style="grid-column:1/-1"><label>Name *</label>
+            <input type="text" id="ce-name-${c.id}" value="${escHtml(c.name)}"/></div>
+          <div class="form-group"><label>Goal Amount</label>
+            <input type="number" id="ce-goal-${c.id}" value="${c.goal_amount||''}" min="0" step="0.01"/></div>
+          <div class="form-group"><label>Status</label>
+            <select id="ce-status-${c.id}">
+              <option value="active" ${c.status==='active'?'selected':''}>Active</option>
+              <option value="completed" ${c.status==='completed'?'selected':''}>Completed</option>
+              <option value="archived" ${c.status==='archived'?'selected':''}>Archived</option>
+            </select></div>
+          <div class="form-group"><label>Start Date</label>
+            <input type="date" id="ce-start-${c.id}" value="${c.start_date||''}"/></div>
+          <div class="form-group"><label>End Date</label>
+            <input type="date" id="ce-end-${c.id}" value="${c.end_date||''}"/></div>
+          <div class="form-group" style="grid-column:1/-1"><label>Description</label>
+            <textarea id="ce-desc-${c.id}" style="min-height:50px;resize:vertical">${escHtml(c.description||'')}</textarea></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="saveEditCampaign('${c.id}')" class="btn btn-primary btn-sm">💾 Save</button>
+          <button onclick="hideCampaignEditForm('${c.id}')" class="btn btn-secondary btn-sm">Cancel</button>
+        </div>
       </div>
-      ${pct!==null?`<div style="margin-top:8px;height:6px;background:var(--border);border-radius:3px"><div style="height:100%;background:var(--green-600);border-radius:3px;width:${pct}%"></div></div>`:''}
     </div>`
-  }).join('') + `
-  <div style="border:1.5px dashed var(--border-md);border-radius:var(--radius);padding:14px;margin-top:10px">
+  }).join('') + renderNewCampaignForm()
+}
+
+function renderNewCampaignForm(){
+  return `<div style="border:1.5px dashed var(--border-md);border-radius:var(--radius);padding:14px;margin-top:10px">
     <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">New Campaign</div>
     <div class="form-group" style="margin-bottom:10px"><label>Name *</label><input type="text" id="new-camp-name" placeholder="e.g. Annual Fund 2025"/></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
@@ -5146,6 +5209,35 @@ function renderCampaignsModalBody(){
   </div>`
 }
 
+function showCampaignEditForm(cid){
+  document.getElementById('camp-view-'+cid).style.display = 'none'
+  document.getElementById('camp-edit-'+cid).style.display = ''
+  document.getElementById('ce-name-'+cid).focus()
+}
+
+function hideCampaignEditForm(cid){
+  document.getElementById('camp-view-'+cid).style.display = ''
+  document.getElementById('camp-edit-'+cid).style.display = 'none'
+}
+
+async function saveEditCampaign(cid){
+  const name = document.getElementById('ce-name-'+cid).value.trim()
+  if(!name){ toast('Campaign name is required','error'); return }
+  const res = await api('/api/donor-campaigns/'+cid,'PUT',{
+    name,
+    goal_amount: document.getElementById('ce-goal-'+cid).value||null,
+    status:      document.getElementById('ce-status-'+cid).value,
+    start_date:  document.getElementById('ce-start-'+cid).value||null,
+    end_date:    document.getElementById('ce-end-'+cid).value||null,
+    description: document.getElementById('ce-desc-'+cid).value.trim(),
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Campaign updated!','success')
+  const campaigns = await api('/api/donor-campaigns')
+  if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
+  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody() + renderNewCampaignForm()
+}
+
 async function saveCampaign(){
   const name = document.getElementById('new-camp-name').value.trim()
   if(!name){ toast('Campaign name required','error'); return }
@@ -5160,7 +5252,7 @@ async function saveCampaign(){
   toast('Campaign created!','success')
   const campaigns = await api('/api/donor-campaigns')
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
-  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
+  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody() + renderNewCampaignForm()
 }
 
 async function deleteCampaign(cid){
@@ -5168,7 +5260,7 @@ async function deleteCampaign(cid){
   await api('/api/donor-campaigns/'+cid,'DELETE')
   const campaigns = await api('/api/donor-campaigns')
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
-  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
+  document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody() + renderNewCampaignForm()
   toast('Campaign deleted')
 }
 

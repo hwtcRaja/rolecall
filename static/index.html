@@ -974,7 +974,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-header">
           <div>
             <div class="page-title">✉️ Email Templates</div>
-            <div class="page-subtitle">Customize thank-you emails. Use <code>{{name}}</code>, <code>{{amount}}</code>, <code>{{campaign}}</code>, <code>{{date}}</code> as placeholders.</div>
+            <div class="page-subtitle">Customize thank-you emails. Use <code>{{name}}</code>, <code>{{amount}}</code>, <code>{{campaign}}</code>, <code>{{date}}</code>, <code>{{tier}}</code>, <code>{{benefits}}</code> as placeholders.</div>
           </div>
           <div class="page-actions"><button class="btn btn-primary" onclick="openEditTemplateForm(null)">+ New Template</button></div>
         </div>
@@ -5412,7 +5412,7 @@ function openEditTemplateForm(tid){
         <label for="et-default" style="font-size:13px;font-weight:500;cursor:pointer">Set as default for this type</label>
       </div>
       <div class="form-group" style="grid-column:1/-1">
-        <label>Email Body (HTML) <span style="font-weight:400;color:var(--text-hint)">— use {{name}}, {{amount}}, {{campaign}}, {{date}}</span></label>
+        <label>Email Body (HTML) <span style="font-weight:400;color:var(--text-hint)">— use {{name}}, {{amount}}, {{campaign}}, {{date}}, {{tier}}, {{benefits}}</span></label>
         <textarea id="et-body" style="min-height:280px;resize:vertical;font-family:monospace;font-size:12px">${escHtml(defaultBody)}</textarea>
       </div>
     </div>
@@ -5427,11 +5427,15 @@ function openEditTemplateForm(tid){
 
 function previewTemplate(){
   const body = document.getElementById('et-body')?.value||''
+  const sampleBenefits = '<ul style="margin:8px 0;padding-left:20px"><li style="margin-bottom:4px">Recognition in donor listing on website and programs</li><li style="margin-bottom:4px">Presale ticket access before the public</li><li style="margin-bottom:4px">2 for 1 ticket vouchers for one show</li></ul>'
   const preview = body
     .replace(/\{\{name\}\}/g,'Jane Smith')
     .replace(/\{\{amount\}\}/g,'$500.00')
-    .replace(/\{\{campaign\}\}/g,' for Annual Fund 2025')
+    .replace(/\{\{campaign\}\}/g,'Annual Fund 2025')
     .replace(/\{\{date\}\}/g,new Date().toLocaleDateString())
+    .replace(/\{\{tier\}\}/g,'Playwright')
+    .replace(/\{\{benefits\}\}/g, sampleBenefits)
+    .replace(/\{\{benefits_text\}\}/g,'• Recognition in donor listing\n• Presale ticket access\n• 2 for 1 ticket vouchers')
   const win = window.open('','_blank','width=700,height=600')
   win.document.write(`<!DOCTYPE html><html><body style="margin:20px;background:#f4f4f4">${preview}</body></html>`)
   win.document.close()

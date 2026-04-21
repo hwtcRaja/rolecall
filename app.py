@@ -621,6 +621,17 @@ def init_db():
             body TEXT,
             sent_at TIMESTAMP DEFAULT NOW(),
             sent_by TEXT)""",
+
+        """CREATE TABLE IF NOT EXISTS donor_email_templates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            from_email TEXT DEFAULT '',
+            from_name TEXT DEFAULT '',
+            template_type TEXT DEFAULT 'thankyou',
+            is_default BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW())""",
     ]:
         try:
             c.execute(col_sql)
@@ -670,6 +681,66 @@ def require_admin():
     if session.get('role') != 'admin':
         return jsonify({'error': 'Admin required'}), 403
     return None
+
+# ─────────────────────────────────────────────
+#  EMAIL HELPERS
+# ─────────────────────────────────────────────
+
+def get_email_settings():
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM email_settings WHERE id=1')
+        conn.close()
+        return row or {}
+    except Exception:
+        return {}
+
+def get_recipient_emails(settings=None):
+    if settings is None:
+        settings = get_email_settings()
+    emails = []
+    try:
+        conn = get_db()
+        ids_raw = settings.get('report_recipient_user_ids') or '[]'
+        user_ids = json.loads(ids_raw) if isinstance(ids_raw, str) else (ids_raw or [])
+        if user_ids:
+            placeholders = ','.join(['%s'] * len(user_ids))
+            users = fetchall(conn, f'SELECT email FROM users WHERE id IN ({placeholders})', tuple(user_ids))
+            emails = [u['email'] for u in users if u.get('email')]
+        if not emails:
+            raw = settings.get('report_recipients','')
+            if raw:
+                emails = [e.strip() for e in raw.split(',') if e.strip()]
+        conn.close()
+    except Exception:
+        pass
+    return emails
+
+def send_email(to_emails, subject, html_body, from_email=None):
+    """Send via Resend API."""
+    settings = get_email_settings()
+    api_key = settings.get('resend_api_key','').strip()
+    if not api_key:
+        app.logger.warning('Resend API key not configured — email not sent')
+        return False, 'Resend API key not configured'
+    from_addr = from_email or settings.get('from_email','info@hwtco.org')
+    if isinstance(to_emails, str):
+        to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
+    if not to_emails:
+        return False, 'No recipients'
+    try:
+        import requests as _req
+        resp = _req.post('https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
+            timeout=10)
+        if resp.status_code not in (200, 201, 202):
+            app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
+            return False, f'Resend error {resp.status_code}: {resp.text[:200]}'
+        return True, None
+    except Exception as e:
+        app.logger.error(f'Email send error: {e}')
+        return False, str(e)
 
 def serialize_row(r):
     out = {}
@@ -2260,6 +2331,8 @@ def delete_donation(donation_id):
 def send_thank_you(donation_id):
     err = require_auth()
     if err: return err
+    d = request.json or {}
+    template_id = d.get('template_id')
     conn = get_db()
     row = fetchone(conn, '''SELECT dd.*, dn.display_name, dn.recognition_name, dn.email,
         dn.is_anonymous, c.name as campaign_name
@@ -2270,37 +2343,40 @@ def send_thank_you(donation_id):
     if not row: conn.close(); return jsonify({'error': 'Not found'}), 404
     if not row.get('email'):
         conn.close(); return jsonify({'error': 'Donor has no email address on file'}), 400
-    name = row.get('recognition_name') or row['display_name']
-    amount = '${:,.2f}'.format(float(row['amount']))
+    name         = row.get('recognition_name') or row['display_name']
+    amount       = '${:,.2f}'.format(float(row['amount']))
     campaign_str = ' for ' + row['campaign_name'] if row.get('campaign_name') else ''
-    html_body = '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
+    date_str     = str(row.get('donation_date',''))
+    # Load template
+    tmpl = None
+    if template_id:
+        tmpl = fetchone(conn, 'SELECT * FROM donor_email_templates WHERE id=%s', (template_id,))
+    if not tmpl:
+        tmpl = fetchone(conn, "SELECT * FROM donor_email_templates WHERE is_default=TRUE AND template_type='thankyou' LIMIT 1")
+    if tmpl:
+        def sub(text):
+            return (text or '').replace('{{name}}', name).replace('{{amount}}', amount)\
+                .replace('{{campaign}}', row.get('campaign_name','') or '').replace('{{date}}', date_str)
+        subject    = sub(tmpl['subject'])
+        html_body  = sub(tmpl['body'])
+        from_email = tmpl.get('from_email') or None
+        from_name  = tmpl.get('from_name') or ''
+        from_addr  = (f'{from_name} <{from_email}>' if from_name and from_email else from_email) if from_email else None
+    else:
+        subject   = 'Thank You for Your Generous Support — HWTC'
+        from_addr = None
+        html_body = '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px;text-align:center;border-radius:12px 12px 0 0">
-            <h1 style="color:#fff;font-size:24px;margin:16px 0 0">Thank You!</h1>
-        </div>
+            <h1 style="color:#fff;font-size:24px;margin:16px 0 0">Thank You!</h1></div>
         <div style="padding:32px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
-            <p style="font-size:16px;color:#1a1a17">Dear {name},</p>
-            <p style="font-size:15px;color:#5f5e5a;line-height:1.7;margin:16px 0">
-                On behalf of Horizon West Theatre Company, we want to express our deepest gratitude
-                for your generous contribution of <strong style="color:#0d3d4d">{amount}</strong>{campaign_str}.
-            </p>
-            <div style="background:#f0f8fa;border-left:4px solid #145466;padding:16px 20px;border-radius:0 8px 8px 0;margin:24px 0">
-                <div style="font-size:13px;font-weight:600;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Donation Summary</div>
-                <div style="font-size:15px;color:#0d3d4d;font-weight:700">{amount}</div>
-                <div style="font-size:13px;color:#5f5e5a">Date: {date}{camp}</div>
-            </div>
-            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">
-                With gratitude,<br/><strong>Horizon West Theatre Company</strong>
-            </p>
-        </div>
-        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
-            Horizon West Theatre Company is a 501(c)(3) non-profit organization.
-        </p>
-    </div>'''.format(
-        name=name, amount=amount, campaign_str=campaign_str,
-        date=row['donation_date'],
-        camp=(' · ' + row['campaign_name']) if row.get('campaign_name') else ''
-    )
-    ok, err_msg = send_email([row['email']], 'Thank You for Your Generous Support — HWTC', html_body)
+            <p style="font-size:16px">Dear {name},</p>
+            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">On behalf of Horizon West Theatre Company, thank you for your generous contribution of <strong>{amount}</strong>{campaign_str}.</p>
+            <div style="background:#f0f8fa;border-left:4px solid #145466;padding:16px;margin:24px 0">
+                <div style="font-weight:700">{amount}</div><div style="font-size:13px;color:#5f5e5a">Date: {date}</div></div>
+            <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theatre Company</strong></p></div>
+        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theatre Company is a 501(c)(3) non-profit organization.</p>
+        </div>'''.format(name=name, amount=amount, campaign_str=campaign_str, date=date_str)
+    ok, err_msg = send_email([row['email']], subject, html_body, from_addr)
     if ok:
         execute(conn, '''UPDATE donor_donations SET thank_you_sent=TRUE,
             thank_you_sent_at=NOW(), thank_you_sent_by=%s WHERE id=%s''',
@@ -2308,13 +2384,70 @@ def send_thank_you(donation_id):
         cid = str(uuid.uuid4())
         execute(conn, '''INSERT INTO donor_communications (id,donor_id,type,subject,body,sent_by)
             VALUES (%s,%s,'email',%s,%s,%s)''',
-            (cid, row['donor_id'], 'Thank you — {} donation'.format(amount),
+            (cid, row['donor_id'], subject,
              'Thank you sent for {}{}'.format(amount, campaign_str),
              session.get('user_name','')))
         conn.commit(); conn.close()
         return jsonify({'ok': True})
     conn.close()
     return jsonify({'error': err_msg or 'Failed to send email'}), 500
+
+# ── Donor Email Templates ──
+@app.route('/api/donor-email-templates')
+def get_donor_email_templates():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM donor_email_templates ORDER BY name')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/donor-email-templates', methods=['POST'])
+def create_donor_email_template():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    if d.get('is_default'):
+        execute(conn, "UPDATE donor_email_templates SET is_default=FALSE WHERE template_type=%s",
+            (d.get('template_type','thankyou'),))
+    execute(conn, '''INSERT INTO donor_email_templates
+        (id,name,subject,body,from_email,from_name,template_type,is_default)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (tid, d['name'], d['subject'], d['body'],
+         d.get('from_email',''), d.get('from_name',''),
+         d.get('template_type','thankyou'), d.get('is_default',False)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM donor_email_templates WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/donor-email-templates/<tid>', methods=['PUT'])
+def update_donor_email_template(tid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    if d.get('is_default'):
+        execute(conn, "UPDATE donor_email_templates SET is_default=FALSE WHERE template_type=%s AND id!=%s",
+            (d.get('template_type','thankyou'), tid))
+    execute(conn, '''UPDATE donor_email_templates SET name=%s,subject=%s,body=%s,
+        from_email=%s,from_name=%s,template_type=%s,is_default=%s WHERE id=%s''',
+        (d['name'], d['subject'], d['body'],
+         d.get('from_email',''), d.get('from_name',''),
+         d.get('template_type','thankyou'), d.get('is_default',False), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/donor-email-templates/<tid>', methods=['DELETE'])
+def delete_donor_email_template(tid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM donor_email_templates WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/donors/<did>/benefits/use', methods=['POST'])
 def record_benefit_use(did):

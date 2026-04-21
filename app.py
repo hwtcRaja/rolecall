@@ -2347,6 +2347,23 @@ def send_thank_you(donation_id):
     amount       = '${:,.2f}'.format(float(row['amount']))
     campaign_str = ' for ' + row['campaign_name'] if row.get('campaign_name') else ''
     date_str     = str(row.get('donation_date',''))
+
+    # Look up donor's current tier and benefits for placeholders
+    donor = fetchone(conn, '''SELECT dn.total_donated, t.name as tier_name, t.id as tier_id
+        FROM donors dn LEFT JOIN donor_tiers t ON dn.tier_id=t.id
+        WHERE dn.id=%s''', (row['donor_id'],))
+    tier_name = donor['tier_name'] if donor and donor.get('tier_name') else ''
+    benefits_html = ''
+    benefits_text = ''
+    if donor and donor.get('tier_id'):
+        benefits = fetchall(conn, '''SELECT name, description FROM donor_tier_benefits
+            WHERE tier_id=%s ORDER BY sort_order, name''', (donor['tier_id'],))
+        if benefits:
+            benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
+                ''.join(f'<li style="margin-bottom:4px">{b["name"]}' +
+                        (f' — {b["description"]}' if b.get('description') else '') +
+                        '</li>' for b in benefits) + '</ul>'
+            benefits_text = '\n'.join(f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '') for b in benefits)
     # Load template
     tmpl = None
     if template_id:
@@ -2355,8 +2372,14 @@ def send_thank_you(donation_id):
         tmpl = fetchone(conn, "SELECT * FROM donor_email_templates WHERE is_default=TRUE AND template_type='thankyou' LIMIT 1")
     if tmpl:
         def sub(text):
-            return (text or '').replace('{{name}}', name).replace('{{amount}}', amount)\
-                .replace('{{campaign}}', row.get('campaign_name','') or '').replace('{{date}}', date_str)
+            return (text or '')\
+                .replace('{{name}}', name)\
+                .replace('{{amount}}', amount)\
+                .replace('{{campaign}}', row.get('campaign_name','') or '')\
+                .replace('{{date}}', date_str)\
+                .replace('{{tier}}', tier_name)\
+                .replace('{{benefits}}', benefits_html)\
+                .replace('{{benefits_text}}', benefits_text)
         subject    = sub(tmpl['subject'])
         html_body  = sub(tmpl['body'])
         from_email = tmpl.get('from_email') or None

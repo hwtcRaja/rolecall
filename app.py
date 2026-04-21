@@ -1976,6 +1976,61 @@ def donor_summary():
     })
 
 @app.route('/api/donors/import', methods=['POST'])
+@app.route('/api/donations/all')
+def get_all_donations():
+    """Return all donations with donor name, for bulk editing."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT dd.*, dn.display_name as donor_name, c.name as campaign_name
+        FROM donor_donations dd
+        JOIN donors dn ON dd.donor_id = dn.id
+        LEFT JOIN donor_campaigns c ON dd.campaign_id = c.id
+        ORDER BY dd.donation_date ASC NULLS LAST, dn.display_name ASC
+    """)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/donations/bulk-update', methods=['POST'])
+def bulk_update_donations():
+    """Update multiple donations at once."""
+    err = require_auth()
+    if err: return err
+    updates = request.json.get('updates', [])
+    if not updates:
+        return jsonify({'error': 'No updates provided'}), 400
+    conn = get_db()
+    updated = 0
+    errors = []
+    affected_donors = set()
+    for u in updates:
+        did = u.get('id')
+        if not did:
+            continue
+        try:
+            execute(conn, """UPDATE donor_donations SET
+                amount=%s, donation_date=%s, type=%s,
+                payment_status=%s, campaign_id=%s,
+                check_number=%s, notes=%s WHERE id=%s""",
+                (u.get('amount'), u.get('donation_date'),
+                 u.get('type','cash'), u.get('payment_status','received'),
+                 u.get('campaign_id') or None,
+                 u.get('check_number',''), u.get('notes',''), did))
+            affected_donors.add(u['donor_id'])
+            updated += 1
+        except Exception as e:
+            errors.append(str(e)[:60])
+    conn.commit()
+    for donor_id in affected_donors:
+        try:
+            recalc_donor_totals(conn, donor_id)
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'updated': updated, 'errors': errors[:5]})
+
 def bulk_import_donors():
     err = require_auth()
     if err: return err

@@ -5208,6 +5208,21 @@ async function openBulkDonationsModal(){
           <option value="__missing__">⚠️ Missing Date</option>
         </select>
         <span id="bulk-row-count" style="font-size:12px;color:var(--text-muted)"></span>
+        <button onclick="document.getElementById('bulk-csv-section').style.display=document.getElementById('bulk-csv-section').style.display==='none'?'':'none'" class="btn btn-secondary btn-sm" style="white-space:nowrap">📂 Upload CSV to Match</button>
+      </div>
+      <!-- CSV Upload section (hidden by default) -->
+      <div id="bulk-csv-section" style="display:none;padding:14px 24px;border-bottom:2px solid var(--teal-400);background:var(--teal-50);flex-shrink:0">
+        <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--teal-dark)">📂 Match donations from CSV</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:10px">
+              CSV needs headers: <code style="background:var(--border);padding:1px 5px;border-radius:4px">name, amount, date, campaign</code><br/>
+              Matches by donor name + amount. Updates date and campaign on matched rows.
+            </div>
+            <input type="file" id="bulk-csv-file" accept=".csv,.txt" style="font-size:12px;width:100%" onchange="processBulkCSV(this)"/>
+          </div>
+          <div id="bulk-csv-result" style="flex:1;min-width:220px;font-size:13px"></div>
+        </div>
       </div>
       <!-- Table -->
       <div style="flex:1;overflow:auto;padding:0">
@@ -5395,6 +5410,209 @@ async function saveBulkDonations(){
   const donors = await api('/api/donors')
   if(Array.isArray(donors)) allDonors = donors
   renderDonorsList()
+}
+
+function processBulkCSV(input){
+  const file = input.files[0]
+  if(!file) return
+  const resultEl = document.getElementById('bulk-csv-result')
+  resultEl.innerHTML = '<div style="color:var(--text-muted)">⏳ Processing…</div>'
+
+  const reader = new FileReader()
+  reader.onload = e => {
+    const text = e.target.result
+    const lines = text.split(/\r?\n/).filter(l=>l.trim())
+    if(lines.length < 2){
+      resultEl.innerHTML = '<div style="color:var(--red-600)">CSV needs a header row and at least one data row.</div>'
+      return
+    }
+
+    // Parse CSV (handles quoted fields)
+    const parseCSVLine = line => {
+      const result = []; let cur = ''; let inQ = false
+      for(let i=0;i<line.length;i++){
+        if(line[i]==='"'){ inQ=!inQ }
+        else if(line[i]===','&&!inQ){ result.push(cur.trim()); cur='' }
+        else cur+=line[i]
+      }
+      result.push(cur.trim()); return result
+    }
+
+    const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase().trim().replace(/\s+/g,'_'))
+
+    // Find column indexes — flexible header names
+    const findCol = (...names) => { for(const n of names){ const i=headers.indexOf(n); if(i>=0) return i } return -1 }
+    const nameCol   = findCol('name','donor_name','donor','display_name')
+    const amtCol    = findCol('amount','donation_amount','total','total_donated')
+    const dateCol   = findCol('date','donation_date','gift_date')
+    const campCol   = findCol('campaign','campaign_name','fund','fund_name')
+    const notesCol  = findCol('notes','note','memo')
+    const checkCol  = findCol('check','check_number','check_#','reference')
+    const typeCol   = findCol('type','donation_type','payment_type')
+    const statusCol = findCol('status','payment_status')
+
+    if(nameCol === -1){
+      resultEl.innerHTML = '<div style="color:var(--red-600)">Could not find a "name" column. Check your headers.</div>'
+      return
+    }
+
+    // Build a quick lookup: normalize name + normalize amount → donation ids
+    // Multiple donations can match the same donor+amount, so we track usage
+    const norm = s => (s||'').toString().toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim()
+    const normAmt = a => Math.round(parseFloat((a||'0').toString().replace(/[$,]/g,''))*100)
+
+    // Group existing donations by norm(donor_name) + normAmt(amount)
+    const donationIndex = {}
+    _bulkDonations.forEach(d=>{
+      const key = norm(d.donor_name) + '|' + normAmt(d.amount)
+      if(!donationIndex[key]) donationIndex[key] = []
+      donationIndex[key].push(d)
+    })
+    // Track how many times each key has been consumed (handle multiple same-name+amount)
+    const keyUsage = {}
+
+    let matched = 0, unmatched = 0, skipped = 0
+
+    for(let i=1; i<lines.length; i++){
+      const vals = parseCSVLine(lines[i])
+      if(vals.every(v=>!v.trim())){ skipped++; continue }
+
+      const rawName   = vals[nameCol]||''
+      const rawAmt    = amtCol>=0 ? vals[amtCol]||'' : ''
+      const rawDate   = dateCol>=0 ? vals[dateCol]||'' : ''
+      const rawCamp   = campCol>=0 ? vals[campCol]||'' : ''
+      const rawNotes  = notesCol>=0 ? vals[notesCol]||'' : ''
+      const rawCheck  = checkCol>=0 ? vals[checkCol]||'' : ''
+      const rawType   = typeCol>=0 ? vals[typeCol]||'' : ''
+      const rawStatus = statusCol>=0 ? vals[statusCol]||'' : ''
+
+      if(!rawName.trim()){ skipped++; continue }
+
+      // Try to find matching donation: name + amount
+      const key = norm(rawName) + '|' + normAmt(rawAmt)
+      const candidates = donationIndex[key] || []
+      const usage = keyUsage[key] || 0
+      const donation = candidates[usage]
+
+      if(!donation){
+        // Try name-only match if only one donation exists for this donor
+        const nameKey = norm(rawName)
+        const nameMatches = _bulkDonations.filter(d=>norm(d.donor_name)===nameKey)
+        if(nameMatches.length === 1){
+          const d = nameMatches[0]
+          applyBulkCSVMatch(d, rawDate, rawCamp, rawNotes, rawCheck, rawType, rawStatus)
+          matched++
+        } else {
+          unmatched++
+        }
+        continue
+      }
+
+      keyUsage[key] = usage + 1
+      applyBulkCSVMatch(donation, rawDate, rawCamp, rawNotes, rawCheck, rawType, rawStatus)
+      matched++
+    }
+
+    // Re-render table to show highlights
+    renderBulkTable()
+
+    const editCount = Object.keys(_bulkEdits).length
+    resultEl.innerHTML = `
+      <div style="font-weight:700;color:${matched>0?'var(--green-700)':'var(--text-muted)'};margin-bottom:6px">
+        ✅ ${matched} donation${matched!==1?'s':''} matched and staged
+      </div>
+      ${unmatched>0?`<div style="color:var(--amber-600);font-size:12px;margin-bottom:4px">⚠️ ${unmatched} row${unmatched!==1?'s':''} couldn't be matched — check names/amounts</div>`:''}
+      ${skipped>0?`<div style="color:var(--text-hint);font-size:12px">${skipped} blank rows skipped</div>`:''}
+      <div style="font-size:12px;color:var(--teal-dark);margin-top:6px;font-weight:600">
+        ${editCount} total staged changes — review highlighted rows then click 💾 Save All Changes
+      </div>`
+
+    // Show save buttons
+    const countEl = document.getElementById('bulk-edit-count')
+    const saveBtn  = document.getElementById('bulk-save-btn')
+    const saveBtn2 = document.getElementById('bulk-save-btn-2')
+    if(countEl){ countEl.textContent = editCount + ' unsaved change' + (editCount!==1?'s':''); countEl.style.display='' }
+    if(saveBtn) saveBtn.style.display = ''
+    if(saveBtn2) saveBtn2.style.display = ''
+  }
+  reader.readAsText(file)
+}
+
+function applyBulkCSVMatch(donation, rawDate, rawCamp, rawNotes, rawCheck, rawType, rawStatus){
+  const did = donation.id
+  const donorId = donation.donor_id
+
+  // Seed edit entry if not already there
+  if(!_bulkEdits[did]){
+    _bulkEdits[did] = {
+      id: did, donor_id: donorId,
+      amount: donation.amount,
+      donation_date: donation.donation_date||'',
+      type: donation.type||'cash',
+      payment_status: donation.payment_status||'received',
+      campaign_id: donation.campaign_id||null,
+      check_number: donation.check_number||'',
+      notes: donation.notes||''
+    }
+  }
+
+  // Apply date
+  if(rawDate){
+    const parsed = parseFlexDate(rawDate)
+    if(parsed) _bulkEdits[did].donation_date = parsed
+  }
+
+  // Apply campaign — match by name
+  if(rawCamp){
+    const normCamp = rawCamp.toLowerCase().trim()
+    const found = allDonorCampaigns.find(c=>c.name.toLowerCase().trim()===normCamp ||
+      c.name.toLowerCase().includes(normCamp) || normCamp.includes(c.name.toLowerCase()))
+    if(found) _bulkEdits[did].campaign_id = found.id
+  }
+
+  // Apply optional fields
+  if(rawNotes)  _bulkEdits[did].notes        = rawNotes
+  if(rawCheck)  _bulkEdits[did].check_number = rawCheck
+  if(rawType){
+    const t = rawType.toLowerCase().trim()
+    const typeMap = {cash:'cash',credit:'cash','credit card':'cash',check:'check',cheque:'check','in-kind':'inkind',inkind:'inkind','in kind':'inkind',sponsorship:'sponsorship'}
+    if(typeMap[t]) _bulkEdits[did].type = typeMap[t]
+  }
+  if(rawStatus){
+    const s = rawStatus.toLowerCase().trim()
+    const statusMap = {received:'received',paid:'received',complete:'received',completed:'received',pending:'pending',pledged:'pledged'}
+    if(statusMap[s]) _bulkEdits[did].payment_status = statusMap[s]
+  }
+}
+
+function parseFlexDate(raw){
+  // Try multiple date formats: MM/DD/YYYY, MM-DD-YYYY, YYYY-MM-DD, Month DD YYYY, etc.
+  const s = raw.trim()
+  if(!s) return null
+
+  // Already ISO format
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+
+  // MM/DD/YYYY or MM-DD-YYYY
+  const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if(mdy) return `${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`
+
+  // MM/DD/YY
+  const mdyShort = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/)
+  if(mdyShort){
+    const yr = parseInt(mdyShort[3]) < 50 ? '20'+mdyShort[3] : '19'+mdyShort[3]
+    return `${yr}-${mdyShort[1].padStart(2,'0')}-${mdyShort[2].padStart(2,'0')}`
+  }
+
+  // Try native Date parsing as fallback
+  try {
+    const d = new Date(s)
+    if(!isNaN(d.getTime())){
+      return d.toISOString().split('T')[0]
+    }
+  } catch(e){}
+
+  return null
 }
 
 function toggleDupesFilter(){

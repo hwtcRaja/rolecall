@@ -433,9 +433,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin">📝</span>Sign-In</div>
 
+        <!-- DONORS -->
+        <div class="nav-section">Donors &amp; Sponsors</div>
+        <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors">💛</span>All Donors</div>
+        <div class="nav-item" onclick="openDonorCampaignsModal();navTo('donors',this)"><span class="nav-icon" id="ni-donor-campaigns">🎯</span>Campaigns</div>
+        <div class="nav-item" onclick="openDonorTiersModal();navTo('donors',this)"><span class="nav-icon" id="ni-donor-tiers">⭐</span>Tiers &amp; Benefits</div>
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
-        <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors">💛</span>Donors &amp; Sponsors</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
@@ -954,6 +958,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <div class="page-subtitle" id="donors-subtitle">Loading…</div>
           </div>
           <div class="page-actions">
+            <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">📥 Import CSV</button>
             <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">🎯 Campaigns</button>
             <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()">⭐ Tiers &amp; Benefits</button>
             <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
@@ -2150,6 +2155,8 @@ const NAV_PERM_MAP = {
   'settings':         'settings',
   'donors':           'donors',
   'donor-detail':     'donors',
+  'donor-campaigns':  'donors',
+  'donor-tiers':      'donors',
 }
 
 function canView(section){ return !section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
@@ -5061,6 +5068,116 @@ async function deleteCampaign(cid){
   if(Array.isArray(campaigns)) allDonorCampaigns = campaigns
   document.getElementById('campaigns-modal-body').innerHTML = renderCampaignsModalBody()
   toast('Campaign deleted')
+}
+
+function openDonorImportModal(){
+  const existing = document.getElementById('import-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'import-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">📥 Import Donors from CSV</div>
+        <button onclick="document.getElementById('import-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px">
+        <div style="background:var(--bg);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px;font-size:13px;color:var(--text-muted);line-height:1.7">
+          <strong style="color:var(--text-body)">CSV format</strong> — your file should have column headers in the first row. Supported columns:<br/>
+          <code style="font-size:12px;background:var(--border);padding:2px 6px;border-radius:4px;margin-top:6px;display:inline-block">
+            display_name, email, phone, type, legal_name, recognition_name, address, notes, total_donated, last_donation_date
+          </code><br/>
+          Only <strong>display_name</strong> is required. Any donation amount in <code>total_donated</code> will be logged automatically.
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Select CSV File</label>
+          <input type="file" id="import-file" accept=".csv,.txt" style="width:100%;padding:10px;border:1.5px dashed var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;cursor:pointer" onchange="previewImport(this)"/>
+        </div>
+        <div id="import-preview" style="display:none;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Preview <span id="import-count"></span></div>
+          <div id="import-table-wrap" style="overflow-x:auto;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius)"></div>
+        </div>
+        <div id="import-result" style="display:none"></div>
+        <div style="display:flex;gap:10px">
+          <button id="import-btn" onclick="runImport()" class="btn btn-primary" style="flex:1;display:none">📥 Import All</button>
+          <button onclick="document.getElementById('import-modal').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+let _importRows = []
+
+function previewImport(input){
+  const file = input.files[0]
+  if(!file) return
+  const reader = new FileReader()
+  reader.onload = e => {
+    const text = e.target.result
+    const lines = text.split(/\r?\n/).filter(l=>l.trim())
+    if(lines.length < 2){ alert('CSV must have a header row and at least one data row.'); return }
+
+    // Parse CSV (handles quoted fields)
+    const parseCSVLine = line => {
+      const result = []; let cur = ''; let inQ = false
+      for(let i=0;i<line.length;i++){
+        if(line[i]==='"'){ inQ=!inQ }
+        else if(line[i]===','&&!inQ){ result.push(cur.trim()); cur='' }
+        else cur+=line[i]
+      }
+      result.push(cur.trim()); return result
+    }
+
+    const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z_]/g,''))
+    _importRows = []
+    for(let i=1;i<lines.length;i++){
+      const vals = parseCSVLine(lines[i])
+      if(vals.every(v=>!v.trim())) continue
+      const row = {}
+      headers.forEach((h,idx)=>{ row[h] = (vals[idx]||'').trim() })
+      _importRows.push(row)
+    }
+
+    document.getElementById('import-count').textContent = `— ${_importRows.length} rows found`
+    const displayCols = ['display_name','email','phone','type','total_donated']
+    const cols = displayCols.filter(c=>headers.includes(c))
+    document.getElementById('import-table-wrap').innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--bg)">
+          ${cols.map(c=>`<th style="padding:6px 10px;text-align:left;font-weight:700;color:var(--text-muted);white-space:nowrap;border-bottom:1px solid var(--border)">${c}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${_importRows.slice(0,20).map(r=>`<tr style="border-bottom:1px solid var(--border)">
+            ${cols.map(c=>`<td style="padding:6px 10px;color:${c==='display_name'&&!r[c]?'var(--red-600)':'inherit'}">${escHtml(r[c]||'—')}</td>`).join('')}
+          </tr>`).join('')}
+          ${_importRows.length>20?`<tr><td colspan="${cols.length}" style="padding:8px 10px;color:var(--text-muted);font-style:italic">…and ${_importRows.length-20} more rows</td></tr>`:''}
+        </tbody>
+      </table>`
+    document.getElementById('import-preview').style.display = ''
+    document.getElementById('import-btn').style.display = ''
+  }
+  reader.readAsText(file)
+}
+
+async function runImport(){
+  const btn = document.getElementById('import-btn')
+  btn.disabled = true; btn.textContent = 'Importing…'
+  const res = await api('/api/donors/import','POST',{rows: _importRows})
+  btn.disabled = false; btn.textContent = '📥 Import All'
+  const resultEl = document.getElementById('import-result')
+  resultEl.style.display = ''
+  if(res.error){
+    resultEl.innerHTML = `<div style="background:var(--red-50);color:var(--red-600);padding:12px;border-radius:var(--radius);font-size:13px;margin-bottom:12px">❌ ${escHtml(res.error)}</div>`
+    return
+  }
+  resultEl.innerHTML = `<div style="background:var(--green-50);color:var(--green-700);padding:12px;border-radius:var(--radius);font-size:13px;margin-bottom:12px">
+    ✅ <strong>${res.imported}</strong> donors imported successfully${res.skipped>0?' · '+res.skipped+' skipped':''}
+    ${res.errors&&res.errors.length?'<br/><span style="color:var(--amber-600)">Warnings: '+res.errors.join(', ')+'</span>':''}
+  </div>`
+  await loadDonorsPage()
 }
 
 function exportDonorsCSV(){

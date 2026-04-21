@@ -3517,7 +3517,7 @@ def get_portal_instructor_content(context_type, context_id):
     return jsonify(rows)
 
 @app.route('/api/productions/<pid>/team-member/<mid>', methods=['PUT'])
-def update_production_member(pid, mid):
+def update_prod_team_member(pid, mid):
     err = require_auth()
     if err: return err
     d = request.json

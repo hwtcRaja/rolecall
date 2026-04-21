@@ -2053,6 +2053,44 @@ def delete_donor(did):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/donors/<primary_id>/merge', methods=['POST'])
+def merge_donors(primary_id):
+    """Merge one or more duplicate donors into a primary donor."""
+    err = require_auth()
+    if err: return err
+    d = request.json
+    merge_ids = d.get('merge_ids', [])
+    if not merge_ids:
+        return jsonify({'error': 'No donors to merge'}), 400
+    conn = get_db()
+    try:
+        primary = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (primary_id,))
+        if not primary:
+            conn.close(); return jsonify({'error': 'Primary donor not found'}), 404
+        moved_donations = 0
+        for mid in merge_ids:
+            if mid == primary_id:
+                continue
+            # Move all donations
+            execute(conn, 'UPDATE donor_donations SET donor_id=%s WHERE donor_id=%s', (primary_id, mid))
+            # Move benefit usage
+            execute(conn, 'UPDATE donor_benefit_usage SET donor_id=%s WHERE donor_id=%s', (primary_id, mid))
+            # Move communications
+            execute(conn, 'UPDATE donor_communications SET donor_id=%s WHERE donor_id=%s', (primary_id, mid))
+            # Count what we moved
+            count = fetchone(conn, 'SELECT COUNT(*) as c FROM donor_donations WHERE donor_id=%s', (primary_id,))
+            moved_donations = count['c'] if count else 0
+            # Delete the duplicate
+            execute(conn, 'DELETE FROM donors WHERE id=%s', (mid,))
+        # Recalculate primary totals
+        recalc_donor_totals(conn, primary_id)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'moved_donations': moved_donations})
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/donors/<did>/detail')
 def get_donor_detail(did):
     err = require_auth()

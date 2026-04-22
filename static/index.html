@@ -4882,7 +4882,9 @@ function renderDonationRow(d, donorId){
       <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${formatDate(d.donation_date)}${d.check_number?' · #'+escHtml(d.check_number):''}${d.notes?' · '+escHtml(d.notes):''}</div>
     </div>
     <div style="display:flex;gap:4px;flex-shrink:0">
-      ${!d.thank_you_sent?`<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px" title="Send thank-you email">💌</button>`:''}
+      ${!d.thank_you_sent
+        ? `<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-sm" style="font-size:12px;font-weight:700;background:#145466;color:#fff;border-color:#145466;white-space:nowrap" title="Send thank-you email">💌 Send Thank You</button>`
+        : `<span style="font-size:11px;color:var(--green-600);font-weight:600;white-space:nowrap">✉️ TY sent ${d.thank_you_sent_at ? formatDate(d.thank_you_sent_at) : ''}</span>`}
       <button onclick="openEditDonationModal('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px" title="Edit donation">✏️</button>
       <button onclick="deleteDonation('${d.id}','${donorId}')" class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 6px">✕</button>
     </div>

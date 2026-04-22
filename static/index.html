@@ -447,8 +447,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </nav>
       <div class="sidebar-user">
         <div class="user-avatar" id="sidebar-avatar">?</div>
-        <div style="flex:1;min-width:0"><div class="user-name" id="sidebar-name">—</div><div class="user-role" id="sidebar-role">—</div></div>
-        <button class="logout-btn" onclick="handleLogout()">↩</button>
+        <div style="flex:1;min-width:0;cursor:pointer" onclick="openChangePasswordModal()" title="Change password">
+          <div class="user-name" id="sidebar-name">—</div>
+          <div class="user-role" id="sidebar-role" style="font-size:10px;opacity:0.6">tap to change password</div>
+        </div>
+        <button class="logout-btn" onclick="handleLogout()" title="Log out">↩</button>
       </div>
     </aside>
 
@@ -2199,6 +2202,61 @@ async function loginSuccess(user){
   pollPendingCount()
   setInterval(pollPendingCount, 60000)
 }
+function openChangePasswordModal(){
+  const existing = document.getElementById('change-pw-modal')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'change-pw-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">🔑 Change Password</div>
+        <button onclick="document.getElementById('change-pw-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label>Current Password</label>
+          <input type="password" id="cp-current" placeholder="Your current password" autocomplete="current-password"/>
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="cp-new" placeholder="At least 6 characters" autocomplete="new-password"/>
+        </div>
+        <div class="form-group">
+          <label>Confirm New Password</label>
+          <input type="password" id="cp-confirm" placeholder="Repeat new password" autocomplete="new-password"/>
+        </div>
+        <div id="cp-error" style="display:none;color:var(--red-600);font-size:13px;background:var(--red-50);padding:10px 12px;border-radius:8px"></div>
+        <button class="btn btn-primary" onclick="submitChangePassword()" style="width:100%">Update Password</button>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>document.getElementById('cp-current')?.focus(), 50)
+}
+
+async function submitChangePassword(){
+  const current = document.getElementById('cp-current').value
+  const newPw   = document.getElementById('cp-new').value
+  const confirm = document.getElementById('cp-confirm').value
+  const errEl   = document.getElementById('cp-error')
+
+  errEl.style.display = 'none'
+  if(!current || !newPw){ errEl.textContent = 'Please fill in all fields.'; errEl.style.display=''; return }
+  if(newPw.length < 6){ errEl.textContent = 'New password must be at least 6 characters.'; errEl.style.display=''; return }
+  if(newPw !== confirm){ errEl.textContent = 'New passwords do not match.'; errEl.style.display=''; return }
+
+  const res = await api('/api/auth/change-password','POST',{current_password:current, new_password:newPw})
+  if(res.ok){
+    document.getElementById('change-pw-modal').remove()
+    toast('Password updated successfully!','success')
+  } else {
+    errEl.textContent = res.error || 'Failed to update password.'
+    errEl.style.display = ''
+  }
+}
+
 async function handleLogout(){
   await api('/api/auth/logout','POST')
   currentUser=null

@@ -857,6 +857,31 @@ def me():
     return jsonify({'user': {'id': u['id'], 'name': u['name'], 'email': u['email'],
                              'role': u['role'], 'permissions': perms}})
 
+@app.route('/api/auth/change-password', methods=['POST'])
+def change_password():
+    """Self-service password change — any logged-in user."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    d = request.json or {}
+    current_pw  = d.get('current_password','')
+    new_pw      = d.get('new_password','')
+    if not current_pw or not new_pw:
+        return jsonify({'error': 'Both current and new password are required'}), 400
+    if len(new_pw) < 6:
+        return jsonify({'error': 'New password must be at least 6 characters'}), 400
+    conn = get_db()
+    # Verify current password
+    current_hash = hashlib.sha256(current_pw.encode()).hexdigest()
+    user = fetchone(conn, 'SELECT id FROM users WHERE id=%s AND password_hash=%s',
+                    (session['user_id'], current_hash))
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Current password is incorrect'}), 400
+    new_hash = hashlib.sha256(new_pw.encode()).hexdigest()
+    execute(conn, 'UPDATE users SET password_hash=%s WHERE id=%s', (new_hash, session['user_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 # ─────────────────────────────────────────────
 #  INTEREST TYPES
 # ─────────────────────────────────────────────

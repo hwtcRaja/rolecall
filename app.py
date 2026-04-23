@@ -3030,7 +3030,7 @@ def get_families():
     if err: return err
     conn = get_db()
     families = fetchall(conn, '''SELECT f.*, COUNT(y.id) as youth_count
-        FROM families f LEFT JOIN youth y ON y.family_id=f.id
+        FROM families f LEFT JOIN youth_participants y ON y.family_id=f.id
         GROUP BY f.id ORDER BY f.name''')
     conn.close()
     return jsonify(families)
@@ -3078,7 +3078,7 @@ def portal_auth():
     if not passphrase: return jsonify({'error': 'Passphrase required'}), 400
     conn = get_db()
     youth = fetchone(conn, '''SELECT y.*, f.name as family_name, f.passphrase as family_passphrase
-        FROM youth y LEFT JOIN families f ON y.family_id=f.id
+        FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
         WHERE LOWER(y.passphrase)=%s OR LOWER(f.passphrase)=%s''', (passphrase, passphrase))
     if not youth: conn.close(); return jsonify({'error': 'Invalid passphrase'}), 401
     prods = fetchall(conn, '''SELECT p.* FROM productions p
@@ -3134,7 +3134,7 @@ def get_prod_youth_members(pid):
     rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name,
         y.first_name||' '||y.last_name as name
         FROM youth_production_members ypm
-        JOIN youth y ON ypm.youth_id=y.id
+        JOIN youth_participants y ON ypm.youth_id=y.id
         WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
     conn.close()
     return jsonify(rows)
@@ -3144,11 +3144,38 @@ def enroll_youth_in_prod(pid):
     err = require_auth()
     if err: return err
     d = request.json
-    mid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
-        VALUES (%s,%s,%s,%s,'enrolled') ON CONFLICT DO NOTHING''',
-        (mid, pid, d['youth_id'], d.get('role','')))
+    try:
+        # Support both single youth_id and bulk youth_ids array
+        youth_ids = d.get('youth_ids') or ([d['youth_id']] if d.get('youth_id') else [])
+        if not youth_ids:
+            conn.close()
+            return jsonify({'error': 'No youth specified'}), 400
+        enrolled = 0
+        for yid in youth_ids:
+            mid = str(uuid.uuid4())
+            try:
+                execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
+                    VALUES (%s,%s,%s,%s,'enrolled') ON CONFLICT (production_id,youth_id) DO NOTHING''',
+                    (mid, pid, yid, d.get('role','')))
+                enrolled += 1
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'enrolled': enrolled})
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/productions/<pid>/youth-members/<mid>', methods=['PUT'])
+def update_youth_prod_member(pid, mid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_production_members SET role=%s WHERE id=%s AND production_id=%s',
+        (d.get('role',''), mid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3610,7 +3637,7 @@ def pickup_queue():
     rows = fetchall(conn, """
         SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
         FROM youth_sign_ins ysi
-        JOIN youth y ON ysi.youth_id=y.id
+        JOIN youth_participants y ON ysi.youth_id=y.id
         LEFT JOIN events e ON ysi.event_id=e.id
         WHERE ysi.sign_in_time >= NOW() - INTERVAL '12 hours'
         ORDER BY e.name, y.last_name, y.first_name

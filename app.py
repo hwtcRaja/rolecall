@@ -2731,11 +2731,23 @@ def kiosk_elic_auth():
     # Get assigned events
     assigned = json.loads(elic.get('assigned_events') or '[]')
     if elic.get('is_master'):
-        events = fetchall(conn, 'SELECT * FROM events ORDER BY event_date DESC NULLS LAST, name')
+        events = fetchall(conn, '''
+            SELECT e.*, p.name as production_name,
+                   COALESCE(p.stage,'mainstage') as stage,
+                   p.stage as production_stage
+            FROM events e
+            LEFT JOIN productions p ON e.production_id=p.id
+            ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
             placeholders = ','.join(['%s']*len(assigned))
-            events = fetchall(conn, f'SELECT * FROM events WHERE id IN ({placeholders})', tuple(assigned))
+            events = fetchall(conn, f'''
+                SELECT e.*, p.name as production_name,
+                       COALESCE(p.stage,'mainstage') as stage,
+                       p.stage as production_stage
+                FROM events e
+                LEFT JOIN productions p ON e.production_id=p.id
+                WHERE e.id IN ({placeholders})''', tuple(assigned))
         else:
             events = []
     conn.close()

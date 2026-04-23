@@ -442,6 +442,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
+        <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
@@ -1029,6 +1030,50 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-body"><div id="donor-detail-content"></div></div>
       </section>
 
+      <!-- REPORTS -->
+      <section class="page" id="page-reports">
+        <div class="page-header">
+          <div><div class="page-title">📊 Reports</div><div class="page-subtitle">Generate, view, export and schedule volunteer reports</div></div>
+        </div>
+        <div class="page-body">
+          <!-- Report tabs -->
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;flex-wrap:wrap">
+            <button id="rtab-btn-run" onclick="switchReportTab('run')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)">📈 Run Report</button>
+            <button id="rtab-btn-scheduled" onclick="switchReportTab('scheduled')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">🕐 Scheduled Reports</button>
+          </div>
+          <!-- Run Report tab -->
+          <div id="rtab-run">
+            <div style="display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start">
+              <!-- Left: report picker -->
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Choose Report</div>
+                <div id="report-type-list" style="display:flex;flex-direction:column;gap:8px"></div>
+                <div id="report-params" style="margin-top:16px"></div>
+                <div style="display:flex;gap:8px;margin-top:16px">
+                  <button id="run-report-btn" class="btn btn-primary" onclick="runReport()" style="flex:1">▶ Run</button>
+                  <button id="email-report-btn" class="btn btn-secondary" onclick="emailReportNow()" title="Email this report now">📧</button>
+                </div>
+              </div>
+              <!-- Right: results -->
+              <div id="report-results">
+                <div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+                  <div style="font-size:40px;margin-bottom:12px">📊</div>
+                  <div style="font-weight:600">Select a report and click Run</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Scheduled Reports tab -->
+          <div id="rtab-scheduled" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <div style="font-size:13px;color:var(--text-muted)">Reports run automatically and email results on your chosen schedule.</div>
+              <button class="btn btn-primary btn-sm" onclick="openScheduledReportForm(null)">+ Schedule Report</button>
+            </div>
+            <div id="scheduled-report-form-area"></div>
+            <div id="scheduled-reports-list"></div>
+          </div>
+        </div>
+      </section>
       <section class="page" id="page-event-logs">
         <div class="page-header">
           <div><div class="page-title">Event Logs</div><div class="page-subtitle">ELIC open/close records and closing checklists</div></div>
@@ -2282,6 +2327,7 @@ const NAV_PERM_MAP = {
   'portal-admin':     'portal_admin',
   'youth-signin':     'kiosk',
   'event-logs':       'reports',
+  'reports':          'reports',
   'notifications':    'settings',
   'settings':         'settings',
   'donors':           'donors',
@@ -2368,6 +2414,7 @@ function navTo(page,el){
   if(page==='events') renderEventsPage()
   if(page==='notifications') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
+  if(page==='reports') initReportsPage()
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
   if(page==='rising-stars-page') renderRisingStarsPage()
@@ -4067,7 +4114,7 @@ const NAV_ICON_DEFAULTS = {
   dashboard:'📊', volunteers:'👥', waivers:'📄', hours:'⏱', email:'✉️',
   events:'📅', productions:'🎬', 'cast-signin':'📋', youth:'👦', programs:'📚',
   'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝',
-  'event-logs':'📋', notifications:'🔔', settings:'⚙️',
+  'event-logs':'📋', notifications:'🔔', settings:'⚙️', reports:'📊',
   donors:'💛', 'donor-campaigns':'🎯', 'donor-tiers':'⭐', 'donor-templates':'✉️'
 }
 
@@ -7892,6 +7939,411 @@ async function saveChecklistItem(cid, data){
 // ═══════════════════════════════════════════════════════════════
 //  EVENT LOGS (admin)
 // ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+//  REPORTS
+// ═══════════════════════════════════════════════════════════════
+
+const REPORT_TYPES = [
+  { id:'monthly_recap',     label:'Monthly Recap',       icon:'📅', desc:'Hours, top volunteers, new members' },
+  { id:'top_volunteers',    label:'Top Volunteers',       icon:'🏆', desc:'Ranked by hours for a date range' },
+  { id:'lapsed_volunteers', label:'Lapsed Volunteers',    icon:'⚠️', desc:'No activity in X days' },
+  { id:'hours_by_event',    label:'Hours by Event',       icon:'📋', desc:'Which events drove the most volunteer hours' },
+]
+
+let _currentReportType = 'monthly_recap'
+let _currentReportData = null
+let _scheduledReports  = []
+let _allUsers          = []
+
+function switchReportTab(tab){
+  document.getElementById('rtab-run').style.display      = tab==='run' ? '' : 'none'
+  document.getElementById('rtab-scheduled').style.display = tab==='scheduled' ? '' : 'none'
+  document.getElementById('rtab-btn-run').style.borderBottomColor      = tab==='run' ? 'var(--teal-mid)' : 'transparent'
+  document.getElementById('rtab-btn-run').style.color                   = tab==='run' ? 'var(--teal-dark)' : 'var(--text-muted)'
+  document.getElementById('rtab-btn-scheduled').style.borderBottomColor = tab==='scheduled' ? 'var(--teal-mid)' : 'transparent'
+  document.getElementById('rtab-btn-scheduled').style.color              = tab==='scheduled' ? 'var(--teal-dark)' : 'var(--text-muted)'
+  if(tab==='scheduled') loadScheduledReports()
+}
+
+async function initReportsPage(){
+  // Load users for recipient picker
+  const users = await api('/api/users')
+  if(Array.isArray(users)) _allUsers = users
+  renderReportTypePicker()
+  renderReportParams()
+}
+
+function renderReportTypePicker(){
+  const el = document.getElementById('report-type-list')
+  if(!el) return
+  el.innerHTML = REPORT_TYPES.map(r=>`
+    <button onclick="selectReportType('${r.id}')" id="rtype-${r.id}"
+      style="text-align:left;padding:12px 14px;border:1.5px solid ${_currentReportType===r.id?'var(--teal)':'var(--border-md)'};border-radius:var(--radius);background:${_currentReportType===r.id?'var(--teal-50)':'var(--surface)'};cursor:pointer;font-family:inherit;width:100%">
+      <div style="font-size:14px;font-weight:700">${r.icon} ${r.label}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${r.desc}</div>
+    </button>`).join('')
+}
+
+function selectReportType(id){
+  _currentReportType = id
+  _currentReportData = null
+  renderReportTypePicker()
+  renderReportParams()
+  document.getElementById('report-results').innerHTML = `
+    <div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+      <div style="font-size:40px;margin-bottom:12px">📊</div>
+      <div style="font-weight:600">Click Run to generate this report</div>
+    </div>`
+}
+
+function renderReportParams(){
+  const el = document.getElementById('report-params')
+  if(!el) return
+  const today = new Date().toISOString().split('T')[0]
+  const firstOfMonth = today.substring(0,8)+'01'
+  const lastMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 0)
+  const lastMonthStr = lastMonth.toISOString().split('T')[0]
+  const firstOfLastMonth = lastMonthStr.substring(0,8)+'01'
+
+  if(_currentReportType === 'monthly_recap'){
+    const d = new Date(); d.setMonth(d.getMonth()-1)
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Parameters</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group"><label>Month</label>
+          <select id="rp-month">${['January','February','March','April','May','June','July','August','September','October','November','December']
+            .map((m,i)=>`<option value="${i+1}" ${i===d.getMonth()?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Year</label>
+          <input type="number" id="rp-year" value="${d.getFullYear()}" min="2020" max="2030"/></div>
+      </div>`
+  } else if(_currentReportType === 'top_volunteers'){
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Date Range</div>
+      <div class="form-group"><label>From</label><input type="date" id="rp-start" value="${firstOfLastMonth}"/></div>
+      <div class="form-group"><label>To</label><input type="date" id="rp-end" value="${lastMonthStr}"/></div>
+      <div class="form-group"><label>Show top</label>
+        <select id="rp-limit"><option value="25">25</option><option value="50" selected>50</option><option value="100">All</option></select></div>`
+  } else if(_currentReportType === 'lapsed_volunteers'){
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Parameters</div>
+      <div class="form-group"><label>Inactive for more than</label>
+        <select id="rp-days">
+          <option value="30">30 days</option>
+          <option value="60" selected>60 days</option>
+          <option value="90">90 days</option>
+          <option value="180">6 months</option>
+          <option value="365">1 year</option>
+        </select></div>`
+  } else if(_currentReportType === 'hours_by_event'){
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Date Range</div>
+      <div class="form-group"><label>From</label><input type="date" id="rp-start" value="${firstOfLastMonth}"/></div>
+      <div class="form-group"><label>To</label><input type="date" id="rp-end" value="${lastMonthStr}"/></div>`
+  }
+}
+
+function getReportParams(){
+  const t = _currentReportType
+  if(t==='monthly_recap') return {
+    month: parseInt(document.getElementById('rp-month')?.value||new Date().getMonth()),
+    year:  parseInt(document.getElementById('rp-year')?.value||new Date().getFullYear())
+  }
+  if(t==='top_volunteers') return {
+    start_date: document.getElementById('rp-start')?.value,
+    end_date:   document.getElementById('rp-end')?.value,
+    limit:      parseInt(document.getElementById('rp-limit')?.value||50)
+  }
+  if(t==='lapsed_volunteers') return { days: parseInt(document.getElementById('rp-days')?.value||90) }
+  if(t==='hours_by_event') return {
+    start_date: document.getElementById('rp-start')?.value,
+    end_date:   document.getElementById('rp-end')?.value
+  }
+  return {}
+}
+
+async function runReport(){
+  const btn = document.getElementById('run-report-btn')
+  btn.disabled=true; btn.textContent='Running…'
+  const res = await api('/api/reports/run','POST',{report_type:_currentReportType, params:getReportParams()})
+  btn.disabled=false; btn.textContent='▶ Run'
+  if(res.error){ toast(res.error,'error'); return }
+  _currentReportData = res.data
+  renderReportResults(res)
+}
+
+function renderReportResults(res){
+  const el = document.getElementById('report-results')
+  if(!el) return
+  const data = res.data
+  const rtype = res.report_type
+
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+    <div style="font-size:16px;font-weight:700">${REPORT_TYPES.find(r=>r.id===rtype)?.icon||'📊'} ${REPORT_TYPES.find(r=>r.id===rtype)?.label||'Report'}</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ Export CSV</button>
+      <button class="btn btn-secondary btn-sm" onclick="printReport()">🖨 Print</button>
+    </div>
+  </div>`
+
+  if(rtype === 'monthly_recap'){
+    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+      ${statCard('Total Hours', data.total_hours?.toFixed(1)+'h', 'var(--teal-dark)')}
+      ${statCard('Active Volunteers', data.active_volunteers, 'var(--blue-600)')}
+      ${statCard('New This Month', data.new_volunteers?.length||0, 'var(--green-600)')}
+      ${statCard('Pending Approval', data.pending_count+' ('+data.pending_hours?.toFixed(1)+'h)', 'var(--amber-600)')}
+      ${statCard('Lapsed (60d+)', data.lapsed_volunteers?.length||0, data.lapsed_volunteers?.length>0?'var(--red-600)':'var(--text-muted)')}
+    </div>`
+
+    if(data.top_volunteers?.length){
+      html += reportSection('🏆 Top Volunteers', reportTable(
+        ['Volunteer','Hours','Events'],
+        data.top_volunteers.slice(0,10),
+        ['name',r=>parseFloat(r.hours||0).toFixed(1)+'h','events_count']
+      ))
+    }
+    if(data.hours_by_event?.length){
+      html += reportSection('📋 Hours by Event', reportTable(
+        ['Event','Hours','Volunteers'],
+        data.hours_by_event,
+        ['event',r=>parseFloat(r.hours||0).toFixed(1)+'h','vol_count']
+      ))
+    }
+    if(data.new_volunteers?.length){
+      html += reportSection(`✨ New Volunteers (${data.new_volunteers.length})`, reportTable(
+        ['Name','Email'], data.new_volunteers, ['name','email']
+      ))
+    }
+    if(data.lapsed_volunteers?.length){
+      html += reportSection(`⚠️ Lapsed Volunteers (${data.lapsed_volunteers.length})`, reportTable(
+        ['Name','Last Active','Email'],
+        data.lapsed_volunteers,
+        ['name','last_date','email']
+      ))
+    }
+  } else if(rtype === 'top_volunteers'){
+    html += reportTable(
+      ['#','Name','Email','Total Hours','Events','Last Active'],
+      data.map((r,i)=>({...r,'#':i+1, total_hours: parseFloat(r.total_hours||0).toFixed(1)+'h'})),
+      ['#','name','email','total_hours','events_count','last_date']
+    )
+  } else if(rtype === 'lapsed_volunteers'){
+    html += `<div style="font-size:14px;color:var(--amber-600);font-weight:600;margin-bottom:12px">⚠️ ${data.length} volunteer${data.length!==1?'s':''} inactive</div>`
+    html += reportTable(
+      ['Name','Email','Last Active','Total Hours'],
+      data.map(r=>({...r, total_hours_ever: parseFloat(r.total_hours_ever||0).toFixed(1)+'h'})),
+      ['name','email','last_date','total_hours_ever']
+    )
+  } else if(rtype === 'hours_by_event'){
+    html += reportTable(
+      ['Event','Total Hours','Volunteers','Entries'],
+      data.map(r=>({...r, total_hours: parseFloat(r.total_hours||0).toFixed(1)+'h'})),
+      ['event','total_hours','volunteer_count','entry_count']
+    )
+  }
+
+  el.innerHTML = html
+}
+
+function statCard(label, value, color){
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;text-align:center">
+    <div style="font-size:24px;font-weight:800;color:${color}">${value}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;font-weight:600">${label}</div>
+  </div>`
+}
+
+function reportSection(title, content){
+  return `<div style="margin-bottom:20px"><div style="font-size:14px;font-weight:700;margin-bottom:8px">${title}</div>${content}</div>`
+}
+
+function reportTable(headers, rows, cols){
+  if(!rows||!rows.length) return '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No data</div>'
+  const th = headers.map(h=>`<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);border-bottom:2px solid var(--border);white-space:nowrap">${h}</th>`).join('')
+  const trs = rows.map((r,i)=>{
+    const bg = i%2===0?'':'background:var(--bg)'
+    const tds = cols.map(c=>{
+      const val = typeof c==='function' ? c(r) : (r[c]??'—')
+      return `<td style="padding:7px 12px;font-size:13px;border-bottom:1px solid var(--border)">${escHtml(String(val))}</td>`
+    }).join('')
+    return `<tr style="${bg}">${tds}</tr>`
+  }).join('')
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>`
+}
+
+function exportReportCSV(){
+  if(!_currentReportData){ toast('Run a report first','error'); return }
+  api('/api/reports/export-csv','POST',{
+    report_type: _currentReportType,
+    data: _currentReportData,
+    params: getReportParams()
+  }).then(res=>{
+    // Trigger download via fetch directly
+    fetch('/api/reports/export-csv',{
+      method:'POST', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({report_type:_currentReportType, data:_currentReportData, params:getReportParams()})
+    }).then(r=>r.blob()).then(blob=>{
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href=url; a.download=`rolecall_${_currentReportType}.csv`
+      a.click(); URL.revokeObjectURL(url)
+    })
+  })
+}
+
+function printReport(){
+  const content = document.getElementById('report-results')?.innerHTML||''
+  const win = window.open('','_blank','width=900,height=700')
+  win.document.write(`<!DOCTYPE html><html><head><title>RoleCall Report</title>
+    <style>body{font-family:-apple-system,sans-serif;padding:24px;color:#1a1a17}
+    table{width:100%;border-collapse:collapse}
+    th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db}
+    td{padding:7px 12px;font-size:13px;border-bottom:1px solid #e0e0db}
+    @media print{button{display:none}}</style></head>
+    <body><h2 style="color:#0d3d4d">Horizon West Theatre Company — Report</h2>
+    <p style="font-size:12px;color:#9b9b94">Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p>
+    ${content}<br/><button onclick="window.print()" style="padding:10px 20px;background:#145466;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px">Print</button>
+    </body></html>`)
+  win.document.close()
+}
+
+async function emailReportNow(){
+  if(!_currentReportData){ toast('Run a report first then email it','error'); return }
+  const emailsRaw = prompt('Send to (email addresses, comma-separated):\nLeave blank to use your configured report recipients.')
+  if(emailsRaw === null) return  // cancelled
+  const emails = emailsRaw ? emailsRaw.split(',').map(e=>e.trim()).filter(Boolean) : []
+  const res = await api('/api/reports/send-now','POST',{
+    report_type: _currentReportType,
+    params: getReportParams(),
+    emails
+  })
+  if(res.ok) toast('Report emailed to '+(res.sent_to||[]).join(', '),'success')
+  else toast(res.error||'Failed to send','error')
+}
+
+// ── Scheduled Reports ──
+async function loadScheduledReports(){
+  const [reports, users] = await Promise.all([api('/api/scheduled-reports'), api('/api/users')])
+  _scheduledReports = Array.isArray(reports) ? reports : []
+  if(Array.isArray(users)) _allUsers = users
+  renderScheduledReportsList()
+}
+
+function renderScheduledReportsList(){
+  const el = document.getElementById('scheduled-reports-list')
+  if(!el) return
+  if(!_scheduledReports.length){
+    el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:10px">🕐</div>
+      <div style="font-weight:600">No scheduled reports yet</div>
+      <div style="font-size:13px;margin-top:4px">Create one to automatically email reports on a recurring basis.</div>
+    </div>`
+    return
+  }
+  el.innerHTML = _scheduledReports.map(r=>{
+    const rtype = REPORT_TYPES.find(x=>x.id===r.report_type)
+    const cadenceLabel = {monthly:'Monthly', weekly:'Weekly'}[r.cadence]||r.cadence
+    return `<div class="card" style="padding:18px 20px;margin-bottom:12px;${!r.is_active?'opacity:0.6':''}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap">
+            <div style="font-size:15px;font-weight:700">${escHtml(r.name)}</div>
+            <span style="font-size:11px;background:${r.is_active?'var(--green-50)':'var(--bg)'};color:${r.is_active?'var(--green-600)':'var(--text-muted)'};padding:2px 8px;border-radius:20px;font-weight:700">${r.is_active?'Active':'Paused'}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap">
+            <span>${rtype?.icon||'📊'} ${rtype?.label||r.report_type}</span>
+            <span>🕐 ${cadenceLabel}</span>
+            ${r.next_send_at?`<span>Next: ${formatDate(r.next_send_at)}</span>`:''}
+            ${r.last_sent_at?`<span style="color:var(--text-hint)">Last sent: ${formatDate(r.last_sent_at)}</span>`:''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')">✕</button>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+}
+
+function openScheduledReportForm(rid){
+  const r = rid ? _scheduledReports.find(x=>x.id===rid) : null
+  const area = document.getElementById('scheduled-report-form-area')
+  if(!area) return
+  let params = {}
+  try { params = JSON.parse(r?.params||'{}') } catch(e){}
+  let recipIds = []
+  try { recipIds = JSON.parse(r?.recipient_user_ids||'[]') } catch(e){}
+
+  area.innerHTML = `<div class="card" style="padding:20px;margin-bottom:16px;border:2px solid var(--teal-400)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px">${r?'✏️ Edit Schedule':'+ New Scheduled Report'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1"><label>Report Name *</label>
+        <input type="text" id="sr-name" value="${escHtml(r?.name||'')}" placeholder="e.g. Monthly Volunteer Recap"/></div>
+      <div class="form-group"><label>Report Type</label>
+        <select id="sr-type">
+          ${REPORT_TYPES.map(rt=>`<option value="${rt.id}" ${(r?.report_type||'monthly_recap')===rt.id?'selected':''}>${rt.icon} ${rt.label}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Cadence</label>
+        <select id="sr-cadence">
+          <option value="monthly" ${(!r||r.cadence==='monthly')?'selected':''}>Monthly</option>
+          <option value="weekly" ${r?.cadence==='weekly'?'selected':''}>Weekly</option>
+        </select></div>
+      <div class="form-group"><label>Send on day</label>
+        <input type="number" id="sr-day" value="${r?.send_day||1}" min="1" max="28" style="width:80px"/>
+        <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Day of month (monthly) or day of week 0=Mon (weekly)</div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px">
+        <input type="checkbox" id="sr-active" ${(!r||r.is_active)?'checked':''} style="accent-color:var(--teal);width:15px;height:15px"/>
+        <label for="sr-active" style="font-size:13px;font-weight:500;cursor:pointer">Active</label>
+      </div>
+      <div class="form-group" style="grid-column:1/-1"><label>Recipients — Staff Users</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px;border:1.5px solid var(--border-md);border-radius:var(--radius)">
+          ${_allUsers.map(u=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" value="${u.id}" class="sr-user-cb" ${recipIds.includes(u.id)?'checked':''} style="accent-color:var(--teal)"/>
+            ${escHtml(u.name)}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div class="form-group" style="grid-column:1/-1"><label>Additional Recipients <span style="font-weight:400;color:var(--text-hint)">(comma-separated emails)</span></label>
+        <input type="text" id="sr-emails" value="${escHtml(r?.recipient_emails||'')}" placeholder="extra@email.com, another@email.com"/></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn btn-primary" onclick="saveScheduledReport('${rid||''}')">💾 ${r?'Save':'Create Schedule'}</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('scheduled-report-form-area').innerHTML=''">Cancel</button>
+    </div>
+  </div>`
+  area.scrollIntoView({behavior:'smooth',block:'start'})
+}
+
+async function saveScheduledReport(rid){
+  const name = document.getElementById('sr-name')?.value.trim()
+  if(!name){ toast('Report name is required','error'); return }
+  const recipIds = [...document.querySelectorAll('.sr-user-cb:checked')].map(cb=>cb.value)
+  const body = {
+    name, report_type: document.getElementById('sr-type').value,
+    cadence: document.getElementById('sr-cadence').value,
+    send_day: parseInt(document.getElementById('sr-day').value||1),
+    is_active: document.getElementById('sr-active').checked,
+    recipient_user_ids: recipIds,
+    recipient_emails: document.getElementById('sr-emails').value.trim(),
+    params: {}
+  }
+  const res = rid ? await api('/api/scheduled-reports/'+rid,'PUT',body)
+                  : await api('/api/scheduled-reports','POST',body)
+  if(res.error){ toast(res.error,'error'); return }
+  toast(rid?'Schedule updated!':'Report scheduled!','success')
+  document.getElementById('scheduled-report-form-area').innerHTML = ''
+  await loadScheduledReports()
+}
+
+async function deleteScheduledReport(rid){
+  if(!confirm('Delete this scheduled report?')) return
+  const res = await api('/api/scheduled-reports/'+rid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Deleted')
+  await loadScheduledReports()
+}
 
 async function loadEventLogs(){
   const logs=await api('/api/event-logs')

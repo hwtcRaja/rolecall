@@ -6776,7 +6776,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   }
 
   // Schedule & Conflicts tab
-  s += '<div id="prodtab-schedule" style="display:none"><div id="prod-sched-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
+  s += '<div id="prodtab-schedule" style="display:none"><div id="prod-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
 
   // Info tab
   s += '<div id="prodtab-info" class="card" style="padding:20px;display:none">'
@@ -10303,7 +10303,7 @@ function previewPortalColor(pid, color){
 }
 
 async function loadProductionScheduleConflicts(pid){
-  const el = document.getElementById('prod-sched-conflicts-'+pid)
+  const el = document.getElementById('prod-conflicts-'+pid)
   if(!el) return
   const isAdmin = canEdit('productions')||canEdit('rising_stars')
   const [events, conflicts] = await Promise.all([

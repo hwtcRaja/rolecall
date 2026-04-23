@@ -2696,6 +2696,7 @@ def delete_elic(eid):
     return jsonify({'ok': True})
 
 @app.route('/api/kiosk/elic-auth', methods=['POST'])
+@app.route('/api/kiosk/elic-login', methods=['POST'])
 def kiosk_elic_auth():
     d = request.json
     pin = d.get('pin','')

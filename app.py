@@ -632,6 +632,20 @@ def init_db():
             template_type TEXT DEFAULT 'thankyou',
             is_default BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW())""",
+
+        """CREATE TABLE IF NOT EXISTS scheduled_reports (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            report_type TEXT NOT NULL,
+            cadence TEXT DEFAULT 'monthly',
+            send_day INTEGER DEFAULT 1,
+            recipient_user_ids TEXT DEFAULT '[]',
+            recipient_emails TEXT DEFAULT '',
+            params TEXT DEFAULT '{}',
+            is_active BOOLEAN DEFAULT TRUE,
+            last_sent_at TIMESTAMP,
+            next_send_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
     ]:
         try:
             c.execute(col_sql)
@@ -3728,8 +3742,474 @@ def update_prod_team_member(pid, mid):
     return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
-#  RUN
+#  REPORTS
 # ─────────────────────────────────────────────
+
+def build_volunteer_monthly_report(year, month):
+    """Build volunteer monthly recap data."""
+    conn = get_db()
+    import calendar
+    month_name = calendar.month_name[int(month)]
+    date_prefix = f'{int(year):04d}-{int(month):02d}'
+
+    # Total hours this month
+    total = fetchone(conn, """
+        SELECT COALESCE(SUM(h.hours),0) as total, COUNT(DISTINCT h.volunteer_id) as vol_count
+        FROM hours h WHERE h.date LIKE %s""", (date_prefix+'%',))
+
+    # Top volunteers by hours this month
+    top_vols = fetchall(conn, """
+        SELECT v.name, SUM(h.hours) as hours, COUNT(*) as entries
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.date LIKE %s GROUP BY v.id, v.name
+        ORDER BY hours DESC LIMIT 20""", (date_prefix+'%',))
+
+    # Hours by event
+    by_event = fetchall(conn, """
+        SELECT h.event, SUM(h.hours) as hours, COUNT(DISTINCT h.volunteer_id) as vol_count
+        FROM hours h WHERE h.date LIKE %s
+        GROUP BY h.event ORDER BY hours DESC LIMIT 15""", (date_prefix+'%',))
+
+    # New volunteers this month
+    new_vols = fetchall(conn, """
+        SELECT name, email FROM volunteers
+        WHERE created_at::text LIKE %s ORDER BY created_at""", (date_prefix+'%',))
+
+    # Pending hours awaiting approval
+    pending = fetchone(conn, """
+        SELECT COUNT(*) as c, COALESCE(SUM(hours),0) as total
+        FROM pending_hours WHERE date LIKE %s AND status='pending'""", (date_prefix+'%',))
+
+    # Lapsed volunteers (no hours in 60+ days)
+    lapsed = fetchall(conn, """
+        SELECT v.name, v.email, MAX(h.date) as last_date
+        FROM volunteers v JOIN hours h ON h.volunteer_id=v.id
+        WHERE v.status='active'
+        GROUP BY v.id, v.name, v.email
+        HAVING MAX(h.date) < (CURRENT_DATE - INTERVAL '60 days')::text
+        ORDER BY last_date ASC LIMIT 20""")
+
+    conn.close()
+    return {
+        'month': month_name, 'year': int(year),
+        'total_hours': float(total['total']) if total else 0,
+        'active_volunteers': int(total['vol_count']) if total else 0,
+        'top_volunteers': top_vols,
+        'hours_by_event': by_event,
+        'new_volunteers': new_vols,
+        'pending_hours': float(pending['total']) if pending else 0,
+        'pending_count': int(pending['c']) if pending else 0,
+        'lapsed_volunteers': lapsed,
+    }
+
+def build_top_volunteers_report(start_date, end_date, limit=50):
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT v.name, v.email, v.phone,
+               COALESCE(SUM(h.hours),0) as total_hours,
+               COUNT(DISTINCT h.event) as events_count,
+               MIN(h.date) as first_date, MAX(h.date) as last_date
+        FROM volunteers v
+        LEFT JOIN hours h ON h.volunteer_id=v.id
+            AND h.date >= %s AND h.date <= %s
+        WHERE v.status='active'
+        GROUP BY v.id, v.name, v.email, v.phone
+        ORDER BY total_hours DESC, v.name ASC
+        LIMIT %s""", (start_date, end_date, limit))
+    conn.close()
+    return rows
+
+def build_lapsed_volunteers_report(days=90):
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT v.name, v.email, v.phone,
+               MAX(h.date) as last_date,
+               COALESCE(SUM(h.hours),0) as total_hours_ever
+        FROM volunteers v
+        LEFT JOIN hours h ON h.volunteer_id=v.id
+        WHERE v.status='active'
+        GROUP BY v.id, v.name, v.email, v.phone
+        HAVING MAX(h.date) < (CURRENT_DATE - INTERVAL '%s days')::text
+            OR MAX(h.date) IS NULL
+        ORDER BY last_date ASC NULLS FIRST""" % int(days))
+    conn.close()
+    return rows
+
+def build_hours_by_event_report(start_date, end_date):
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT h.event, h.event_id,
+               SUM(h.hours) as total_hours,
+               COUNT(DISTINCT h.volunteer_id) as volunteer_count,
+               COUNT(*) as entry_count,
+               MIN(h.date) as first_date, MAX(h.date) as last_date
+        FROM hours h
+        WHERE h.date >= %s AND h.date <= %s
+        GROUP BY h.event, h.event_id
+        ORDER BY total_hours DESC""", (start_date, end_date))
+    conn.close()
+    return rows
+
+def build_report_email_html(report_type, data, params=None):
+    """Generate HTML email for a report."""
+    from datetime import date
+    today = date.today().strftime('%B %d, %Y')
+    header = f'''<div style="font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto">
+    <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;color:#fff">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company</div>
+        <div style="font-size:22px;font-weight:800">{{}}</div>
+        <div style="font-size:13px;opacity:0.7;margin-top:4px">Generated {today}</div>
+    </div>
+    <div style="background:#fff;padding:28px 32px;border:1px solid #e0e0db;border-top:none;border-radius:0 0 12px 12px">'''
+    footer = '''</div><p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
+        RoleCall — Horizon West Theatre Company Management System</p></div>'''
+
+    def stat_box(label, value, color='#145466'):
+        return f'<div style="background:#f0f8fa;border-radius:10px;padding:16px 20px;text-align:center"><div style="font-size:28px;font-weight:900;color:{color}">{value}</div><div style="font-size:12px;color:#5f5e5a;margin-top:4px">{label}</div></div>'
+
+    def table(headers, rows, cols):
+        th = ''.join(f'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db">{h}</th>' for h in headers)
+        trs = ''
+        for i, r in enumerate(rows):
+            bg = '#f9f9f9' if i%2==0 else '#fff'
+            tds = ''.join(f'<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #e0e0db">{str(r.get(c,"") or "—")}</td>' for c in cols)
+            trs += f'<tr style="background:{bg}">{tds}</tr>'
+        return f'<table style="width:100%;border-collapse:collapse;margin-top:12px"><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>'
+
+    if report_type == 'monthly_recap':
+        title = f'{data["month"]} {data["year"]} — Volunteer Monthly Recap'
+        body = f'''<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
+            {stat_box('Total Hours Logged', f'{data["total_hours"]:.1f}h')}
+            {stat_box('Active Volunteers', data["active_volunteers"])}
+            {stat_box('Pending Approval', f'{data["pending_count"]} ({data["pending_hours"]:.1f}h)', '#d97706')}
+        </div>'''
+        if data['top_volunteers']:
+            body += f'<div style="font-size:15px;font-weight:700;margin-bottom:8px">Top Volunteers</div>'
+            body += table(['Name','Hours','Events'], data['top_volunteers'][:10], ['name','hours','events_count'])
+        if data['hours_by_event']:
+            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">Hours by Event</div>'
+            body += table(['Event','Hours','Volunteers'], data['hours_by_event'], ['event','hours','vol_count'])
+        if data['new_volunteers']:
+            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">New Volunteers ({len(data["new_volunteers"])})</div>'
+            body += table(['Name','Email'], data['new_volunteers'], ['name','email'])
+        if data['lapsed_volunteers']:
+            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">⚠️ Lapsed Volunteers (60+ days)</div>'
+            body += table(['Name','Last Active','Email'], data['lapsed_volunteers'], ['name','last_date','email'])
+
+    elif report_type == 'top_volunteers':
+        title = f'Top Volunteers — {params.get("start_date","")} to {params.get("end_date","")}'
+        body = table(['#','Name','Hours','Events','Last Active'],
+            [{**r, '#': i+1} for i,r in enumerate(data)],
+            ['#','name','total_hours','events_count','last_date'])
+
+    elif report_type == 'lapsed_volunteers':
+        title = f'Lapsed Volunteers ({params.get("days",90)}+ days inactive)'
+        body = f'<p style="font-size:14px;color:#5f5e5a;margin-bottom:16px">{len(data)} volunteer{"s" if len(data)!=1 else ""} with no hours in the last {params.get("days",90)} days.</p>'
+        body += table(['Name','Last Active','Total Hours','Email'], data, ['name','last_date','total_hours_ever','email'])
+
+    elif report_type == 'hours_by_event':
+        title = f'Hours by Event — {params.get("start_date","")} to {params.get("end_date","")}'
+        body = table(['Event','Total Hours','Volunteers','Entries'], data, ['event','total_hours','volunteer_count','entry_count'])
+
+    else:
+        title = 'Volunteer Report'
+        body = '<p>Report data</p>'
+
+    return header.format(title) + body + footer, title
+
+@app.route('/api/reports/run', methods=['POST'])
+def run_report():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rtype = d.get('report_type')
+    params = d.get('params', {})
+
+    import datetime as _dt
+    today = _dt.date.today()
+    last_month = (today.replace(day=1) - _dt.timedelta(days=1))
+
+    if rtype == 'monthly_recap':
+        year  = params.get('year', last_month.year)
+        month = params.get('month', last_month.month)
+        data  = build_volunteer_monthly_report(year, month)
+
+    elif rtype == 'top_volunteers':
+        start = params.get('start_date', today.replace(day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        limit = params.get('limit', 50)
+        data  = build_top_volunteers_report(start, end, limit)
+
+    elif rtype == 'lapsed_volunteers':
+        days = params.get('days', 90)
+        data = build_lapsed_volunteers_report(days)
+
+    elif rtype == 'hours_by_event':
+        start = params.get('start_date', today.replace(day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_hours_by_event_report(start, end)
+
+    else:
+        return jsonify({'error': 'Unknown report type'}), 400
+
+    return jsonify({'ok': True, 'data': data, 'report_type': rtype, 'params': params})
+
+@app.route('/api/reports/export-csv', methods=['POST'])
+def export_report_csv():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rtype  = d.get('report_type')
+    data   = d.get('data', [])
+    params = d.get('params', {})
+
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    col_maps = {
+        'monthly_recap':    None,  # handled specially
+        'top_volunteers':   (['Name','Email','Phone','Total Hours','Events','First Date','Last Date'],
+                             ['name','email','phone','total_hours','events_count','first_date','last_date']),
+        'lapsed_volunteers':(['Name','Email','Phone','Last Active','Total Hours Ever'],
+                             ['name','email','phone','last_date','total_hours_ever']),
+        'hours_by_event':   (['Event','Total Hours','Volunteers','Entries','First Date','Last Date'],
+                             ['event','total_hours','volunteer_count','entry_count','first_date','last_date']),
+    }
+
+    if rtype == 'monthly_recap' and isinstance(data, dict):
+        writer.writerow([f'{data.get("month","")} {data.get("year","")} — Volunteer Monthly Recap'])
+        writer.writerow([])
+        writer.writerow(['Metric','Value'])
+        writer.writerow(['Total Hours', data.get('total_hours',0)])
+        writer.writerow(['Active Volunteers', data.get('active_volunteers',0)])
+        writer.writerow(['Pending Hours', data.get('pending_hours',0)])
+        writer.writerow([])
+        writer.writerow(['TOP VOLUNTEERS'])
+        writer.writerow(['Name','Hours','Events'])
+        for r in data.get('top_volunteers',[]):
+            writer.writerow([r.get('name',''), r.get('hours',''), r.get('events_count','')])
+        writer.writerow([])
+        writer.writerow(['HOURS BY EVENT'])
+        writer.writerow(['Event','Hours','Volunteers'])
+        for r in data.get('hours_by_event',[]):
+            writer.writerow([r.get('event',''), r.get('hours',''), r.get('vol_count','')])
+        writer.writerow([])
+        writer.writerow(['NEW VOLUNTEERS'])
+        writer.writerow(['Name','Email'])
+        for r in data.get('new_volunteers',[]):
+            writer.writerow([r.get('name',''), r.get('email','')])
+    elif rtype in col_maps and col_maps[rtype] and isinstance(data, list):
+        headers, cols = col_maps[rtype]
+        writer.writerow(headers)
+        for row in data:
+            writer.writerow([row.get(c,'') for c in cols])
+    else:
+        writer.writerow(['Export not available for this report type'])
+
+    csv_content = output.getvalue()
+    from flask import Response
+    return Response(csv_content, mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=rolecall_{rtype}.csv'})
+
+@app.route('/api/reports/send-now', methods=['POST'])
+def send_report_now():
+    """Manually send a report via email."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rtype   = d.get('report_type')
+    params  = d.get('params', {})
+    emails  = d.get('emails', [])
+
+    import datetime as _dt
+    today = _dt.date.today()
+    last_month = (today.replace(day=1) - _dt.timedelta(days=1))
+
+    if rtype == 'monthly_recap':
+        data = build_volunteer_monthly_report(
+            params.get('year', last_month.year), params.get('month', last_month.month))
+    elif rtype == 'top_volunteers':
+        data = build_top_volunteers_report(
+            params.get('start_date', today.replace(day=1).isoformat()),
+            params.get('end_date', today.isoformat()))
+    elif rtype == 'lapsed_volunteers':
+        data = build_lapsed_volunteers_report(params.get('days', 90))
+    elif rtype == 'hours_by_event':
+        data = build_hours_by_event_report(
+            params.get('start_date', today.replace(day=1).isoformat()),
+            params.get('end_date', today.isoformat()))
+    else:
+        return jsonify({'error': 'Unknown report type'}), 400
+
+    html, subject = build_report_email_html(rtype, data, params)
+    if not emails:
+        settings = get_email_settings()
+        emails = get_recipient_emails(settings)
+    if not emails:
+        return jsonify({'error': 'No recipients configured'}), 400
+
+    ok, msg = send_email(emails, subject, html)
+    if ok: return jsonify({'ok': True, 'sent_to': emails})
+    return jsonify({'error': msg or 'Failed to send'}), 500
+
+# ── Scheduled Reports ──
+@app.route('/api/scheduled-reports')
+def get_scheduled_reports():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM scheduled_reports ORDER BY name')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/scheduled-reports', methods=['POST'])
+def create_scheduled_report():
+    err = require_auth()
+    if err: return err
+    d = request.json
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    # Calculate next send date
+    import datetime as _dt
+    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    execute(conn, '''INSERT INTO scheduled_reports
+        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, d['name'], d['report_type'], d.get('cadence','monthly'),
+         d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
+         d.get('recipient_emails',''), json.dumps(d.get('params',{})),
+         d.get('is_active',True), next_send))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/scheduled-reports/<rid>', methods=['PUT'])
+def update_scheduled_report(rid):
+    err = require_auth()
+    if err: return err
+    d = request.json
+    conn = get_db()
+    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
+        send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s WHERE id=%s''',
+        (d['name'], d['report_type'], d.get('cadence','monthly'),
+         d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
+         d.get('recipient_emails',''), json.dumps(d.get('params',{})),
+         d.get('is_active',True), next_send, rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/scheduled-reports/<rid>', methods=['DELETE'])
+def delete_scheduled_report(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM scheduled_reports WHERE id=%s', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+def _compute_next_send(cadence, send_day):
+    import datetime as _dt
+    today = _dt.date.today()
+    day = max(1, min(28, int(send_day or 1)))
+    if cadence == 'monthly':
+        # Next month on send_day
+        if today.day < day:
+            try: return _dt.date(today.year, today.month, day).isoformat()
+            except Exception: pass
+        # Move to next month
+        nm = today.month % 12 + 1
+        ny = today.year + (1 if today.month == 12 else 0)
+        try: return _dt.date(ny, nm, day).isoformat()
+        except Exception: return None
+    elif cadence == 'weekly':
+        # Next occurrence of send_day (0=Mon)
+        days_ahead = (int(send_day) - today.weekday()) % 7
+        if days_ahead == 0: days_ahead = 7
+        return (today + _dt.timedelta(days=days_ahead)).isoformat()
+    return None
+
+# Cron-style scheduler — called on every request, fires due reports
+_last_cron_check = [None]
+def maybe_run_scheduled_reports():
+    import datetime as _dt
+    now = _dt.datetime.now()
+    last = _last_cron_check[0]
+    # Only check once per hour
+    if last and (now - last).seconds < 3600: return
+    _last_cron_check[0] = now
+    try:
+        conn = get_db()
+        due = fetchall(conn, """SELECT * FROM scheduled_reports
+            WHERE is_active=TRUE AND next_send_at IS NOT NULL
+            AND next_send_at::date <= CURRENT_DATE""")
+        conn.close()
+        for r in due:
+            try:
+                _fire_scheduled_report(r)
+            except Exception as e:
+                app.logger.error(f'Scheduled report error {r["id"]}: {e}')
+    except Exception as e:
+        app.logger.error(f'Cron check error: {e}')
+
+def _fire_scheduled_report(r):
+    import datetime as _dt
+    rtype  = r['report_type']
+    params = json.loads(r.get('params') or '{}')
+    today  = _dt.date.today()
+    lm     = (today.replace(day=1) - _dt.timedelta(days=1))
+
+    if rtype == 'monthly_recap':
+        data = build_volunteer_monthly_report(lm.year, lm.month)
+    elif rtype == 'top_volunteers':
+        start = params.get('start_date', lm.replace(day=1).isoformat())
+        end   = params.get('end_date', lm.isoformat())
+        data  = build_top_volunteers_report(start, end)
+    elif rtype == 'lapsed_volunteers':
+        data = build_lapsed_volunteers_report(params.get('days', 90))
+    elif rtype == 'hours_by_event':
+        start = params.get('start_date', lm.replace(day=1).isoformat())
+        end   = params.get('end_date', lm.isoformat())
+        data  = build_hours_by_event_report(start, end)
+    else:
+        return
+
+    html, subject = build_report_email_html(rtype, data, params)
+
+    # Build recipient list
+    emails = []
+    try:
+        uids = json.loads(r.get('recipient_user_ids') or '[]')
+        if uids:
+            conn = get_db()
+            placeholders = ','.join(['%s']*len(uids))
+            users = fetchall(conn, f'SELECT email FROM users WHERE id IN ({placeholders})', tuple(uids))
+            conn.close()
+            emails = [u['email'] for u in users if u.get('email')]
+    except Exception: pass
+    raw = r.get('recipient_emails','')
+    if raw:
+        emails += [e.strip() for e in raw.split(',') if e.strip()]
+    emails = list(set(emails))
+    if not emails: return
+
+    ok, _ = send_email(emails, subject, html)
+    if ok:
+        # Update last sent and compute next send
+        next_send = _compute_next_send(r['cadence'], r['send_day'])
+        conn = get_db()
+        execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
+                (next_send, r['id']))
+        conn.commit(); conn.close()
+
+# Hook cron into every request
+@app.after_request
+def after_request_cron(response):
+    try: maybe_run_scheduled_reports()
+    except Exception: pass
+    return response
 
 
 init_db()

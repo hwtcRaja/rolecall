@@ -4239,6 +4239,94 @@ def after_request_cron(response):
     except Exception: pass
     return response
 
+# ─────────────────────────────────────────────
+#  PRODUCTION SIGN-IN (ELIC Kiosk)
+# ─────────────────────────────────────────────
+
+@app.route('/api/kiosk/production-roster/<event_id>')
+def kiosk_production_roster(event_id):
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    prod_id = evt.get('production_id')
+    if not prod_id:
+        conn.close()
+        return jsonify({'members': [], 'production_id': None})
+    members = fetchall(conn, '''
+        SELECT pm.id as member_id, pm.volunteer_id, pm.role, pm.department, pm.status,
+               v.name as volunteer_name,
+               pa.id as attendance_id, pa.signed_in_at,
+               CASE WHEN pa.id IS NOT NULL AND pa.signed_out_at IS NULL THEN TRUE ELSE FALSE END as signed_in
+        FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        LEFT JOIN prod_attendance pa
+            ON pa.volunteer_id=pm.volunteer_id AND pa.event_id=%s AND pa.signed_out_at IS NULL
+        WHERE pm.production_id=%s AND pm.status != 'dropped'
+        ORDER BY pm.department, v.name
+    ''', (event_id, prod_id))
+    conn.close()
+    return jsonify({'ok': True, 'members': members, 'production_id': prod_id})
+
+@app.route('/api/kiosk/production-signin', methods=['POST'])
+def kiosk_production_signin():
+    d = request.json or {}
+    vol_id   = d.get('volunteer_id')
+    event_id = d.get('event_id')
+    if not vol_id or not event_id:
+        return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
+    conn = get_db()
+    existing = fetchone(conn,
+        'SELECT id FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL',
+        (vol_id, event_id))
+    if existing:
+        conn.close()
+        return jsonify({'error': 'Already signed in', 'attendance_id': existing['id']})
+    aid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO prod_attendance (id,volunteer_id,event_id,signed_in_at) VALUES (%s,%s,%s,NOW())',
+        (aid, vol_id, event_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'attendance_id': aid})
+
+@app.route('/api/kiosk/production-signout', methods=['POST'])
+def kiosk_production_signout():
+    d = request.json or {}
+    att_id   = d.get('attendance_id')
+    vol_id   = d.get('volunteer_id')
+    event_id = d.get('event_id')
+    role     = d.get('role','')
+    if not vol_id or not event_id:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    att = None
+    if att_id:
+        att = fetchone(conn, 'SELECT * FROM prod_attendance WHERE id=%s', (att_id,))
+    if not att:
+        att = fetchone(conn,
+            'SELECT * FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL',
+            (vol_id, event_id))
+    if not att:
+        conn.close()
+        return jsonify({'error': 'No active sign-in found'}), 404
+    time_row = fetchone(conn,
+        'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
+        (att['id'],))
+    elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
+    elapsed_hours = round(max(0.25, elapsed_secs / 3600), 2)
+    evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
+    evt_name = evt['name'] if evt else 'Production'
+    today_row = fetchone(conn, 'SELECT CURRENT_DATE::text as today')
+    today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+    execute(conn, 'UPDATE prod_attendance SET signed_out_at=NOW() WHERE id=%s', (att['id'],))
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (pid, vol_id, evt_name, event_id, today, elapsed_hours, role or '',
+         'Production sign-in via kiosk'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'hours': elapsed_hours})
+
 
 init_db()
 

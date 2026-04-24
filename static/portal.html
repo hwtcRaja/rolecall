@@ -1420,11 +1420,13 @@ function renderPortalCarpoolList(carpools, kids){
   }
   const myKidIds = kids.map(k=>k.id)
   el.innerHTML = carpools.map(cp=>{
-    const myKidsInThis  = (cp.members||[]).filter(m=>myKidIds.includes(m.youth_id||m.id))
+    const allMembers    = cp.members || []
+    const myKidsInThis  = allMembers.filter(m=>myKidIds.includes(m.youth_id||m.id))
     const alreadyJoined = myKidsInThis.length > 0
-    const full = cp.max_seats && (cp.members||[]).length >= cp.max_seats
-    const spots = cp.max_seats ? cp.max_seats - (cp.members||[]).length : null
-    return `<div class="card" style="padding:20px;margin-bottom:14px;border-left:4px solid ${alreadyJoined?'var(--green-600)':' #3b82f6'}">
+    const full  = cp.max_seats && allMembers.length >= cp.max_seats
+    const spots = cp.max_seats ? cp.max_seats - allMembers.length : null
+
+    return `<div class="card" style="padding:20px;margin-bottom:14px;border-left:4px solid ${alreadyJoined?'var(--green-600)':'#3b82f6'}">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
@@ -1436,23 +1438,33 @@ function renderPortalCarpoolList(carpools, kids){
             Driver: <strong style="color:var(--text)">${cp.driver_name}</strong>
             ${cp.driver_phone?` · <a href="tel:${cp.driver_phone}" style="color:var(--teal-600)">${cp.driver_phone}</a>`:''}
           </div>
-          ${cp.event_name?`<div style="font-size:12px;color:var(--text-hint)">📅 ${cp.event_name}</div>`:''}
-          ${spots!==null?`<div style="font-size:12px;color:var(--text-hint);margin-top:4px">${spots > 0 ? spots+' spot'+(spots!==1?'s':'')+' remaining' : 'Full'}</div>`:''}
-          ${alreadyJoined&&myKidsInThis.length?`
-            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
-              ${myKidsInThis.map(k=>`<span style="background:var(--green-50);color:var(--green-600);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600">${k.first_name} ${(k.last_name||''[0])||''}</span>`).join('')}
-            </div>`:''}
+          ${cp.event_name?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:6px">📅 ${cp.event_name}</div>`:''}
+          ${spots!==null?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:8px">${spots > 0 ? spots+' spot'+(spots!==1?'s':'')+' remaining' : 'Full'}</div>`:''}
+          ${allMembers.length ? `
+            <div style="margin-top:4px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px">Kids in this carpool</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                ${allMembers.map(m=>{
+                  const isMyKid = myKidIds.includes(m.youth_id||m.id)
+                  return `<span style="background:${isMyKid?'var(--green-50)':'var(--bg)'};color:${isMyKid?'var(--green-600)':'var(--text-muted)'};border:1px solid ${isMyKid?'var(--green-200)':'var(--border)'};border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600">
+                    ${isMyKid?'★ ':''}${m.first_name} ${(m.last_name||'')[0]||''}.
+                  </span>`
+                }).join('')}
+              </div>
+            </div>` : ''}
         </div>
-        ${!alreadyJoined && !full && kids.length ? `
-          <button onclick="portalJoinCarpoolById('${cp.id}')"
-            class="btn btn-primary btn-sm" style="flex-shrink:0;white-space:nowrap">
-            + Join
-          </button>` : ''}
-        ${alreadyJoined ? `
-          <button onclick="portalLeaveCarpool('${cp.id}')"
-            style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
-            Leave
-          </button>` : ''}
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
+          ${!alreadyJoined && !full && kids.length ? `
+            <button onclick="portalJoinCarpoolById('${cp.id}')"
+              class="btn btn-primary btn-sm" style="white-space:nowrap">
+              + Join
+            </button>` : ''}
+          ${alreadyJoined ? `
+            <button onclick="portalLeaveCarpool('${cp.id}')"
+              style="background:none;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
+              Leave
+            </button>` : ''}
+        </div>
       </div>
     </div>`
   }).join('')

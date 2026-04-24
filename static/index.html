@@ -9213,6 +9213,8 @@ async function saveEditEvent(){
   const eid=document.getElementById('edit-event-id').value
   const name=document.getElementById('edit-event-name').value.trim()
   if(!name){toast('Event name is required','error');return}
+  const event_date=document.getElementById('edit-event-date').value
+  if(!event_date){toast('Event date is required','error');return}
 
   // Read location/room safely
   let location='HWTC', room=''
@@ -9221,7 +9223,7 @@ async function saveEditEvent(){
 
   const data={
     name,
-    event_date:document.getElementById('edit-event-date').value||null,
+    event_date,
     end_date:document.getElementById('edit-event-end-date').value||null,
     start_time:document.getElementById('edit-event-start').value||null,
     end_time:document.getElementById('edit-event-end').value||null,
@@ -9324,8 +9326,9 @@ function deleteFromModal(){
 
 async function deleteEventFull(eid){
   const e=allEvents.find(e=>e.id===eid)
-  if(!confirm(`Delete "${e?.name}"? This cannot be undone.`)) return
-  await api(`/api/events/${eid}`,'DELETE')
+  if(!confirm(`Delete "${e?.name||'this event'}"? This cannot be undone.`)) return
+  const res=await api(`/api/events/${eid}`,'DELETE')
+  if(res?.error){ toast('Delete failed: '+res.error,'error'); return }
   allEvents=allEvents.filter(e=>e.id!==eid)
   toast('Event deleted')
   populateHoursFilters()

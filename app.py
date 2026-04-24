@@ -668,6 +668,26 @@ def init_db():
             url TEXT,
             file_type TEXT,
             created_at TIMESTAMP DEFAULT NOW())""",
+
+        """CREATE TABLE IF NOT EXISTS carpools (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            driver_name TEXT NOT NULL,
+            driver_phone TEXT DEFAULT '',
+            code TEXT NOT NULL UNIQUE,
+            max_seats INTEGER DEFAULT 6,
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT NOW())""",
+
+        """CREATE TABLE IF NOT EXISTS carpool_members (
+            id TEXT PRIMARY KEY,
+            carpool_id TEXT NOT NULL REFERENCES carpools(id) ON DELETE CASCADE,
+            youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+            added_by TEXT DEFAULT '',
+            added_via TEXT DEFAULT 'admin',
+            UNIQUE(carpool_id, youth_id))""",
     ]:
         try:
             c.execute(col_sql)
@@ -3715,19 +3735,7 @@ def kiosk_youth_sign_out():
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-@app.route('/api/pickup/queue')
-def pickup_queue():
-    conn = get_db()
-    rows = fetchall(conn, """
-        SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
-        FROM youth_sign_ins ysi
-        JOIN youth_participants y ON ysi.youth_id=y.id
-        LEFT JOIN events e ON ysi.event_id=e.id
-        WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
-        ORDER BY e.name, y.last_name, y.first_name
-    """)
-    conn.close()
-    return jsonify(rows)
+
 
 # ─────────────────────────────────────────────
 #  APPLICATIONS (volunteer interest form)
@@ -4379,7 +4387,7 @@ def kiosk_production_signout():
     att_id   = d.get('attendance_id')
     vol_id   = d.get('volunteer_id')
     event_id = d.get('event_id')
-    role     = d.get('role','')
+    role     = d.get('role', '')
     if not vol_id or not event_id:
         return jsonify({'error': 'Missing required fields'}), 400
     conn = get_db()
@@ -4393,23 +4401,44 @@ def kiosk_production_signout():
     if not att:
         conn.close()
         return jsonify({'error': 'No active sign-in found'}), 404
-    time_row = fetchone(conn,
-        'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
-        (att['id'],))
-    elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
-    elapsed_hours = round(max(0.25, elapsed_secs / 3600), 2)
-    evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
+
+    # Use full event duration, not elapsed time
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     evt_name = evt['name'] if evt else 'Production'
+    event_hours = None
+    if evt and evt.get('start_time') and evt.get('end_time'):
+        try:
+            from datetime import datetime as _dt
+            fmt = '%H:%M'
+            start = _dt.strptime(str(evt['start_time'])[:5], fmt)
+            end   = _dt.strptime(str(evt['end_time'])[:5], fmt)
+            diff  = (end - start).seconds / 3600
+            if diff > 0:
+                event_hours = round(diff, 2)
+        except Exception:
+            pass
+    # Fall back to elapsed time if event has no start/end times set
+    if not event_hours:
+        time_row = fetchone(conn,
+            'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
+            (att['id'],))
+        elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
+        event_hours   = round(max(0.25, elapsed_secs / 3600), 2)
+        hours_source  = 'elapsed time (no event times set)'
+    else:
+        hours_source = f'full event duration ({evt.get("start_time","")}–{evt.get("end_time","")})'
+
     today_row = fetchone(conn, 'SELECT CURRENT_DATE::text as today')
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
+
     execute(conn, 'UPDATE prod_attendance SET signed_out_at=NOW() WHERE id=%s', (att['id'],))
     pid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
-        (pid, vol_id, evt_name, event_id, today, elapsed_hours, role or '',
-         'Production sign-in via kiosk'))
+        (pid, vol_id, evt_name, event_id, today, event_hours, role or '',
+         f'Production member — {hours_source}'))
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'hours': elapsed_hours})
+    return jsonify({'ok': True, 'hours': event_hours, 'hours_source': hours_source})
 
 
 
@@ -4603,6 +4632,193 @@ def youth_sign_out(sid):
         (signed_out_by, sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  CARPOOLS
+# ─────────────────────────────────────────────
+
+def _gen_carpool_code():
+    import random
+    words = ['BLUE','RED','STAR','SUN','MOON','OAK','FOX','BAY','SKY','ZEN','ACE','ARC']
+    return random.choice(words) + str(random.randint(10,99))
+
+@app.route('/api/carpools')
+def get_carpools():
+    err = require_auth()
+    if err: return err
+    event_id = request.args.get('event_id')
+    conn = get_db()
+    if event_id:
+        rows = fetchall(conn, 'SELECT c.*, COUNT(cm.id) as member_count FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id WHERE c.event_id=%s GROUP BY c.id ORDER BY c.name', (event_id,))
+    else:
+        rows = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count, e.name as event_name, e.event_date FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id LEFT JOIN events e ON c.event_id=e.id WHERE e.event_date >= CURRENT_DATE - INTERVAL '1 day' GROUP BY c.id, e.name, e.event_date ORDER BY e.event_date DESC, c.name")
+    for row in rows:
+        row['members'] = fetchall(conn, 'SELECT cm.*, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s ORDER BY y.last_name, y.first_name', (row['id'],))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/carpools', methods=['POST'])
+def create_carpool():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    cid = str(uuid.uuid4())
+    conn = get_db()
+    code = _gen_carpool_code()
+    for _ in range(10):
+        if not fetchone(conn, 'SELECT id FROM carpools WHERE code=%s', (code,)): break
+        code = _gen_carpool_code()
+    execute(conn, "INSERT INTO carpools (id,event_id,name,driver_name,driver_phone,code,max_seats,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open')",
+        (cid, d['event_id'], d['name'], d['driver_name'], d.get('driver_phone',''), code, d.get('max_seats',6), d.get('notes','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM carpools WHERE id=%s', (cid,))
+    row['members'] = []; row['member_count'] = 0
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/carpools/<cid>', methods=['PUT'])
+def update_carpool(cid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE carpools SET name=%s,driver_name=%s,driver_phone=%s,max_seats=%s,notes=%s,status=%s WHERE id=%s',
+        (d['name'], d['driver_name'], d.get('driver_phone',''), d.get('max_seats',6), d.get('notes',''), d.get('status','open'), cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/carpools/<cid>', methods=['DELETE'])
+def delete_carpool(cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM carpools WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/carpools/<cid>/members', methods=['POST'])
+def add_carpool_member(cid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'admin') ON CONFLICT (carpool_id,youth_id) DO NOTHING",
+        (mid, cid, d['youth_id'], session.get('user_name','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/carpools/<cid>/members/<mid>', methods=['DELETE'])
+def remove_carpool_member(cid, mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM carpool_members WHERE id=%s AND carpool_id=%s', (mid, cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/carpools')
+def portal_get_carpools():
+    event_id = request.args.get('event_id')
+    conn = get_db()
+    if event_id:
+        carpools = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id WHERE c.event_id=%s AND c.status='open' GROUP BY c.id ORDER BY c.name", (event_id,))
+    else:
+        carpools = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count, e.name as event_name, e.event_date FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id LEFT JOIN events e ON c.event_id=e.id WHERE c.status='open' AND e.event_date=CURRENT_DATE GROUP BY c.id, e.name, e.event_date ORDER BY e.name, c.name")
+    for c in carpools:
+        c['members'] = fetchall(conn, 'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s', (c['id'],))
+    conn.close()
+    return jsonify(carpools)
+
+@app.route('/api/portal/carpools/join', methods=['POST'])
+def portal_join_carpool():
+    d = request.json or {}
+    code       = (d.get('code') or '').strip().upper()
+    youth_ids  = d.get('youth_ids', [])
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    if not code or not youth_ids:
+        return jsonify({'error': 'Carpool code and at least one child required'}), 400
+    conn = get_db()
+    carpool = fetchone(conn, "SELECT * FROM carpools WHERE UPPER(code)=%s AND status='open'", (code,))
+    if not carpool:
+        conn.close()
+        return jsonify({'error': 'Invalid or closed carpool code'}), 404
+    added = 0
+    for yid in youth_ids:
+        mid = str(uuid.uuid4())
+        try:
+            execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'portal') ON CONFLICT (carpool_id,youth_id) DO NOTHING",
+                (mid, carpool['id'], yid, passphrase or 'parent'))
+            added += 1
+        except Exception: pass
+    conn.commit()
+    carpool = fetchone(conn, 'SELECT * FROM carpools WHERE id=%s', (carpool['id'],))
+    carpool['members'] = fetchall(conn, 'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s', (carpool['id'],))
+    conn.close()
+    return jsonify({'ok': True, 'added': added, 'carpool': carpool})
+
+@app.route('/api/pickup/queue')
+def pickup_queue():
+    conn = get_db()
+    individuals = fetchall(conn, """
+        SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+        FROM youth_sign_ins ysi
+        JOIN youth_participants y ON ysi.youth_id=y.id
+        LEFT JOIN events e ON ysi.event_id=e.id
+        WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+        AND NOT EXISTS (
+            SELECT 1 FROM carpool_members cm
+            JOIN carpools cp ON cm.carpool_id=cp.id
+            WHERE cm.youth_id=ysi.youth_id AND cp.event_id=ysi.event_id
+        )
+        ORDER BY e.name, y.last_name, y.first_name
+    """)
+    carpools_rows = fetchall(conn, """
+        SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
+               cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
+               COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) as signed_in_count,
+               COUNT(DISTINCT cm.id) as total_members
+        FROM carpools cp
+        JOIN events e ON cp.event_id=e.id
+        LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
+        LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
+            AND ysi.event_id=cp.event_id
+            AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+        WHERE e.event_date = CURRENT_DATE
+        GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
+        HAVING COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) > 0
+        ORDER BY cp.name
+    """)
+    for cp in carpools_rows:
+        cp['kids'] = fetchall(conn, """
+            SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
+                   y.first_name, y.last_name, cm.id as member_id
+            FROM carpool_members cm
+            JOIN youth_participants y ON cm.youth_id=y.id
+            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
+                AND ysi.event_id=%s
+                AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+            WHERE cm.carpool_id=%s
+            ORDER BY y.last_name, y.first_name
+        """, (cp['event_id'], cp['carpool_id']))
+    conn.close()
+    return jsonify({'individuals': individuals, 'carpools': carpools_rows})
+
+@app.route('/api/pickup/carpool-signout', methods=['POST'])
+def carpool_signout():
+    d = request.json or {}
+    carpool_id    = d.get('carpool_id')
+    event_id      = d.get('event_id')
+    signed_out_by = d.get('signed_out_by', '')
+    if not carpool_id or not event_id:
+        return jsonify({'error': 'Missing fields'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by=%s WHERE youth_id IN (SELECT youth_id FROM carpool_members WHERE carpool_id=%s) AND event_id=%s AND signed_out_at IS NULL',
+        (signed_out_by, carpool_id, event_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 
 init_db()
 

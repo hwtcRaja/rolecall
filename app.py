@@ -345,6 +345,9 @@ def init_db():
     # Run migrations in separate try blocks so failures don't roll back table creation
     for col_sql in [
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
         # Sync required_all from required_for_volunteering — they should be the same column
         "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
         "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",
@@ -1353,8 +1356,10 @@ def create_waiver_type():
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO waiver_types (id,name,description,template_body) VALUES (%s,%s,%s,%s)',
-                (tid, d['name'].strip(), d.get('description',''), d.get('template_body','')))
+        execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online)
+            VALUES (%s,%s,%s,%s,%s)''',
+            (tid, d['name'].strip(), d.get('description',''),
+             d.get('template_body',''), bool(d.get('can_sign_online',False))))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -1369,8 +1374,10 @@ def update_waiver_type(tid):
     if err: return err
     d = request.json
     conn = get_db()
-    execute(conn, 'UPDATE waiver_types SET name=%s,description=%s,template_body=%s WHERE id=%s',
-            (d['name'], d.get('description',''), d.get('template_body',''), tid))
+    execute(conn, '''UPDATE waiver_types SET name=%s, description=%s, template_body=%s,
+        can_sign_online=%s WHERE id=%s''',
+        (d['name'], d.get('description',''), d.get('template_body',''),
+         bool(d.get('can_sign_online',False)), tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (tid,))
     conn.close()
@@ -3797,7 +3804,7 @@ def kiosk_waiver_check():
     from datetime import date as _date
     today = _date.today()
     required = fetchall(conn, '''SELECT wt.* FROM waiver_types wt
-        WHERE wt.required_for_volunteering=TRUE OR wt.required_all=TRUE''')
+        WHERE wt.required_all=TRUE OR wt.required_for_volunteering=TRUE''')
     issues = []
     for wt in required:
         signed = fetchone(conn, '''SELECT * FROM volunteer_waivers WHERE volunteer_id=%s AND waiver_type_id=%s

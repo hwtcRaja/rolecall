@@ -517,6 +517,30 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        # missing columns found in audit
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS general_content TEXT DEFAULT ''",
+        "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
+        "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
+        "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
+        # missing tables
+        """CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT)""",
+        """CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            type TEXT DEFAULT 'info',
+            message TEXT NOT NULL,
+            source TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS production_required_waivers (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
+            UNIQUE(production_id, waiver_type_id))""",
         # one-time dedup: keep only the oldest checklist item per label
         """DELETE FROM checklist_items WHERE id NOT IN (
             SELECT DISTINCT ON (label) id FROM checklist_items ORDER BY label, created_at ASC)""",
@@ -1836,13 +1860,18 @@ def add_production_member(pid):
     return jsonify(row)
 
 @app.route('/api/productions/members/<mid>', methods=['PUT'])
-def update_production_member(mid):
-    err = require_admin()
+@app.route('/api/productions/<pid>/team-member/<mid>', methods=['PUT'])
+def update_production_member(mid, pid=None):
+    err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE production_members SET role=%s,department=%s,status=%s,notes=%s WHERE id=%s',
-            (d['role'], d.get('department',''), d.get('status','confirmed'), d.get('notes',''), mid))
+    execute(conn, '''UPDATE production_members SET
+        role=%s, department=%s, status=%s, notes=%s,
+        bio=%s, photo_url=%s WHERE id=%s''',
+        (d.get('role',''), d.get('department',''),
+         d.get('status','confirmed'), d.get('notes',''),
+         d.get('bio',''), d.get('photo_url',''), mid))
     conn.commit()
     row = fetchone(conn, '''SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
         FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id WHERE pm.id=%s''', (mid,))
@@ -4023,18 +4052,6 @@ def get_portal_instructor_content(context_type, context_id):
         (context_type, context_id))
     conn.close()
     return jsonify(rows)
-
-@app.route('/api/productions/<pid>/team-member/<mid>', methods=['PUT'])
-def update_prod_team_member(pid, mid):
-    err = require_auth()
-    if err: return err
-    d = request.json
-    conn = get_db()
-    execute(conn, '''UPDATE production_members SET role=%s, department=%s, status=%s, bio=%s, photo_url=%s WHERE id=%s AND production_id=%s''',
-        (d.get('role',''), d.get('department',''), d.get('status','confirmed'),
-         d.get('bio',''), d.get('photo_url',''), mid, pid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
 #  REPORTS

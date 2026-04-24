@@ -1923,6 +1923,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="form-group"><label>Name *</label><input type="text" id="wt-name" placeholder="e.g. Photo Release"/></div>
       <div class="form-group"><label>Description</label><input type="text" id="wt-desc" placeholder="Brief description"/></div>
       <div class="form-group"><label>Waiver Text (for online signing)</label><textarea class="waiver-template-body" id="wt-body" placeholder="Enter the full text of the waiver that volunteers will read and sign…"></textarea></div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="wt-can-sign-online" style="accent-color:var(--teal);width:16px;height:16px"/>
+          <span><strong>Allow online signing</strong> — volunteers can sign this on the kiosk screen</span>
+        </label>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-waiver-type')">Cancel</button>
@@ -4386,6 +4392,7 @@ function openNewWaiverTypeModal(){
   document.getElementById('waiver-type-modal-title').textContent='New Waiver Type'
   document.getElementById('wt-edit-id').value=''
   ;['wt-name','wt-desc','wt-body'].forEach(id=>document.getElementById(id).value='')
+  document.getElementById('wt-can-sign-online').checked=false
   openModal('modal-waiver-type')
 }
 function openEditWaiverTypeModal(tid){
@@ -4396,6 +4403,7 @@ function openEditWaiverTypeModal(tid){
   document.getElementById('wt-name').value=t.name||''
   document.getElementById('wt-desc').value=t.description||''
   document.getElementById('wt-body').value=t.template_body||''
+  document.getElementById('wt-can-sign-online').checked=!!t.can_sign_online
   openModal('modal-waiver-type')
 }
 async function saveWaiverType(){
@@ -4403,10 +4411,11 @@ async function saveWaiverType(){
   const name=document.getElementById('wt-name').value.trim()
   const description=document.getElementById('wt-desc').value.trim()
   const template_body=document.getElementById('wt-body').value.trim()
+  const can_sign_online=document.getElementById('wt-can-sign-online').checked
   if(!name){toast('Name is required','error');return}
   let res
-  if(editId) res=await api(`/api/waiver-types/${editId}`,'PUT',{name,description,template_body})
-  else res=await api('/api/waiver-types','POST',{name,description,template_body})
+  if(editId) res=await api(`/api/waiver-types/${editId}`,'PUT',{name,description,template_body,can_sign_online})
+  else res=await api('/api/waiver-types','POST',{name,description,template_body,can_sign_online})
   if(res.error){toast(res.error,'error');return}
   if(editId) waiverTypes=waiverTypes.map(t=>t.id===editId?res:t)
   else waiverTypes.push(res)

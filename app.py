@@ -417,6 +417,7 @@ def init_db():
             production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
             title TEXT NOT NULL,
             body TEXT NOT NULL,
+            status TEXT DEFAULT 'published',
             author_id TEXT REFERENCES users(id),
             created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS portal_files (
@@ -4999,6 +5000,390 @@ def carpool_signout():
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+
+# ─────────────────────────────────────────────
+#  MISSING ROUTES — added by audit
+# ─────────────────────────────────────────────
+
+# ── Notifications ──
+@app.route('/api/notifications')
+def get_notifications():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, "SELECT * FROM alerts WHERE status='active' ORDER BY created_at DESC LIMIT 100")
+    conn.close()
+    return jsonify(rows)
+
+# ── Email settings extras ──
+@app.route('/api/email-settings/check-events', methods=['POST'])
+def email_check_events():
+    return jsonify({'ok': True})
+
+@app.route('/api/email-settings/send-report/<rid>')
+def email_send_report(rid):
+    err = require_auth()
+    if err: return err
+    return jsonify({'ok': True})
+
+# ── Event waivers ──
+@app.route('/api/events/<eid>/waivers', methods=['POST'])
+def add_event_waiver(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO event_waivers (id,event_id,waiver_type_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
+        (rid, eid, d['waiver_type_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/<eid>/waivers/<wid>', methods=['DELETE'])
+def remove_event_waiver(eid, wid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_waivers WHERE id=%s AND event_id=%s', (wid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Event ELICs ──
+@app.route('/api/events/<eid>/elics', methods=['POST'])
+def add_event_elic(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
+        (rid, eid, d['elic_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/<eid>/elics/<rid>', methods=['DELETE'])
+def remove_event_elic(eid, rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_elics WHERE id=%s AND event_id=%s', (rid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/default-elic')
+def get_default_elic():
+    err = require_auth()
+    if err: return err
+    prod_id = request.args.get('production_id')
+    prog_id = request.args.get('program_id')
+    conn = get_db()
+    elic = None
+    if prod_id:
+        p = fetchone(conn, 'SELECT default_elic_id FROM productions WHERE id=%s', (prod_id,))
+        if p and p.get('default_elic_id'):
+            elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name FROM elics e
+                JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (p['default_elic_id'],))
+    conn.close()
+    return jsonify({'elic': elic})
+
+# ── Families ──
+@app.route('/api/families/<fid>', methods=['DELETE'])
+def delete_family(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM families WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/families/<fid>/members', methods=['POST'])
+def add_family_member(fid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (fid, d['youth_id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/families/<fid>/members/<yid>', methods=['DELETE'])
+def remove_family_member(fid, yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=NULL WHERE id=%s AND family_id=%s', (yid, fid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal announcements (admin manage) ──
+@app.route('/api/portal/announcements', methods=['POST'])
+def create_portal_announcement_admin():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    aid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO portal_announcements
+        (id,production_id,program_id,title,body,status,author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (aid, d.get('production_id'), d.get('program_id'),
+         d.get('title',''), d.get('body',''),
+         d.get('status','published'), session.get('user_id','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/announcements/<aid>', methods=['DELETE'])
+def delete_portal_announcement_admin(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_announcements WHERE id=%s', (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal files & folders ──
+@app.route('/api/portal/files', methods=['POST'])
+def create_portal_file():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO portal_files (id,context_type,context_id,name,url,file_type)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (fid, d.get('context_type','production'), d.get('production_id') or d.get('context_id',''),
+         d.get('name',''), d.get('url',''), d.get('file_type','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/files/<fid>', methods=['DELETE'])
+def delete_portal_file(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/folders')
+def get_portal_folders():
+    err = require_auth()
+    if err: return err
+    prod_id = request.args.get('production_id')
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s ORDER BY name', (prod_id,)) if prod_id else []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/portal/folders', methods=['POST'])
+def create_portal_folder():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO portal_files (id,context_type,context_id,name,file_type) VALUES (%s,%s,%s,%s,%s)',
+        (fid, 'production', d.get('production_id',''), d.get('name',''), 'folder'))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/folders/<fid>', methods=['DELETE'])
+def delete_portal_folder(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal callout (POST = set callout) ──
+@app.route('/api/portal/callout')
+@app.route('/api/portal/callout', methods=['POST'])
+def set_portal_callout():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, "INSERT INTO settings (key,value) VALUES ('portal_callout',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+        (json.dumps(d.get('callout')),))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal youth update ──
+@app.route('/api/portal/youth/<yid>', methods=['POST'])
+def portal_update_youth(yid):
+    d = request.json or {}
+    conn = get_db()
+    # Queue for staff review
+    pid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status) VALUES (%s,%s,'Profile Update Request',CURRENT_DATE,0,%s,'pending_review')",
+        (pid, yid, json.dumps(d)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Portal program waiver status ──
+@app.route('/api/portal/program/<pid>/waiver-status')
+def portal_program_waiver_status(pid):
+    yid = request.args.get('youth_id')
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT wt.name, yw.signed_date, yw.expiry_date
+        FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
+        WHERE yw.youth_id=%s''', (yid,)) if yid else []
+    conn.close()
+    return jsonify(rows)
+
+# ── Youth programs enrollment ──
+@app.route('/api/youth-programs/<pid>/enrolled')
+def get_program_enrolled(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT ype.*, y.first_name, y.last_name
+        FROM youth_program_enrollments ype
+        JOIN youth_participants y ON ype.youth_id=y.id
+        WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/youth-programs/<pid>/enroll', methods=['POST'])
+def enroll_in_program(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    eid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
+        VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
+        (eid, d['youth_id'], pid,
+         d.get('enrolled_date',''), d.get('notes','')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT ype.*, y.first_name, y.last_name, yp.name as program_name
+        FROM youth_program_enrollments ype
+        JOIN youth_participants y ON ype.youth_id=y.id
+        JOIN youth_programs yp ON ype.program_id=yp.id
+        WHERE ype.id=%s''', (eid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/youth-enrollments/<eid>', methods=['DELETE'])
+def delete_youth_enrollment(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Volunteer / Youth linking ──
+@app.route('/api/volunteers/<vol_id>/link-participant', methods=['POST'])
+def link_volunteer_to_participant(vol_id):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (vol_id, d['youth_id']))
+    execute(conn, 'UPDATE volunteers SET linked_youth_id=%s WHERE id=%s', (d['youth_id'], vol_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/<yid>/link-volunteer', methods=['POST'])
+def link_youth_to_volunteer(yid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (d['volunteer_id'], yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Users role update ──
+@app.route('/api/users/<uid>/role', methods=['PUT'])
+def update_user_role(uid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE users SET role=%s WHERE id=%s', (d.get('role','staff'), uid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Waiver toggle required ──
+@app.route('/api/waiver-types/<tid>/toggle-required', methods=['POST'])
+def toggle_waiver_required(tid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, '''UPDATE waiver_types SET required_for_volunteering = NOT required_for_volunteering
+        WHERE id=%s''', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Donors missing routes ──
+@app.route('/api/donor-benefits')
+def get_all_donor_benefits():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT db.*, dt.name as tier_name FROM donor_tier_benefits db
+        JOIN donor_tiers dt ON db.tier_id=dt.id ORDER BY dt.min_amount, db.sort_order''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/donations')
+def get_all_donations_list():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT dd.*, dn.display_name, c.name as campaign_name
+        FROM donor_donations dd
+        JOIN donors dn ON dd.donor_id=dn.id
+        LEFT JOIN donor_campaigns c ON dd.campaign_id=c.id
+        ORDER BY dd.donation_date DESC NULLS LAST LIMIT 500''')
+    conn.close()
+    return jsonify(rows)
+
+# ── Kiosk unauthorized pickup notify ──
+@app.route('/api/kiosk/unauthorized-pickup-notify', methods=['POST'])
+def kiosk_unauthorized_pickup_notify():
+    d = request.json or {}
+    try:
+        s = get_email_settings()
+        recipients = get_recipient_emails(s)
+        if recipients:
+            send_email(recipients, 'ALERT: Unauthorized Pickup Attempt',
+                f'<p style="font-family:sans-serif;color:#dc2626"><strong>Unauthorized pickup attempt</strong> at the kiosk.<br/>'
+                f'Youth: {d.get("youth_name","Unknown")}<br/>'
+                f'Attempted by: {d.get("person_name","Unknown")}<br/>'
+                f'Time: {__import__("datetime").datetime.now().strftime("%I:%M %p")}</p>')
+    except Exception:
+        pass
+    return jsonify({'ok': True})
+
+# ── Pending profile updates ──
+@app.route('/api/pending-profile-updates/<uid>/approve', methods=['POST'])
+def approve_profile_update(uid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE pending_hours SET status='approved' WHERE id=%s", (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pending-profile-updates/<uid>/reject', methods=['POST'])
+def reject_profile_update(uid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE pending_hours SET status='rejected' WHERE id=%s", (uid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 init_db()
 

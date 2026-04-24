@@ -3190,53 +3190,85 @@ def portal_contact_production():
 
 @app.route('/api/portal/participant/<yid>')
 def portal_get_participant(yid):
-    """Full data for a youth participant — enrollments, productions, announcements."""
     conn = get_db()
+    errors = []
+
+    # Program enrollments
     try:
-        # Program enrollments — use correct table name
-        enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name,
-            yp.description
+        enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name, yp.description
             FROM youth_program_enrollments ype
             JOIN youth_programs yp ON ype.program_id=yp.id
-            WHERE ype.youth_id=%s
-            ORDER BY ype.created_at DESC''', (yid,))
+            WHERE ype.youth_id=%s ORDER BY ype.created_at DESC''', (yid,))
+    except Exception as e:
+        enrollments = []; errors.append(f'enrollments: {e}')
 
-        # Rising Stars productions
-        productions = fetchall(conn, '''SELECT p.*, ypm.role as cast_role, ypm.id as member_id
+    # Productions
+    try:
+        productions = fetchall(conn, '''SELECT p.id, p.name, p.stage, p.status,
+            p.description, p.image_url, p.director, p.venue,
+            ypm.role as cast_role, ypm.id as member_id
             FROM youth_production_members ypm
             JOIN productions p ON ypm.production_id=p.id
-            WHERE ypm.youth_id=%s ORDER BY p.start_date DESC NULLS LAST''', (yid,))
+            WHERE ypm.youth_id=%s ORDER BY p.name''', (yid,))
+    except Exception as e:
+        productions = []; errors.append(f'productions: {e}')
 
-        # Announcements for their productions
-        prod_ids = [p['id'] for p in productions]
+    # Announcements
+    prod_ids = [p['id'] for p in productions]
+    try:
         announcements = []
         if prod_ids:
             placeholders = ','.join(['%s']*len(prod_ids))
             announcements = fetchall(conn, f'''SELECT * FROM portal_announcements
                 WHERE production_id IN ({placeholders}) AND status='published'
                 ORDER BY created_at DESC''', tuple(prod_ids))
+    except Exception as e:
+        announcements = []; errors.append(f'announcements: {e}')
 
-        # Files
+    # Files
+    try:
         files = []
         if prod_ids:
             placeholders = ','.join(['%s']*len(prod_ids))
             files = fetchall(conn, f'''SELECT * FROM portal_files
                 WHERE context_id IN ({placeholders})
                 ORDER BY created_at DESC''', tuple(prod_ids))
-
-        conn.close()
-        return jsonify({
-            'enrollments': enrollments,
-            'productions': productions,
-            'announcements': announcements,
-            'files': files,
-        })
     except Exception as e:
-        conn.close()
-        app.logger.error(f'portal_get_participant error: {e}')
-        return jsonify({'enrollments': [], 'productions': [], 'announcements': [], 'files': [], 'error': str(e)})
+        files = []; errors.append(f'files: {e}')
 
-@app.route('/api/portal/youth/<yid>/profile')
+    conn.close()
+    if errors:
+        app.logger.error(f'portal_get_participant {yid}: {errors}')
+
+    return jsonify({
+        'enrollments': enrollments,
+        'productions': productions,
+        'announcements': announcements,
+        'files': files,
+        '_errors': errors if errors else None,
+    })
+
+@app.route('/api/portal/debug/<passphrase>')
+def portal_debug(passphrase):
+    """Debug endpoint — shows raw data for a passphrase lookup."""
+    if not session.get('user_id'): return jsonify({'error': 'Admin login required'}), 401
+    conn = get_db()
+    pp = passphrase.strip().lower()
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (pp,))
+    youth_by_pp = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (pp,))
+    result = {'passphrase': pp, 'family': family, 'youth_by_passphrase': youth_by_pp}
+    if family:
+        members = fetchall(conn, 'SELECT id, first_name, last_name, family_id, passphrase FROM youth_participants WHERE family_id=%s', (family['id'],))
+        result['family_members'] = members
+        for m in members:
+            prods = fetchall(conn, '''SELECT ypm.*, p.name as prod_name FROM youth_production_members ypm
+                JOIN productions p ON ypm.production_id=p.id WHERE ypm.youth_id=%s''', (m['id'],))
+            enrolments = fetchall(conn, '''SELECT ype.*, yp.name as prog_name FROM youth_program_enrollments ype
+                JOIN youth_programs yp ON ype.program_id=yp.id WHERE ype.youth_id=%s''', (m['id'],))
+            m['productions'] = prods
+            m['enrollments'] = enrolments
+    conn.close()
+    return jsonify(result)
 def portal_youth_profile(yid):
     conn = get_db()
     youth = fetchone(conn, '''SELECT y.*, f.name as family_name

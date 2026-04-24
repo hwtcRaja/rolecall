@@ -1546,6 +1546,8 @@ async function eysDoSignInWithName(parentName){
   })
   const d=await r.json()
   if(d.error){alert(d.error);return}
+  // Update roster — remove old entry for this youth and add new one
+  eysRoster=eysRoster.filter(e=>e.youth_id!==eysDropOffTarget.yid)
   eysRoster.push(d)
   filterEysRoster()
   showScreen('screen-elic-youth-signin')
@@ -1558,7 +1560,8 @@ async function eysDoSignOutWithName(parentName){
   })
   const d=await r.json()
   if(d.error){alert(d.error);return}
-  eysRoster=eysRoster.map(r=>r.id===eysSignOutTarget?d:r)
+  // Update roster entry with signed_out_at
+  eysRoster=eysRoster.map(e=>e.id===eysSignOutTarget?{...e,...d,signed_out_at:d.signed_out_at||new Date().toISOString()}:e)
   eysSignOutTarget=null
   filterEysRoster()
   showScreen('screen-elic-youth-signin')

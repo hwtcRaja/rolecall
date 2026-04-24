@@ -1147,10 +1147,11 @@ function renderElicMenu(){
     const mins=minsUntilOpen(e)
     let actionArea=''
     if(status==='open'){
+      const hasYouth = (e.production_id && isRS) || e.program_id
       actionArea='<div style="display:flex;gap:8px;flex-wrap:wrap">'
         +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')">🔒 Close Event</button>'
         +(e.production_id?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')">🎭 Production Sign-In</button>':'')
-        +(e.production_id&&isRS?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👶 Youth Sign-In</button>':'')
+        +(hasYouth?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👶 Youth Sign-In</button>':'')
         +'</div>'
     } else if(status==='closed'){
       actionArea='<div style="font-size:13px;color:var(--hint);padding:6px 0">Event closed ✓</div>'
@@ -1368,19 +1369,32 @@ function handleYouthSignIn(btn){
 async function openEysSignIn(evt){
   eysEventId=evt.id
   eysEventData=evt
-  document.getElementById('eys-prod-name').textContent=evt.production_name||evt.name
-  document.getElementById('eys-event-name').textContent='⭐ Rising Stars · '+evt.name
+  const isProgram = !evt.production_id && evt.program_id
+  document.getElementById('eys-prod-name').textContent = evt.production_name || evt.program_name || evt.name
+  document.getElementById('eys-event-name').textContent = (isProgram ? '📚 ' : '⭐ Rising Stars · ') + evt.name
   document.getElementById('eys-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>'
   showScreen('screen-elic-youth-signin')
 
-  // Load youth participants
-  const r=await fetch('/api/kiosk/youth')
-  const d=await r.json()
-  allYouthKiosk=Array.isArray(d)?d:[]
+  // Load youth — use event-specific list if available, otherwise all active youth
+  try {
+    const r = await fetch(`/api/kiosk/youth-for-event/${evt.id}`)
+    const d = await r.json()
+    allYouthKiosk = Array.isArray(d) && d.length > 0 ? d : []
+    // If no enrolled youth found, fall back to all active youth
+    if(!allYouthKiosk.length){
+      const r2 = await fetch('/api/kiosk/youth')
+      const d2 = await r2.json()
+      allYouthKiosk = Array.isArray(d2) ? d2 : []
+    }
+  } catch(e){
+    const r2 = await fetch('/api/kiosk/youth')
+    const d2 = await r2.json()
+    allYouthKiosk = Array.isArray(d2) ? d2 : []
+  }
 
   // Load current sign-ins for this event
-  const sr=await fetch(`/api/youth-sign-ins?event_id=${evt.id}`)
-  eysRoster=await sr.json()
+  const sr = await fetch(`/api/youth-sign-ins?event_id=${evt.id}`)
+  eysRoster = await sr.json()
   renderEysRoster()
 }
 
@@ -1668,6 +1682,17 @@ function psMemberTap(volId, memberId, attId, isIn, name, role){
     const m=psRoster.find(r=>r.volunteer_id===volId)
     const sinceStr=m?.signed_in_at?'Signed in '+new Date(m.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):''
     document.getElementById('pso-time').textContent=sinceStr
+    // Show full event hours
+    const evt=elicEventList.find(e=>e.id===psEventId)
+    let hoursStr='—'
+    if(evt?.start_time&&evt?.end_time){
+      const[sh,sm]=evt.start_time.toString().split(':').map(Number)
+      const[eh,em]=evt.end_time.toString().split(':').map(Number)
+      const hrs=((eh*60+em)-(sh*60+sm))/60
+      if(hrs>0) hoursStr=hrs.toFixed(1)+'h'
+    }
+    const hoursEl=document.getElementById('pso-hours')
+    if(hoursEl) hoursEl.textContent=hoursStr
     showScreen('screen-prod-signout')
   } else {
     // Sign in immediately
@@ -1712,9 +1737,8 @@ async function confirmProdSignOut(){
   psSignOutTarget=null
   renderPsRoster()
   showScreen('screen-prod-signin')
-  // Brief success flash
   const stats=document.getElementById('ps-stats')
-  if(stats) stats.textContent=`${name} signed out · ${d.hours}h submitted for approval`
+  if(stats) stats.textContent=`${name} signed out · ${d.hours}h credited (full event)`
 }
 
 // ── KIOSK CONFIRM DIALOG ──
@@ -1852,11 +1876,12 @@ function showConfirm(icon,title,sub,note,onBack){
     <div style="font-size:15px;color:var(--muted);margin-bottom:4px" id="pso-role"></div>
     <div style="font-size:13px;color:var(--hint);margin-bottom:28px" id="pso-time"></div>
     <div style="background:var(--teal-light);border-radius:var(--radius);padding:16px;margin-bottom:28px">
-      <div style="font-size:13px;color:var(--teal-dark);font-weight:600">Signing out will automatically submit your hours for approval.</div>
+      <div style="font-size:22px;font-weight:800;color:var(--teal-dark)" id="pso-hours"></div>
+      <div style="font-size:13px;color:var(--teal-dark);font-weight:600;margin-top:4px">Full event hours will be credited</div>
     </div>
     <div style="display:flex;gap:12px">
       <button onclick="showScreen('screen-prod-signin')" style="flex:1;padding:16px;background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer">Cancel</button>
-      <button onclick="confirmProdSignOut()" style="flex:1;padding:16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Sign Out</button>
+      <button onclick="confirmProdSignOut()" style="flex:1;padding:16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">✓ Sign Out</button>
     </div>
   </div>
 </div>

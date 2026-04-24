@@ -2794,9 +2794,11 @@ def kiosk_elic_auth():
         events = fetchall(conn, '''
             SELECT e.*, p.name as production_name,
                    COALESCE(p.stage,'mainstage') as stage,
-                   p.stage as production_stage
+                   p.stage as production_stage,
+                   pg.name as program_name
             FROM events e
             LEFT JOIN productions p ON e.production_id=p.id
+            LEFT JOIN youth_programs pg ON e.program_id=pg.id
             ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
@@ -2804,9 +2806,11 @@ def kiosk_elic_auth():
             events = fetchall(conn, f'''
                 SELECT e.*, p.name as production_name,
                        COALESCE(p.stage,'mainstage') as stage,
-                       p.stage as production_stage
+                       p.stage as production_stage,
+                       pg.name as program_name
                 FROM events e
                 LEFT JOIN productions p ON e.production_id=p.id
+                LEFT JOIN youth_programs pg ON e.program_id=pg.id
                 WHERE e.id IN ({placeholders})''', tuple(assigned))
         else:
             events = []
@@ -4812,22 +4816,41 @@ def kiosk_authorized_pickups(yid):
 
 @app.route('/api/kiosk/youth-for-event/<event_id>')
 def kiosk_youth_for_event(event_id):
-    """Get youth enrolled in the production linked to this event."""
+    """Get youth enrolled in the production or program linked to this event."""
     conn = get_db()
-    evt = fetchone(conn, 'SELECT production_id FROM events WHERE id=%s', (event_id,))
-    if not evt or not evt.get('production_id'):
+    evt = fetchone(conn, 'SELECT production_id, program_id FROM events WHERE id=%s', (event_id,))
+    if not evt:
         conn.close()
         return jsonify([])
-    youth = fetchall(conn, '''
-        SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-               ypm.role,
-               ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
-        FROM youth_production_members ypm
-        JOIN youth_participants yp ON ypm.youth_id=yp.id
-        LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
-            AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
-        WHERE ypm.production_id=%s
-        ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
+
+    youth = []
+
+    if evt.get('production_id'):
+        # Rising Stars production — get enrolled cast
+        youth = fetchall(conn, '''
+            SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
+                   ypm.role,
+                   ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+            FROM youth_production_members ypm
+            JOIN youth_participants yp ON ypm.youth_id=yp.id
+            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
+                AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+            WHERE ypm.production_id=%s
+            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
+
+    elif evt.get('program_id'):
+        # Youth program — get enrolled participants
+        youth = fetchall(conn, '''
+            SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
+                   NULL as role,
+                   ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+            FROM youth_program_enrollments ype
+            JOIN youth_participants yp ON ype.youth_id=yp.id
+            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
+                AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+            WHERE ype.program_id=%s
+            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['program_id']))
+
     conn.close()
     return jsonify(youth)
 

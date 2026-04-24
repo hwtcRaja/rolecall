@@ -231,6 +231,7 @@ body{
 <script>
 // ── State ──
 let prevSignedIn = new Set()
+let prevSignedOutIds = null  // null on first load — no announcements until we have a baseline
 let announceQueue = []
 let isAnnouncing = false
 let announceTimeout = null
@@ -438,28 +439,36 @@ function render(data){
   const individuals = data.individuals || []
   const carpools    = data.carpools    || []
 
-  // Build current signed-in set FIRST (individuals + carpool kids)
   const waiting  = individuals.filter(r => !r.signed_out_at)
   const pickedUp = individuals.filter(r => !!r.signed_out_at)
-  const currentSignedIn = new Set(waiting.map(r=>r.id))
-  carpools.forEach(cp => (cp.kids||[]).filter(k=>!k.signed_out_at).forEach(k=> currentSignedIn.add('cp-'+k.youth_id)))
 
-  // Only announce on FIRST render (prevSignedIn is populated) and when something changed
-  if(prevSignedIn.size > 0){
+  // Track signed-OUT IDs to detect new pickups
+  // We announce when a sign-out ID appears that wasn't there last poll
+  const currentSignedOutIds = new Set()
+  individuals.forEach(r=>{ if(r.signed_out_at) currentSignedOutIds.add(r.id) })
+  carpools.forEach(cp=>(cp.kids||[]).forEach(k=>{ if(k.signed_out_at) currentSignedOutIds.add('cp-'+k.youth_id) }))
+
+  if(prevSignedOutIds !== null){
+    // Individual pickups
     individuals.forEach(r=>{
-      // Was signed in last poll, now signed out → announce pickup
-      if(r.signed_out_at && prevSignedIn.has(r.id)){
+      if(r.signed_out_at && !prevSignedOutIds.has(r.id)){
         queueAnnouncement(r.first_name, 'individual')
       }
     })
+    // Carpool pickups — announce once per carpool when any kid is newly signed out
     carpools.forEach(cp=>{
-      const kidsJustPickedUp = (cp.kids||[]).filter(k=>k.signed_out_at && prevSignedIn.has('cp-'+k.youth_id))
-      if(kidsJustPickedUp.length > 0){
+      const newlyOut = (cp.kids||[]).filter(k=>k.signed_out_at && !prevSignedOutIds.has('cp-'+k.youth_id))
+      if(newlyOut.length > 0){
         queueAnnouncement(`${cp.carpool_name} — ${cp.driver_name}`, 'carpool')
       }
     })
   }
 
+  prevSignedOutIds = currentSignedOutIds
+
+  // Also track signed-in for the waiting list rendering
+  const currentSignedIn = new Set(waiting.map(r=>r.id))
+  carpools.forEach(cp=>(cp.kids||[]).filter(k=>!k.signed_out_at).forEach(k=>currentSignedIn.add('cp-'+k.youth_id)))
   prevSignedIn = currentSignedIn
 
   renderWaiting(waiting, carpools)

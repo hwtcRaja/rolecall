@@ -3126,28 +3126,40 @@ def set_youth_passphrase(yid):
     return jsonify({'ok': True})
 
 @app.route('/api/portal/auth', methods=['POST'])
+@app.route('/api/portal/login', methods=['POST'])
 def portal_auth():
-    d = request.json
+    d = request.json or {}
     passphrase = (d.get('passphrase') or '').strip().lower()
     if not passphrase: return jsonify({'error': 'Passphrase required'}), 400
     conn = get_db()
-    youth = fetchone(conn, '''SELECT y.*, f.name as family_name, f.passphrase as family_passphrase
-        FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
-        WHERE LOWER(y.passphrase)=%s OR LOWER(f.passphrase)=%s''', (passphrase, passphrase))
-    if not youth: conn.close(); return jsonify({'error': 'Invalid passphrase'}), 401
-    prods = fetchall(conn, '''SELECT p.* FROM productions p
-        JOIN youth_production_members ypm ON ypm.production_id=p.id
-        WHERE ypm.youth_id=%s AND p.stage='rising_stars' ''', (youth['id'],))
-    portal_data = []
-    for p in prods:
-        prod = dict(p)
-        prod['announcements'] = fetchall(conn, '''SELECT * FROM portal_announcements
-            WHERE production_id=%s AND status='published' ORDER BY created_at DESC''', (p['id'],))
-        prod['team'] = fetchall(conn, '''SELECT pm.*, v.name FROM production_members pm
-            JOIN volunteers v ON pm.volunteer_id=v.id WHERE pm.production_id=%s''', (p['id'],))
-        portal_data.append(prod)
+
+    # Try family passphrase first
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
+    if family:
+        members = fetchall(conn, 'SELECT * FROM youth_participants WHERE family_id=%s ORDER BY first_name', (family['id'],))
+        conn.close()
+        return jsonify({
+            'type': 'family',
+            'family': family,
+            'members': members,
+            'passphrase': passphrase,
+        })
+
+    # Try individual youth passphrase
+    youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+    if youth:
+        family_row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (youth.get('family_id'),)) if youth.get('family_id') else None
+        conn.close()
+        return jsonify({
+            'type': 'participant',
+            'participant': youth,
+            'family': family_row,
+            'members': [youth],
+            'passphrase': passphrase,
+        })
+
     conn.close()
-    return jsonify({'ok': True, 'youth': youth, 'productions': portal_data})
+    return jsonify({'error': 'Passphrase not found. Please check with HWTC staff.'}), 401
 
 @app.route('/api/portal/announcements')
 def get_portal_announcements():
@@ -3175,6 +3187,126 @@ def portal_contact_production():
             f'<p style="font-family:sans-serif">From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
             f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
     return jsonify({'ok': True})
+
+@app.route('/api/portal/participant/<yid>')
+def portal_get_participant(yid):
+    """Full data for a youth participant — enrollments, productions, announcements."""
+    conn = get_db()
+    # Program enrollments
+    enrollments = fetchall(conn, '''SELECT ye.*, yp.name as program_name, yp.description,
+        yp.start_date, yp.end_date, yp.location,
+        v.name as instructor_name
+        FROM youth_enrollments ye
+        JOIN youth_programs yp ON ye.program_id=yp.id
+        LEFT JOIN volunteers v ON yp.instructor_id=v.id
+        WHERE ye.youth_id=%s AND ye.status='active'
+        ORDER BY yp.start_date DESC NULLS LAST''', (yid,))
+
+    # Rising Stars productions
+    productions = fetchall(conn, '''SELECT p.*, ypm.role as cast_role, ypm.id as member_id
+        FROM youth_production_members ypm
+        JOIN productions p ON ypm.production_id=p.id
+        WHERE ypm.youth_id=%s ORDER BY p.start_date DESC NULLS LAST''', (yid,))
+
+    # Announcements for their productions
+    prod_ids = [p['id'] for p in productions]
+    announcements = []
+    if prod_ids:
+        placeholders = ','.join(['%s']*len(prod_ids))
+        announcements = fetchall(conn, f'''SELECT * FROM portal_announcements
+            WHERE production_id IN ({placeholders}) AND status='published'
+            ORDER BY created_at DESC''', tuple(prod_ids))
+
+    # Files
+    files = []
+    if prod_ids:
+        placeholders = ','.join(['%s']*len(prod_ids))
+        files = fetchall(conn, f'''SELECT * FROM portal_files
+            WHERE context_id IN ({placeholders})
+            ORDER BY created_at DESC''', tuple(prod_ids))
+
+    conn.close()
+    return jsonify({
+        'enrollments': enrollments,
+        'productions': productions,
+        'announcements': announcements,
+        'files': files,
+    })
+
+@app.route('/api/portal/youth/<yid>/profile')
+def portal_youth_profile(yid):
+    conn = get_db()
+    youth = fetchone(conn, '''SELECT y.*, f.name as family_name
+        FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
+        WHERE y.id=%s''', (yid,))
+    if not youth: conn.close(); return jsonify({'error': 'Not found'}), 404
+    authorized = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
+    conn.close()
+    youth['authorized_pickups'] = authorized
+    return jsonify(youth)
+
+@app.route('/api/portal/youth/<yid>/request-update', methods=['POST'])
+def portal_youth_request_update(yid):
+    d = request.json or {}
+    conn = get_db()
+    # Log a note for staff to review
+    nid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status)
+        VALUES (%s,%s,'Profile Update Request',CURRENT_DATE,0,%s,'pending_review')''',
+        (nid, yid, json.dumps(d)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/files')
+def portal_get_files():
+    context_id = request.args.get('context_id')
+    context_type = request.args.get('context_type','production')
+    conn = get_db()
+    if context_id:
+        rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s AND context_type=%s ORDER BY created_at DESC',
+            (context_id, context_type))
+    else:
+        rows = fetchall(conn, 'SELECT * FROM portal_files ORDER BY created_at DESC')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/portal/callout')
+def portal_callout():
+    """System-wide announcement shown on portal login screen."""
+    conn = get_db()
+    try:
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='portal_callout'")
+        conn.close()
+        if row:
+            import json as _json
+            val = _json.loads(row['value']) if isinstance(row['value'], str) else row['value']
+            return jsonify({'callout': val})
+    except Exception:
+        conn.close()
+    return jsonify({'callout': None})
+
+@app.route('/api/portal/instructor-login', methods=['POST'])
+def portal_instructor_login():
+    d = request.json or {}
+    email    = (d.get('email') or '').strip().lower()
+    password = d.get('password','')
+    if not email or not password:
+        return jsonify({'error': 'Email and password required'}), 400
+    conn = get_db()
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    user = fetchone(conn, 'SELECT * FROM users WHERE LOWER(email)=%s AND password_hash=%s', (email, pw_hash))
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid email or password'}), 401
+    perms = {}
+    try: perms = json.loads(user.get('role_permissions') or '{}')
+    except Exception: pass
+    conn.close()
+    return jsonify({
+        'type': 'instructor',
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'],
+                 'role': user['role'], 'permissions': perms}
+    })
 
 # ─────────────────────────────────────────────
 #  PRODUCTIONS (additional routes)

@@ -541,6 +541,16 @@ def init_db():
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
             waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
             UNIQUE(production_id, waiver_type_id))""",
+        # meet the team — standalone public-facing entries (no volunteer required)
+        """CREATE TABLE IF NOT EXISTS production_team_bios (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT '',
+            bio TEXT DEFAULT '',
+            headshot_url TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
         # one-time dedup: keep only the oldest checklist item per label
         """DELETE FROM checklist_items WHERE id NOT IN (
             SELECT DISTINCT ON (label) id FROM checklist_items ORDER BY label, created_at ASC)""",
@@ -3506,12 +3516,65 @@ def delete_production_conflict(pid, cid):
 @app.route('/api/productions/<pid>/team')
 def get_production_team(pid):
     conn = get_db()
-    rows = fetchall(conn, '''SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
-        FROM production_members pm
-        JOIN volunteers v ON pm.volunteer_id=v.id
-        WHERE pm.production_id=%s ORDER BY pm.department, v.name''', (pid,))
+    # Return public-facing team bios (headshots, bios — no volunteer required)
+    rows = fetchall(conn, '''SELECT * FROM production_team_bios
+        WHERE production_id=%s ORDER BY sort_order, name''', (pid,))
+    # Also include production_members (crew with volunteer links) as fallback
+    if not rows:
+        rows = fetchall(conn, '''SELECT pm.id, pm.role, pm.bio,
+            pm.photo_url as headshot_url,
+            v.name, pm.department, pm.status
+            FROM production_members pm
+            JOIN volunteers v ON pm.volunteer_id=v.id
+            WHERE pm.production_id=%s ORDER BY pm.department, v.name''', (pid,))
     conn.close()
     return jsonify(rows)
+
+@app.route('/api/productions/<pid>/team', methods=['POST'])
+def add_team_bio(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not d.get('name'):
+        return jsonify({'error': 'Name is required'}), 400
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO production_team_bios
+        (id, production_id, name, role, bio, headshot_url, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (mid, pid, d['name'].strip(), d.get('role','').strip(),
+         d.get('bio','').strip(), d.get('headshot_url','').strip(),
+         d.get('sort_order', 0)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM production_team_bios WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/team/<mid>', methods=['PUT'])
+def update_team_bio(pid, mid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE production_team_bios SET
+        name=%s, role=%s, bio=%s, headshot_url=%s, sort_order=%s
+        WHERE id=%s AND production_id=%s''',
+        (d.get('name','').strip(), d.get('role','').strip(),
+         d.get('bio','').strip(), d.get('headshot_url','').strip(),
+         d.get('sort_order', 0), mid, pid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM production_team_bios WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/productions/<pid>/team/<mid>', methods=['DELETE'])
+def delete_team_bio(pid, mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_team_bios WHERE id=%s AND production_id=%s', (mid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/productions/<pid>/general-content')
 def get_general_content(pid):

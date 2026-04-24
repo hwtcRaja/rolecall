@@ -265,23 +265,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
       <!-- Profile tab -->
       <div id="portal-main-carpools" style="display:none">
-        <div style="max-width:560px;margin:0 auto;padding:16px 0">
-          <div style="font-size:20px;font-weight:800;margin-bottom:6px">🚗 Join a Carpool</div>
-          <div style="font-size:14px;color:var(--text-muted);margin-bottom:20px">Enter the carpool code shared by the driver to add your child to their pickup group for today.</div>
-          <div class="card" style="padding:20px;margin-bottom:20px">
-            <div class="form-group" style="margin-bottom:12px">
-              <label>Carpool Code</label>
-              <input type="text" id="cp-code-input" placeholder="e.g. BLUE42" autocapitalize="characters"
-                style="font-size:20px;letter-spacing:3px;font-weight:700;text-transform:uppercase;text-align:center"/>
-            </div>
-            <div id="cp-kids-section" style="display:none">
-              <div style="font-size:13px;font-weight:700;margin-bottom:8px">Which child(ren)?</div>
-              <div id="cp-kids-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
-            </div>
-            <button class="btn btn-primary" style="width:100%" onclick="portalJoinCarpool()">Join Carpool</button>
-            <div id="cp-result" style="margin-top:12px;font-size:14px;text-align:center"></div>
+        <div style="max-width:600px;margin:0 auto;padding:16px 0">
+          <div style="font-size:20px;font-weight:800;margin-bottom:6px">🚗 Carpools</div>
+          <div style="font-size:14px;color:var(--text-muted);margin-bottom:20px">
+            See available carpools for today's events. Tap one to add your child.
           </div>
-          <div id="portal-active-carpools"></div>
+          <div id="portal-carpools-loading" style="text-align:center;padding:32px;color:var(--text-muted)">
+            <div class="spinner"></div>
+          </div>
+          <div id="portal-carpools-list" style="display:none"></div>
+          <div id="cp-join-result" style="margin-top:12px;font-size:14px;text-align:center"></div>
         </div>
       </div>
       <div id="portal-main-profile" style="display:none">
@@ -1403,96 +1396,133 @@ function toast(msg, type){
 
 // ── Carpool Functions ──
 async function loadPortalCarpools(){
-  // Show kids checkboxes from session
-  const kids = portalSession?.members || []
-  const kidsList = document.getElementById('cp-kids-list')
-  const kidsSection = document.getElementById('cp-kids-section')
-  if(kids.length){
-    kidsList.innerHTML = kids.map(k=>`
-      <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg);border-radius:10px;cursor:pointer">
-        <input type="checkbox" value="${k.id}" class="cp-kid-cb" checked style="accent-color:var(--teal);width:18px;height:18px"/>
-        <span style="font-weight:600">${k.first_name} ${k.last_name}</span>
-      </label>`).join('')
-    kidsSection.style.display = ''
-  }
-  // Load today's active carpools
+  const loadingEl = document.getElementById('portal-carpools-loading')
+  const listEl    = document.getElementById('portal-carpools-list')
+  if(loadingEl) loadingEl.style.display = ''
+  if(listEl)    listEl.style.display = 'none'
+  const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
   const carpools = await fetch('/api/portal/carpools').then(r=>r.json()).catch(()=>[])
-  renderActiveCarpools(carpools, kids)
+  if(loadingEl) loadingEl.style.display = 'none'
+  if(listEl)    listEl.style.display = ''
+  renderPortalCarpoolList(Array.isArray(carpools) ? carpools : [], kids)
 }
 
-function renderActiveCarpools(carpools, kids){
-  const el = document.getElementById('portal-active-carpools')
+function renderPortalCarpoolList(carpools, kids){
+  const el = document.getElementById('portal-carpools-list')
   if(!el) return
-  const kidIds = (kids||[]).map(k=>k.id)
-
-  // Find carpools our kids are already in
-  const ourCarpools = Array.isArray(carpools) ? carpools.filter(cp=>
-    (cp.members||[]).some(m=>kidIds.includes(m.youth_id||m.id))
-  ) : []
-
-  if(!ourCarpools.length){
-    el.innerHTML = `<div style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px">
-      No active carpools found for today. Ask your carpool driver for their code.</div>`
+  if(!carpools.length){
+    el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">
+      <div style="font-size:36px;margin-bottom:12px">🚗</div>
+      <div style="font-weight:600;margin-bottom:6px">No carpools available today</div>
+      <div style="font-size:13px">Check back closer to event time, or ask HWTC staff to set one up.</div>
+    </div>`
     return
   }
-
-  el.innerHTML = `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Your Active Carpools Today</div>` +
-    ourCarpools.map(cp=>`
-      <div class="card" style="padding:16px 20px;margin-bottom:10px;border-left:4px solid #3b82f6">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-          <div>
-            <div style="font-weight:700;font-size:15px">🚗 ${cp.name}</div>
-            <div style="font-size:13px;color:var(--text-muted);margin-top:3px">
-              Driver: ${cp.driver_name}${cp.driver_phone?' · '+cp.driver_phone:''}
-            </div>
-            <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
-              ${cp.event_name||'Today'} · ${(cp.members||[]).length} kids in carpool
-            </div>
+  const myKidIds = kids.map(k=>k.id)
+  el.innerHTML = carpools.map(cp=>{
+    const myKidsInThis  = (cp.members||[]).filter(m=>myKidIds.includes(m.youth_id||m.id))
+    const alreadyJoined = myKidsInThis.length > 0
+    const full = cp.max_seats && (cp.members||[]).length >= cp.max_seats
+    const spots = cp.max_seats ? cp.max_seats - (cp.members||[]).length : null
+    return `<div class="card" style="padding:20px;margin-bottom:14px;border-left:4px solid ${alreadyJoined?'var(--green-600)':' #3b82f6'}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+            <div style="font-size:16px;font-weight:700">🚗 ${cp.name}</div>
+            ${alreadyJoined?'<span style="background:var(--green-50);color:var(--green-600);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">✓ Joined</span>':''}
+            ${full&&!alreadyJoined?'<span style="background:var(--bg);color:var(--text-muted);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Full</span>':''}
           </div>
-          <div style="background:#eff6ff;color:#1d4ed8;padding:6px 12px;border-radius:8px;font-family:monospace;font-size:16px;font-weight:800;letter-spacing:2px">${cp.code}</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
+            Driver: <strong style="color:var(--text)">${cp.driver_name}</strong>
+            ${cp.driver_phone?` · <a href="tel:${cp.driver_phone}" style="color:var(--teal-600)">${cp.driver_phone}</a>`:''}
+          </div>
+          ${cp.event_name?`<div style="font-size:12px;color:var(--text-hint)">📅 ${cp.event_name}</div>`:''}
+          ${spots!==null?`<div style="font-size:12px;color:var(--text-hint);margin-top:4px">${spots > 0 ? spots+' spot'+(spots!==1?'s':'')+' remaining' : 'Full'}</div>`:''}
+          ${alreadyJoined&&myKidsInThis.length?`
+            <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+              ${myKidsInThis.map(k=>`<span style="background:var(--green-50);color:var(--green-600);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600">${k.first_name} ${(k.last_name||''[0])||''}</span>`).join('')}
+            </div>`:''}
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
-          ${(cp.members||[]).map(m=>`<span style="background:var(--bg);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600">${m.first_name} ${(m.last_name||'')[0]||''}.</span>`).join('')}
-        </div>
-      </div>`).join('')
+        ${!alreadyJoined && !full && kids.length ? `
+          <button onclick="portalJoinCarpoolById('${cp.id}')"
+            class="btn btn-primary btn-sm" style="flex-shrink:0;white-space:nowrap">
+            + Join
+          </button>` : ''}
+        ${alreadyJoined ? `
+          <button onclick="portalLeaveCarpool('${cp.id}')"
+            style="flex-shrink:0;background:none;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
+            Leave
+          </button>` : ''}
+      </div>
+    </div>`
+  }).join('')
 }
 
-async function portalJoinCarpool(){
-  const code = (document.getElementById('cp-code-input')?.value||'').trim().toUpperCase()
-  if(!code){ toast('Please enter a carpool code','error'); return }
-
-  const kidCbs = [...document.querySelectorAll('.cp-kid-cb:checked')]
-  const youthIds = kidCbs.map(cb=>cb.value)
-
-  // If no kids shown (individual participant), use activeChildId
-  const ids = youthIds.length ? youthIds : (activeChildId ? [activeChildId] : [])
-  if(!ids.length){ toast('No child selected','error'); return }
-
-  const passphrase = document.getElementById('login-passphrase')?.value ||
-    portalSession?.passphrase || ''
-
+async function portalJoinCarpoolById(carpoolId){
+  const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
+  let youthIds = kids.map(k=>k.id)
+  if(kids.length > 1){
+    youthIds = await showKidPicker(kids)
+    if(!youthIds || !youthIds.length) return
+  }
   const res = await fetch('/api/portal/carpools/join',{
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({code, youth_ids: ids, passphrase})
+    body: JSON.stringify({carpool_id: carpoolId, youth_ids: youthIds, passphrase: portalSession?.passphrase||''})
   }).then(r=>r.json()).catch(()=>({error:'Network error'}))
-
-  const resultEl = document.getElementById('cp-result')
-  if(res.error){
-    resultEl.innerHTML = `<span style="color:#dc2626">❌ ${res.error}</span>`
-    toast(res.error, 'error')
-    return
-  }
-
-  const names = res.carpool?.members?.map(m=>m.first_name).join(', ') || ''
-  resultEl.innerHTML = `<span style="color:#16a34a">✅ Joined <strong>${res.carpool?.name||'carpool'}</strong>!
-    Kids added: ${names}</span>`
-  document.getElementById('cp-code-input').value = ''
-  toast('Joined carpool!', 'success')
-
-  // Refresh carpool list
-  const carpools = await fetch('/api/portal/carpools').then(r=>r.json()).catch(()=>[])
-  renderActiveCarpools(carpools, portalSession?.members||[])
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Joined carpool!','success')
+  await loadPortalCarpools()
 }
+
+async function portalLeaveCarpool(carpoolId){
+  if(!confirm('Remove your child from this carpool?')) return
+  const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
+  const youthIds = kids.map(k=>k.id)
+  const carpools = await fetch('/api/portal/carpools').then(r=>r.json()).catch(()=>[])
+  const cp = (Array.isArray(carpools)?carpools:[]).find(c=>c.id===carpoolId)
+  if(!cp) return
+  for(const m of (cp.members||[]).filter(m=>youthIds.includes(m.youth_id||m.id))){
+    await fetch(`/api/carpools/${carpoolId}/members/${m.id}`,{method:'DELETE'})
+  }
+  toast('Left carpool')
+  await loadPortalCarpools()
+}
+
+function showKidPicker(kids){
+  return new Promise(resolve=>{
+    const existing = document.getElementById('kid-picker-modal')
+    if(existing) existing.remove()
+    const overlay = document.createElement('div')
+    overlay.id = 'kid-picker-modal'
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:380px;box-shadow:var(--shadow-lg)">
+        <div style="padding:18px 24px;border-bottom:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:700">Which child(ren) are joining?</div>
+        </div>
+        <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px">
+          ${kids.map(k=>`
+            <label style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg);border-radius:10px;cursor:pointer">
+              <input type="checkbox" value="${k.id}" class="kp-cb" checked style="accent-color:var(--teal);width:18px;height:18px"/>
+              <span style="font-weight:600;font-size:15px">${k.first_name} ${k.last_name}</span>
+            </label>`).join('')}
+        </div>
+        <div style="padding:0 24px 20px;display:flex;gap:10px">
+          <button class="btn btn-primary" style="flex:1" onclick="
+            const ids=[...(document.querySelectorAll('.kp-cb:checked'))].map(c=>c.value);
+            document.getElementById('kid-picker-modal').remove();
+            window._kp_resolve(ids)">Join Carpool</button>
+          <button class="btn btn-secondary" onclick="document.getElementById('kid-picker-modal').remove();window._kp_resolve(null)">Cancel</button>
+        </div>
+      </div>`
+    window._kp_resolve = val => resolve(val)
+    overlay.addEventListener('click', e=>{ if(e.target===overlay){ overlay.remove(); resolve(null) }})
+    document.body.appendChild(overlay)
+  })
+}
+
+async function portalJoinCarpool(){ /* legacy stub */ }
+
 </script>
 </body>
 </html>

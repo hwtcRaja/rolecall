@@ -861,19 +861,33 @@ def execute(conn, sql, params=()):
         c.execute(sql, params)
 
 def get_waiver_summary(conn, vol_id):
+    from datetime import date as _date, datetime as _datetime
     waivers = fetchall(conn,
         'SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.volunteer_id=%s ORDER BY vw.signed_date DESC',
         (vol_id,))
-    today = date.today()
+    today = _date.today()
+    # Check required waivers first
+    required = fetchall(conn, 'SELECT id FROM waiver_types WHERE required_for_volunteering=TRUE OR required_all=TRUE')
+    signed_type_ids = set(w['waiver_type_id'] for w in waivers)
+    has_missing_required = any(r['id'] not in signed_type_ids for r in required)
+
     worst = 'none'
     for w in waivers:
         if not w['expiry_date']:
             if worst == 'none': worst = 'valid'
             continue
-        diff = (datetime.strptime(w['expiry_date'], '%Y-%m-%d').date() - today).days
+        try:
+            diff = (_datetime.strptime(str(w['expiry_date'])[:10], '%Y-%m-%d').date() - today).days
+        except Exception:
+            if worst == 'none': worst = 'valid'
+            continue
         if diff < 0: worst = 'expired'; break
         elif diff < 30 and worst != 'expired': worst = 'expiring'
         elif worst == 'none': worst = 'valid'
+
+    # If missing a required waiver, downgrade to expired (worst)
+    if has_missing_required and worst not in ('expired',):
+        worst = 'expired'
     return worst, waivers
 
 # ─────────────────────────────────────────────

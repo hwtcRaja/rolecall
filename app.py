@@ -5015,15 +5015,23 @@ def portal_get_carpools():
 def portal_join_carpool():
     d = request.json or {}
     code       = (d.get('code') or '').strip().upper()
+    carpool_id = d.get('carpool_id','').strip()
     youth_ids  = d.get('youth_ids', [])
     passphrase = (d.get('passphrase') or '').strip().lower()
-    if not code or not youth_ids:
-        return jsonify({'error': 'Carpool code and at least one child required'}), 400
+    if not youth_ids:
+        return jsonify({'error': 'At least one child required'}), 400
     conn = get_db()
-    carpool = fetchone(conn, "SELECT * FROM carpools WHERE UPPER(code)=%s AND status='open'", (code,))
+    # Find carpool by ID or code
+    if carpool_id:
+        carpool = fetchone(conn, "SELECT * FROM carpools WHERE id=%s AND status='open'", (carpool_id,))
+    elif code:
+        carpool = fetchone(conn, "SELECT * FROM carpools WHERE UPPER(code)=%s AND status='open'", (code,))
+    else:
+        conn.close()
+        return jsonify({'error': 'Carpool ID or code required'}), 400
     if not carpool:
         conn.close()
-        return jsonify({'error': 'Invalid or closed carpool code'}), 404
+        return jsonify({'error': 'Carpool not found or no longer open'}), 404
     added = 0
     for yid in youth_ids:
         mid = str(uuid.uuid4())
@@ -5034,7 +5042,7 @@ def portal_join_carpool():
         except Exception: pass
     conn.commit()
     carpool = fetchone(conn, 'SELECT * FROM carpools WHERE id=%s', (carpool['id'],))
-    carpool['members'] = fetchall(conn, 'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s', (carpool['id'],))
+    carpool['members'] = fetchall(conn, 'SELECT cm.id, cm.youth_id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s', (carpool['id'],))
     conn.close()
     return jsonify({'ok': True, 'added': added, 'carpool': carpool})
 

@@ -816,19 +816,25 @@ function renderWaiverCheck(fromMenu,allClear){
     return
   }
   document.getElementById('wc-title').textContent=`${waiverIssues.length} Waiver${waiverIssues.length>1?'s':''} Need Attention`
-  document.getElementById('wc-sub').textContent=fromMenu?'Tap to sign any waiver':'Please review before continuing'
+  document.getElementById('wc-sub').textContent=fromMenu?'Tap to sign any waiver':'These waivers are required before volunteering'
   updateWaiverMenuBtn(waiverIssues.length)
   content.innerHTML=waiverIssues.map((w,i)=>`
     <div class="waiver-issue">
-      <div class="wtag ${w.status==='expired'?'wtag-exp':'wtag-miss'}">${w.status==='expired'?'❌ Expired':'⚠️ '+w.status.charAt(0).toUpperCase()+w.status.slice(1)}</div>
+      <div class="wtag ${w.status==='expired'?'wtag-exp':'wtag-miss'}">${w.status==='expired'?'❌ Expired':'⚠️ Missing'}</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:4px">${w.name}</div>
       ${w.description?`<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${w.description}</div>`:''}
       ${w.can_sign_online
         ?`<button class="wsign-btn" onclick="startSign(${i})">✍️ Sign Now</button>`
         :`<div style="font-size:13px;color:var(--muted)">This waiver requires an uploaded document. See an administrator.</div>`}
-      ${!fromMenu?`<button class="wskip-btn" onclick="goVolMenu()">Skip for now</button>`:''}
     </div>`).join('')+
-  `<button onclick="${fromMenu?'showScreen(\'screen-vol-menu\')':'goVolMenu()'}" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;width:100%;max-width:620px;margin-top:4px">${fromMenu?'← Back to Menu':'Continue →'}</button>`
+  (fromMenu
+    ? `<button onclick="showScreen('screen-vol-menu')" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;width:100%;max-width:620px;margin-top:4px">← Back to Menu</button>`
+    : `<div style="background:var(--red-light);border:2px solid #FCA5A5;border-radius:var(--radius);padding:14px;text-align:center;max-width:620px;width:100%;margin-top:8px">
+        <div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px">⚠️ Waivers required to volunteer</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Please sign the waivers above, or see an administrator for documents that require uploading.</div>
+        <button onclick="showScreen('screen-search')" style="background:none;border:none;color:var(--muted);font-family:inherit;font-size:13px;cursor:pointer;text-decoration:underline">← Go Back</button>
+      </div>`
+  )
 }
 
 function updateWaiverMenuBtn(count){

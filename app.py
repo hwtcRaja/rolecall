@@ -4652,7 +4652,13 @@ def get_carpools():
     if event_id:
         rows = fetchall(conn, 'SELECT c.*, COUNT(cm.id) as member_count FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id WHERE c.event_id=%s GROUP BY c.id ORDER BY c.name', (event_id,))
     else:
-        rows = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count, e.name as event_name, e.event_date FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id LEFT JOIN events e ON c.event_id=e.id WHERE e.event_date >= CURRENT_DATE - INTERVAL '1 day' GROUP BY c.id, e.name, e.event_date ORDER BY e.event_date DESC, c.name")
+        rows = fetchall(conn, """SELECT c.*, COUNT(cm.id) as member_count,
+            e.name as event_name, e.event_date
+            FROM carpools c
+            LEFT JOIN carpool_members cm ON cm.carpool_id=c.id
+            LEFT JOIN events e ON c.event_id=e.id
+            GROUP BY c.id, e.name, e.event_date
+            ORDER BY e.event_date DESC NULLS LAST, c.name""")
     for row in rows:
         row['members'] = fetchall(conn, 'SELECT cm.*, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s ORDER BY y.last_name, y.first_name', (row['id'],))
     conn.close()

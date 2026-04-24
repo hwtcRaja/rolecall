@@ -208,10 +208,10 @@ body{
 </div>
 
 <!-- Announcement banner (hidden until triggered) -->
-<div id="announce-banner">
+<div id="announce-banner" onclick="dismissAnnouncement()" style="cursor:pointer" title="Tap to dismiss">
   <div class="announce-name" id="announce-name"></div>
   <div class="announce-msg" id="announce-msg"></div>
-  <div class="announce-timer" id="announce-timer"></div>
+  <div class="announce-timer" id="announce-timer" style="font-size:11px;opacity:0.5;margin-top:4px">tap to dismiss</div>
 </div>
 
 <!-- Main content -->
@@ -310,6 +310,16 @@ function playChime(type='individual'){
   }
 }
 
+function dismissAnnouncement(){
+  clearInterval(announceCountdown)
+  announceCountdown = null
+  window.speechSynthesis?.cancel()
+  document.getElementById('announce-banner').classList.remove('visible')
+  document.getElementById('main-grid').classList.remove('announcing')
+  isAnnouncing = false
+  announceQueue = []  // clear queue too
+}
+
 // ── Announce queue ──
 function queueAnnouncement(name, type='individual'){
   announceQueue.push({name, type})
@@ -388,12 +398,13 @@ function showAnnouncement(name, type='individual'){
   clearInterval(announceCountdown)
   announceCountdown = setInterval(()=>{
     secs--
-    timerEl.textContent = ''
     if(secs <= 0){
       clearInterval(announceCountdown)
+      announceCountdown = null
       window.speechSynthesis?.cancel()
       banner.classList.remove('visible')
       grid.classList.remove('announcing')
+      isAnnouncing = false
       setTimeout(processNextAnnouncement, 600)
     }
   }, 1000)
@@ -427,23 +438,29 @@ function render(data){
   const individuals = data.individuals || []
   const carpools    = data.carpools    || []
 
-  // Detect new pickups for announcements
-  const waiting = individuals.filter(r => !r.signed_out_at)
+  // Build current signed-in set FIRST (individuals + carpool kids)
+  const waiting  = individuals.filter(r => !r.signed_out_at)
   const pickedUp = individuals.filter(r => !!r.signed_out_at)
   const currentSignedIn = new Set(waiting.map(r=>r.id))
-  individuals.forEach(r=>{
-    if(r.signed_out_at && prevSignedIn.has(r.id)) queueAnnouncement(r.first_name, 'individual')
-  })
-  carpools.forEach(cp=>{
-    // For carpools, announce the carpool name not individual kids
-    const kidsJustPickedUp = (cp.kids||[]).filter(k=>k.signed_out_at && prevSignedIn.has('cp-'+k.youth_id))
-    if(kidsJustPickedUp.length > 0){
-      // Announce once for the whole carpool with driver name
-      queueAnnouncement(`${cp.carpool_name} — ${cp.driver_name}`, 'carpool')
-    }
-  })
-  prevSignedIn = currentSignedIn
   carpools.forEach(cp => (cp.kids||[]).filter(k=>!k.signed_out_at).forEach(k=> currentSignedIn.add('cp-'+k.youth_id)))
+
+  // Only announce on FIRST render (prevSignedIn is populated) and when something changed
+  if(prevSignedIn.size > 0){
+    individuals.forEach(r=>{
+      // Was signed in last poll, now signed out → announce pickup
+      if(r.signed_out_at && prevSignedIn.has(r.id)){
+        queueAnnouncement(r.first_name, 'individual')
+      }
+    })
+    carpools.forEach(cp=>{
+      const kidsJustPickedUp = (cp.kids||[]).filter(k=>k.signed_out_at && prevSignedIn.has('cp-'+k.youth_id))
+      if(kidsJustPickedUp.length > 0){
+        queueAnnouncement(`${cp.carpool_name} — ${cp.driver_name}`, 'carpool')
+      }
+    })
+  }
+
+  prevSignedIn = currentSignedIn
 
   renderWaiting(waiting, carpools)
   renderPickedUp(pickedUp, carpools)

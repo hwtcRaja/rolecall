@@ -3255,18 +3255,25 @@ def portal_debug(passphrase):
     conn = get_db()
     pp = passphrase.strip().lower()
     family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (pp,))
-    youth_by_pp = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (pp,))
+    youth_by_pp = fetchone(conn, 'SELECT id, first_name, last_name, family_id, passphrase FROM youth_participants WHERE LOWER(passphrase)=%s', (pp,))
     result = {'passphrase': pp, 'family': family, 'youth_by_passphrase': youth_by_pp}
+
+    def get_youth_data(yid):
+        prods = fetchall(conn, '''SELECT ypm.youth_id, ypm.id as member_id, p.id as prod_id, p.name as prod_name, p.stage
+            FROM youth_production_members ypm
+            JOIN productions p ON ypm.production_id=p.id WHERE ypm.youth_id=%s''', (yid,))
+        enrolments = fetchall(conn, '''SELECT ype.youth_id, yp.name as prog_name FROM youth_program_enrollments ype
+            JOIN youth_programs yp ON ype.program_id=yp.id WHERE ype.youth_id=%s''', (yid,))
+        return {'productions': prods, 'enrollments': enrolments}
+
     if family:
-        members = fetchall(conn, 'SELECT id, first_name, last_name, family_id, passphrase FROM youth_participants WHERE family_id=%s', (family['id'],))
+        members = fetchall(conn, 'SELECT id, first_name, last_name, family_id FROM youth_participants WHERE family_id=%s', (family['id'],))
         result['family_members'] = members
         for m in members:
-            prods = fetchall(conn, '''SELECT ypm.*, p.name as prod_name FROM youth_production_members ypm
-                JOIN productions p ON ypm.production_id=p.id WHERE ypm.youth_id=%s''', (m['id'],))
-            enrolments = fetchall(conn, '''SELECT ype.*, yp.name as prog_name FROM youth_program_enrollments ype
-                JOIN youth_programs yp ON ype.program_id=yp.id WHERE ype.youth_id=%s''', (m['id'],))
-            m['productions'] = prods
-            m['enrollments'] = enrolments
+            m.update(get_youth_data(m['id']))
+    if youth_by_pp:
+        result['individual_data'] = get_youth_data(youth_by_pp['id'])
+
     conn.close()
     return jsonify(result)
 def portal_youth_profile(yid):

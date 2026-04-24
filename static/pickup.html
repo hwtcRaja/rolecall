@@ -435,23 +435,27 @@ function renderWaiting(waiting, carpools){
       const gone    = (cp.kids||[]).filter(k=>!!k.signed_out_at)
       if(!present.length) return ''
       return `<div class="participant" style="flex-direction:column;align-items:stretch;padding:16px 20px;border-left:4px solid #60a5fa;background:rgba(96,165,250,0.08)">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:${present.length>1?10:0}px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
           <div style="font-size:28px">🚗</div>
           <div style="flex:1">
             <div class="p-name">${cp.carpool_name}</div>
-            <div class="p-guardian" style="color:rgba(255,255,255,0.55)">
-              Driver: ${cp.driver_name}${cp.driver_phone?' · '+cp.driver_phone:''}
-              &nbsp;·&nbsp; <span style="background:rgba(96,165,250,0.2);padding:1px 7px;border-radius:10px;font-weight:700;font-family:monospace">${cp.carpool_code}</span>
-            </div>
+            <div class="p-guardian" style="color:rgba(255,255,255,0.55)">Driver: ${cp.driver_name}${cp.driver_phone?' · '+cp.driver_phone:''}</div>
           </div>
-          <div style="text-align:right">
-            <div style="font-size:20px;font-weight:800;color:#93c5fd">${present.length}</div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:22px;font-weight:900;color:#93c5fd">${present.length}</div>
             <div style="font-size:11px;color:rgba(255,255,255,0.4)">waiting</div>
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;${present.length>1?'':'display:none'}">
-          ${present.map(k=>`<span style="background:rgba(255,255,255,0.1);border-radius:20px;padding:4px 12px;font-size:13px;font-weight:600">${k.first_name} ${(k.last_name||'')[0]||''}.</span>`).join('')}
-          ${gone.map(k=>`<span style="background:rgba(255,255,255,0.04);border-radius:20px;padding:4px 12px;font-size:13px;color:rgba(255,255,255,0.3);text-decoration:line-through">${k.first_name} ${(k.last_name||'')[0]||''}.</span>`).join('')}
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${present.map(k=>`
+            <div style="background:rgba(255,255,255,0.12);border-radius:12px;padding:7px 14px;display:flex;align-items:center;gap:8px">
+              <div style="width:30px;height:30px;border-radius:50%;background:rgba(96,165,250,0.5);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">${(k.first_name||'?')[0]}${(k.last_name||'?')[0]}</div>
+              <span style="font-size:14px;font-weight:600;color:#fff">${k.first_name} ${k.last_name||''}</span>
+            </div>`).join('')}
+          ${gone.map(k=>`
+            <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:7px 14px;opacity:0.4">
+              <span style="font-size:13px;color:rgba(255,255,255,0.4);text-decoration:line-through">${k.first_name} ${(k.last_name||'')[0]||''}</span>
+            </div>`).join('')}
         </div>
       </div>`
     }).join('')
@@ -514,7 +518,10 @@ async function poll(){
   try {
     const res = await fetch('/api/pickup/queue', {cache:'no-store'})
     if(!res.ok) throw new Error('HTTP '+res.status)
-    const data = await res.json()
+    const text = await res.text()
+    if(!text.trim()) throw new Error('Empty response')
+    let data
+    try { data = JSON.parse(text) } catch(e) { throw new Error('Bad JSON') }
     render(data)
     document.getElementById('conn-dot').className = ''
     document.getElementById('conn-label').textContent = 'Live'
@@ -522,6 +529,7 @@ async function poll(){
   } catch(e){
     document.getElementById('conn-dot').className = 'offline'
     document.getElementById('conn-label').textContent = 'Reconnecting…'
+    console.error('Pickup queue error:', e)
   }
 }
 

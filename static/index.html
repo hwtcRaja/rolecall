@@ -8852,14 +8852,16 @@ async function loadCarpoolsPage(){
 
   const [carpools, events] = await Promise.all([
     api('/api/carpools'),
-    api('/api/events')
+    api('/api/events?all=1')
   ])
 
   _allCarpoolsData = Array.isArray(carpools) ? carpools : []
-  // Only youth-linked events
-  _allCarpoolEvents = Array.isArray(events)
-    ? events.filter(e => e.production_id || e.program_id)
-    : []
+  // All events that have a production or program (youth events)
+  const allEvts = Array.isArray(events) ? events : (Array.isArray(allEvents) ? allEvents : [])
+  _allCarpoolEvents = allEvts.filter(e => e.production_id || e.program_id)
+  // Also include any event that already has a carpool
+  const carpoolEventIds = new Set(_allCarpoolsData.map(c => c.event_id).filter(Boolean))
+  allEvts.forEach(e => { if(carpoolEventIds.has(e.id) && !_allCarpoolEvents.find(x=>x.id===e.id)) _allCarpoolEvents.push(e) })
 
   // Populate event filter
   const sel = document.getElementById('carpools-event-filter')

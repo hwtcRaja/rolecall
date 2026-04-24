@@ -141,6 +141,11 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 
 /* ELIC MENU */
 #screen-elic-menu{background:var(--bg)}
+#screen-elic-youth-signin{background:var(--bg)}
+#screen-eys-auth{background:var(--bg)}
+#screen-eys-new{background:var(--bg)}
+#screen-prod-signin{background:var(--bg)}
+#screen-prod-signout{background:var(--bg)}
 .elic-bar{background:linear-gradient(135deg,var(--teal-dark),var(--teal));border-radius:var(--radius);padding:16px 20px;width:100%;max-width:680px;display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;box-shadow:var(--shadow)}
 .elic-name{font-size:18px;font-weight:700;color:#fff}
 .elic-role{font-size:13px;color:rgba(255,255,255,0.65)}
@@ -1415,15 +1420,15 @@ function setEysTab(tab){
   document.getElementById('eys-panel-carpools').style.display = tab==='carpools' ? '' : 'none'
   const rBtn = document.getElementById('eys-tab-roster')
   const cBtn = document.getElementById('eys-tab-carpools')
-  if(rBtn){ rBtn.style.borderBottomColor = tab==='roster'   ? '#fff' : 'transparent'; rBtn.style.color = tab==='roster'   ? '#fff' : 'rgba(255,255,255,0.5)' }
-  if(cBtn){ cBtn.style.borderBottomColor = tab==='carpools' ? '#fff' : 'transparent'; cBtn.style.color = tab==='carpools' ? '#fff' : 'rgba(255,255,255,0.5)' }
+  if(rBtn){ rBtn.style.borderBottomColor = tab==='roster'   ? 'var(--teal)' : 'transparent'; rBtn.style.color = tab==='roster'   ? 'var(--teal-dark)' : 'var(--muted)' }
+  if(cBtn){ cBtn.style.borderBottomColor = tab==='carpools' ? 'var(--teal)' : 'transparent'; cBtn.style.color = tab==='carpools' ? 'var(--teal-dark)' : 'var(--muted)' }
   if(tab==='carpools') loadEysCarpools()
 }
 
 async function loadEysCarpools(){
   const el = document.getElementById('eys-carpools-list')
   if(!el) return
-  el.innerHTML = '<div style="text-align:center;padding:32px;color:rgba(255,255,255,0.5)">Loading carpools…</div>'
+  el.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">Loading carpools…</div>'
   try {
     const r = await fetch(`/api/carpools?event_id=${eysEventId}`)
     eysCarpools = await r.json()
@@ -1438,7 +1443,7 @@ function renderEysCarpools(){
   const el = document.getElementById('eys-carpools-list')
   if(!el) return
   if(!eysCarpools.length){
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.5)"><div style="font-size:32px;margin-bottom:10px">🚗</div><div>No carpools for this event</div></div>'
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:10px">🚗</div><div>No carpools for this event</div></div>'
     return
   }
   el.innerHTML = eysCarpools.map(cp=>{
@@ -1446,20 +1451,21 @@ function renderEysCarpools(){
     const presentIds = new Set(eysRoster.filter(r=>!r.signed_out_at).map(r=>r.youth_id))
     const present = members.filter(m=>presentIds.has(m.youth_id||m.id))
     const notHere  = members.filter(m=>!presentIds.has(m.youth_id||m.id))
-    return `<div style="background:rgba(255,255,255,0.08);border:2px solid rgba(255,255,255,0.15);border-radius:var(--radius-lg);padding:18px;margin-bottom:12px">
+    return `<div style="background:var(--surface);border:2px solid var(--border);border-left:4px solid #3b82f6;border-radius:var(--radius-lg);padding:18px;margin-bottom:12px;box-shadow:var(--shadow)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1">
-          <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:4px">🚗 ${cp.name}</div>
-          <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:10px">
-            Driver: <strong style="color:rgba(255,255,255,0.85)">${cp.driver_name}</strong>
+          <div style="font-size:17px;font-weight:700;color:var(--teal-dark);margin-bottom:4px">🚗 ${cp.name}</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+            Driver: <strong style="color:var(--text)">${cp.driver_name}</strong>
             ${cp.driver_phone?` · ${cp.driver_phone}`:''}
-            · ${present.length}/${members.length} here
+            <span style="margin-left:8px;font-weight:600;color:${present.length?'var(--green)':'var(--hint)'}">
+              ${present.length}/${members.length} here
+            </span>
           </div>
-          <!-- Kids list -->
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
             ${members.map(m=>{
               const here = presentIds.has(m.youth_id||m.id)
-              return `<span style="background:${here?'rgba(134,239,172,0.2)':'rgba(255,255,255,0.1)'};border:1px solid ${here?'#86EFAD':'rgba(255,255,255,0.2)'};border-radius:20px;padding:4px 12px;font-size:13px;font-weight:600;color:${here?'#86EFAD':'rgba(255,255,255,0.6)'}">
+              return `<span style="background:${here?'var(--green-light)':'var(--bg)'};border:1.5px solid ${here?'#86EFAD':'var(--border)'};border-radius:20px;padding:5px 12px;font-size:13px;font-weight:600;color:${here?'var(--green)':'var(--muted)'}">
                 ${here?'✓ ':''}${m.first_name} ${(m.last_name||'')[0]||''}.
               </span>`
             }).join('')}
@@ -1470,7 +1476,7 @@ function renderEysCarpools(){
             style="background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);padding:12px 18px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap">
             Pick Up All
           </button>` : `
-          <span style="font-size:12px;color:rgba(255,255,255,0.3);padding:12px">Not here yet</span>`}
+          <span style="font-size:12px;color:var(--hint);padding:12px">Not here yet</span>`}
       </div>
     </div>`
   }).join('')
@@ -1883,13 +1889,13 @@ function showConfirm(icon,title,sub,note,onBack){
   </div>
   <div style="width:100%;max-width:720px">
     <!-- Tabs -->
-    <div style="display:flex;border-bottom:2px solid rgba(255,255,255,0.2);margin-bottom:16px">
+    <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
       <button id="eys-tab-roster" onclick="setEysTab('roster')"
-        style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:#fff;border-bottom:3px solid #fff;margin-bottom:-2px">
+        style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--teal-dark);border-bottom:3px solid var(--teal);margin-bottom:-2px">
         👶 Participants
       </button>
       <button id="eys-tab-carpools" onclick="setEysTab('carpools')"
-        style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:rgba(255,255,255,0.5);border-bottom:3px solid transparent;margin-bottom:-2px">
+        style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px">
         🚗 Carpools
       </button>
     </div>
@@ -1900,10 +1906,10 @@ function showConfirm(icon,title,sub,note,onBack){
         <div id="eys-stats" style="font-size:14px;color:var(--muted)"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <input type="text" id="eys-search" placeholder="Search…" oninput="filterEysRoster()"
-            style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:160px"/>
-          <div style="display:flex;gap:2px;background:rgba(255,255,255,0.3);border-radius:var(--radius);padding:2px">
-            <button id="eys-view-card" onclick="setEysView('card')" style="padding:8px 12px;background:rgba(255,255,255,0.9);border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">⊞</button>
-            <button id="eys-view-list" onclick="setEysView('list')" style="padding:8px 12px;background:transparent;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:rgba(255,255,255,0.7)">☰</button>
+            style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:160px;background:var(--surface);color:var(--text)"/>
+          <div style="display:flex;gap:2px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:2px">
+            <button id="eys-view-card" onclick="setEysView('card')" style="padding:8px 12px;background:var(--surface);border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--text)">⊞</button>
+            <button id="eys-view-list" onclick="setEysView('list')" style="padding:8px 12px;background:transparent;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted)">☰</button>
           </div>
         </div>
       </div>

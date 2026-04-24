@@ -436,9 +436,12 @@ async function loadChildData(yid){
   document.getElementById('family-content').style.display = 'none'
   try{
     const d = await fetch('/api/portal/participant/'+yid).then(r=>r.json())
+    console.log('[Portal] loadChildData response for', yid, ':', d)
+    if(d._errors) console.warn('[Portal] DB errors:', d._errors)
     activeChildData = d
     renderFamilyContent()
   }catch(e){
+    console.error('[Portal] loadChildData error:', e)
     document.getElementById('family-loading').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div>Could not load data. Please try again.</div>'
   }
 }
@@ -447,6 +450,7 @@ function renderFamilyContent(){
   document.getElementById('family-loading').style.display = 'none'
   document.getElementById('family-content').style.display = ''
   const {enrollments=[], productions=[]} = activeChildData
+  console.log('[Portal] renderFamilyContent — enrollments:', enrollments.length, 'productions:', productions.length, 'raw:', activeChildData)
   const cards = document.getElementById('program-cards')
   if(!enrollments.length && !productions.length){
     cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📚</div>No programs or productions enrolled yet.</div>'

@@ -587,11 +587,21 @@ async function goBeginVolunteering(){
     const r = await fetch('/api/kiosk/events')
     const events = await r.json()
     if(!events.length){
-      grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No open events right now</div>'
+      grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No events scheduled for today</div>'
     } else {
       grid.innerHTML = events.map(e=>{
+        const isOpen = e.status === 'open'
         const autoLog = !!e.auto_log_hours
-        const badge = autoLog ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">⚡ Auto-Log Full Hours</div>' : ''
+        const badge = autoLog && isOpen ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">⚡ Auto-Log Full Hours</div>' : ''
+        const statusBadge = !isOpen ? `<div style="font-size:10px;font-weight:700;background:var(--bg);color:var(--muted);padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">🔒 Not open yet</div>` : ''
+        if(!isOpen){
+          // Show but greyed out and non-clickable
+          return `<div id="bv-evt-${e.id}" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--bg);font-family:inherit;font-size:13px;font-weight:600;text-align:left;opacity:0.5;cursor:not-allowed">
+            <div style="color:var(--muted)">${e.name}</div>
+            ${e.event_date?`<div style="font-size:11px;color:var(--hint);margin-top:2px">${fmtDate(e.event_date)}</div>`:''}
+            ${statusBadge}
+          </div>`
+        }
         return '<button id="bv-evt-'+e.id+'" onclick="bvSelectEvent('+JSON.stringify(e).replace(/"/g,'&quot;')+')" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left">'
           +'<div>'+e.name+'</div>'
           +(e.event_date?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtDate(e.event_date)+'</div>':'')

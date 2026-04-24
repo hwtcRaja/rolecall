@@ -345,6 +345,9 @@ def init_db():
     # Run migrations in separate try blocks so failures don't roll back table creation
     for col_sql in [
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_all BOOLEAN DEFAULT FALSE",
+        # Sync required_all from required_for_volunteering — they should be the same column
+        "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
+        "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS auto_log_hours BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT",
@@ -3780,7 +3783,7 @@ def kiosk_waiver_check():
     from datetime import date as _date
     today = _date.today()
     required = fetchall(conn, '''SELECT wt.* FROM waiver_types wt
-        WHERE wt.required_for_volunteering=TRUE''')
+        WHERE wt.required_for_volunteering=TRUE OR wt.required_all=TRUE''')
     issues = []
     for wt in required:
         signed = fetchone(conn, '''SELECT * FROM volunteer_waivers WHERE volunteer_id=%s AND waiver_type_id=%s
@@ -5549,10 +5552,16 @@ def toggle_waiver_required(tid):
     err = require_admin()
     if err: return err
     conn = get_db()
-    execute(conn, '''UPDATE waiver_types SET required_for_volunteering = NOT required_for_volunteering
+    # Toggle both columns — required_for_volunteering is used by kiosk, required_all by admin UI
+    execute(conn, '''UPDATE waiver_types
+        SET required_for_volunteering = NOT COALESCE(required_for_volunteering, FALSE),
+            required_all = NOT COALESCE(required_all, FALSE)
         WHERE id=%s''', (tid,))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    conn.commit()
+    row = fetchone(conn, 'SELECT required_for_volunteering, required_all FROM waiver_types WHERE id=%s', (tid,))
+    conn.close()
+    new_val = bool(row['required_for_volunteering']) if row else False
+    return jsonify({'ok': True, 'required_all': new_val, 'required_for_volunteering': new_val})
 
 # ── Donors missing routes ──
 @app.route('/api/donor-benefits')

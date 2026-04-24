@@ -4983,14 +4983,31 @@ def remove_carpool_member(cid, mid):
 def portal_get_carpools():
     event_id = request.args.get('event_id')
     conn = get_db()
-    if event_id:
-        carpools = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id WHERE c.event_id=%s AND c.status='open' GROUP BY c.id ORDER BY c.name", (event_id,))
-    else:
-        carpools = fetchall(conn, "SELECT c.*, COUNT(cm.id) as member_count, e.name as event_name, e.event_date FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id LEFT JOIN events e ON c.event_id=e.id WHERE c.status='open' AND e.event_date=CURRENT_DATE GROUP BY c.id, e.name, e.event_date ORDER BY e.name, c.name")
-    for c in carpools:
-        c['members'] = fetchall(conn, 'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s', (c['id'],))
-    conn.close()
-    return jsonify(carpools)
+    try:
+        if event_id:
+            carpools = fetchall(conn, """SELECT c.*, COUNT(cm.id) as member_count
+                FROM carpools c LEFT JOIN carpool_members cm ON cm.carpool_id=c.id
+                WHERE c.event_id=%s AND c.status='open'
+                GROUP BY c.id ORDER BY c.name""", (event_id,))
+        else:
+            carpools = fetchall(conn, """SELECT c.*, COUNT(cm.id) as member_count,
+                e.name as event_name, e.event_date
+                FROM carpools c
+                LEFT JOIN carpool_members cm ON cm.carpool_id=c.id
+                LEFT JOIN events e ON c.event_id=e.id
+                WHERE c.status='open'
+                AND (e.event_date IS NULL OR e.event_date >= CURRENT_DATE::text)
+                GROUP BY c.id, e.name, e.event_date ORDER BY e.name, c.name""")
+        for c in carpools:
+            c['members'] = fetchall(conn,
+                'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
+                (c['id'],))
+        conn.close()
+        return jsonify(carpools)
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'portal_get_carpools error: {e}')
+        return jsonify([])
 
 @app.route('/api/portal/carpools/join', methods=['POST'])
 def portal_join_carpool():

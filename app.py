@@ -3192,46 +3192,49 @@ def portal_contact_production():
 def portal_get_participant(yid):
     """Full data for a youth participant — enrollments, productions, announcements."""
     conn = get_db()
-    # Program enrollments
-    enrollments = fetchall(conn, '''SELECT ye.*, yp.name as program_name, yp.description,
-        yp.start_date, yp.end_date, yp.location,
-        v.name as instructor_name
-        FROM youth_enrollments ye
-        JOIN youth_programs yp ON ye.program_id=yp.id
-        LEFT JOIN volunteers v ON yp.instructor_id=v.id
-        WHERE ye.youth_id=%s AND ye.status='active'
-        ORDER BY yp.start_date DESC NULLS LAST''', (yid,))
+    try:
+        # Program enrollments — use correct table name
+        enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name,
+            yp.description
+            FROM youth_program_enrollments ype
+            JOIN youth_programs yp ON ype.program_id=yp.id
+            WHERE ype.youth_id=%s
+            ORDER BY ype.created_at DESC''', (yid,))
 
-    # Rising Stars productions
-    productions = fetchall(conn, '''SELECT p.*, ypm.role as cast_role, ypm.id as member_id
-        FROM youth_production_members ypm
-        JOIN productions p ON ypm.production_id=p.id
-        WHERE ypm.youth_id=%s ORDER BY p.start_date DESC NULLS LAST''', (yid,))
+        # Rising Stars productions
+        productions = fetchall(conn, '''SELECT p.*, ypm.role as cast_role, ypm.id as member_id
+            FROM youth_production_members ypm
+            JOIN productions p ON ypm.production_id=p.id
+            WHERE ypm.youth_id=%s ORDER BY p.start_date DESC NULLS LAST''', (yid,))
 
-    # Announcements for their productions
-    prod_ids = [p['id'] for p in productions]
-    announcements = []
-    if prod_ids:
-        placeholders = ','.join(['%s']*len(prod_ids))
-        announcements = fetchall(conn, f'''SELECT * FROM portal_announcements
-            WHERE production_id IN ({placeholders}) AND status='published'
-            ORDER BY created_at DESC''', tuple(prod_ids))
+        # Announcements for their productions
+        prod_ids = [p['id'] for p in productions]
+        announcements = []
+        if prod_ids:
+            placeholders = ','.join(['%s']*len(prod_ids))
+            announcements = fetchall(conn, f'''SELECT * FROM portal_announcements
+                WHERE production_id IN ({placeholders}) AND status='published'
+                ORDER BY created_at DESC''', tuple(prod_ids))
 
-    # Files
-    files = []
-    if prod_ids:
-        placeholders = ','.join(['%s']*len(prod_ids))
-        files = fetchall(conn, f'''SELECT * FROM portal_files
-            WHERE context_id IN ({placeholders})
-            ORDER BY created_at DESC''', tuple(prod_ids))
+        # Files
+        files = []
+        if prod_ids:
+            placeholders = ','.join(['%s']*len(prod_ids))
+            files = fetchall(conn, f'''SELECT * FROM portal_files
+                WHERE context_id IN ({placeholders})
+                ORDER BY created_at DESC''', tuple(prod_ids))
 
-    conn.close()
-    return jsonify({
-        'enrollments': enrollments,
-        'productions': productions,
-        'announcements': announcements,
-        'files': files,
-    })
+        conn.close()
+        return jsonify({
+            'enrollments': enrollments,
+            'productions': productions,
+            'announcements': announcements,
+            'files': files,
+        })
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'portal_get_participant error: {e}')
+        return jsonify({'enrollments': [], 'productions': [], 'announcements': [], 'files': [], 'error': str(e)})
 
 @app.route('/api/portal/youth/<yid>/profile')
 def portal_youth_profile(yid):

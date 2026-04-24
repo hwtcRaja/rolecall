@@ -4885,23 +4885,28 @@ def get_youth_sign_ins():
 @app.route('/api/youth-sign-ins', methods=['POST'])
 def create_youth_sign_in():
     d = request.json or {}
-    yid      = d.get('youth_id')
-    event_id = d.get('event_id')
+    yid          = d.get('youth_id')
+    event_id     = d.get('event_id')
     signed_in_by = d.get('signed_in_by', '')
     if not yid: return jsonify({'error': 'Missing youth_id'}), 400
     conn = get_db()
     # Check not already signed in
     existing = fetchone(conn,
-        'SELECT id FROM youth_sign_ins WHERE youth_id=%s AND event_id=%s AND signed_out_at IS NULL',
+        'SELECT ysi.*, y.first_name, y.last_name FROM youth_sign_ins ysi JOIN youth_participants y ON ysi.youth_id=y.id WHERE ysi.youth_id=%s AND ysi.event_id=%s AND ysi.signed_out_at IS NULL',
         (yid, event_id))
     if existing:
         conn.close()
-        return jsonify({'error': 'Already signed in', 'sign_in_id': existing['id']})
+        return jsonify(existing)  # return existing record, not error
     sid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO youth_sign_ins (id,youth_id,event_id,signed_in_at,signed_in_by)
         VALUES (%s,%s,%s,NOW(),%s)''', (sid, yid, event_id, signed_in_by))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'sign_in_id': sid})
+    conn.commit()
+    row = fetchone(conn, '''SELECT ysi.*, y.first_name, y.last_name
+        FROM youth_sign_ins ysi
+        JOIN youth_participants y ON ysi.youth_id=y.id
+        WHERE ysi.id=%s''', (sid,))
+    conn.close()
+    return jsonify(row)
 
 @app.route('/api/youth-sign-ins/<sid>/sign-out', methods=['POST'])
 def youth_sign_out(sid):
@@ -4910,8 +4915,13 @@ def youth_sign_out(sid):
     conn = get_db()
     execute(conn, 'UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by=%s WHERE id=%s',
         (signed_out_by, sid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    conn.commit()
+    row = fetchone(conn, '''SELECT ysi.*, y.first_name, y.last_name
+        FROM youth_sign_ins ysi
+        JOIN youth_participants y ON ysi.youth_id=y.id
+        WHERE ysi.id=%s''', (sid,))
+    conn.close()
+    return jsonify(row or {'ok': True, 'id': sid, 'signed_out_at': 'now'})
 
 
 # ─────────────────────────────────────────────
@@ -5072,47 +5082,58 @@ def portal_join_carpool():
 @app.route('/api/pickup/queue')
 def pickup_queue():
     conn = get_db()
-    individuals = fetchall(conn, """
-        SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
-        FROM youth_sign_ins ysi
-        JOIN youth_participants y ON ysi.youth_id=y.id
-        LEFT JOIN events e ON ysi.event_id=e.id
-        WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
-        AND NOT EXISTS (
-            SELECT 1 FROM carpool_members cm
-            JOIN carpools cp ON cm.carpool_id=cp.id
-            WHERE cm.youth_id=ysi.youth_id AND cp.event_id=ysi.event_id
-        )
-        ORDER BY e.name, y.last_name, y.first_name
-    """)
-    carpools_rows = fetchall(conn, """
-        SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
-               cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
-               COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) as signed_in_count,
-               COUNT(DISTINCT cm.id) as total_members
-        FROM carpools cp
-        JOIN events e ON cp.event_id=e.id
-        LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
-        LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
-            AND ysi.event_id=cp.event_id
-            AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
-        WHERE e.event_date = CURRENT_DATE
-        GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
-        HAVING COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) > 0
-        ORDER BY cp.name
-    """)
-    for cp in carpools_rows:
-        cp['kids'] = fetchall(conn, """
-            SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
-                   y.first_name, y.last_name, cm.id as member_id
-            FROM carpool_members cm
-            JOIN youth_participants y ON cm.youth_id=y.id
+    try:
+        individuals = fetchall(conn, """
+            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+            FROM youth_sign_ins ysi
+            JOIN youth_participants y ON ysi.youth_id=y.id
+            LEFT JOIN events e ON ysi.event_id=e.id
+            WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+            AND NOT EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN carpools cp ON cm.carpool_id=cp.id
+                WHERE cm.youth_id=ysi.youth_id AND cp.event_id=ysi.event_id
+            )
+            ORDER BY e.name, y.last_name, y.first_name
+        """)
+    except Exception as e:
+        app.logger.error(f'pickup_queue individuals error: {e}')
+        individuals = []
+
+    try:
+        today = __import__('datetime').date.today().isoformat()
+        carpools_rows = fetchall(conn, """
+            SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
+                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
+                   COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) as signed_in_count,
+                   COUNT(DISTINCT cm.id) as total_members
+            FROM carpools cp
+            JOIN events e ON cp.event_id=e.id
+            LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
-                AND ysi.event_id=%s
+                AND ysi.event_id=cp.event_id
                 AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
-            WHERE cm.carpool_id=%s
-            ORDER BY y.last_name, y.first_name
-        """, (cp['event_id'], cp['carpool_id']))
+            WHERE e.event_date >= %s
+            GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
+            HAVING COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) > 0
+            ORDER BY cp.name
+        """, (today,))
+        for cp in carpools_rows:
+            cp['kids'] = fetchall(conn, """
+                SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
+                       y.first_name, y.last_name, cm.id as member_id
+                FROM carpool_members cm
+                JOIN youth_participants y ON cm.youth_id=y.id
+                LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
+                    AND ysi.event_id=%s
+                    AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+                WHERE cm.carpool_id=%s
+                ORDER BY y.last_name, y.first_name
+            """, (cp['event_id'], cp['carpool_id']))
+    except Exception as e:
+        app.logger.error(f'pickup_queue carpools error: {e}')
+        carpools_rows = []
+
     conn.close()
     return jsonify({'individuals': individuals, 'carpools': carpools_rows})
 

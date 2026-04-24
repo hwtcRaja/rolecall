@@ -201,9 +201,10 @@ body{
       <div class="header-sub"><span id="conn-dot"></span><span id="conn-label">Live</span></div>
     </div>
   </div>
-  <div>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
     <div class="header-time" id="clock">--:-- --</div>
     <div class="header-date" id="dateline"></div>
+    <button onclick="clearQueue()" style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:rgba(255,255,255,0.7);font-family:inherit;font-size:11px;font-weight:600;padding:4px 10px;cursor:pointer;letter-spacing:0.3px">⟳ Clear Queue</button>
   </div>
 </div>
 
@@ -309,6 +310,22 @@ function playChime(type='individual'){
     setTimeout(()=> playSequence(0.35), 1100)
     setTimeout(()=> playSequence(0.2),  2000)
   }
+}
+
+async function clearQueue(){
+  if(!confirm('Sign out everyone still waiting? This will clear the entire pickup queue.')) return
+  await fetch('/api/pickup/clear',{method:'POST',headers:{'Content-Type':'application/json'}})
+  prevSignedOutIds = null  // reset baseline so no false announcements
+  await poll()
+}
+
+async function runCleanup(){
+  // Silently clear orphaned sign-ins (stuck in deleted/closed events)
+  try {
+    const r = await fetch('/api/pickup/cleanup',{method:'POST',headers:{'Content-Type':'application/json'}})
+    const d = await r.json()
+    if(d.cleared > 0) console.log(`Pickup cleanup: cleared ${d.cleared} orphaned sign-ins`)
+  } catch(e){ console.log('Cleanup skipped:', e) }
 }
 
 function dismissAnnouncement(){
@@ -631,6 +648,7 @@ function startDisplay(){
     window.speechSynthesis.cancel()
   }
   document.getElementById('start-overlay').style.display = 'none'
+  runCleanup()  // clear orphaned sign-ins silently on startup
   poll()
 }
 </script>

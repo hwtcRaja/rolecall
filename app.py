@@ -2913,8 +2913,10 @@ def get_pending_hours():
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT ph.*, v.name as volunteer_name
-        FROM pending_hours ph LEFT JOIN volunteers v ON ph.volunteer_id=v.id
-        WHERE ph.status='pending' ORDER BY ph.created_at DESC''')
+        FROM pending_hours ph
+        LEFT JOIN volunteers v ON ph.volunteer_id=v.id
+        WHERE ph.status IN ('pending','pending_review','pending_profile')
+        ORDER BY ph.submitted_at DESC NULLS LAST''')
     conn.close()
     return jsonify(rows)
 

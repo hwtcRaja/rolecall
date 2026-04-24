@@ -3874,6 +3874,12 @@ def kiosk_begin_session():
     role     = d.get('role','')
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
+    # Check event is open if one is specified
+    if event_id:
+        evt = fetchone(conn, 'SELECT status, name FROM events WHERE id=%s', (event_id,))
+        if evt and evt.get('status') != 'open':
+            conn.close()
+            return jsonify({'error': f'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
     if existing: conn.close(); return jsonify({'error': 'Already volunteering — please stop your current session first.'}), 400
     event_name = d.get('event_name','')
@@ -5098,12 +5104,17 @@ def portal_join_carpool():
 def pickup_queue():
     conn = get_db()
     try:
+        # Only show kids from OPEN events (or signed in within last 8 hours as fallback)
         individuals = fetchall(conn, """
             SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
             FROM youth_sign_ins ysi
             JOIN youth_participants y ON ysi.youth_id=y.id
             LEFT JOIN events e ON ysi.event_id=e.id
-            WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
+            WHERE ysi.signed_out_at IS NULL
+            AND (
+                (e.status = 'open')
+                OR (ysi.event_id IS NULL AND ysi.signed_in_at >= NOW() - INTERVAL '8 hours')
+            )
             AND NOT EXISTS (
                 SELECT 1 FROM carpool_members cm
                 JOIN carpools cp ON cm.carpool_id=cp.id
@@ -5111,12 +5122,27 @@ def pickup_queue():
             )
             ORDER BY e.name, y.last_name, y.first_name
         """)
+        # Also include recently signed-out kids (last 2 hours) so picked-up column updates
+        signed_out = fetchall(conn, """
+            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+            FROM youth_sign_ins ysi
+            JOIN youth_participants y ON ysi.youth_id=y.id
+            LEFT JOIN events e ON ysi.event_id=e.id
+            WHERE ysi.signed_out_at IS NOT NULL
+            AND ysi.signed_out_at >= NOW() - INTERVAL '2 hours'
+            AND NOT EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN carpools cp ON cm.carpool_id=cp.id
+                WHERE cm.youth_id=ysi.youth_id AND cp.event_id=ysi.event_id
+            )
+            ORDER BY ysi.signed_out_at DESC
+        """)
+        individuals = individuals + signed_out
     except Exception as e:
         app.logger.error(f'pickup_queue individuals error: {e}')
         individuals = []
 
     try:
-        today = __import__('datetime').date.today().isoformat()
         carpools_rows = fetchall(conn, """
             SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
                    cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
@@ -5127,12 +5153,11 @@ def pickup_queue():
             LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
                 AND ysi.event_id=cp.event_id
-                AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
-            WHERE e.event_date >= %s
+            WHERE e.status = 'open'
             GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
-            HAVING COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) > 0
+            HAVING COUNT(DISTINCT cm.id) > 0
             ORDER BY cp.name
-        """, (today,))
+        """)
         for cp in carpools_rows:
             cp['kids'] = fetchall(conn, """
                 SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
@@ -5141,7 +5166,6 @@ def pickup_queue():
                 JOIN youth_participants y ON cm.youth_id=y.id
                 LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
                     AND ysi.event_id=%s
-                    AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
                 WHERE cm.carpool_id=%s
                 ORDER BY y.last_name, y.first_name
             """, (cp['event_id'], cp['carpool_id']))
@@ -5151,6 +5175,45 @@ def pickup_queue():
 
     conn.close()
     return jsonify({'individuals': individuals, 'carpools': carpools_rows})
+
+@app.route('/api/pickup/clear', methods=['POST'])
+def pickup_clear():
+    """Sign out everyone currently waiting — used for manual clear at end of day."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, """UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by='staff-clear'
+        WHERE signed_out_at IS NULL""")
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/pickup/cleanup', methods=['POST'])
+def pickup_cleanup():
+    """Clear orphaned sign-ins — kids stuck in deleted/closed events."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Sign out anyone in a closed or deleted event who is still marked as signed in
+    result = fetchone(conn, """
+        SELECT COUNT(*) as count FROM youth_sign_ins ysi
+        LEFT JOIN events e ON ysi.event_id=e.id
+        WHERE ysi.signed_out_at IS NULL
+        AND (e.id IS NULL OR e.status != 'open')
+    """)
+    count = result['count'] if result else 0
+    execute(conn, """UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by='auto-cleanup'
+        WHERE signed_out_at IS NULL
+        AND event_id IN (
+            SELECT id FROM events WHERE status != 'open'
+        )""")
+    execute(conn, """UPDATE youth_sign_ins SET signed_out_at=NOW(), signed_out_by='auto-cleanup'
+        WHERE signed_out_at IS NULL
+        AND event_id IS NOT NULL
+        AND event_id NOT IN (SELECT id FROM events)""")
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'cleared': count})
 
 @app.route('/api/pickup/carpool-signout', methods=['POST'])
 def carpool_signout():

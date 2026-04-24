@@ -432,6 +432,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars">⭐</span>Rising Stars</div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin">📝</span>Sign-In</div>
+        <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools">🚗</span>Carpools</div>
 
         <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
@@ -816,6 +817,30 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
       <!-- SIGN-IN SHEET -->
       <!-- YOUTH SIGN-IN SHEETS -->
+      <!-- CARPOOLS PAGE -->
+      <section class="page" id="page-carpools">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🚗 Carpools</div>
+            <div class="page-subtitle" id="carpools-page-subtitle">Manage carpools across all upcoming youth events</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="openCreateCarpoolForm(null)">+ New Carpool</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <!-- Filters -->
+          <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+            <select id="carpools-event-filter" onchange="filterCarpoolsPage()" style="padding:7px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;min-width:200px">
+              <option value="">All upcoming events</option>
+            </select>
+            <input type="text" id="carpools-search" oninput="filterCarpoolsPage()" placeholder="Search driver or carpool name…"
+              style="padding:7px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;flex:1;min-width:180px"/>
+          </div>
+          <div id="carpools-page-list"></div>
+        </div>
+      </section>
+
       <section class="page" id="page-youth-signin">
         <div class="page-header">
           <div><div class="page-title">Youth Sign-In</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
@@ -2326,6 +2351,7 @@ const NAV_PERM_MAP = {
   'rising-stars-page':'rising_stars',
   'portal-admin':     'portal_admin',
   'youth-signin':     'kiosk',
+  'carpools':         'youth',
   'event-logs':       'reports',
   'reports':          'reports',
   'notifications':    'settings',
@@ -2420,6 +2446,7 @@ function navTo(page,el){
   if(page==='rising-stars-page') renderRisingStarsPage()
   if(page==='program-detail') {}  // populated by openProgramDetail
   if(page==='youth-signin') initYouthSignIn()
+  if(page==='carpools') loadCarpoolsPage()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
   if(page==='portal-admin'){ renderPortalAdmin() }
@@ -4113,7 +4140,7 @@ async function loadSettings(){
 const NAV_ICON_DEFAULTS = {
   dashboard:'📊', volunteers:'👥', waivers:'📄', hours:'⏱', email:'✉️',
   events:'📅', productions:'🎬', 'cast-signin':'📋', youth:'👦', programs:'📚',
-  'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝',
+  'rising-stars':'⭐', 'portal-admin':'🏠', 'youth-signin':'📝', carpools:'🚗',
   'event-logs':'📋', notifications:'🔔', settings:'⚙️', reports:'📊',
   donors:'💛', 'donor-campaigns':'🎯', 'donor-tiers':'⭐', 'donor-templates':'✉️'
 }
@@ -8816,6 +8843,128 @@ function openEventDetail(eid){
 
 // ── CARPOOLS (Admin) ──
 let _carpoolFormEventId = null
+let _allCarpoolsData = []
+let _allCarpoolEvents = []
+
+async function loadCarpoolsPage(){
+  document.getElementById('carpools-page-list').innerHTML =
+    '<div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div>'
+
+  const [carpools, events] = await Promise.all([
+    api('/api/carpools'),
+    api('/api/events')
+  ])
+
+  _allCarpoolsData = Array.isArray(carpools) ? carpools : []
+  // Only youth-linked events
+  _allCarpoolEvents = Array.isArray(events)
+    ? events.filter(e => e.production_id || e.program_id)
+    : []
+
+  // Populate event filter
+  const sel = document.getElementById('carpools-event-filter')
+  if(sel){
+    const existing = [...sel.options].map(o=>o.value)
+    _allCarpoolEvents.forEach(e=>{
+      if(!existing.includes(e.id)){
+        const opt = document.createElement('option')
+        opt.value = e.id
+        opt.textContent = (e.name||'Event') + (e.event_date?' — '+formatDate(e.event_date):'')
+        sel.appendChild(opt)
+      }
+    })
+  }
+
+  const sub = document.getElementById('carpools-page-subtitle')
+  if(sub) sub.textContent = `${_allCarpoolsData.length} carpool${_allCarpoolsData.length!==1?'s':''} across upcoming events`
+
+  filterCarpoolsPage()
+}
+
+function filterCarpoolsPage(){
+  const eventFilter = document.getElementById('carpools-event-filter')?.value || ''
+  const search = (document.getElementById('carpools-search')?.value || '').toLowerCase()
+  const el = document.getElementById('carpools-page-list')
+  if(!el) return
+
+  let filtered = _allCarpoolsData
+  if(eventFilter) filtered = filtered.filter(c => c.event_id === eventFilter)
+  if(search) filtered = filtered.filter(c =>
+    (c.name||'').toLowerCase().includes(search) ||
+    (c.driver_name||'').toLowerCase().includes(search) ||
+    (c.code||'').toLowerCase().includes(search)
+  )
+
+  if(!filtered.length){
+    el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
+      <div style="font-size:36px;margin-bottom:12px">🚗</div>
+      <div style="font-weight:600;margin-bottom:6px">No carpools found</div>
+      <div style="font-size:13px">Create a carpool from an event, or use the button above.</div>
+    </div>`
+    return
+  }
+
+  // Group by event
+  const byEvent = {}
+  filtered.forEach(c => {
+    const key = c.event_id || 'none'
+    if(!byEvent[key]) byEvent[key] = { event_name: c.event_name||'Unknown Event', event_date: c.event_date, carpools: [] }
+    byEvent[key].carpools.push(c)
+  })
+
+  el.innerHTML = Object.values(byEvent).map(group => `
+    <div style="margin-bottom:28px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <span>📅 ${escHtml(group.event_name)}</span>
+        ${group.event_date ? `<span style="font-weight:400">${formatDate(group.event_date)}</span>` : ''}
+      </div>
+      ${group.carpools.map(cp => `
+        <div class="card" style="padding:18px 20px;margin-bottom:10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+                <div style="font-size:16px;font-weight:700">🚗 ${escHtml(cp.name)}</div>
+                <code style="background:var(--teal-50);color:var(--teal-dark);padding:2px 10px;border-radius:6px;font-size:14px;font-weight:800;letter-spacing:1px">${cp.code}</code>
+                <span style="font-size:11px;background:${cp.status==='open'?'var(--green-50)':'var(--bg)'};color:${cp.status==='open'?'var(--green-600)':'var(--text-muted)'};padding:2px 8px;border-radius:20px;font-weight:700">${cp.status}</span>
+              </div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
+                Driver: <strong style="color:var(--text)">${escHtml(cp.driver_name)}</strong>
+                ${cp.driver_phone ? ` · <a href="tel:${cp.driver_phone}" style="color:var(--teal-600)">${escHtml(cp.driver_phone)}</a>` : ''}
+                &nbsp;·&nbsp; ${cp.member_count||0} / ${cp.max_seats} seats
+              </div>
+              ${(cp.members||[]).length ? `
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${(cp.members||[]).map(m=>`
+                    <span style="background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px">
+                      ${escHtml(m.first_name)} ${escHtml(m.last_name||'')}
+                      ${m.added_via==='portal'?'<span title="Added via parent portal" style="color:var(--teal-600);font-size:10px">📱</span>':''}
+                      <button onclick="removeCarpoolMember('${cp.id}','${m.id}',null)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:14px;padding:0;line-height:1">×</button>
+                    </span>`).join('')}
+                </div>` : '<div style="font-size:13px;color:var(--text-hint)">No kids added yet</div>'}
+              ${cp.notes ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;font-style:italic">📝 ${escHtml(cp.notes)}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+              <button class="btn btn-secondary btn-sm" onclick="openAddKidToCarpool('${cp.id}',null)">+ Add Kid</button>
+              <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${cp.code}')">📋 Copy Code</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteCarpoolFromPage('${cp.id}')">Delete</button>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>`).join('')
+}
+
+async function deleteCarpoolFromPage(cid){
+  if(!confirm('Delete this carpool?')) return
+  const res = await api('/api/carpools/'+cid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Carpool deleted')
+  loadCarpoolsPage()
+}
+
+function copyToClipboard(text){
+  navigator.clipboard?.writeText(text).then(()=>toast('Code copied: '+text,'success'))
+    .catch(()=>{ prompt('Copy this carpool code:', text) })
+}
 
 async function loadEventCarpools(eventId){
   const el = document.getElementById('event-carpools-'+eventId)
@@ -8860,6 +9009,17 @@ function openCreateCarpoolForm(eventId){
   const overlay = document.createElement('div')
   overlay.id = 'carpool-create-modal'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+
+  // If no eventId, show event picker first
+  const eventPickerHtml = eventId ? '' : `
+    <div class="form-group">
+      <label>Event *</label>
+      <select id="cc-event-id" required>
+        <option value="">Select event…</option>
+        ${(_allCarpoolEvents||[]).map(e=>`<option value="${e.id}">${escHtml(e.name||'')}${e.event_date?' — '+formatDate(e.event_date):''}</option>`).join('')}
+      </select>
+    </div>`
+
   overlay.innerHTML = `
     <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:460px;box-shadow:var(--shadow-lg)">
       <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -8867,6 +9027,7 @@ function openCreateCarpoolForm(eventId){
         <button onclick="document.getElementById('carpool-create-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
       </div>
       <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px">
+        ${eventPickerHtml}
         <div class="form-group"><label>Carpool Name *</label>
           <input type="text" id="cc-name" placeholder="e.g. Smith Carpool"/></div>
         <div class="form-group"><label>Driver Name *</label>
@@ -8891,9 +9052,11 @@ function openCreateCarpoolForm(eventId){
 async function submitCreateCarpool(){
   const name   = document.getElementById('cc-name')?.value.trim()
   const driver = document.getElementById('cc-driver')?.value.trim()
+  const eid    = _carpoolFormEventId || document.getElementById('cc-event-id')?.value
+  if(!eid){ toast('Please select an event','error'); return }
   if(!name || !driver){ toast('Name and driver are required','error'); return }
   const res = await api('/api/carpools','POST',{
-    event_id: _carpoolFormEventId,
+    event_id: eid,
     name, driver_name: driver,
     driver_phone: document.getElementById('cc-phone').value.trim(),
     max_seats: parseInt(document.getElementById('cc-seats').value)||6,
@@ -8902,7 +9065,9 @@ async function submitCreateCarpool(){
   if(res.error){ toast(res.error,'error'); return }
   document.getElementById('carpool-create-modal')?.remove()
   toast(`Carpool created! Code: ${res.code}`,'success')
-  loadEventCarpools(_carpoolFormEventId)
+  // Refresh whichever view is open
+  if(_carpoolFormEventId) loadEventCarpools(_carpoolFormEventId)
+  else loadCarpoolsPage()
 }
 
 async function deleteCarpool(cid, eventId){
@@ -8917,7 +9082,8 @@ async function removeCarpoolMember(cid, mid, eventId){
   const res = await api('/api/carpools/'+cid+'/members/'+mid,'DELETE')
   if(res.error){ toast(res.error,'error'); return }
   toast('Removed from carpool')
-  loadEventCarpools(eventId)
+  if(eventId) loadEventCarpools(eventId)
+  else loadCarpoolsPage()
 }
 
 function openAddKidToCarpool(cid, eventId){

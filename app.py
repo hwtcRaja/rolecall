@@ -1010,19 +1010,23 @@ def get_interest_types():
 def create_interest_type():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s)', (tid, d['name'].strip(), d.get('color','gray')))
+        execute(conn, 'INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s)',
+            (tid, d['name'].strip(), d.get('color','gray')))
         conn.commit()
-    except psycopg2.IntegrityError:
+        row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
         conn.rollback(); conn.close()
-        return jsonify({'error': 'Interest type already exists'}), 400
-    row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
-    conn.close()
-    return jsonify(row)
+        app.logger.error(f'create_interest_type: {e}')
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            return jsonify({'error': 'An interest type with that name already exists'}), 400
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/interest-types/<tid>', methods=['DELETE'])
 def delete_interest_type(tid):

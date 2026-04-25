@@ -1145,28 +1145,46 @@ def delete_event(eid):
     if err: return err
     conn = get_db()
     try:
-        # Clear all FK references before deleting
-        execute(conn, 'UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
-        execute(conn, 'UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
-        execute(conn, 'DELETE FROM event_waivers WHERE event_id=%s', (eid,))
-        execute(conn, 'DELETE FROM event_elics WHERE event_id=%s', (eid,))
-        execute(conn, 'DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
-        execute(conn, 'DELETE FROM hours WHERE event_id=%s', (eid,))
-        # Carpools reference the event — delete carpool members first then carpools
-        carpool_ids = [r['id'] for r in fetchall(conn, 'SELECT id FROM carpools WHERE event_id=%s', (eid,))]
-        for cid in carpool_ids:
-            execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
-        if carpool_ids:
-            execute(conn, 'DELETE FROM carpools WHERE event_id=%s', (eid,))
+        # NULL out non-cascade FKs first
+        for sql in [
+            'UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s',
+            'UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s',
+        ]:
+            try: execute(conn, sql, (eid,))
+            except Exception as e: app.logger.warning(f'delete_event null fk: {e}')
+
+        # Delete child records — try each table, ignore if table doesn't exist
+        child_deletes = [
+            'DELETE FROM event_waivers WHERE event_id=%s',
+            'DELETE FROM event_elics WHERE event_id=%s',
+            'DELETE FROM event_checklist_responses WHERE event_id=%s',
+            'DELETE FROM hours WHERE event_id=%s',
+            'DELETE FROM pending_hours WHERE event=%s',
+        ]
+        for sql in child_deletes:
+            try: execute(conn, sql, (eid,))
+            except Exception as e: app.logger.warning(f'delete_event child: {e}')
+
+        # Carpools
+        try:
+            carpool_ids = [r['id'] for r in fetchall(conn, 'SELECT id FROM carpools WHERE event_id=%s', (eid,))]
+            for cid in carpool_ids:
+                execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
+            if carpool_ids:
+                execute(conn, 'DELETE FROM carpools WHERE event_id=%s', (eid,))
+        except Exception as e:
+            app.logger.warning(f'delete_event carpools: {e}')
+
+        # Finally delete the event
         execute(conn, 'DELETE FROM events WHERE id=%s', (eid,))
         conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
     except Exception as e:
         conn.rollback()
         conn.close()
         app.logger.error(f'delete_event {eid}: {e}')
         return jsonify({'error': str(e)}), 500
-    conn.close()
-    return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
 #  VOLUNTEERS

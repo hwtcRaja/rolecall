@@ -607,6 +607,16 @@ def init_db():
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT NOW())""",
 
+        """CREATE TABLE IF NOT EXISTS campaign_benefits (
+            id TEXT PRIMARY KEY,
+            campaign_id TEXT NOT NULL REFERENCES donor_campaigns(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            min_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+            is_trackable BOOLEAN DEFAULT FALSE,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+
         """CREATE TABLE IF NOT EXISTS donors (
             id TEXT PRIMARY KEY,
             type TEXT DEFAULT 'individual',
@@ -931,9 +941,9 @@ def debug():
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     d = request.json
-    pw_hash = hashlib.sha256(d['password'].encode()).hexdigest()
+    pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
     conn = get_db()
-    user = fetchone(conn, 'SELECT * FROM users WHERE email=%s AND password_hash=%s', (d['email'], pw_hash))
+    user = fetchone(conn, 'SELECT * FROM users WHERE email=%s AND password_hash=%s', (d.get('email',''), pw_hash))
     conn.close()
     if not user: return jsonify({'error': 'Invalid email or password'}), 401
     if not user.get('active', True): return jsonify({'error': 'Your account has been deactivated. Contact an administrator.'}), 403
@@ -1016,7 +1026,7 @@ def create_interest_type():
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s)',
-            (tid, d['name'].strip(), d.get('color','gray')))
+            (tid, d.get('name','').strip(), d.get('color','gray')))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
         conn.close()
@@ -1082,7 +1092,7 @@ def create_event():
     execute(conn, '''INSERT INTO events
         (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
-        (eid, d['name'], d.get('event_date') or None, d.get('end_date') or None,
+        (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
@@ -1112,7 +1122,7 @@ def update_event(eid):
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s WHERE id=%s''',
-        (d['name'], d.get('event_date') or None, d.get('end_date') or None,
+        (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
@@ -1237,7 +1247,7 @@ def create_volunteer():
     vid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-            (vid, d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None))
+            (vid, d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
     vol['total_hours'] = 0; vol['waiver_status'] = 'none'; vol['waivers'] = []
@@ -1251,7 +1261,7 @@ def update_volunteer(vol_id):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s WHERE id=%s',
-            (d['name'], d['email'], d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
+            (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()
@@ -1293,7 +1303,7 @@ def create_hours():
     hid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-            (hid, d['volunteer_id'], d['event'], d.get('event_id'), d['date'], d['hours'], d.get('role',''), d.get('notes','')))
+            (hid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), d.get('date',''), d.get('hours',0), d.get('role',''), d.get('notes','')))
     conn.commit()
     row = fetchone(conn, 'SELECT h.*, v.name as volunteer_name FROM hours h JOIN volunteers v ON h.volunteer_id=v.id WHERE h.id=%s', (hid,))
     conn.close()
@@ -1320,7 +1330,7 @@ def create_note(vol_id):
     nid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s)',
-            (nid, vol_id, session['user_name'], d['content']))
+            (nid, vol_id, session['user_name'], d.get('content','')))
     conn.commit()
     note = fetchone(conn, 'SELECT * FROM notes WHERE id=%s', (nid,))
     conn.close()
@@ -1338,7 +1348,7 @@ def create_history(vol_id):
     hid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteer_history (id,volunteer_id,event,role,date,notes) VALUES (%s,%s,%s,%s,%s,%s)',
-            (hid, vol_id, d['event'], d['role'], d['date'], d.get('notes','')))
+            (hid, vol_id, d.get('event',''), d['role'], d.get('date',''), d.get('notes','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM volunteer_history WHERE id=%s', (hid,))
     conn.close()
@@ -1356,7 +1366,7 @@ def create_file(vol_id):
     fid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteer_files (id,volunteer_id,name,size,type,date) VALUES (%s,%s,%s,%s,%s,%s)',
-            (fid, vol_id, d['name'], d.get('size',''), d.get('type',''), date.today().isoformat()))
+            (fid, vol_id, d.get('name',''), d.get('size',''), d.get('type',''), date.today().isoformat()))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM volunteer_files WHERE id=%s', (fid,))
     conn.close()
@@ -1386,7 +1396,7 @@ def create_waiver_type():
     try:
         execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online)
             VALUES (%s,%s,%s,%s,%s)''',
-            (tid, d['name'].strip(), d.get('description',''),
+            (tid, d.get('name','').strip(), d.get('description',''),
              d.get('template_body',''), bool(d.get('can_sign_online',False))))
         conn.commit()
     except psycopg2.IntegrityError:
@@ -1404,7 +1414,7 @@ def update_waiver_type(tid):
     conn = get_db()
     execute(conn, '''UPDATE waiver_types SET name=%s, description=%s, template_body=%s,
         can_sign_online=%s WHERE id=%s''',
-        (d['name'], d.get('description',''), d.get('template_body',''),
+        (d.get('name',''), d.get('description',''), d.get('template_body',''),
          bool(d.get('can_sign_online',False)), tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (tid,))
@@ -1539,7 +1549,7 @@ def create_youth_program():
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-                (pid, d['name'].strip(), d.get('description',''),
+                (pid, d.get('name','').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
                  d.get('default_elic_id') or None))
@@ -1559,7 +1569,7 @@ def update_youth_program(pid):
     if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
     execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
-            (d['name'].strip(), d.get('description',''),
+            (d.get('name','').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
              d.get('default_elic_id') or None, pid))
@@ -1601,7 +1611,7 @@ def create_email_template():
     tid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO email_templates (id,name,subject,body) VALUES (%s,%s,%s,%s)',
-            (tid, d['name'], d['subject'], d['body']))
+            (tid, d.get('name',''), d.get('subject',''), d.get('body','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM email_templates WHERE id=%s', (tid,))
     conn.close()
@@ -1711,7 +1721,7 @@ def add_guardian(yid):
     gid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-            (gid, yid, d['name'], d.get('relationship',''), d.get('phone',''), d.get('email',''), 1 if d.get('is_primary') else 0))
+            (gid, yid, d.get('name',''), d.get('relationship',''), d.get('phone',''), d.get('email',''), 1 if d.get('is_primary') else 0))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM youth_guardians WHERE id=%s', (gid,))
     conn.close()
@@ -1734,7 +1744,7 @@ def add_emergency_contact(yid):
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
-            (eid, yid, d['name'], d.get('relationship',''), d['phone']))
+            (eid, yid, d.get('name',''), d.get('relationship',''), d['phone']))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM youth_emergency_contacts WHERE id=%s', (eid,))
     conn.close()
@@ -1829,12 +1839,12 @@ def create_user():
     d = request.json
     if not d.get('name') or not d.get('email') or not d.get('password'):
         return jsonify({'error': 'Name, email, and password are required'}), 400
-    pw_hash = hashlib.sha256(d['password'].encode()).hexdigest()
+    pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
     uid_ = str(uuid.uuid4())
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO users (id,name,email,password_hash,role,role_permissions) VALUES (%s,%s,%s,%s,%s,%s)',
-                (uid_, d['name'], d['email'], pw_hash, d.get('role','staff'), '{}'))
+                (uid_, d.get('name',''), d.get('email',''), pw_hash, d.get('role','staff'), '{}'))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -1877,7 +1887,7 @@ def create_production():
     pid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO productions (id,name,production_type,stage,start_date,end_date,description,status,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-            (pid, d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
+            (pid, d.get('name',''), d.get('production_type','show'), d.get('stage','mainstage'),
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None))
@@ -1894,7 +1904,7 @@ def update_production(pid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s,default_elic_id=%s,image_url=%s WHERE id=%s',
-            (d['name'], d.get('production_type','show'), d.get('stage','mainstage'),
+            (d.get('name',''), d.get('production_type','show'), d.get('stage','mainstage'),
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None,
@@ -1926,7 +1936,7 @@ def add_production_member(pid):
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO production_members (id,production_id,volunteer_id,role,department,status,notes) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                (mid, pid, d['volunteer_id'], d['role'], d.get('department',''), d.get('status','confirmed'), d.get('notes','')))
+                (mid, pid, d.get('volunteer_id'), d['role'], d.get('department',''), d.get('status','confirmed'), d.get('notes','')))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -2067,7 +2077,7 @@ def create_donor_tier():
     conn = get_db()
     execute(conn, '''INSERT INTO donor_tiers (id,name,min_amount,max_amount,color,description,sort_order)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (tid, d['name'], d.get('min_amount',0), d.get('max_amount') or None,
+        (tid, d.get('name',''), d.get('min_amount',0), d.get('max_amount') or None,
          d.get('color','teal'), d.get('description',''), d.get('sort_order',0)))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM donor_tiers WHERE id=%s', (tid,))
@@ -2082,7 +2092,7 @@ def update_donor_tier(tid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE donor_tiers SET name=%s,min_amount=%s,max_amount=%s,color=%s,description=%s,sort_order=%s WHERE id=%s',
-        (d['name'], d.get('min_amount',0), d.get('max_amount') or None,
+        (d.get('name',''), d.get('min_amount',0), d.get('max_amount') or None,
          d.get('color','teal'), d.get('description',''), d.get('sort_order',0), tid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -2106,7 +2116,7 @@ def add_tier_benefit(tid):
     conn = get_db()
     execute(conn, '''INSERT INTO donor_tier_benefits (id,tier_id,name,description,is_trackable,sort_order)
         VALUES (%s,%s,%s,%s,%s,%s)''',
-        (bid, tid, d['name'], d.get('description',''), d.get('is_trackable',True), d.get('sort_order',0)))
+        (bid, tid, d.get('name',''), d.get('description',''), d.get('is_trackable',True), d.get('sort_order',0)))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM donor_tier_benefits WHERE id=%s', (bid,))
     conn.close()
@@ -2119,7 +2129,7 @@ def update_tier_benefit(bid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE donor_tier_benefits SET name=%s,description=%s,is_trackable=%s,sort_order=%s WHERE id=%s',
-        (d['name'], d.get('description',''), d.get('is_trackable',True), d.get('sort_order',0), bid))
+        (d.get('name',''), d.get('description',''), d.get('is_trackable',True), d.get('sort_order',0), bid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -2143,8 +2153,65 @@ def get_donor_campaigns():
         FROM donor_campaigns c
         LEFT JOIN donor_donations d ON d.campaign_id=c.id AND d.payment_status='received'
         GROUP BY c.id ORDER BY c.created_at DESC''')
+    for c in campaigns:
+        try:
+            c['benefits'] = fetchall(conn, '''SELECT * FROM campaign_benefits
+                WHERE campaign_id=%s ORDER BY min_amount ASC, sort_order ASC, name ASC''', (c['id'],))
+        except Exception:
+            c['benefits'] = []
     conn.close()
     return jsonify(campaigns)
+
+@app.route('/api/donor-campaigns/<cid>/benefits')
+def get_campaign_benefits(cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM campaign_benefits WHERE campaign_id=%s ORDER BY min_amount ASC, sort_order ASC', (cid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/donor-campaigns/<cid>/benefits', methods=['POST'])
+def create_campaign_benefit(cid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    bid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO campaign_benefits (id,campaign_id,name,description,min_amount,is_trackable,sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (bid, cid, d.get('name','').strip(), d.get('description','').strip(),
+         float(d.get('min_amount') or 0), bool(d.get('is_trackable',False)),
+         int(d.get('sort_order',0))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM campaign_benefits WHERE id=%s', (bid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/donor-campaigns/benefits/<bid>', methods=['PUT'])
+def update_campaign_benefit(bid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE campaign_benefits SET name=%s, description=%s, min_amount=%s, is_trackable=%s
+        WHERE id=%s''',
+        (d.get('name','').strip(), d.get('description','').strip(),
+         float(d.get('min_amount') or 0), bool(d.get('is_trackable',False)), bid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM campaign_benefits WHERE id=%s', (bid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/donor-campaigns/benefits/<bid>', methods=['DELETE'])
+def delete_campaign_benefit(bid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM campaign_benefits WHERE id=%s', (bid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/donor-campaigns', methods=['POST'])
 def create_donor_campaign():
@@ -2155,7 +2222,7 @@ def create_donor_campaign():
     conn = get_db()
     execute(conn, '''INSERT INTO donor_campaigns (id,name,description,goal_amount,start_date,end_date,status)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (cid, d['name'], d.get('description',''), d.get('goal_amount') or None,
+        (cid, d.get('name',''), d.get('description',''), d.get('goal_amount') or None,
          d.get('start_date') or None, d.get('end_date') or None, d.get('status','active')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM donor_campaigns WHERE id=%s', (cid,))
@@ -2169,7 +2236,7 @@ def update_donor_campaign(cid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE donor_campaigns SET name=%s,description=%s,goal_amount=%s,start_date=%s,end_date=%s,status=%s WHERE id=%s',
-        (d['name'], d.get('description',''), d.get('goal_amount') or None,
+        (d.get('name',''), d.get('description',''), d.get('goal_amount') or None,
          d.get('start_date') or None, d.get('end_date') or None, d.get('status','active'), cid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -2490,7 +2557,7 @@ def add_donation(did):
         (id,donor_id,campaign_id,amount,donation_date,type,payment_status,check_number,notes,created_by)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (donation_id, did, d.get('campaign_id') or None,
-         d['amount'], d['donation_date'],
+         d.get('amount',0), d['donation_date'],
          d.get('type','cash'), d.get('payment_status','received'),
          d.get('check_number',''), d.get('notes',''),
          session.get('user_name','')))
@@ -2511,7 +2578,7 @@ def update_donation(donation_id):
     conn = get_db()
     execute(conn, '''UPDATE donor_donations SET amount=%s,donation_date=%s,type=%s,
         payment_status=%s,campaign_id=%s,check_number=%s,notes=%s WHERE id=%s''',
-        (d['amount'], d['donation_date'], d.get('type','cash'),
+        (d.get('amount',0), d['donation_date'], d.get('type','cash'),
          d.get('payment_status','received'), d.get('campaign_id') or None,
          d.get('check_number',''), d.get('notes',''), donation_id))
     conn.commit()
@@ -2560,18 +2627,40 @@ def send_thank_you(donation_id):
     tier_name = donor['tier_name'] if donor and donor.get('tier_name') else ''
     benefits_html = ''
     benefits_text = ''
+
+    all_benefits = []
+
+    # Tier benefits (cumulative)
     if donor and donor.get('tier_id'):
-        benefits = get_cumulative_benefits(conn, donor['tier_id'])
-        if benefits:
-            benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
-                ''.join(f'<li style="margin-bottom:4px">'
-                        + (f'<em style="font-size:11px;color:#888">{b["tier_name"]}</em> ' if b.get("tier_name") else '')
-                        + f'{b["name"]}'
-                        + (f' — {b["description"]}' if b.get('description') else '')
-                        + '</li>' for b in benefits) + '</ul>'
-            benefits_text = '\n'.join(
-                f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '')
-                for b in benefits)
+        tier_benefits = get_cumulative_benefits(conn, donor['tier_id'])
+        all_benefits += [dict(b, source='tier') for b in tier_benefits]
+
+    # Campaign-specific benefits — include all that the donation amount qualifies for
+    if row.get('campaign_id') and row.get('amount'):
+        try:
+            camp_benefits = fetchall(conn, '''SELECT * FROM campaign_benefits
+                WHERE campaign_id=%s AND min_amount <= %s
+                ORDER BY min_amount ASC, sort_order ASC''',
+                (row['campaign_id'], float(row['amount'])))
+            all_benefits += [dict(b, source='campaign') for b in camp_benefits]
+        except Exception:
+            pass
+
+    if all_benefits:
+        def benefit_li(b):
+            source_tag = ''
+            if b.get('source') == 'campaign':
+                source_tag = f'<em style="font-size:11px;color:#888">Campaign</em> '
+            elif b.get('tier_name'):
+                source_tag = f'<em style="font-size:11px;color:#888">{b["tier_name"]}</em> '
+            return (f'<li style="margin-bottom:4px">{source_tag}{b["name"]}'
+                    + (f' — {b["description"]}' if b.get('description') else '')
+                    + '</li>')
+        benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
+            ''.join(benefit_li(b) for b in all_benefits) + '</ul>'
+        benefits_text = '\n'.join(
+            f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '')
+            for b in all_benefits)
     # Load template
     tmpl = None
     if template_id:
@@ -2646,7 +2735,7 @@ def create_donor_email_template():
     execute(conn, '''INSERT INTO donor_email_templates
         (id,name,subject,body,from_email,from_name,template_type,is_default)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-        (tid, d['name'], d['subject'], d['body'],
+        (tid, d.get('name',''), d.get('subject',''), d.get('body',''),
          d.get('from_email',''), d.get('from_name',''),
          d.get('template_type','thankyou'), d.get('is_default',False)))
     conn.commit()
@@ -2665,7 +2754,7 @@ def update_donor_email_template(tid):
             (d.get('template_type','thankyou'), tid))
     execute(conn, '''UPDATE donor_email_templates SET name=%s,subject=%s,body=%s,
         from_email=%s,from_name=%s,template_type=%s,is_default=%s WHERE id=%s''',
-        (d['name'], d['subject'], d['body'],
+        (d.get('name',''), d.get('subject',''), d.get('body',''),
          d.get('from_email',''), d.get('from_name',''),
          d.get('template_type','thankyou'), d.get('is_default',False), tid))
     conn.commit(); conn.close()
@@ -2689,7 +2778,7 @@ def record_benefit_use(did):
     conn = get_db()
     execute(conn, '''INSERT INTO donor_benefit_usage (id,donor_id,benefit_id,notes,recorded_by)
         VALUES (%s,%s,%s,%s,%s)''',
-        (uid, did, d['benefit_id'], d.get('notes',''), session.get('user_name','')))
+        (uid, did, d.get('benefit_id'), d.get('notes',''), session.get('user_name','')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -2786,7 +2875,7 @@ def create_event_type():
     tid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO event_types (id,name,color,description) VALUES (%s,%s,%s,%s)',
-        (tid, d['name'], d.get('color','blue'), d.get('description','')))
+        (tid, d.get('name',''), d.get('color','blue'), d.get('description','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM event_types WHERE id=%s', (tid,))
     conn.close()
@@ -2799,7 +2888,7 @@ def update_event_type(tid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE event_types SET name=%s,color=%s,description=%s WHERE id=%s',
-        (d['name'], d.get('color','blue'), d.get('description',''), tid))
+        (d.get('name',''), d.get('color','blue'), d.get('description',''), tid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -2835,7 +2924,7 @@ def create_elic():
     conn = get_db()
     execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events)
         VALUES (%s,%s,%s,%s,%s)''',
-        (eid, d['volunteer_id'], d.get('pin','0000'),
+        (eid, d.get('volunteer_id'), d.get('pin','0000'),
          d.get('is_master', False), json.dumps(d.get('assigned_events',[]))))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
@@ -2850,7 +2939,7 @@ def update_elic(eid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s WHERE id=%s',
-        (d['volunteer_id'], d.get('pin','0000'),
+        (d.get('volunteer_id'), d.get('pin','0000'),
          d.get('is_master',False), json.dumps(d.get('assigned_events',[])), eid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -3141,12 +3230,12 @@ def update_user(uid):
     d = request.json
     conn = get_db()
     if d.get('password'):
-        pw_hash = hashlib.sha256(d['password'].encode()).hexdigest()
+        pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
         execute(conn, 'UPDATE users SET name=%s, email=%s, password_hash=%s WHERE id=%s',
-            (d['name'], d['email'], pw_hash, uid))
+            (d.get('name',''), d.get('email',''), pw_hash, uid))
     else:
         execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
-            (d['name'], d['email'], uid))
+            (d.get('name',''), d.get('email',''), uid))
     if 'permissions' in d:
         execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
             (json.dumps(d['permissions']), uid))
@@ -3230,7 +3319,7 @@ def create_family():
     fid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO families (id,name,passphrase,email,phone) VALUES (%s,%s,%s,%s,%s)',
-        (fid, d['name'], d.get('passphrase',''), d.get('email',''), d.get('phone','')))
+        (fid, d.get('name',''), d.get('passphrase',''), d.get('email',''), d.get('phone','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
     conn.close()
@@ -3243,7 +3332,7 @@ def update_family(fid):
     d = request.json
     conn = get_db()
     execute(conn, 'UPDATE families SET name=%s, passphrase=%s, email=%s, phone=%s WHERE id=%s',
-        (d['name'], d.get('passphrase',''), d.get('email',''), d.get('phone',''), fid))
+        (d.get('name',''), d.get('passphrase',''), d.get('email',''), d.get('phone',''), fid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3508,7 +3597,7 @@ def enroll_youth_in_prod(pid):
     conn = get_db()
     try:
         # Support both single youth_id and bulk youth_ids array
-        youth_ids = d.get('youth_ids') or ([d['youth_id']] if d.get('youth_id') else [])
+        youth_ids = d.get('youth_ids') or ([d.get('youth_id')] if d.get('youth_id') else [])
         if not youth_ids:
             conn.close()
             return jsonify({'error': 'No youth specified'}), 400
@@ -3635,7 +3724,7 @@ def add_team_bio(pid):
     execute(conn, '''INSERT INTO production_team_bios
         (id, production_id, name, role, bio, headshot_url, sort_order)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (mid, pid, d['name'].strip(), d.get('role','').strip(),
+        (mid, pid, d.get('name','').strip(), d.get('role','').strip(),
          d.get('bio','').strip(), d.get('headshot_url','').strip(),
          d.get('sort_order', 0)))
     conn.commit()
@@ -3757,7 +3846,7 @@ def add_prod_waiver(pid):
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
-        (rid, pid, d['waiver_type_id']))
+        (rid, pid, d.get('waiver_type_id')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3830,7 +3919,7 @@ def kiosk_submit():
     if not d.get('volunteer_id') or not d.get('event') or not d.get('hours'):
         return jsonify({'error': 'Missing required fields'}), 400
     try:
-        hours = float(d['hours'])
+        hours = float(d.get('hours',0))
         if hours <= 0 or hours > 24:
             return jsonify({'error': 'Hours must be between 0.5 and 24'}), 400
     except Exception:
@@ -3840,7 +3929,7 @@ def kiosk_submit():
     today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-        (pid, d['volunteer_id'], d['event'], d.get('event_id'), today, hours, d.get('role',''), d.get('notes','')))
+        (pid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), today, hours, d.get('role',''), d.get('notes','')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -4125,7 +4214,7 @@ def join_submit():
         execute(conn, '''INSERT INTO volunteer_applications
             (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
-            (aid, d['name'].strip(), d['email'].strip().lower(),
+            (aid, d.get('name','').strip(), d.get('email','').strip().lower(),
              d.get('phone','').strip(), d.get('pronouns','').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              d.get('how_heard','').strip(), d.get('notes','').strip()))
@@ -4142,8 +4231,8 @@ def join_submit():
             html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px">
                 <h2 style="color:#0d3d4d">New Volunteer Interest Submission</h2>
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
-                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d['name']}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d['email']}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d.get('name','')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d.get('email','')}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone','—')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
@@ -4569,7 +4658,7 @@ def create_scheduled_report():
     execute(conn, '''INSERT INTO scheduled_reports
         (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-        (rid, d['name'], d['report_type'], d.get('cadence','monthly'),
+        (rid, d.get('name',''), d['report_type'], d.get('cadence','monthly'),
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
          d.get('is_active',True), next_send))
@@ -4587,7 +4676,7 @@ def update_scheduled_report(rid):
     next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
         send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s WHERE id=%s''',
-        (d['name'], d['report_type'], d.get('cadence','monthly'),
+        (d.get('name',''), d['report_type'], d.get('cadence','monthly'),
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
          d.get('is_active',True), next_send, rid))
@@ -5078,7 +5167,7 @@ def create_carpool():
         if not fetchone(conn, 'SELECT id FROM carpools WHERE code=%s', (code,)): break
         code = _gen_carpool_code()
     execute(conn, "INSERT INTO carpools (id,event_id,name,driver_name,driver_phone,code,max_seats,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open')",
-        (cid, d['event_id'], d['name'], d['driver_name'], d.get('driver_phone',''), code, d.get('max_seats',6), d.get('notes','')))
+        (cid, d.get('event_id'), d.get('name',''), d['driver_name'], d.get('driver_phone',''), code, d.get('max_seats',6), d.get('notes','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM carpools WHERE id=%s', (cid,))
     row['members'] = []; row['member_count'] = 0
@@ -5092,7 +5181,7 @@ def update_carpool(cid):
     d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE carpools SET name=%s,driver_name=%s,driver_phone=%s,max_seats=%s,notes=%s,status=%s WHERE id=%s',
-        (d['name'], d['driver_name'], d.get('driver_phone',''), d.get('max_seats',6), d.get('notes',''), d.get('status','open'), cid))
+        (d.get('name',''), d['driver_name'], d.get('driver_phone',''), d.get('max_seats',6), d.get('notes',''), d.get('status','open'), cid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5113,7 +5202,7 @@ def add_carpool_member(cid):
     mid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'admin') ON CONFLICT (carpool_id,youth_id) DO NOTHING",
-        (mid, cid, d['youth_id'], session.get('user_name','')))
+        (mid, cid, d.get('youth_id'), session.get('user_name','')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5356,7 +5445,7 @@ def add_event_waiver(eid):
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO event_waivers (id,event_id,waiver_type_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
-        (rid, eid, d['waiver_type_id']))
+        (rid, eid, d.get('waiver_type_id')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5378,7 +5467,7 @@ def add_event_elic(eid):
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
-        (rid, eid, d['elic_id']))
+        (rid, eid, d.get('elic_id')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5423,7 +5512,7 @@ def add_family_member(fid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (fid, d['youth_id']))
+    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (fid, d.get('youth_id')))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5581,7 +5670,7 @@ def enroll_in_program(pid):
     conn = get_db()
     execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
         VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
-        (eid, d['youth_id'], pid,
+        (eid, d.get('youth_id'), pid,
          d.get('enrolled_date',''), d.get('notes','')))
     conn.commit()
     row = fetchone(conn, '''SELECT ype.*, y.first_name, y.last_name, yp.name as program_name
@@ -5608,8 +5697,8 @@ def link_volunteer_to_participant(vol_id):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (vol_id, d['youth_id']))
-    execute(conn, 'UPDATE volunteers SET linked_youth_id=%s WHERE id=%s', (d['youth_id'], vol_id))
+    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (vol_id, d.get('youth_id')))
+    execute(conn, 'UPDATE volunteers SET linked_youth_id=%s WHERE id=%s', (d.get('youth_id'), vol_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5619,7 +5708,7 @@ def link_youth_to_volunteer(yid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (d['volunteer_id'], yid))
+    execute(conn, 'UPDATE youth_participants SET linked_volunteer_id=%s WHERE id=%s', (d.get('volunteer_id'), yid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5712,6 +5801,38 @@ def reject_profile_update(uid):
     return jsonify({'ok': True})
 
 init_db()
+
+# ── Global error handlers — return JSON for all API errors ──
+@app.errorhandler(500)
+def internal_error(e):
+    app.logger.error(f'500: {e}')
+    return jsonify({'error': str(e)}), 500
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Route not found'}), 404
+    return e
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Method not allowed'}), 405
+    return e
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    app.logger.error(f'Unhandled: {traceback.format_exc()}')
+    # Try to clean up any aborted transaction
+    try:
+        from psycopg2 import DatabaseError
+        conn = get_db()
+        conn.rollback()
+        conn.close()
+    except Exception:
+        pass
+    return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

@@ -2001,6 +2001,21 @@ def toggle_user(uid):
 
 # ── Tiers ──
 @app.route('/api/donor-tiers')
+def get_cumulative_benefits(conn, tier_id):
+    """Return all benefits for a tier including all benefits from lower tiers (cumulative)."""
+    if not tier_id: return []
+    tier = fetchone(conn, 'SELECT min_amount FROM donor_tiers WHERE id=%s', (tier_id,))
+    if not tier: return []
+    min_amount = tier['min_amount'] or 0
+    # Get benefits from this tier AND all tiers with lower or equal min_amount
+    return fetchall(conn, '''
+        SELECT b.*, t.name as tier_name, t.min_amount
+        FROM donor_tier_benefits b
+        JOIN donor_tiers t ON b.tier_id=t.id
+        WHERE t.min_amount <= %s
+        ORDER BY t.min_amount ASC, b.sort_order ASC, b.name ASC
+    ''', (min_amount,))
+
 def get_donor_tiers():
     err = require_auth()
     if err: return err
@@ -2009,9 +2024,12 @@ def get_donor_tiers():
         SELECT t.*, COUNT(b.id) as benefit_count
         FROM donor_tiers t
         LEFT JOIN donor_tier_benefits b ON b.tier_id=t.id
-        GROUP BY t.id ORDER BY t.min_amount DESC''')
+        GROUP BY t.id ORDER BY t.min_amount ASC''')
     for tier in tiers:
-        tier['benefits'] = fetchall(conn, 'SELECT * FROM donor_tier_benefits WHERE tier_id=%s ORDER BY sort_order,name', (tier['id'],))
+        # own_benefits = only this tier's benefits
+        tier['own_benefits'] = fetchall(conn, 'SELECT * FROM donor_tier_benefits WHERE tier_id=%s ORDER BY sort_order,name', (tier['id'],))
+        # benefits = cumulative (this tier + all below)
+        tier['benefits'] = get_cumulative_benefits(conn, tier['id'])
     conn.close()
     return jsonify(tiers)
 
@@ -2404,6 +2422,8 @@ def get_donor_detail(did):
         WHERE bu.donor_id=%s ORDER BY bu.used_at DESC''', (did,))
     donor['communications'] = fetchall(conn, '''
         SELECT * FROM donor_communications WHERE donor_id=%s ORDER BY sent_at DESC''', (did,))
+    # Cumulative benefits (this tier + all lower tiers)
+    donor['benefits'] = get_cumulative_benefits(conn, donor.get('tier_id'))
     conn.close()
     return jsonify(donor)
 
@@ -2516,14 +2536,17 @@ def send_thank_you(donation_id):
     benefits_html = ''
     benefits_text = ''
     if donor and donor.get('tier_id'):
-        benefits = fetchall(conn, '''SELECT name, description FROM donor_tier_benefits
-            WHERE tier_id=%s ORDER BY sort_order, name''', (donor['tier_id'],))
+        benefits = get_cumulative_benefits(conn, donor['tier_id'])
         if benefits:
             benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
-                ''.join(f'<li style="margin-bottom:4px">{b["name"]}' +
-                        (f' — {b["description"]}' if b.get('description') else '') +
-                        '</li>' for b in benefits) + '</ul>'
-            benefits_text = '\n'.join(f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '') for b in benefits)
+                ''.join(f'<li style="margin-bottom:4px">'
+                        + (f'<em style="font-size:11px;color:#888">{b["tier_name"]}</em> ' if b.get("tier_name") else '')
+                        + f'{b["name"]}'
+                        + (f' — {b["description"]}' if b.get('description') else '')
+                        + '</li>' for b in benefits) + '</ul>'
+            benefits_text = '\n'.join(
+                f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '')
+                for b in benefits)
     # Load template
     tmpl = None
     if template_id:

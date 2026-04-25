@@ -414,7 +414,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- MAIN THEATER -->
         <div class="nav-section">RoleCall</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard">📊</span>Dashboard</div>
-        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers">👥</span>Volunteers</div>
+        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers">👥</span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours">⏱</span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email">✉️</span>Email</div>
@@ -2485,6 +2485,15 @@ async function loadAllData(){
   populateYouthFilters()
   populateProgramsDropdown()
   populateProdVolSelect()
+  // Load applications count for nav badge on startup
+  api('/api/applications').then(apps=>{
+    if(!Array.isArray(apps)) return
+    const pending = apps.filter(a=>a.status==='pending').length
+    const navBadge = document.getElementById('vol-interest-badge')
+    if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
+    const tabBadge = document.getElementById('app-pending-badge')
+    if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
+  }).catch(()=>{})
   // Apply saved nav icons (only if lucide loaded)
   setTimeout(function(){
     api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error && window.lucide) applyNavIcons(icons) }).catch(function(){})
@@ -2655,10 +2664,13 @@ async function loadApplications(){
   const apps = await api('/api/applications')
   if(!Array.isArray(apps)){ el.innerHTML='<div style="color:var(--red-600);padding:20px">Failed to load applications.</div>'; return }
   renderApplications(apps)
-  // Update badge
+  // Update tab badge
   const pending = apps.filter(a=>a.status==='pending').length
   const badge = document.getElementById('app-pending-badge')
   if(badge){ badge.textContent=pending; badge.style.display=pending?'':'none' }
+  // Update left nav badge on Volunteers item
+  const navBadge = document.getElementById('vol-interest-badge')
+  if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
 }
 
 function renderApplications(apps){

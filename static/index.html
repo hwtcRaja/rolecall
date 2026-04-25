@@ -4925,6 +4925,33 @@ function renderDonorDetailPage(donor){
           <div style="font-size:13px;color:var(--text-muted)">No benefits defined for this tier yet.</div>
         </div>` : '')}
 
+        <!-- Campaign Benefits -->
+        ${(donor.campaign_benefits||[]).length ? `
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">🎯 Campaign Benefits</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Benefits earned through campaign donations</div>
+          ${donor.campaign_benefits.map(cb=>`
+            <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+                <div style="font-size:13px;font-weight:700">📋 ${escHtml(cb.campaign_name)}</div>
+                <div style="font-size:12px;color:var(--teal-dark);background:var(--teal-50);padding:2px 8px;border-radius:10px;font-weight:600">
+                  $${parseFloat(cb.total_donated).toLocaleString()} donated
+                </div>
+              </div>
+              ${cb.benefits.map(b=>`
+                <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+                  <div style="background:var(--teal-50);color:var(--teal-dark);font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;flex-shrink:0;white-space:nowrap">
+                    $${parseFloat(b.min_amount).toLocaleString()}+
+                  </div>
+                  <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600">${escHtml(b.name)}</div>
+                    ${b.description?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(b.description)}</div>`:''}
+                  </div>
+                  <span style="font-size:11px;color:${b.is_trackable?'var(--green-600)':'var(--text-hint)'};font-weight:600">${b.is_trackable?'Trackable':'Info'}</span>
+                </div>`).join('')}
+            </div>`).join('')}
+        </div>` : ''}
+
         <!-- Communications log -->
         <div class="card" style="padding:20px">
           <div style="font-size:15px;font-weight:700;margin-bottom:12px">📋 Communication Log</div>

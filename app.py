@@ -4148,16 +4148,35 @@ def approve_application(aid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    app_row = fetchone(conn, 'SELECT * FROM volunteer_applications WHERE id=%s', (aid,))
-    if not app_row: conn.close(); return jsonify({'error': 'Not found'}), 404
-    # Create volunteer record
-    vid = str(uuid.uuid4())
-    execute(conn, "INSERT INTO volunteers (id,name,email,phone,status) VALUES (%s,%s,%s,%s,'active') ON CONFLICT (email) DO NOTHING",
-        (vid, app_row['name'], app_row['email'], app_row.get('phone','')))
-    execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
-        (vid, session.get('user_name',''), aid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    try:
+        app_row = fetchone(conn, 'SELECT * FROM volunteer_applications WHERE id=%s', (aid,))
+        if not app_row:
+            conn.close(); return jsonify({'error': 'Application not found'}), 404
+
+        # Check if volunteer with this email already exists
+        existing = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=LOWER(%s)', (app_row['email'],))
+        if existing:
+            vid = existing['id']
+            # Update existing volunteer's name/phone if blank
+            execute(conn, "UPDATE volunteers SET name=COALESCE(NULLIF(name,''),%s), phone=COALESCE(NULLIF(phone,''),%s) WHERE id=%s",
+                (app_row['name'], app_row.get('phone',''), vid))
+        else:
+            vid = str(uuid.uuid4())
+            # Build interests list from application
+            interests = app_row.get('interests') or '[]'
+            execute(conn, "INSERT INTO volunteers (id,name,email,phone,status,interests) VALUES (%s,%s,%s,%s,'active',%s)",
+                (vid, app_row['name'], app_row['email'], app_row.get('phone',''), interests))
+
+        execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
+            (vid, session.get('user_name',''), aid))
+        conn.commit()
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
+        conn.close()
+        return jsonify({'ok': True, 'volunteer': vol})
+    except Exception as e:
+        conn.rollback(); conn.close()
+        app.logger.error(f'approve_application {aid}: {e}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/applications/<aid>/decline', methods=['POST'])
 def decline_application(aid):

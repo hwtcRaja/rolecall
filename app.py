@@ -2003,15 +2003,12 @@ def toggle_user(uid):
 #  DONOR & SPONSOR MANAGEMENT
 # ─────────────────────────────────────────────
 
-# ── Tiers ──
-@app.route('/api/donor-tiers')
 def get_cumulative_benefits(conn, tier_id):
     """Return all benefits for a tier including all benefits from lower tiers (cumulative)."""
     if not tier_id: return []
     tier = fetchone(conn, 'SELECT min_amount FROM donor_tiers WHERE id=%s', (tier_id,))
     if not tier: return []
     min_amount = tier['min_amount'] or 0
-    # Get benefits from this tier AND all tiers with lower or equal min_amount
     return fetchall(conn, '''
         SELECT b.*, t.name as tier_name, t.min_amount
         FROM donor_tier_benefits b
@@ -2020,6 +2017,8 @@ def get_cumulative_benefits(conn, tier_id):
         ORDER BY t.min_amount ASC, b.sort_order ASC, b.name ASC
     ''', (min_amount,))
 
+# ── Tiers ──
+@app.route('/api/donor-tiers')
 def get_donor_tiers():
     err = require_auth()
     if err: return err
@@ -2030,9 +2029,7 @@ def get_donor_tiers():
         LEFT JOIN donor_tier_benefits b ON b.tier_id=t.id
         GROUP BY t.id ORDER BY t.min_amount ASC''')
     for tier in tiers:
-        # own_benefits = only this tier's benefits
         tier['own_benefits'] = fetchall(conn, 'SELECT * FROM donor_tier_benefits WHERE tier_id=%s ORDER BY sort_order,name', (tier['id'],))
-        # benefits = cumulative (this tier + all below)
         tier['benefits'] = get_cumulative_benefits(conn, tier['id'])
     conn.close()
     return jsonify(tiers)

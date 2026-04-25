@@ -1144,44 +1144,50 @@ def delete_event(eid):
     err = require_admin()
     if err: return err
     conn = get_db()
+    cur = conn.cursor()
     try:
-        # NULL out non-cascade FKs first
-        for sql in [
-            'UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s',
-            'UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s',
-        ]:
-            try: execute(conn, sql, (eid,))
-            except Exception as e: app.logger.warning(f'delete_event null fk: {e}')
+        def try_sql(sql, params=()):
+            try:
+                cur.execute('SAVEPOINT sp')
+                cur.execute(sql, params)
+                cur.execute('RELEASE SAVEPOINT sp')
+            except Exception as e:
+                cur.execute('ROLLBACK TO SAVEPOINT sp')
+                app.logger.warning(f'delete_event skip: {e}')
 
-        # Delete child records — try each table, ignore if table doesn't exist
-        child_deletes = [
-            'DELETE FROM event_waivers WHERE event_id=%s',
-            'DELETE FROM event_elics WHERE event_id=%s',
-            'DELETE FROM event_checklist_responses WHERE event_id=%s',
-            'DELETE FROM hours WHERE event_id=%s',
-            'DELETE FROM pending_hours WHERE event=%s',
-        ]
-        for sql in child_deletes:
-            try: execute(conn, sql, (eid,))
-            except Exception as e: app.logger.warning(f'delete_event child: {e}')
+        try_sql('UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
+        try_sql('UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
+        try_sql('DELETE FROM event_waivers WHERE event_id=%s', (eid,))
+        try_sql('DELETE FROM event_elics WHERE event_id=%s', (eid,))
+        try_sql('DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
+        try_sql('DELETE FROM hours WHERE event_id=%s', (eid,))
 
         # Carpools
         try:
-            carpool_ids = [r['id'] for r in fetchall(conn, 'SELECT id FROM carpools WHERE event_id=%s', (eid,))]
+            cur.execute('SAVEPOINT sp_carpools')
+            cur.execute('SELECT id FROM carpools WHERE event_id=%s', (eid,))
+            carpool_ids = [r[0] for r in cur.fetchall()]
             for cid in carpool_ids:
-                execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
+                cur.execute('DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
             if carpool_ids:
-                execute(conn, 'DELETE FROM carpools WHERE event_id=%s', (eid,))
+                cur.execute('DELETE FROM carpools WHERE event_id=%s', (eid,))
+            cur.execute('RELEASE SAVEPOINT sp_carpools')
         except Exception as e:
+            cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
             app.logger.warning(f'delete_event carpools: {e}')
 
-        # Finally delete the event
-        execute(conn, 'DELETE FROM events WHERE id=%s', (eid,))
+        # The main delete — if this fails we want the real error
+        cur.execute('DELETE FROM events WHERE id=%s', (eid,))
         conn.commit()
+        cur.close()
         conn.close()
         return jsonify({'ok': True})
+
     except Exception as e:
-        conn.rollback()
+        try: conn.rollback()
+        except: pass
+        try: cur.close()
+        except: pass
         conn.close()
         app.logger.error(f'delete_event {eid}: {e}')
         return jsonify({'error': str(e)}), 500

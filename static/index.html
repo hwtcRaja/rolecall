@@ -4938,17 +4938,24 @@ function renderDonorDetailPage(donor){
                   $${parseFloat(cb.total_donated).toLocaleString()} donated
                 </div>
               </div>
-              ${cb.benefits.map(b=>`
-                <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+              ${cb.benefits.map(b=>{
+                const uses = (donor.benefit_usage||[]).filter(u=>u.benefit_id===b.id)
+                return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
                   <div style="background:var(--teal-50);color:var(--teal-dark);font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;flex-shrink:0;white-space:nowrap">
                     $${parseFloat(b.min_amount).toLocaleString()}+
                   </div>
                   <div style="flex:1">
                     <div style="font-size:13px;font-weight:600">${escHtml(b.name)}</div>
                     ${b.description?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(b.description)}</div>`:''}
+                    ${uses.length?`<div style="font-size:11px;color:var(--green-600);margin-top:2px">Used ${uses.length}× — last ${formatDateTime(uses[0].used_at)}</div>`:''}
                   </div>
-                  <span style="font-size:11px;color:${b.is_trackable?'var(--green-600)':'var(--text-hint)'};font-weight:600">${b.is_trackable?'Trackable':'Info'}</span>
-                </div>`).join('')}
+                  ${b.is_trackable
+                    ? `<button onclick="recordBenefitUse('${donor.id}','${b.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">
+                        ${uses.length ? '+ Use Again' : 'Mark Used'}
+                       </button>`
+                    : '<span style="font-size:11px;color:var(--text-hint)">Info only</span>'}
+                </div>`
+              }).join('')}
             </div>`).join('')}
         </div>` : ''}
 

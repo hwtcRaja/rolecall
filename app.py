@@ -2514,8 +2514,40 @@ def get_donor_detail(did):
         WHERE bu.donor_id=%s ORDER BY bu.used_at DESC''', (did,))
     donor['communications'] = fetchall(conn, '''
         SELECT * FROM donor_communications WHERE donor_id=%s ORDER BY sent_at DESC''', (did,))
-    # Cumulative benefits (this tier + all lower tiers)
+    # Cumulative tier benefits (this tier + all lower tiers)
     donor['benefits'] = get_cumulative_benefits(conn, donor.get('tier_id'))
+
+    # Campaign-specific benefits — for each campaign this donor has donated to,
+    # show which benefits they've earned based on their total to that campaign
+    try:
+        campaign_totals = fetchall(conn, '''
+            SELECT campaign_id, c.name as campaign_name,
+                   SUM(amount) FILTER (WHERE payment_status='received') as total
+            FROM donor_donations dd
+            JOIN donor_campaigns c ON dd.campaign_id=c.id
+            WHERE dd.donor_id=%s AND dd.campaign_id IS NOT NULL
+            GROUP BY campaign_id, c.name
+            HAVING SUM(amount) FILTER (WHERE payment_status='received') > 0
+        ''', (did,))
+        campaign_benefits = []
+        for ct in campaign_totals:
+            earned = fetchall(conn, '''
+                SELECT * FROM campaign_benefits
+                WHERE campaign_id=%s AND min_amount <= %s
+                ORDER BY min_amount ASC, sort_order ASC
+            ''', (ct['campaign_id'], float(ct['total'] or 0)))
+            if earned:
+                campaign_benefits.append({
+                    'campaign_id': ct['campaign_id'],
+                    'campaign_name': ct['campaign_name'],
+                    'total_donated': float(ct['total'] or 0),
+                    'benefits': earned
+                })
+        donor['campaign_benefits'] = campaign_benefits
+    except Exception as e:
+        app.logger.warning(f'campaign benefits for donor {did}: {e}')
+        donor['campaign_benefits'] = []
+
     conn.close()
     return jsonify(donor)
 

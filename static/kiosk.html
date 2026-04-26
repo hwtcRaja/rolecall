@@ -590,6 +590,14 @@ let _bvTimerInterval  = null
 let _bvSessionStart   = null
 let _bvOverrideReason = ''
 
+function safeDate(str){
+  if(!str) return null
+  // Postgres timestamps: "2024-01-15 14:23:45.123456+00" → replace space with T for ISO parsing
+  const iso = String(str).replace(' ', 'T')
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
 async function goBeginVolunteering(){
   _bvSelectedEvent = null
   _bvOverrideReason = ''
@@ -754,7 +762,7 @@ async function submitBeginVolunteering(){
     })
     const d = await r.json()
     if(d.error){ alert(d.error); btn.disabled=false; btn.textContent='🟢 Begin Volunteering'; return }
-    _bvSessionStart = new Date(d.started_at)
+    _bvSessionStart = safeDate(d.started_at)
     showScreen('screen-vol-menu')
     showActiveSessionBanner(role)
     if(_bvOverrideReason){
@@ -800,7 +808,9 @@ function showActiveSessionBanner(role){
   _bvTimerInterval = setInterval(function(){
     const el = document.getElementById('active-session-timer')
     if(!el || !_bvSessionStart){ clearInterval(_bvTimerInterval); return }
-    const secs = Math.floor((Date.now() - _bvSessionStart.getTime()) / 1000)
+    const diff = Date.now() - _bvSessionStart.getTime()
+    if(isNaN(diff) || diff < 0){ el.textContent = '0:00:00'; return }
+    const secs = Math.floor(diff / 1000)
     const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60
     el.textContent = h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s
   }, 1000)
@@ -821,7 +831,7 @@ async function checkActiveSession(){
     const r = await fetch('/api/kiosk/session/active/'+selVol.id)
     const d = await r.json()
     if(d.active){
-      _bvSessionStart = new Date(d.started_at)
+      _bvSessionStart = safeDate(d.started_at)
       showActiveSessionBanner('')
     }
   } catch(err){}

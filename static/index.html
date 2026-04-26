@@ -1666,6 +1666,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
       </div>
       <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
+      <div id="vol-sub-selections-wrap" style="display:none">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;margin-top:4px">Sub-selections</div>
+        <div id="vol-sub-selections-panels"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
@@ -2150,6 +2154,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 // ═══════════════════════════════════════════════════════════════
 let currentUser = null
 let volunteers = []
+let allApplications = []
 let allHours = []
 let allEvents = []
 let interestTypes = []
@@ -2485,9 +2490,10 @@ async function loadAllData(){
   populateYouthFilters()
   populateProgramsDropdown()
   populateProdVolSelect()
-  // Load applications count for nav badge on startup
+  // Load applications count for nav badge on startup and store for sub-interest filtering
   api('/api/applications').then(apps=>{
     if(!Array.isArray(apps)) return
+    allApplications = apps
     const pending = apps.filter(a=>a.status==='pending').length
     const navBadge = document.getElementById('vol-interest-badge')
     if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
@@ -2715,7 +2721,17 @@ function renderApplications(apps){
             ${a.how_heard?`<span style="color:var(--text-hint)">via ${escHtml(a.how_heard)}</span>`:''}
             <span style="color:var(--text-hint)">Submitted ${formatDateTime(a.created_at)}</span>
           </div>
-          ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>`<span style="background:var(--teal-50);color:var(--teal-600);border:1px solid var(--teal-100);padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(i)}</span>`).join('')}</div>`:''}
+          ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>{
+            let subSel = []
+            try{
+              const ss = JSON.parse(a.sub_selections||'{}')
+              subSel = ss[i] || []
+            }catch(e){}
+            return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:10px;padding:4px 10px;">
+              <span style="color:var(--teal-600);font-size:12px;font-weight:700">${escHtml(i)}</span>
+              ${subSel.length?`<span style="font-size:11px;color:var(--teal-dark);margin-top:1px">↳ ${subSel.map(s=>escHtml(s)).join(', ')}</span>`:''}
+            </span>`
+          }).join('')}</div>`:''}
           ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md);margin-top:4px"><em>${escHtml(a.notes)}</em></div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
@@ -2919,7 +2935,14 @@ async function openProfile(volId){
         <hr class="divider"/>
         <div style="margin-bottom:12px">
           <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Interests</div>
-          <div>${interests.map(i=>interestTagHTML(i)).join('')||'<span style="color:var(--text-hint);font-size:13px">None</span>'}</div>
+          <div>${interests.length ? interests.map(i=>{
+            let subSel = []
+            try{ const ss=JSON.parse(v.sub_selections||'{}'); subSel=ss[i]||[] }catch(e){}
+            return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:10px;padding:4px 10px;margin:0 4px 4px 0">
+              <span style="color:var(--teal-600);font-size:12px;font-weight:700">${escHtml(i)}</span>
+              ${subSel.length?`<span style="font-size:11px;color:var(--teal-dark);margin-top:1px">↳ ${subSel.map(s=>escHtml(s)).join(', ')}</span>`:''}
+            </span>`
+          }).join('') : '<span style="color:var(--text-hint);font-size:13px">None</span>'}</div>
         </div>
         <hr class="divider"/>
         <div style="margin-bottom:12px">
@@ -3429,7 +3452,30 @@ function renderEmailGroupOptions(){
     interestTypes.forEach(it=>{
       sel.innerHTML+=`<option value="${it.name}">${it.name}</option>`
     })
-  } else if(type==='event'){
+    // Show sub-options selector when interest changes
+    sel.onchange = function(){
+      const chosen = interestTypes.find(it=>it.name===this.value)
+      let subOpts = []
+      try{ subOpts = JSON.parse(chosen?.sub_options||'[]') }catch(e){}
+      const existing = document.getElementById('email-sub-interest-detail')
+      if(existing) existing.remove()
+      if(subOpts.length){
+        const subDiv = document.createElement('div')
+        subDiv.id = 'email-sub-interest-detail'
+        subDiv.style.marginTop = '6px'
+        subDiv.innerHTML = `<select id="email-sub-interest-value" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+          <option value="">— All ${escHtml(this.value)} (any instrument) —</option>
+          ${subOpts.map(opt=>`<option value="${escHtml(opt)}">↳ ${escHtml(opt)} only</option>`).join('')}
+        </select>`
+        sel.parentNode.insertBefore(subDiv, sel.nextSibling)
+      }
+    }
+  } else {
+    // Clear sub-interest selector if switching away
+    const existing = document.getElementById('email-sub-interest-detail')
+    if(existing) existing.remove()
+  }
+  if(type==='event'){
     allEvents.filter(e=>e.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,50).forEach(e=>{
       sel.innerHTML+=`<option value="${e.id}">${e.name} (${formatDate(e.event_date)})</option>`
     })
@@ -3488,13 +3534,17 @@ async function applyEmailGroup(){
 
   } else if(type==='interest'){
     if(!val){toast('Select an interest','error');return}
+    const subVal = document.getElementById('email-sub-interest-value')?.value || ''
     matched=volunteers.filter(v=>{
       try{
         const ints=JSON.parse(v.interests||'[]')
-        return ints.includes(val)
+        if(!ints.includes(val)) return false
+        if(!subVal) return true
+        const ss=JSON.parse(v.sub_selections||'{}')
+        return (ss[val]||[]).includes(subVal)
       }catch{return false}
     })
-    label=`Volunteers interested in: ${val}`
+    label = subVal ? `Volunteers: ${val} → ${subVal}` : `Volunteers interested in: ${val}`
 
   } else if(type==='event'){
     if(!val){toast('Select an event','error');return}
@@ -4027,12 +4077,86 @@ function buildInterestCheckboxes(){
       <input type="checkbox" value="${t.name}" style="display:none">${t.name}
     </label>`).join('')
 }
-function toggleCheckTag(el){const cb=el.querySelector('input');cb.checked=!cb.checked;el.classList.toggle('checked',cb.checked)}
+function toggleCheckTag(el){
+  const cb=el.querySelector('input')
+  cb.checked=!cb.checked
+  el.classList.toggle('checked',cb.checked)
+  renderVolSubSelectionPanels()
+}
 function getCheckedInterests(){return[...document.querySelectorAll('#interests-checkboxes input:checked')].map(c=>c.value)}
 function setCheckedInterests(interests){
   document.querySelectorAll('#interests-checkboxes .checkbox-tag').forEach(el=>{
     const cb=el.querySelector('input');const checked=interests.includes(cb.value);cb.checked=checked;el.classList.toggle('checked',checked)
   })
+}
+
+function renderVolSubSelectionPanels(){
+  const wrap = document.getElementById('vol-sub-selections-wrap')
+  const panels = document.getElementById('vol-sub-selections-panels')
+  if(!wrap||!panels) return
+  const checked = getCheckedInterests()
+  // Save current checkbox states before re-rendering
+  const currentVals = getVolSubSelections()
+  const withSubs = interestTypes.filter(t=>{
+    if(!checked.includes(t.name)) return false
+    try{ return JSON.parse(t.sub_options||'[]').length>0 }catch(e){ return false }
+  })
+  wrap.style.display = withSubs.length ? '' : 'none'
+  panels.innerHTML = withSubs.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    const cur = currentVals[t.name]||[]
+    return `<div style="margin-bottom:10px;background:var(--bg);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:6px">${escHtml(t.name)}
+        <span style="font-weight:400;color:var(--text-muted)"> — ${escHtml(t.sub_options_label||'Select all that apply')}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${subOpts.map(opt=>`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:var(--surface);border:1.5px solid var(--border-md);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">
+          <input type="checkbox" class="vol-sub-cb" data-interest="${escHtml(t.name)}" value="${escHtml(opt)}"
+            ${cur.includes(opt)?'checked':''} style="accent-color:var(--teal)"/> ${escHtml(opt)}
+        </label>`).join('')}
+      </div>
+    </div>`
+  }).join('')
+}
+
+function getVolSubSelections(){
+  const result={}
+  document.querySelectorAll('.vol-sub-cb').forEach(cb=>{
+    const interest=cb.dataset.interest
+    if(!result[interest]) result[interest]=[]
+    if(cb.checked) result[interest].push(cb.value)
+  })
+  return result
+}
+
+function setVolSubSelections(subSelections){
+  // Render panels first with the values pre-set
+  const wrap = document.getElementById('vol-sub-selections-wrap')
+  const panels = document.getElementById('vol-sub-selections-panels')
+  if(!wrap||!panels) return
+  const checked = getCheckedInterests()
+  const withSubs = interestTypes.filter(t=>{
+    if(!checked.includes(t.name)) return false
+    try{ return JSON.parse(t.sub_options||'[]').length>0 }catch(e){ return false }
+  })
+  wrap.style.display = withSubs.length ? '' : 'none'
+  panels.innerHTML = withSubs.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    const cur = (subSelections||{})[t.name]||[]
+    return `<div style="margin-bottom:10px;background:var(--bg);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:6px">${escHtml(t.name)}
+        <span style="font-weight:400;color:var(--text-muted)"> — ${escHtml(t.sub_options_label||'Select all that apply')}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${subOpts.map(opt=>`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:var(--surface);border:1.5px solid var(--border-md);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">
+          <input type="checkbox" class="vol-sub-cb" data-interest="${escHtml(t.name)}" value="${escHtml(opt)}"
+            ${cur.includes(opt)?'checked':''} style="accent-color:var(--teal)"/> ${escHtml(opt)}
+        </label>`).join('')}
+      </div>
+    </div>`
+  }).join('')
 }
 
 function openVolModal(){
@@ -4042,6 +4166,10 @@ function openVolModal(){
   document.getElementById('vol-birthday').value=''
   document.getElementById('vol-status').value='active'
   setCheckedInterests([])
+  const wrap=document.getElementById('vol-sub-selections-wrap')
+  if(wrap) wrap.style.display='none'
+  const panels=document.getElementById('vol-sub-selections-panels')
+  if(panels) panels.innerHTML=''
   openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
@@ -4057,6 +4185,9 @@ function openEditVolModal(volId){
   document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
   document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
   setCheckedInterests(JSON.parse(v.interests||'[]'))
+  let subSel={}
+  try{ subSel=JSON.parse(v.sub_selections||'{}') }catch(e){}
+  setVolSubSelections(subSel)
   openModal('modal-volunteer')
 }
 async function saveVolunteer(){
@@ -4064,7 +4195,7 @@ async function saveVolunteer(){
   const email=document.getElementById('vol-email').value.trim()
   if(!name||!email){toast('Name and email are required','error');return}
   const editId=document.getElementById('vol-edit-id').value
-  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
+  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),sub_selections:getVolSubSelections(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
   if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
   else await api('/api/volunteers','POST',data)
   toast(editId?'Volunteer updated!':'Volunteer added!','success')

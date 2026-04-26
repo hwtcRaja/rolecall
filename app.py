@@ -4272,7 +4272,7 @@ def kiosk_youth_sign_out():
 @app.route('/api/join/interest-types')
 def join_interest_types():
     conn = get_db()
-    types = fetchall(conn, 'SELECT id, name, color FROM interest_types ORDER BY name')
+    types = fetchall(conn, 'SELECT id, name, color, sub_options, sub_options_label FROM interest_types ORDER BY name')
     conn.close()
     return jsonify(types)
 

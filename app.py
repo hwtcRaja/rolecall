@@ -348,6 +348,9 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
+        "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options TEXT DEFAULT '[]'",
+        "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options_label TEXT DEFAULT ''",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
         # Sync required_all from required_for_volunteering — they should be the same column
         "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
         "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",
@@ -1025,8 +1028,10 @@ def create_interest_type():
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s)',
-            (tid, (d.get('name') or '').strip(), d.get('color','gray')))
+        sub_opts = json.dumps(d.get('sub_options') or [])
+        sub_label = (d.get('sub_options_label') or '').strip()
+        execute(conn, 'INSERT INTO interest_types (id,name,color,sub_options,sub_options_label) VALUES (%s,%s,%s,%s,%s)',
+            (tid, (d.get('name') or '').strip(), d.get('color','gray'), sub_opts, sub_label))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
         conn.close()
@@ -1036,6 +1041,26 @@ def create_interest_type():
         app.logger.error(f'create_interest_type: {e}')
         if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
             return jsonify({'error': 'An interest type with that name already exists'}), 400
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/interest-types/<tid>', methods=['PUT'])
+def update_interest_type(tid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        sub_opts = json.dumps(d.get('sub_options') or [])
+        sub_label = (d.get('sub_options_label') or '').strip()
+        execute(conn, '''UPDATE interest_types SET name=%s, color=%s, sub_options=%s, sub_options_label=%s
+            WHERE id=%s''',
+            ((d.get('name') or '').strip(), d.get('color','gray'), sub_opts, sub_label, tid))
+        conn.commit()
+        row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
+        conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/interest-types/<tid>', methods=['DELETE'])
@@ -4250,22 +4275,25 @@ def join_interest_types():
 
 @app.route('/api/join/submit', methods=['POST'])
 def join_submit():
-    d = request.json
+    d = request.json or {}
     if not d.get('name') or not d.get('email'):
         return jsonify({'error': 'Name and email are required'}), 400
     aid = str(uuid.uuid4())
     conn = get_db()
     try:
+        sub_selections = json.dumps(d.get('sub_selections') or {})
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
-             (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip()))
+             (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
+             sub_selections))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
+        app.logger.error(f'join_submit: {e}')
         return jsonify({'error': 'Submission failed. Please try again.'}), 500
     try:
         s = get_email_settings()
@@ -4273,6 +4301,12 @@ def join_submit():
         if recipients:
             interests_str = ', '.join(d.get('interests', [])) or 'None specified'
             age_str = '18 or older' if d.get('is_adult', True) else 'Under 18'
+            # Build sub-selections rows
+            sub_rows = ''
+            sub_sel = d.get('sub_selections') or {}
+            for interest, selections in sub_sel.items():
+                if selections:
+                    sub_rows += f'<tr><td style="padding:8px;font-weight:600;color:#666;width:140px">&nbsp;&nbsp;↳ {interest}</td><td style="padding:8px">{", ".join(selections)}</td></tr>'
             html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px">
                 <h2 style="color:#0d3d4d">New Volunteer Interest Submission</h2>
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -4282,6 +4316,7 @@ def join_submit():
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
+                  {sub_rows}
                   <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
                 </table>

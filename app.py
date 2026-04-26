@@ -4062,31 +4062,39 @@ def kiosk_active_session(vol_id):
 
 @app.route('/api/kiosk/session/begin', methods=['POST'])
 def kiosk_begin_session():
-    d = request.json
-    vol_id   = d.get('volunteer_id')
-    event_id = d.get('event_id')
-    role     = d.get('role','')
+    d = request.json or {}
+    vol_id          = d.get('volunteer_id')
+    event_id        = d.get('event_id')
+    role            = d.get('role','')
+    override_reason = d.get('override_reason','').strip()
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
+    # Require event or override reason
+    if not event_id and not override_reason:
+        conn.close()
+        return jsonify({'error': 'Please select an event or provide an override reason.'}), 400
     # Check event is open if one is specified
     if event_id:
         evt = fetchone(conn, 'SELECT status, name FROM events WHERE id=%s', (event_id,))
         if evt and evt.get('status') != 'open':
             conn.close()
-            return jsonify({'error': f'This event is not open yet. Please wait for staff to open it.'}), 400
+            return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
     if existing: conn.close(); return jsonify({'error': 'Already volunteering — please stop your current session first.'}), 400
     event_name = d.get('event_name','')
     if event_id and not event_name:
         evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
         if evt: event_name = evt['name']
+    if not event_name and override_reason:
+        event_name = f'Override: {override_reason}'
     sid = str(uuid.uuid4())
     execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,status) VALUES (%s,%s,%s,%s,%s,'active')",
         (sid, vol_id, event_id or None, event_name, role))
     conn.commit()
     session_row = fetchone(conn, 'SELECT * FROM kiosk_sessions WHERE id=%s', (sid,))
     conn.close()
-    return jsonify({'ok': True, 'session_id': sid, 'started_at': str(session_row['started_at'])})
+    return jsonify({'ok': True, 'session_id': sid, 'started_at': str(session_row['started_at']),
+                    'is_override': bool(override_reason)})
 
 @app.route('/api/kiosk/session/stop', methods=['POST'])
 def kiosk_stop_session():
@@ -4106,9 +4114,13 @@ def kiosk_stop_session():
         execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed', role=%s WHERE id=%s",
             (elapsed_hours, role or sess['role'], sess['id']))
         pid = str(uuid.uuid4())
-        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+        # Override sessions (no event) need admin review before approval
+        hours_status = 'pending' if sess.get('event_id') else 'pending_review'
+        override_note = ' [Override — no event selected]' if not sess.get('event_id') else ''
+        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
-             today, elapsed_hours, role or sess['role'], 'Recorded via kiosk timer'))
+             today, elapsed_hours, role or sess['role'],
+             'Recorded via kiosk timer' + override_note, hours_status))
         conn.commit()
         try:
             s = get_email_settings()

@@ -158,27 +158,47 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 
 <script>
 let selectedInterests = []
+let selectedSubSelections = {}
+let allInterestTypes = []
 
 // Pronouns other field
 document.getElementById('f-pronouns').addEventListener('change', function(){
   document.getElementById('pronouns-other-wrap').style.display = this.value==='__other__' ? '' : 'none'
 })
 
-// Age check styling
 async function loadInterests(){
   try {
     const res = await fetch('/api/join/interest-types')
     if(!res.ok) throw new Error(res.status)
     const types = await res.json()
+    allInterestTypes = Array.isArray(types) ? types : []
     const grid = document.getElementById('interest-tags')
-    if(!Array.isArray(types) || !types.length){
+    if(!allInterestTypes.length){
       grid.innerHTML = '<div style="font-size:14px;color:#9b9b94">No interest areas set up yet.</div>'
       return
     }
     const colorMap = {teal:'#145466',blue:'#185fa5',amber:'#854f0b',pink:'#be185d',purple:'#6d28d9',green:'#3b6d11',gray:'#5f5e5a',red:'#a32d2d'}
-    grid.innerHTML = types.map(t=>{
+    grid.innerHTML = allInterestTypes.map(t=>{
       const bg = colorMap[t.color]||'#145466'
-      return `<div class="tag" onclick="toggleTag(this,'${escStr(t.name)}','${bg}')">${escStr(t.name)}</div>`
+      const safeId = t.name.replace(/\W+/g,'-')
+      let subHtml = ''
+      let subOpts = []
+      try { subOpts = JSON.parse(t.sub_options||'[]') } catch(e){}
+      if(subOpts.length){
+        subHtml = `<div id="sub-${safeId}" style="display:none;margin-top:10px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0">
+          <div style="font-size:13px;font-weight:600;color:#145466;margin-bottom:8px">${t.sub_options_label||'Select all that apply:'}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${subOpts.map(opt=>`<label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:#fff;border:1.5px solid #e2e8f0;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:500;transition:all 0.15s">
+              <input type="checkbox" value="${opt}" data-interest="${t.name}" onchange="updateSubSelection(this)"
+                style="accent-color:#145466;width:14px;height:14px"/> ${opt}
+            </label>`).join('')}
+          </div>
+        </div>`
+      }
+      return `<div style="margin-bottom:4px">
+        <div class="tag" data-name="${t.name}" onclick="toggleTag(this,'${t.name}','${bg}','${safeId}')">${t.name}</div>
+        ${subHtml}
+      </div>`
     }).join('')
   } catch(e){
     document.getElementById('interest-tags').innerHTML =
@@ -188,13 +208,32 @@ async function loadInterests(){
 
 function escStr(s){ return String(s).replace(/['"<>&]/g, c=>({'\'':'&#39;','"':'&quot;','<':'&lt;','>':'&gt;','&':'&amp;'}[c])) }
 
-function toggleTag(el, name, bg){
+function toggleTag(el, name, bg, safeId){
   const on = el.classList.toggle('sel')
   el.style.background = on ? bg : ''
   el.style.borderColor = on ? bg : ''
   el.style.color = on ? '#fff' : ''
   if(on){ if(!selectedInterests.includes(name)) selectedInterests.push(name) }
-  else { selectedInterests = selectedInterests.filter(i=>i!==name) }
+  else {
+    selectedInterests = selectedInterests.filter(i=>i!==name)
+    delete selectedSubSelections[name]
+    // Uncheck all sub-options
+    document.querySelectorAll(`input[data-interest="${name}"]`).forEach(cb=>cb.checked=false)
+  }
+  // Show/hide sub-options panel
+  const subPanel = document.getElementById('sub-'+safeId)
+  if(subPanel) subPanel.style.display = on ? '' : 'none'
+}
+
+function updateSubSelection(cb){
+  const interest = cb.dataset.interest
+  const val = cb.value
+  if(!selectedSubSelections[interest]) selectedSubSelections[interest] = []
+  if(cb.checked){
+    if(!selectedSubSelections[interest].includes(val)) selectedSubSelections[interest].push(val)
+  } else {
+    selectedSubSelections[interest] = selectedSubSelections[interest].filter(v=>v!==val)
+  }
 }
 
 async function submitForm(e){
@@ -229,7 +268,7 @@ async function submitForm(e){
   try {
     const res = await fetch('/api/join/submit',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,how_heard:heard,notes})
+      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes})
     })
     const data = await res.json()
     if(data.ok){

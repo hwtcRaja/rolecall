@@ -4352,17 +4352,84 @@ function renderInterestTypesSettings(){
   const el=document.getElementById('interest-types-list')
   if(!el) return
   if(!interestTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No interest types yet</div>';return}
-  el.innerHTML=interestTypes.map(t=>`
-    <div class="setting-item">
-      <div><div class="setting-item-label">${tagHTML(t.name,t.color)} ${t.name}</div></div>
-      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">✕</button>
-    </div>`).join('')
+  el.innerHTML=interestTypes.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    return `<div class="setting-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>${tagHTML(t.name,t.color)} <strong>${t.name}</strong></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openSubOptionsEditor('${t.id}')">⚙ Sub-options</button>
+          <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">✕</button>
+        </div>
+      </div>
+      ${subOpts.length?`<div style="font-size:12px;color:var(--text-muted)">
+        <span style="font-weight:600">↳ ${t.sub_options_label||'Sub-options'}:</span> ${subOpts.join(', ')}
+      </div>`:''}
+    </div>`
+  }).join('')
 }
+
+function openSubOptionsEditor(tid){
+  const t = interestTypes.find(i=>i.id===tid)
+  if(!t) return
+  let subOpts=[]
+  try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+  const existing = document.getElementById('sub-opt-editor')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'sub-opt-editor'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">⚙ Sub-options for "${t.name}"</div>
+        <button onclick="document.getElementById('sub-opt-editor').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label>Prompt label <span style="font-weight:400;color:var(--text-hint)">(shown above the sub-options on the form)</span></label>
+          <input type="text" id="soe-label" value="${escHtml(t.sub_options_label||'')}" placeholder="e.g. Which instruments do you play?"/>
+        </div>
+        <div class="form-group">
+          <label>Options <span style="font-weight:400;color:var(--text-hint)">(one per line)</span></label>
+          <textarea id="soe-opts" style="min-height:120px;font-family:inherit;font-size:13px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box;resize:vertical"
+            placeholder="Piano&#10;Guitar&#10;Violin&#10;Drums">${subOpts.join('\n')}</textarea>
+        </div>
+        <div style="background:var(--teal-50);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--teal-dark)">
+          💡 When someone selects "${t.name}" on the join form, these options will appear as checkboxes below it.
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="saveSubOptions('${tid}')">Save Sub-options</button>
+      </div>
+    </div>`
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>document.getElementById('soe-label')?.focus(),50)
+}
+
+async function saveSubOptions(tid){
+  const label = document.getElementById('soe-label')?.value.trim()
+  const optsRaw = document.getElementById('soe-opts')?.value || ''
+  const opts = optsRaw.split('\n').map(l=>l.trim()).filter(Boolean)
+  const t = interestTypes.find(i=>i.id===tid)
+  if(!t) return
+  const res = await api(`/api/interest-types/${tid}`,'PUT',{
+    name: t.name, color: t.color,
+    sub_options: opts,
+    sub_options_label: label
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  interestTypes = interestTypes.map(i=>i.id===tid?res:i)
+  document.getElementById('sub-opt-editor')?.remove()
+  renderInterestTypesSettings()
+  toast(`Sub-options saved — ${opts.length} option${opts.length!==1?'s':''}`, 'success')
+}
+
 async function addInterestType(){
   const name=document.getElementById('new-interest-name').value.trim()
   const color=document.getElementById('new-interest-color').value
   if(!name){toast('Name is required','error');return}
-  const res=await api('/api/interest-types','POST',{name,color})
+  const res=await api('/api/interest-types','POST',{name,color,sub_options:[],sub_options_label:''})
   if(res.error){toast(res.error,'error');return}
   interestTypes.push(res)
   document.getElementById('new-interest-name').value=''

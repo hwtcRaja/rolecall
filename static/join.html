@@ -30,6 +30,8 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 .check-label{font-size:15px;font-weight:500}
 .check-sub{font-size:13px;color:#9b9b94;margin-top:2px}
 .tag-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.tag-wrapper{width:100%;display:flex;flex-direction:column}
+.tag-wrapper .tag{align-self:flex-start}
 .tag{padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;border:2px solid #e0e0db;background:#fff;color:#5f5e5a;cursor:pointer;transition:all 0.15s;user-select:none}
 .tag:hover{border-color:#145466;color:#145466}
 .tag.sel{background:#145466;border-color:#145466;color:#fff}
@@ -195,10 +197,12 @@ async function loadInterests(){
           </div>
         </div>`
       }
-      return `<div style="margin-bottom:4px">
-        <div class="tag" data-name="${t.name}" onclick="toggleTag(this,'${t.name}','${bg}','${safeId}')">${t.name}</div>
-        ${subHtml}
-      </div>`
+      return subOpts.length
+        ? `<div class="tag-wrapper">
+            <div class="tag" data-name="${t.name}" onclick="toggleTag(this,'${t.name}','${bg}','${safeId}')">${t.name}</div>
+            ${subHtml}
+          </div>`
+        : `<div class="tag" data-name="${t.name}" onclick="toggleTag(this,'${t.name}','${bg}','${safeId}')">${t.name}</div>`
     }).join('')
   } catch(e){
     document.getElementById('interest-tags').innerHTML =

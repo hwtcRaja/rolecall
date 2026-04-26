@@ -534,6 +534,8 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
+        "UPDATE volunteers SET sub_selections='{}' WHERE sub_selections IS NULL",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
@@ -1286,10 +1288,15 @@ def create_volunteer():
 def update_volunteer(vol_id):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,interests=%s,background_check_status=%s,background_check_date=%s WHERE id=%s',
-            (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
+    sub_selections = json.dumps(d.get('sub_selections') or {})
+    execute(conn, '''UPDATE volunteers SET name=%s,email=%s,phone=%s,birthday=%s,status=%s,
+        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s
+        WHERE id=%s''',
+        (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None,
+         d.get('status','active'), json.dumps(d.get('interests',[])), sub_selections,
+         d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()
@@ -4351,17 +4358,25 @@ def approve_application(aid):
 
         # Check if volunteer with this email already exists
         existing = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=LOWER(%s)', (app_row['email'],))
+        sub_selections = app_row.get('sub_selections') or '{}'
         if existing:
             vid = existing['id']
-            # Update existing volunteer's name/phone if blank
+            # Update existing volunteer's name/phone if blank, merge sub_selections
             execute(conn, "UPDATE volunteers SET name=COALESCE(NULLIF(name,''),%s), phone=COALESCE(NULLIF(phone,''),%s) WHERE id=%s",
                 (app_row['name'], app_row.get('phone',''), vid))
+            try:
+                old_row = fetchone(conn, 'SELECT sub_selections FROM volunteers WHERE id=%s', (vid,))
+                old_ss = json.loads((old_row or {}).get('sub_selections') or '{}')
+                new_ss = json.loads(sub_selections)
+                merged = {**old_ss, **new_ss}
+                execute(conn, 'UPDATE volunteers SET sub_selections=%s WHERE id=%s', (json.dumps(merged), vid))
+            except Exception:
+                pass
         else:
             vid = str(uuid.uuid4())
-            # Build interests list from application
             interests = app_row.get('interests') or '[]'
-            execute(conn, "INSERT INTO volunteers (id,name,email,phone,status,interests) VALUES (%s,%s,%s,%s,'active',%s)",
-                (vid, app_row['name'], app_row['email'], app_row.get('phone',''), interests))
+            execute(conn, "INSERT INTO volunteers (id,name,email,phone,status,interests,sub_selections) VALUES (%s,%s,%s,%s,'active',%s,%s)",
+                (vid, app_row['name'], app_row['email'], app_row.get('phone',''), interests, sub_selections))
 
         execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
             (vid, session.get('user_name',''), aid))

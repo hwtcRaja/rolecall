@@ -1021,12 +1021,12 @@ def create_interest_type():
     err = require_admin()
     if err: return err
     d = request.json or {}
-    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO interest_types (id,name,color) VALUES (%s,%s,%s)',
-            (tid, d.get('name','').strip(), d.get('color','gray')))
+            (tid, (d.get('name') or '').strip(), d.get('color','gray')))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM interest_types WHERE id=%s', (tid,))
         conn.close()
@@ -1083,9 +1083,9 @@ def create_event():
     err = require_admin()
     if err: return err
     d = request.json or {}
-    if not d.get('name','').strip():
+    if not (d.get('name') or '').strip():
         return jsonify({'error': 'Event name is required'}), 400
-    if not d.get('event_date','').strip():
+    if not (d.get('event_date') or '').strip():
         return jsonify({'error': 'Event date is required'}), 400
     eid = str(uuid.uuid4())
     conn = get_db()
@@ -1390,13 +1390,13 @@ def create_waiver_type():
     err = require_admin()
     if err: return err
     d = request.json
-    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
         execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online)
             VALUES (%s,%s,%s,%s,%s)''',
-            (tid, d.get('name','').strip(), d.get('description',''),
+            (tid, (d.get('name') or '').strip(), d.get('description',''),
              d.get('template_body',''), bool(d.get('can_sign_online',False))))
         conn.commit()
     except psycopg2.IntegrityError:
@@ -1484,7 +1484,7 @@ def sign_waiver_online():
     d = request.json
     vol_id         = d.get('volunteer_id')
     waiver_type_id = d.get('waiver_type_id')
-    signed_name    = d.get('signed_name','').strip()
+    signed_name    = (d.get('signed_name') or '').strip()
     if not vol_id or not waiver_type_id or not signed_name:
         return jsonify({'error': 'volunteer_id, waiver_type_id, and signed_name are required'}), 400
     today = date.today().isoformat()
@@ -1544,12 +1544,12 @@ def create_youth_program():
     err = require_admin()
     if err: return err
     d = request.json
-    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
         execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-                (pid, d.get('name','').strip(), d.get('description',''),
+                (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
                  d.get('default_elic_id') or None))
@@ -1566,10 +1566,10 @@ def update_youth_program(pid):
     err = require_admin()
     if err: return err
     d = request.json
-    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
     execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
-            (d.get('name','').strip(), d.get('description',''),
+            ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
              d.get('default_elic_id') or None, pid))
@@ -2176,12 +2176,12 @@ def create_campaign_benefit(cid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    if not d.get('name','').strip(): return jsonify({'error': 'Name is required'}), 400
+    if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     bid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO campaign_benefits (id,campaign_id,name,description,min_amount,is_trackable,sort_order)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (bid, cid, d.get('name','').strip(), d.get('description','').strip(),
+        (bid, cid, (d.get('name') or '').strip(), (d.get('description') or '').strip(),
          float(d.get('min_amount') or 0), bool(d.get('is_trackable',False)),
          int(d.get('sort_order',0))))
     conn.commit()
@@ -2197,7 +2197,7 @@ def update_campaign_benefit(bid):
     conn = get_db()
     execute(conn, '''UPDATE campaign_benefits SET name=%s, description=%s, min_amount=%s, is_trackable=%s
         WHERE id=%s''',
-        (d.get('name','').strip(), d.get('description','').strip(),
+        ((d.get('name') or '').strip(), (d.get('description') or '').strip(),
          float(d.get('min_amount') or 0), bool(d.get('is_trackable',False)), bid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM campaign_benefits WHERE id=%s', (bid,))
@@ -3239,7 +3239,7 @@ def test_email_route():
     err = require_admin()
     if err: return err
     d = request.json or {}
-    to = d.get('to','').strip()
+    to = (d.get('to') or '').strip()
     # Fall back to current user's email
     if not to:
         conn = get_db()
@@ -3757,8 +3757,8 @@ def add_team_bio(pid):
     execute(conn, '''INSERT INTO production_team_bios
         (id, production_id, name, role, bio, headshot_url, sort_order)
         VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (mid, pid, d.get('name','').strip(), d.get('role','').strip(),
-         d.get('bio','').strip(), d.get('headshot_url','').strip(),
+        (mid, pid, (d.get('name') or '').strip(), (d.get('role') or '').strip(),
+         (d.get('bio') or '').strip(), (d.get('headshot_url') or '').strip(),
          d.get('sort_order', 0)))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM production_team_bios WHERE id=%s', (mid,))
@@ -3774,8 +3774,8 @@ def update_team_bio(pid, mid):
     execute(conn, '''UPDATE production_team_bios SET
         name=%s, role=%s, bio=%s, headshot_url=%s, sort_order=%s
         WHERE id=%s AND production_id=%s''',
-        (d.get('name','').strip(), d.get('role','').strip(),
-         d.get('bio','').strip(), d.get('headshot_url','').strip(),
+        ((d.get('name') or '').strip(), (d.get('role') or '').strip(),
+         (d.get('bio') or '').strip(), (d.get('headshot_url') or '').strip(),
          d.get('sort_order', 0), mid, pid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM production_team_bios WHERE id=%s', (mid,))
@@ -4063,10 +4063,10 @@ def kiosk_active_session(vol_id):
 @app.route('/api/kiosk/session/begin', methods=['POST'])
 def kiosk_begin_session():
     d = request.json or {}
-    vol_id          = d.get('volunteer_id')
-    event_id        = d.get('event_id')
-    role            = d.get('role','')
-    override_reason = d.get('override_reason','').strip()
+    vol_id          = d.get('volunteer_id') or ''
+    event_id        = d.get('event_id') or None
+    role            = (d.get('role') or '').strip()
+    override_reason = (d.get('override_reason') or '').strip()
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
     # Require event or override reason
@@ -4259,10 +4259,10 @@ def join_submit():
         execute(conn, '''INSERT INTO volunteer_applications
             (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
-            (aid, d.get('name','').strip(), d.get('email','').strip().lower(),
-             d.get('phone','').strip(), d.get('pronouns','').strip(),
+            (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
+             (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
-             d.get('how_heard','').strip(), d.get('notes','').strip()))
+             (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip()))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
@@ -5294,7 +5294,7 @@ def portal_get_carpools():
 def portal_join_carpool():
     d = request.json or {}
     code       = (d.get('code') or '').strip().upper()
-    carpool_id = d.get('carpool_id','').strip()
+    carpool_id = (d.get('carpool_id') or '').strip()
     youth_ids  = d.get('youth_ids', [])
     passphrase = (d.get('passphrase') or '').strip().lower()
     if not youth_ids:

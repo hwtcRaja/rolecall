@@ -370,13 +370,28 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <div style="margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">EVENT (optional)</div>
       <div id="bv-event-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"></div>
-      <button id="bv-no-event" onclick="bvSelectEvent(null)" style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:var(--radius);background:transparent;font-family:inherit;font-size:13px;color:var(--muted);cursor:pointer">No specific event</button>
+      <button id="bv-no-event" onclick="toggleNoEventOverride()"
+        style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:var(--radius);background:transparent;font-family:inherit;font-size:13px;color:var(--muted);cursor:pointer;margin-top:4px">
+        ⚙️ No event listed — request override
+      </button>
+      <div id="bv-override-panel" style="display:none;margin-top:10px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">Override reason (required)</div>
+        <input type="text" id="bv-override-reason" placeholder="e.g. Setup before event, Admin work, Special project…"
+          style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"
+          oninput="bvUpdateOverride()"/>
+        <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Hours logged without an event will require admin review before approval.</div>
+      </div>
     </div>
     <div style="margin-bottom:20px">
       <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">YOUR ROLE (optional)</div>
       <input type="text" id="bv-role" placeholder="e.g. Usher, Set Crew, Box Office…" style="width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
     </div>
-    <button id="bv-begin-btn" onclick="submitBeginVolunteering()" style="width:100%;padding:16px;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">🟢 Begin Volunteering</button>
+    <button id="bv-begin-btn" onclick="submitBeginVolunteering()" disabled
+      style="width:100%;padding:16px;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;opacity:0.4"
+      title="Please select an event to begin">🟢 Begin Volunteering</button>
+    <div id="bv-event-hint" style="text-align:center;font-size:12px;color:var(--muted);margin-top:8px">
+      Please select an event above to begin tracking hours
+    </div>
   </div>
 </div>
 
@@ -570,16 +585,25 @@ function tapStart(){
 function goIdle(){clearTimeout(resetTmt);showScreen('screen-idle');clearTimeout(idleTmt)}
 
 // ── BEGIN / STOP VOLUNTEERING ──
-let _bvSelectedEvent = null
-let _bvTimerInterval = null
-let _bvSessionStart  = null
+let _bvSelectedEvent  = null
+let _bvTimerInterval  = null
+let _bvSessionStart   = null
+let _bvOverrideReason = ''
 
 async function goBeginVolunteering(){
   _bvSelectedEvent = null
+  _bvOverrideReason = ''
   document.getElementById('bv-role').value = ''
-  // Highlight "no specific event" as default
-  document.getElementById('bv-no-event').style.background = 'var(--teal-light)'
-  document.getElementById('bv-no-event').style.borderColor = 'var(--teal)'
+  // Reset override panel
+  const panel = document.getElementById('bv-override-panel')
+  if(panel) panel.style.display = 'none'
+  const overrideInput = document.getElementById('bv-override-reason')
+  if(overrideInput) overrideInput.value = ''
+  // Reset no-event button styling
+  const noEvtBtn = document.getElementById('bv-no-event')
+  if(noEvtBtn){ noEvtBtn.style.background='transparent'; noEvtBtn.style.borderColor='var(--border)' }
+  // Disable begin button until selection made
+  bvUpdateBeginBtn()
   // Load open events
   const grid = document.getElementById('bv-event-grid')
   grid.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading events…</div>'
@@ -611,27 +635,92 @@ async function goBeginVolunteering(){
     }
   } catch(err){ grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">Could not load events</div>' }
   showScreen('screen-begin-vol')
+  bvUpdateBeginBtn()
+}
+
+function toggleNoEventOverride(){
+  const panel = document.getElementById('bv-override-panel')
+  const btn   = document.getElementById('bv-no-event')
+  const showing = panel.style.display !== 'none'
+  panel.style.display = showing ? 'none' : ''
+  if(showing){
+    // Closing override panel — clear selection
+    _bvSelectedEvent = null
+    _bvOverrideReason = ''
+    btn.style.background = 'transparent'
+    btn.style.borderColor = 'var(--border)'
+  } else {
+    // Opening — deselect any event
+    document.querySelectorAll('#bv-event-grid button').forEach(b=>{
+      b.style.background='var(--surface)'; b.style.borderColor='var(--border)'
+    })
+    _bvSelectedEvent = null
+    setTimeout(()=>document.getElementById('bv-override-reason')?.focus(), 50)
+  }
+  bvUpdateBeginBtn()
+}
+
+function bvUpdateOverride(){
+  _bvOverrideReason = document.getElementById('bv-override-reason')?.value.trim() || ''
+  const btn = document.getElementById('bv-no-event')
+  if(_bvOverrideReason){
+    btn.style.background = 'var(--orange-light)'
+    btn.style.borderColor = 'var(--orange, #f97316)'
+  } else {
+    btn.style.background = 'transparent'
+    btn.style.borderColor = 'var(--border)'
+  }
+  bvUpdateBeginBtn()
+}
+
+function bvUpdateBeginBtn(){
+  const beginBtn = document.getElementById('bv-begin-btn')
+  const hint     = document.getElementById('bv-event-hint')
+  if(!beginBtn) return
+  const hasEvent    = !!_bvSelectedEvent
+  const hasOverride = !!_bvOverrideReason
+  const canBegin    = hasEvent || hasOverride
+  beginBtn.disabled     = !canBegin
+  beginBtn.style.opacity = canBegin ? '1' : '0.4'
+  beginBtn.style.cursor  = canBegin ? 'pointer' : 'not-allowed'
+  if(hint) hint.style.display = canBegin ? 'none' : ''
+  if(!canBegin)       beginBtn.title = 'Select an event above to begin'
+  else if(hasOverride) beginBtn.title = 'Begin without event (override — requires admin approval)'
+  else                beginBtn.title = ''
 }
 
 function bvSelectEvent(evt){
   _bvSelectedEvent = evt
-  // Highlight selected
+  // Close override panel if open
+  const panel = document.getElementById('bv-override-panel')
+  if(panel) panel.style.display = 'none'
+  if(document.getElementById('bv-override-reason'))
+    document.getElementById('bv-override-reason').value = ''
+  _bvOverrideReason = ''
+  // Highlight selected event
   document.querySelectorAll('#bv-event-grid button, #bv-no-event').forEach(b=>{
     b.style.background='var(--surface)'; b.style.borderColor='var(--border)'
   })
   if(evt){
     const btn = document.getElementById('bv-evt-'+evt.id)
     if(btn){ btn.style.background='var(--teal-light)'; btn.style.borderColor='var(--teal)' }
-  } else {
-    document.getElementById('bv-no-event').style.background='var(--teal-light)'
-    document.getElementById('bv-no-event').style.borderColor='var(--teal)'
   }
+  document.getElementById('bv-no-event').style.background = 'transparent'
+  document.getElementById('bv-no-event').style.borderColor = 'var(--border)'
+  bvUpdateBeginBtn()
 }
 
 async function submitBeginVolunteering(){
   const btn = document.getElementById('bv-begin-btn')
   btn.disabled = true; btn.textContent = 'Starting…'
   const role = document.getElementById('bv-role').value.trim()
+
+  // Block if neither event nor override reason
+  if(!_bvSelectedEvent && !_bvOverrideReason){
+    alert('Please select an event or provide an override reason.')
+    btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
+    return
+  }
 
   // Auto-log: credit full event hours immediately, no timer
   if(_bvSelectedEvent && _bvSelectedEvent.auto_log_hours){
@@ -657,9 +746,10 @@ async function submitBeginVolunteering(){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         volunteer_id: selVol.id,
-        event_id: _bvSelectedEvent ? _bvSelectedEvent.id : null,
-        event_name: _bvSelectedEvent ? _bvSelectedEvent.name : '',
-        role
+        event_id:   _bvSelectedEvent ? _bvSelectedEvent.id : null,
+        event_name: _bvSelectedEvent ? _bvSelectedEvent.name : (_bvOverrideReason || 'General Volunteering'),
+        role,
+        override_reason: _bvOverrideReason || null
       })
     })
     const d = await r.json()
@@ -667,6 +757,13 @@ async function submitBeginVolunteering(){
     _bvSessionStart = new Date(d.started_at)
     showScreen('screen-vol-menu')
     showActiveSessionBanner(role)
+    if(_bvOverrideReason){
+      // Remind volunteer their hours need review
+      setTimeout(()=>showConfirm('⚠️','Override Active',
+        'Hours logged without an event require admin review.',
+        'Your hours will appear as pending until approved.',
+        ()=>{}), 500)
+    }
     btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
   } catch(err){ alert('Error starting session. Please try again.'); btn.disabled=false; btn.textContent='🟢 Begin Volunteering' }
 }

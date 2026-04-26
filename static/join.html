@@ -174,6 +174,7 @@ async function loadInterests(){
     if(!res.ok) throw new Error(res.status)
     const types = await res.json()
     allInterestTypes = Array.isArray(types) ? types : []
+    console.log('[Join] Loaded', allInterestTypes.length, 'interest types:', allInterestTypes.map(t=>t.name+' (sub:'+t.sub_options+')'))
     const grid = document.getElementById('interest-tags')
     if(!allInterestTypes.length){
       grid.innerHTML = '<div style="font-size:14px;color:#9b9b94">No interest areas set up yet.</div>'
@@ -185,7 +186,8 @@ async function loadInterests(){
       const safeId = t.name.replace(/\W+/g,'-')
       let subHtml = ''
       let subOpts = []
-      try { subOpts = JSON.parse(t.sub_options||'[]') } catch(e){}
+      try { subOpts = JSON.parse(t.sub_options || '[]') } catch(e){ subOpts = [] }
+      if(!Array.isArray(subOpts)) subOpts = []
       if(subOpts.length){
         subHtml = `<div id="sub-${safeId}" style="display:none;margin-top:10px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0">
           <div style="font-size:13px;font-weight:600;color:#145466;margin-bottom:8px">${t.sub_options_label||'Select all that apply:'}</div>

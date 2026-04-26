@@ -350,7 +350,10 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options TEXT DEFAULT '[]'",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options_label TEXT DEFAULT ''",
+        "UPDATE interest_types SET sub_options='[]' WHERE sub_options IS NULL",
+        "UPDATE interest_types SET sub_options_label='' WHERE sub_options_label IS NULL",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
+        "UPDATE volunteer_applications SET sub_selections='{}' WHERE sub_selections IS NULL",
         # Sync required_all from required_for_volunteering — they should be the same column
         "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
         "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",

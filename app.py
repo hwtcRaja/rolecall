@@ -5021,14 +5021,41 @@ def kiosk_close_event():
         # Send checklist report email
         try:
             s = get_email_settings()
-            if s.get('auto_send_checklist_report'):
-                recipients = get_recipient_emails(s)
-                if recipients:
-                    evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
-                    send_email(recipients, f'Event Closed: {evt["name"] if evt else event_id}',
-                        f'<p style="font-family:sans-serif">Event closed via kiosk by ELIC at {__import__("datetime").datetime.now().strftime("%I:%M %p")}.</p>')
-        except Exception:
-            pass
+            recipients = get_recipient_emails(s)
+            if recipients:
+                evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
+                evt_name = evt['name'] if evt else event_id
+                now_str = __import__('datetime').datetime.now().strftime('%I:%M %p')
+                # Build checklist summary
+                cl_rows = ''
+                for r in responses:
+                    val = str(r.get('response',''))
+                    if val == 'true': val_str = '✅ Done'
+                    elif val == 'false': val_str = '❌ Not Done'
+                    else: val_str = val or '—'
+                    cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
+                # Build hours summary
+                hrs_rows = ''
+                if pending:
+                    for ph in pending:
+                        vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (ph['volunteer_id'],))
+                        vname = vol['name'] if vol else 'Unknown'
+                        hrs_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{vname}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{ph["hours"]}h</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#16a34a">Auto-approved</td></tr>'
+                body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                    <h2 style="color:#145466">🔒 Event Closed: {evt_name}</h2>
+                    <p>Closed at <strong>{now_str}</strong> via ELIC kiosk.</p>
+                    {f"""<h3 style="margin-top:24px">✅ Closing Checklist</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
+                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Item</th><th style="padding:8px 12px;text-align:left">Response</th></tr></thead>
+                    <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No checklist items recorded.</em></p>"}
+                    {f"""<h3 style="margin-top:24px">⏱ Hours Auto-Approved ({len(pending)} volunteer{'s' if len(pending)!=1 else ''})</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
+                    <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left">Volunteer</th><th style="padding:8px 12px;text-align:left">Hours</th><th style="padding:8px 12px;text-align:left">Status</th></tr></thead>
+                    <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
+                </div>'''
+                send_email(recipients, f'Event Closed: {evt_name}', body)
+        except Exception as e:
+            app.logger.error(f'close-event email error: {e}')
         conn.close()
         return jsonify({'ok': True, 'log_id': log_id})
     except Exception as e:
@@ -5466,9 +5493,83 @@ def get_notifications():
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, "SELECT * FROM alerts WHERE status='active' ORDER BY created_at DESC LIMIT 100")
+    needs_action = []
+    activity     = []
+
+    # Pending hours awaiting approval
+    try:
+        pending = fetchall(conn, '''
+            SELECT ph.id, ph.volunteer_id, ph.event, ph.event_id, ph.date,
+                   ph.hours, ph.role, ph.notes, ph.status, ph.submitted_at,
+                   v.name as volunteer_name
+            FROM pending_hours ph
+            LEFT JOIN volunteers v ON ph.volunteer_id=v.id
+            WHERE ph.status IN (\'pending\',\'pending_review\')
+            ORDER BY ph.submitted_at DESC NULLS LAST
+            LIMIT 100''')
+        for ph in pending:
+            is_override = ph.get('status') == 'pending_review'
+            needs_action.append({
+                'id':    ph['id'],
+                'type':  'pending_hours',
+                'icon':  '⏱',
+                'color': 'amber',
+                'title': f'{ph["volunteer_name"] or "A volunteer"} — {ph["hours"]}h',
+                'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
+                         (' · Needs review (no event)' if is_override else ''),
+                'data':  ph,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications pending_hours: {e}')
+
+    # Profile update requests
+    try:
+        profiles = fetchall(conn, '''
+            SELECT ph.id, ph.volunteer_id, ph.notes, ph.submitted_at,
+                   v.name as volunteer_name
+            FROM pending_hours ph
+            LEFT JOIN volunteers v ON ph.volunteer_id=v.id
+            WHERE ph.status = \'pending_profile\'
+            ORDER BY ph.submitted_at DESC NULLS LAST LIMIT 20''')
+        for p in profiles:
+            needs_action.append({
+                'id':    p['id'],
+                'type':  'profile_update',
+                'icon':  '👤',
+                'color': 'blue',
+                'title': f'{p["volunteer_name"] or "A volunteer"} — profile update',
+                'sub':   'Requested profile change awaiting review',
+                'data':  p,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications profiles: {e}')
+
+    # Recent approved hours (activity feed)
+    try:
+        recent = fetchall(conn, '''
+            SELECT h.*, v.name as volunteer_name
+            FROM hours h LEFT JOIN volunteers v ON h.volunteer_id=v.id
+            WHERE h.created_at >= NOW() - INTERVAL \'7 days\'
+            ORDER BY h.created_at DESC LIMIT 20''')
+        for h in recent:
+            activity.append({
+                'id':    h['id'],
+                'type':  'hours_approved',
+                'icon':  '✅',
+                'color': 'green',
+                'title': f'{h["volunteer_name"] or "Volunteer"} — {h["hours"]}h approved',
+                'sub':   f'{h["event"] or ""} · {h["date"] or ""}',
+                'data':  h,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications activity: {e}')
+
     conn.close()
-    return jsonify(rows)
+    return jsonify({
+        'needs_action':  needs_action,
+        'activity':      activity,
+        'total_action':  len(needs_action),
+    })
 
 # ── Email settings extras ──
 @app.route('/api/email-settings/check-events', methods=['POST'])

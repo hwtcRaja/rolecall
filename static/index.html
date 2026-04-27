@@ -4250,9 +4250,20 @@ async function saveVolunteer(){
   const email=document.getElementById('vol-email').value.trim()
   if(!name||!email){toast('Name and email are required','error');return}
   const editId=document.getElementById('vol-edit-id').value
-  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),pronouns:document.getElementById('vol-pronouns').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),sub_selections:getVolSubSelections(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
-  if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
-  else await api('/api/volunteers','POST',data)
+  const data={name,email,
+    phone:document.getElementById('vol-phone').value.trim(),
+    pronouns:document.getElementById('vol-pronouns').value.trim(),
+    birthday:document.getElementById('vol-birthday').value,
+    status:document.getElementById('vol-status').value,
+    interests:getCheckedInterests(),
+    sub_selections:getVolSubSelections(),
+    background_check_status:document.getElementById('vol-bgcheck').value,
+    background_check_date:document.getElementById('vol-bgcheck-date').value||null
+  }
+  const res = editId
+    ? await api(`/api/volunteers/${editId}`,'PUT',data)
+    : await api('/api/volunteers','POST',data)
+  if(res?.error){ toast(res.error,'error'); return }
   toast(editId?'Volunteer updated!':'Volunteer added!','success')
   closeModal('modal-volunteer')
   await loadAllData()

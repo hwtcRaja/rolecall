@@ -1863,6 +1863,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div style="display:flex;gap:16px;padding:8px 0">
         <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event</label>
         <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-autolog" style="accent-color:var(--teal-400)"/> ⚡ Auto-log full event hours — volunteers get credited for the entire event duration without clocking in/out</label>
+        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400)"/> 📬 Enable volunteer sign-ups — send RSVP invites so volunteers can express interest in this event</label>
+        <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:8px">
+          <textarea id="edit-event-rsvp-msg" placeholder="Optional personal message to include in the invite email…" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
       </div>
     </div>
 
@@ -2732,6 +2736,15 @@ function renderApplications(apps){
               ${subSel.length?`<span style="font-size:11px;color:var(--teal-dark);margin-top:1px">↳ ${subSel.map(s=>escHtml(s)).join(', ')}</span>`:''}
             </span>`
           }).join('')}</div>`:''}
+          ${a.duplicate_volunteer ? `
+            <div style="display:flex;align-items:center;gap:8px;background:#fefce8;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px">
+              <span style="font-size:16px">⚠️</span>
+              <div>
+                <span style="font-weight:700;color:#854d0e">Possible duplicate</span>
+                <span style="color:#854d0e"> — a volunteer named <strong>${escHtml(a.duplicate_volunteer.name)}</strong> already exists with this email address.</span>
+                <span style="color:#a16207"> Approving will update their existing record.</span>
+              </div>
+            </div>` : ''}
           ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md);margin-top:4px"><em>${escHtml(a.notes)}</em></div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
@@ -9165,6 +9178,17 @@ function openEventDetail(eid){
             ${waiverTypes.filter(wt=>!reqWaivers.find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
           </select></div>`:''}
         </div>
+        <!-- RSVP Sign-ups -->
+        ${e.rsvp_enabled?`<div class="card" style="padding:20px" id="event-rsvp-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:15px;font-weight:600">📬 Volunteer Sign-ups</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Volunteers who expressed interest in this event</div>
+            </div>
+            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="sendRsvpInvites('${e.id}')">📤 Send Invite Email</button>`:''}
+          </div>
+          <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+        </div>`:''}
         <!-- Volunteer Hours for this event -->
         <div class="card" style="padding:20px">
           <div style="font-size:15px;font-weight:600;margin-bottom:14px">⏱ Hours Logged</div>
@@ -9190,6 +9214,10 @@ function openEventDetail(eid){
   // Load carpools if this is a youth event
   if(p.stage==='rising_stars' || e.program_id){
     setTimeout(()=>loadEventCarpools(e.id), 100)
+  }
+  // Load RSVPs if enabled
+  if(e.rsvp_enabled){
+    setTimeout(()=>loadEventRsvps(e.id), 100)
   }
 }
 
@@ -9510,6 +9538,9 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-volunteers').value=''
     document.getElementById('edit-event-bgcheck').checked=false
     document.getElementById('edit-event-autolog').checked=false
+    document.getElementById('edit-event-rsvp').checked=false
+    document.getElementById('edit-event-rsvp-msg').value=''
+    document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
     setEventElicUI(null, null)  // reset ELIC
     // If opened from a program or production context, pre-fill parent and default ELIC
     if(eid===null && window._openEventParent){
@@ -9545,6 +9576,9 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-notes').value=e.notes||''
     document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
     document.getElementById('edit-event-autolog').checked=!!e.auto_log_hours
+    document.getElementById('edit-event-rsvp').checked=!!e.rsvp_enabled
+    document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
+    document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
   }
   // Reset repeat section
   const repSel=document.getElementById('event-repeat-type')
@@ -9587,7 +9621,9 @@ async function saveEditEvent(){
     description:document.getElementById('edit-event-desc')?.value.trim()||'',
     notes:document.getElementById('edit-event-notes')?.value.trim()||'',
     requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
-      auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false
+    auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
+    rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
+    rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||''
   }
 
   // Save the base event
@@ -9674,6 +9710,193 @@ function deleteFromModal(){
   if(!eid) return
   closeModal('modal-edit-event')
   deleteEventFull(eid)
+}
+
+function toggleRsvpMessage(){
+  const enabled = document.getElementById('edit-event-rsvp')?.checked
+  const wrap = document.getElementById('edit-event-rsvp-msg-wrap')
+  if(wrap) wrap.style.display = enabled ? '' : 'none'
+}
+
+async function sendRsvpInvites(eid){
+  const evt = allEvents.find(e=>e.id===eid)
+  if(!evt) return
+
+  // Build filter modal
+  const existing = document.getElementById('rsvp-invite-modal')
+  if(existing) existing.remove()
+
+  const interestOpts = interestTypes.map(it=>`<option value="interest:${escHtml(it.name)}">${escHtml(it.name)}</option>`).join('')
+  const overlay = document.createElement('div')
+  overlay.id = 'rsvp-invite-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:540px;box-shadow:var(--shadow-lg);max-height:90vh;overflow-y:auto">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:16px;font-weight:700">📤 Send Sign-up Invites</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(evt.name)}</div>
+        </div>
+        <button onclick="document.getElementById('rsvp-invite-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+
+        <div class="form-group">
+          <label>Send to</label>
+          <select id="rsvp-filter-type" onchange="onRsvpFilterChange()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+            <option value="all">All active volunteers</option>
+            <option value="interest">Volunteers by interest</option>
+            <option value="event">Volunteered at a past event</option>
+            <option value="manual">Choose volunteers manually</option>
+          </select>
+        </div>
+
+        <!-- Interest filter -->
+        <div id="rsvp-filter-interest" style="display:none" class="form-group">
+          <label>Interest</label>
+          <select id="rsvp-interest-val" onchange="updateRsvpPreview()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+            <option value="">— Select interest —</option>
+            ${interestOpts}
+          </select>
+        </div>
+
+        <!-- Past event filter -->
+        <div id="rsvp-filter-event" style="display:none" class="form-group">
+          <label>Past event</label>
+          <select id="rsvp-event-val" onchange="updateRsvpPreview()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+            <option value="">— Select event —</option>
+            ${allEvents.filter(e=>e.id!==eid&&e.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,60)
+              .map(e=>`<option value="${e.id}">${escHtml(e.name)} (${formatDate(e.event_date)})</option>`).join('')}
+          </select>
+        </div>
+
+        <!-- Manual volunteer picker -->
+        <div id="rsvp-filter-manual" style="display:none" class="form-group">
+          <label>Select volunteers</label>
+          <div style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:200px;overflow-y:auto;padding:8px">
+            ${[...volunteers].sort((a,b)=>a.name.localeCompare(b.name)).filter(v=>v.status==='active'&&v.email).map(v=>`
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;font-size:13px">
+                <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" style="accent-color:var(--teal)"/>
+                <span>${escHtml(v.name)}</span>
+                <span style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}</span>
+              </label>`).join('')}
+          </div>
+          <div style="margin-top:6px;display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=true)">Select all</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=false)">Clear</button>
+          </div>
+        </div>
+
+        <div id="rsvp-recipient-preview" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 14px">
+          Calculating recipients…
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('rsvp-invite-modal').remove()">Cancel</button>
+          <button class="btn btn-primary" style="flex:2" id="rsvp-send-btn" onclick="confirmSendRsvp('${eid}')">📤 Send Invites</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  onRsvpFilterChange()
+}
+
+function onRsvpFilterChange(){
+  const type = document.getElementById('rsvp-filter-type')?.value
+  document.getElementById('rsvp-filter-interest').style.display = type==='interest' ? '' : 'none'
+  document.getElementById('rsvp-filter-event').style.display    = type==='event'    ? '' : 'none'
+  document.getElementById('rsvp-filter-manual').style.display   = type==='manual'   ? '' : 'none'
+  updateRsvpPreview()
+}
+
+function getRsvpTargetVolunteers(){
+  const type = document.getElementById('rsvp-filter-type')?.value
+  const active = volunteers.filter(v=>v.status==='active' && v.email)
+
+  if(type==='all') return active
+
+  if(type==='interest'){
+    const val = document.getElementById('rsvp-interest-val')?.value
+    if(!val) return active
+    return active.filter(v=>{
+      try{ return JSON.parse(v.interests||'[]').includes(val) }catch{ return false }
+    })
+  }
+
+  if(type==='event'){
+    const eid = document.getElementById('rsvp-event-val')?.value
+    if(!eid) return active
+    return active.filter(v=>(v.hours||[]).some(h=>h.event_id===eid))
+  }
+
+  if(type==='manual'){
+    const ids = [...document.querySelectorAll('.rsvp-manual-cb:checked')].map(c=>c.value)
+    return active.filter(v=>ids.includes(v.id))
+  }
+
+  return active
+}
+
+function updateRsvpPreview(){
+  const preview = document.getElementById('rsvp-recipient-preview')
+  if(!preview) return
+  const targets = getRsvpTargetVolunteers()
+  if(!targets.length){
+    preview.innerHTML = '<span style="color:var(--red-600)">⚠️ No volunteers match this filter</span>'
+    return
+  }
+  const names = targets.slice(0,5).map(v=>escHtml(v.name)).join(', ')
+  const extra = targets.length > 5 ? ` and ${targets.length-5} more` : ''
+  preview.innerHTML = `<strong>${targets.length} volunteer${targets.length!==1?'s':''}</strong> will receive an invite: ${names}${extra}`
+}
+
+async function confirmSendRsvp(eid){
+  const targets = getRsvpTargetVolunteers()
+  if(!targets.length){ toast('No volunteers match this filter','error'); return }
+  const btn = document.getElementById('rsvp-send-btn')
+  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
+  const vol_ids = targets.map(v=>v.id)
+  const evt = allEvents.find(e=>e.id===eid)
+  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {
+    volunteer_ids: vol_ids,
+    message: evt?.rsvp_message||''
+  })
+  document.getElementById('rsvp-invite-modal')?.remove()
+  if(res.error){ toast(res.error,'error'); return }
+  toast(`✅ Sent to ${res.sent} volunteer${res.sent!==1?'s':''}`, 'success')
+  loadEventRsvps(eid)
+}
+
+async function removeRsvp(eid, rid){
+  if(!confirm('Remove this RSVP?')) return
+  const res = await api(`/api/events/${eid}/rsvps/${rid}`, 'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('RSVP removed')
+  openEventChip(eid)
+}
+
+async function loadEventRsvps(eid){
+  const el = document.getElementById('event-rsvps-list')
+  if(!el) return
+  const rsvps = await api(`/api/events/${eid}/rsvps`)
+  if(!Array.isArray(rsvps)||!rsvps.length){
+    el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
+    return
+  }
+  const interested = rsvps.filter(r=>r.status==='interested')
+  el.innerHTML = `<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${interested.length} volunteer${interested.length!==1?'s':''} signed up</div>`+
+    rsvps.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
+      <div style="flex:1">
+        <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${escHtml(r.vol_email||r.volunteer_email||'')}</div>
+      </div>
+      <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
+        ${r.status==='interested'?'✋ Signed up':'Invited'}
+      </span>
+      <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
+    </div>`).join('')
 }
 
 async function deleteEventFull(eid){

@@ -536,6 +536,18 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
         "UPDATE volunteers SET sub_selections='{}' WHERE sub_selections IS NULL",
+        """CREATE TABLE IF NOT EXISTS event_rsvps (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE CASCADE,
+            volunteer_name TEXT,
+            volunteer_email TEXT,
+            token TEXT UNIQUE,
+            status TEXT DEFAULT 'interested',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
@@ -1148,17 +1160,20 @@ def create_event():
 def update_event(eid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s WHERE id=%s''',
+        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
+        description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
+        rsvp_enabled=%s,rsvp_message=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
-         d.get('auto_log_hours', False), eid))
+         d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
+         d.get('rsvp_message',''), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -4343,6 +4358,13 @@ def get_applications():
     if err: return err
     conn = get_db()
     apps = fetchall(conn, 'SELECT * FROM volunteer_applications ORDER BY created_at DESC')
+    # Flag duplicates — email already exists in volunteers table
+    for a in apps:
+        if a.get('status') == 'pending':
+            existing = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s)', (a['email'],))
+            a['duplicate_volunteer'] = {'id': existing['id'], 'name': existing['name']} if existing else None
+        else:
+            a['duplicate_volunteer'] = None
     conn.close()
     return jsonify(apps)
 
@@ -6032,6 +6054,136 @@ def handle_exception(e):
     except Exception:
         pass
     return jsonify({'error': str(e)}), 500
+
+
+# ── Event RSVPs ──────────────────────────────────────────────────
+
+@app.route('/api/events/<eid>/rsvps')
+def get_event_rsvps(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email
+        FROM event_rsvps r LEFT JOIN volunteers v ON r.volunteer_id=v.id
+        WHERE r.event_id=%s ORDER BY r.created_at ASC''', (eid,))
+    conn.close()
+    return jsonify(rsvps)
+
+@app.route('/api/events/<eid>/rsvp-invite', methods=['POST'])
+def send_rsvp_invite(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
+
+    # Get target volunteers
+    target_ids = d.get('volunteer_ids') or []
+    if not target_ids:
+        # Default: all active volunteers with email
+        vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL")
+    else:
+        vols = fetchall(conn, f"SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
+
+    sent = 0
+    custom_msg = (d.get('message') or '').strip()
+    base_url = request.host_url.rstrip('/')
+
+    for v in vols:
+        if not v.get('email'): continue
+        # Create/get token for this volunteer+event
+        existing = fetchone(conn, 'SELECT token FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+        if existing:
+            token = existing['token']
+        else:
+            token = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status)
+                VALUES (%s,%s,%s,%s,%s,%s,'invited')''',
+                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token))
+
+        rsvp_url = f"{base_url}/rsvp/{token}"
+        date_str = evt.get('event_date','')
+        time_str = evt.get('start_time','')
+        if time_str:
+            try:
+                from datetime import datetime as _dt
+                t = _dt.strptime(time_str, '%H:%M')
+                time_str = t.strftime('%I:%M %p').lstrip('0')
+            except Exception:
+                pass
+        body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#145466">You're Invited: {evt['name']}</h2>
+          <p>Hi {v['name']},</p>
+          <p>We're looking for volunteers for an upcoming event and would love to have you join us!</p>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">
+            <tr><td style="padding:8px;font-weight:600;color:#666;width:120px">Event</td><td style="padding:8px">{evt['name']}</td></tr>
+            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Date</td><td style="padding:8px">{date_str}</td></tr>
+            {f'<tr><td style="padding:8px;font-weight:600;color:#666">Time</td><td style="padding:8px">{time_str}</td></tr>' if time_str else ''}
+            {f'<tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Location</td><td style="padding:8px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
+          </table>
+          {f'<p>{custom_msg}</p>' if custom_msg else ''}
+          {f'<p style="color:#555">{evt["description"]}</p>' if evt.get('description') else ''}
+          <div style="text-align:center;margin:28px 0">
+            <a href="{rsvp_url}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
+              ✋ Yes, I can help!
+            </a>
+          </div>
+          <p style="font-size:13px;color:#888">If you're unable to make it, no action needed — we only want to hear from those who can volunteer. This link is unique to you: {rsvp_url}</p>
+        </div>'''
+        try:
+            send_email([v['email']], f'Volunteer Opportunity: {evt["name"]}', body)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
+
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/rsvp/<token>')
+def rsvp_page(token):
+    conn = get_db()
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time, e.location, e.description
+        FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
+    if not rsvp:
+        conn.close()
+        return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+    if rsvp.get('status') == 'interested':
+        conn.close()
+        return f'''<html><head><title>RSVP Confirmed</title></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">✅</div>
+          <h2 style="color:#145466">You're already signed up!</h2>
+          <p>Thanks {rsvp.get("volunteer_name","")} — we already have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p style="color:#888">We'll be in touch with more details.</p>
+        </body></html>'''
+    # Record RSVP
+    execute(conn, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
+    conn.commit()
+    date_str = rsvp.get('event_date','')
+    conn.close()
+    return f'''<html><head><title>RSVP Confirmed — {rsvp["event_name"]}</title></head>
+    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px;max-width:500px;margin:0 auto">
+      <div style="font-size:48px;margin-bottom:16px">🎉</div>
+      <h2 style="color:#145466">You're in!</h2>
+      <p style="font-size:18px">Thanks {rsvp.get("volunteer_name","")} — we've recorded your interest in volunteering for:</p>
+      <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
+        <div style="font-size:22px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+        {f'<div style="color:#555;margin-top:8px">{date_str}</div>' if date_str else ''}
+        {f'<div style="color:#888;font-size:14px;margin-top:4px">{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+      </div>
+      <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
+    </body></html>'''
+
+@app.route('/api/events/<eid>/rsvps/<rid>', methods=['DELETE'])
+def remove_rsvp(eid, rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_rsvps WHERE id=%s AND event_id=%s', (rid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

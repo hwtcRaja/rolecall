@@ -174,7 +174,6 @@ async function loadInterests(){
     if(!res.ok) throw new Error(res.status)
     const types = await res.json()
     allInterestTypes = Array.isArray(types) ? types : []
-    console.log('[Join] Loaded', allInterestTypes.length, 'interest types:', allInterestTypes.map(t=>t.name+' (sub:'+t.sub_options+')'))
     const grid = document.getElementById('interest-tags')
     if(!allInterestTypes.length){
       grid.innerHTML = '<div style="font-size:14px;color:#9b9b94">No interest areas set up yet.</div>'

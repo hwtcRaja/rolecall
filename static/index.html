@@ -1661,6 +1661,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Birthday</label><input type="date" id="vol-birthday"/></div>
       </div>
       <div class="form-group"><label>Status</label><select id="vol-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-group"><label>Pronouns</label><input type="text" id="vol-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>
       <div class="form-row">
         <div class="form-group"><label>Background Check</label><select id="vol-bgcheck"><option value="none">Not on file</option><option value="pending">Pending</option><option value="cleared">Cleared</option></select></div>
         <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
@@ -4215,7 +4216,7 @@ function setVolSubSelections(subSelections){
 function openVolModal(){
   document.getElementById('vol-modal-title').textContent='Add Volunteer'
   document.getElementById('vol-edit-id').value=''
-  ;['vol-name','vol-email','vol-phone'].forEach(id=>document.getElementById(id).value='')
+  ;['vol-name','vol-email','vol-phone','vol-pronouns'].forEach(id=>document.getElementById(id).value='')
   document.getElementById('vol-birthday').value=''
   document.getElementById('vol-status').value='active'
   setCheckedInterests([])
@@ -4235,6 +4236,7 @@ function openEditVolModal(volId){
   document.getElementById('vol-phone').value=v.phone||''
   document.getElementById('vol-birthday').value=v.birthday||''
   document.getElementById('vol-status').value=v.status
+  document.getElementById('vol-pronouns').value=v.pronouns||''
   document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
   document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
   setCheckedInterests(JSON.parse(v.interests||'[]'))
@@ -4248,7 +4250,7 @@ async function saveVolunteer(){
   const email=document.getElementById('vol-email').value.trim()
   if(!name||!email){toast('Name and email are required','error');return}
   const editId=document.getElementById('vol-edit-id').value
-  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),sub_selections:getVolSubSelections(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
+  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),pronouns:document.getElementById('vol-pronouns').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),sub_selections:getVolSubSelections(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
   if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
   else await api('/api/volunteers','POST',data)
   toast(editId?'Volunteer updated!':'Volunteer added!','success')

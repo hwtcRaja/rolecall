@@ -2759,19 +2759,57 @@ function renderApplications(apps){
   }
 
   let html = ''
+
+  // Pending — shown prominently, always expanded
   if(pending.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">${pending.length} New Submissions</div>`
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">
+      🔔 ${pending.length} Awaiting Review
+    </div>`
     html += pending.map(a=>renderCard(a, true)).join('')
+  } else {
+    html += `<div style="text-align:center;padding:32px 20px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius-lg);margin-bottom:16px">
+      <div style="font-size:28px;margin-bottom:8px">✅</div>
+      <div style="font-weight:600">All caught up!</div>
+      <div style="font-size:13px;margin-top:4px">No new submissions to review.</div>
+    </div>`
   }
+
+  // Approved — collapsed by default
   if(approved.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${pending.length?'20px':0} 0 10px">${approved.length} Added to Volunteers</div>`
-    html += approved.map(a=>renderCard(a, false)).join('')
+    html += `<div style="margin-top:${pending.length?'20px':'0'}">
+      <button onclick="toggleAppSection('approved')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
+        <span id="app-chevron-approved" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s">▶</span>
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${approved.length} Added to Volunteers</span>
+      </button>
+      <div id="app-section-approved" style="display:none">
+        ${approved.map(a=>renderCard(a, false)).join('')}
+      </div>
+    </div>`
   }
+
+  // Declined — collapsed by default
   if(declined.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${approved.length||pending.length?'20px':0} 0 10px">${declined.length} Not Right Now</div>`
-    html += declined.map(a=>renderCard(a, false)).join('')
+    html += `<div style="margin-top:8px">
+      <button onclick="toggleAppSection('declined')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
+        <span id="app-chevron-declined" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s">▶</span>
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${declined.length} Not Right Now</span>
+      </button>
+      <div id="app-section-declined" style="display:none">
+        ${declined.map(a=>renderCard(a, false)).join('')}
+      </div>
+    </div>`
   }
+
   el.innerHTML = html
+}
+
+function toggleAppSection(section){
+  const panel = document.getElementById('app-section-'+section)
+  const chevron = document.getElementById('app-chevron-'+section)
+  if(!panel) return
+  const open = panel.style.display !== 'none'
+  panel.style.display = open ? 'none' : ''
+  if(chevron) chevron.style.transform = open ? '' : 'rotate(90deg)'
 }
 
 async function approveApplication(aid){
@@ -2824,7 +2862,7 @@ function renderVolunteers(){
     const checked=selectedVolIds.has(v.id)
     return `<tr>
       <td><input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''} onchange="toggleVolSelect('${v.id}',this.checked)"/></td>
-      <td><div class="volunteer-name-cell">${avatarHTML(v.name)}<div><div class="volunteer-name">${v.name}</div><div class="volunteer-email">${v.email}</div></div></div></td>
+      <td><div class="volunteer-name-cell">${avatarHTML(v.name)}<div><div class="volunteer-name">${v.name}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}</div><div class="volunteer-email">${v.email}</div></div></div></td>
       <td style="color:var(--text-muted)">${v.phone||'—'}</td>
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
@@ -2935,6 +2973,7 @@ async function openProfile(volId){
       <div class="profile-card">
         <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(v.name)}</div>
         <div class="profile-name">${v.name}</div>
+        ${v.pronouns?`<div style="text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:6px">${escHtml(v.pronouns)}</div>`:''}
         <div style="text-align:center;margin-bottom:16px"><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></div>
         <hr class="divider"/>
         <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">

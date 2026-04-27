@@ -3562,8 +3562,9 @@ async function applyEmailGroup(){
   } else if(type==='event'){
     if(!val){toast('Select an event','error');return}
     const evt=allEvents.find(e=>e.id===val)
-    // Get volunteers who logged hours for this event
-    matched=volunteers.filter(v=>(v.hours||[]).some(h=>h.event_id===val))
+    // Get volunteers who logged hours for this event using allHours flat array
+    const volIdsWithHours = new Set(allHours.filter(h=>h.event_id===val).map(h=>h.volunteer_id).filter(Boolean))
+    matched=volunteers.filter(v=>volIdsWithHours.has(v.id))
     // Also add ELIC assigned to this event
     ;(evt?.elics||[]).forEach(el=>{
       const v=volunteers.find(v=>v.id===el.volunteer_id)
@@ -9252,12 +9253,9 @@ function renderEventDetailPage(eid){
                 style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
               <div id="rsvp-manual-list" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:180px;overflow-y:auto">
                 ${[...volunteers].filter(v=>v.status==='active'&&v.email).sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`
-                  <label class="rsvp-vol-row" data-name="${escHtml(v.name.toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)">
-                    <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" onchange="updateRsvpPreview('${e.id}')" style="accent-color:var(--teal);flex-shrink:0"/>
-                    ${avatarHTML(v.name,24)}
-                    <div style="flex:1;min-width:0">
-                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(v.name)}</div>
-                    </div>
+                  <label class="rsvp-vol-row" data-name="${escHtml(v.name.toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);line-height:1">
+                    <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" onchange="updateRsvpPreview('${e.id}')" style="accent-color:var(--teal);flex-shrink:0;width:15px;height:15px;margin:0;vertical-align:middle"/>
+                    <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500">${escHtml(v.name)}</span>
                   </label>`).join('')}
               </div>
               <div style="display:flex;gap:6px;margin-top:6px">
@@ -9942,7 +9940,11 @@ function getRsvpTargetVolunteers(){
   if(type==='event'){
     const evid = document.getElementById('rsvp-event-val')?.value
     if(!evid) return active
-    return active.filter(v=>(v.hours||[]).some(h=>h.event_id===evid))
+    // allHours is a flat array — find volunteer IDs who logged hours for this event
+    const volIdsWithHours = new Set(
+      allHours.filter(h=>h.event_id===evid).map(h=>h.volunteer_id).filter(Boolean)
+    )
+    return active.filter(v=>volIdsWithHours.has(v.id))
   }
   if(type==='manual'){
     const ids = [...document.querySelectorAll('.rsvp-manual-cb:checked')].map(c=>c.value)

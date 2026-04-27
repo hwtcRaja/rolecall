@@ -550,9 +550,21 @@ def init_db():
             volunteer_name TEXT,
             volunteer_email TEXT,
             token TEXT UNIQUE,
+            role_id TEXT,
+            role_name TEXT DEFAULT '',
             status TEXT DEFAULT 'interested',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS event_roles (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1,
+            description TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_id TEXT",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
@@ -6041,6 +6053,62 @@ def handle_exception(e):
     return jsonify({'error': str(e)}), 500
 
 
+
+# ── Event Roles ──────────────────────────────────────────────────
+
+@app.route('/api/events/<eid>/roles')
+def get_event_roles(eid):
+    conn = get_db()
+    roles = fetchall(conn, '''
+        SELECT r.*,
+            COUNT(rv.id) FILTER (WHERE rv.status='interested') as filled
+        FROM event_roles r
+        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status='interested'
+        WHERE r.event_id=%s
+        GROUP BY r.id ORDER BY r.sort_order ASC, r.name ASC''', (eid,))
+    conn.close()
+    return jsonify(roles)
+
+@app.route('/api/events/<eid>/roles', methods=['POST'])
+def create_event_role(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Role name is required'}), 400
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (rid, eid, d['name'].strip(), int(d.get('slots') or 1),
+         (d.get('description') or '').strip(), int(d.get('sort_order') or 0)))
+    conn.commit()
+    row = fetchone(conn, '''SELECT r.*, 0 as filled FROM event_roles r WHERE r.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/roles/<rid>', methods=['PUT'])
+def update_event_role(rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s
+        WHERE id=%s''',
+        ((d.get('name') or '').strip(), int(d.get('slots') or 1),
+         (d.get('description') or '').strip(), rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/roles/<rid>', methods=['DELETE'])
+def delete_event_role(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_roles WHERE id=%s', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 # ── Event RSVPs ──────────────────────────────────────────────────
 
 @app.route('/api/events/<eid>/rsvps')
@@ -6063,21 +6131,38 @@ def send_rsvp_invite(eid):
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
 
-    # Get target volunteers
+    # Get roles for this event
+    roles = fetchall(conn, '''
+        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
+        FROM event_roles r
+        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
+        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (eid,))
+
     target_ids = d.get('volunteer_ids') or []
     if not target_ids:
-        # Default: all active volunteers with email
         vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL")
     else:
-        vols = fetchall(conn, f"SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
+        vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
 
     sent = 0
     custom_msg = (d.get('message') or '').strip()
     base_url = request.host_url.rstrip('/')
 
+    # Build roles table HTML for email
+    roles_html = ''
+    if roles:
+        roles_html = '<h3 style="color:#145466;margin-top:24px">Available Roles</h3>'
+        roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0">'
+        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Role</th><th style="padding:8px 12px;text-align:left">Slots</th><th style="padding:8px 12px;text-align:left">Notes</th></tr></thead><tbody>'
+        for r in roles:
+            available = max(0, int(r['slots']) - int(r['filled'] or 0))
+            roles_html += f'<tr style="border-bottom:1px solid #eee"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
+            roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"}">{available} of {r["slots"]} open</td>'
+            roles_html += f'<td style="padding:8px 12px;color:#666">{r.get("description","")}</td></tr>'
+        roles_html += '</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred role when you sign up.</p>'
+
     for v in vols:
         if not v.get('email'): continue
-        # Create/get token for this volunteer+event
         existing = fetchone(conn, 'SELECT token FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
         if existing:
             token = existing['token']
@@ -6109,9 +6194,10 @@ def send_rsvp_invite(eid):
           </table>
           {f'<p>{custom_msg}</p>' if custom_msg else ''}
           {f'<p style="color:#555">{evt["description"]}</p>' if evt.get('description') else ''}
+          {roles_html}
           <div style="text-align:center;margin:28px 0">
             <a href="{rsvp_url}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
-              ✋ Yes, I can help!
+              ✋ {"Pick a role & sign up!" if roles else "Yes, I can help!"}
             </a>
           </div>
           <p style="font-size:13px;color:#888">If you're unable to make it, no action needed — we only want to hear from those who can volunteer. This link is unique to you: {rsvp_url}</p>
@@ -6128,34 +6214,133 @@ def send_rsvp_invite(eid):
 @app.route('/rsvp/<token>')
 def rsvp_page(token):
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time, e.location, e.description
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time, e.location, e.description, e.id as event_id
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+
+    # Already signed up
     if rsvp.get('status') == 'interested':
+        role_line = f'<p style="color:#16a34a;font-weight:600">Your role: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
         conn.close()
-        return f'''<html><head><title>RSVP Confirmed</title></head>
-        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px;max-width:500px;margin:0 auto">
+        return f'''<html><head><title>RSVP Confirmed</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
           <div style="font-size:48px;margin-bottom:16px">✅</div>
           <h2 style="color:#145466">You're already signed up!</h2>
-          <p>Thanks {rsvp.get("volunteer_name","")} — we already have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p>Thanks {rsvp.get("volunteer_name","")} — we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
+          {role_line}
           <p style="color:#888">We'll be in touch with more details.</p>
         </body></html>'''
-    # Record RSVP
-    execute(conn, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
+
+    # Load available roles
+    roles = fetchall(conn, '''
+        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
+        FROM event_roles r
+        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
+        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
+    conn.close()
+
+    date_str = rsvp.get('event_date','')
+    vol_name = rsvp.get('volunteer_name','')
+
+    if roles:
+        # Show role selection form
+        roles_html = ''
+        for r in roles:
+            available = max(0, int(r['slots']) - int(r['filled'] or 0))
+            disabled = 'disabled' if available <= 0 else ''
+            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
+            badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
+            desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+            roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
+                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
+                <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                <div style="flex:1">
+                  <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
+                  {desc}
+                </div>
+            </label>'''
+
+        return f'''<html><head><title>Sign Up — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
+          <div style="text-align:center;margin-bottom:28px">
+            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
+            <p style="color:#555">Hi {vol_name} — choose your role for:</p>
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+              <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+              {f'<div style="color:#555;margin-top:4px">{date_str}</div>' if date_str else ''}
+              {f'<div style="color:#888;font-size:13px">{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+            </div>
+          </div>
+          <form method="POST" action="/rsvp/{token}">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a role</div>
+            {roles_html}
+            <button type="submit" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
+              ✅ Confirm Sign-up
+            </button>
+          </form>
+          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
+        </body></html>'''
+    else:
+        # No roles — just confirm directly
+        conn2 = get_db()
+        execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
+        conn2.commit(); conn2.close()
+        return f'''<html><head><title>RSVP Confirmed — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🎉</div>
+          <h2 style="color:#145466">You're in!</h2>
+          <p>Thanks {vol_name} — we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
+        </body></html>'''
+
+@app.route('/rsvp/<token>', methods=['POST'])
+def rsvp_submit(token):
+    from flask import request as req
+    role_id = req.form.get('role_id','').strip()
+    conn = get_db()
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id
+        FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
+    if not rsvp:
+        conn.close()
+        return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found.</h2></body></html>', 404
+
+    role_name = ''
+    if role_id:
+        role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, rsvp['event_id']))
+        if role:
+            # Check slot availability
+            filled = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
+            if filled and int(filled['c']) >= int(role['slots']):
+                conn.close()
+                return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+                  <div style="font-size:48px;margin-bottom:16px">😔</div>
+                  <h2 style="color:#dc2626">That role just filled up</h2>
+                  <p>Sorry, the <strong>{role["name"]}</strong> slot was just taken. <a href="/rsvp/{token}">Go back</a> to choose another role.</p>
+                </body></html>''', 409
+            role_name = role['name']
+
+    execute(conn, "UPDATE event_rsvps SET status='interested', role_id=%s, role_name=%s WHERE token=%s",
+        (role_id or None, role_name, token))
     conn.commit()
     date_str = rsvp.get('event_date','')
     conn.close()
-    return f'''<html><head><title>RSVP Confirmed — {rsvp["event_name"]}</title></head>
-    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px;max-width:500px;margin:0 auto">
+    return f'''<html><head><title>Signed Up!</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
       <div style="font-size:48px;margin-bottom:16px">🎉</div>
-      <h2 style="color:#145466">You're in!</h2>
-      <p style="font-size:18px">Thanks {rsvp.get("volunteer_name","")} — we've recorded your interest in volunteering for:</p>
+      <h2 style="color:#145466">You're signed up!</h2>
+      <p>Thanks {rsvp.get("volunteer_name","")}! We've got you down for:</p>
       <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
-        <div style="font-size:22px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-        {f'<div style="color:#555;margin-top:8px">{date_str}</div>' if date_str else ''}
-        {f'<div style="color:#888;font-size:14px;margin-top:4px">{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+        <div style="font-size:20px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+        {f'<div style="color:#555;margin-top:6px">{date_str}</div>' if date_str else ''}
+        {f'<div style="color:#16a34a;font-weight:600;font-size:16px;margin-top:8px">Role: {role_name}</div>' if role_name else ''}
       </div>
       <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
     </body></html>'''

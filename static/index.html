@@ -9266,6 +9266,33 @@ function renderEventDetailPage(eid){
           <div>
             <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Sign-ups</div>
             <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
+
+            <!-- Role Slots Manager -->
+            ${isAdmin?`<div style="margin-top:24px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Role Slots</div>
+                <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add Role</button>
+              </div>
+              <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+              <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                  <div class="form-group" style="margin:0;flex:2;min-width:140px">
+                    <label style="font-size:11px">Role name *</label>
+                    <input type="text" id="new-role-name-${e.id}" placeholder="e.g. Usher, Concessions…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <div class="form-group" style="margin:0;width:80px">
+                    <label style="font-size:11px">Slots *</label>
+                    <input type="number" id="new-role-slots-${e.id}" value="1" min="1" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <div class="form-group" style="margin:0;flex:2;min-width:140px">
+                    <label style="font-size:11px">Notes (optional)</label>
+                    <input type="text" id="new-role-desc-${e.id}" placeholder="Any special notes…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="addEventRole('${e.id}')">Add</button>
+                  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">Cancel</button>
+                </div>
+              </div>
+            </div>`:''}
           </div>
 
           <!-- Right: compose & send -->
@@ -10051,7 +10078,13 @@ async function removeRsvp(eid, rid){
 async function loadEventRsvps(eid){
   const el = document.getElementById('event-rsvps-list')
   if(!el) return
-  const rsvps = await api(`/api/events/${eid}/rsvps`)
+  const [rsvps, roles] = await Promise.all([
+    api(`/api/events/${eid}/rsvps`),
+    api(`/api/events/${eid}/roles`)
+  ])
+  // Load and display roles summary
+  loadEventRoles(eid, roles)
+
   if(!Array.isArray(rsvps)||!rsvps.length){
     el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
     return
@@ -10062,13 +10095,76 @@ async function loadEventRsvps(eid){
       ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
       <div style="flex:1">
         <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${escHtml(r.vol_email||r.volunteer_email||'')}</div>
+        ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
       </div>
       <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
         ${r.status==='interested'?'✋ Signed up':'Invited'}
       </span>
       <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
     </div>`).join('')
+}
+
+function loadEventRoles(eid, roles){
+  const el = document.getElementById('event-roles-list-'+eid)
+  if(!el) return
+  if(!roles||!roles.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No roles defined yet — add roles to let volunteers choose what they\'d like to help with.</div>'
+    return
+  }
+  el.innerHTML = roles.map(r=>{
+    const filled = parseInt(r.filled||0)
+    const slots  = parseInt(r.slots||1)
+    const pct    = Math.round((filled/slots)*100)
+    const color  = filled>=slots ? 'var(--red-600)' : filled>0 ? 'var(--amber-600)' : 'var(--green-600)'
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
+        ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
+      </div>
+      <div style="text-align:center;min-width:80px">
+        <div style="font-size:18px;font-weight:800;color:${color}">${filled}/${slots}</div>
+        <div style="font-size:10px;color:var(--text-hint);font-weight:600;text-transform:uppercase">${filled>=slots?'Full':slots-filled+' open'}</div>
+      </div>
+      <div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${Math.min(100,pct)}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
+      </div>
+      <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete role">×</button>
+    </div>`
+  }).join('')
+}
+
+function toggleRoleForm(eid){
+  const el = document.getElementById('role-add-form-'+eid)
+  if(!el) return
+  const open = el.style.display !== 'none'
+  el.style.display = open ? 'none' : ''
+  if(!open) setTimeout(()=>document.getElementById('new-role-name-'+eid)?.focus(), 50)
+}
+
+async function addEventRole(eid){
+  const name  = document.getElementById('new-role-name-'+eid)?.value.trim()
+  const slots = document.getElementById('new-role-slots-'+eid)?.value
+  const desc  = document.getElementById('new-role-desc-'+eid)?.value.trim()
+  if(!name){ toast('Role name is required','error'); return }
+  const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||''})
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('new-role-name-'+eid).value=''
+  document.getElementById('new-role-slots-'+eid).value='1'
+  document.getElementById('new-role-desc-'+eid).value=''
+  toggleRoleForm(eid)
+  // Refresh roles
+  const roles = await api(`/api/events/${eid}/roles`)
+  loadEventRoles(eid, roles)
+  toast('Role added!','success')
+}
+
+async function deleteEventRole(rid, eid){
+  if(!confirm('Delete this role? Sign-ups for this role will lose their role assignment.')) return
+  const res = await api(`/api/events/roles/${rid}`,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  const roles = await api(`/api/events/${eid}/roles`)
+  loadEventRoles(eid, roles)
+  toast('Role deleted')
 }
 
 async function deleteEventFull(eid){

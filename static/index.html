@@ -9207,11 +9207,80 @@ function renderEventDetailPage(eid){
     <!-- Sign-ups tab -->
     <div id="evt-panel-signups" style="display:${_eventDetailTab==='signups'?'':'none'}">
       ${e.rsvp_enabled?`
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-          <div style="font-size:14px;color:var(--text-muted)">Volunteers who clicked "Yes, I can help" from the invite email</div>
-          ${isAdmin?`<button class="btn btn-primary" onclick="sendRsvpInvites('${e.id}')">📤 Send Invite Email</button>`:''}
-        </div>
-        <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>`
+        <div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+
+          <!-- Left: who's signed up -->
+          <div>
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Sign-ups</div>
+            <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
+          </div>
+
+          <!-- Right: compose & send -->
+          <div class="card" style="padding:20px;position:sticky;top:16px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📤 Send Invite</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
+
+            <!-- Recipients -->
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Send to</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+              ${[
+                ['all',      '👥 All active volunteers'],
+                ['interest', '🏷 Filter by interest'],
+                ['event',    '📅 Volunteered at past event'],
+                ['manual',   '✋ Choose manually'],
+              ].map(([val,label])=>`
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
+                  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
+                </label>`).join('')}
+            </div>
+
+            <!-- Sub-filters -->
+            <div id="rsvp-sub-interest" style="display:none;margin-bottom:12px">
+              <select id="rsvp-interest-val" onchange="updateRsvpPreview('${e.id}')" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+                <option value="">— All interests —</option>
+                ${interestTypes.map(it=>`<option value="${escHtml(it.name)}">${escHtml(it.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div id="rsvp-sub-event" style="display:none;margin-bottom:12px">
+              <select id="rsvp-event-val" onchange="updateRsvpPreview('${e.id}')" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+                <option value="">— Select past event —</option>
+                ${allEvents.filter(ev=>ev.id!==e.id&&ev.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,60).map(ev=>`<option value="${ev.id}">${escHtml(ev.name)} (${formatDate(ev.event_date)})</option>`).join('')}
+              </select>
+            </div>
+            <div id="rsvp-sub-manual" style="display:none;margin-bottom:12px">
+              <input type="text" placeholder="🔍 Search volunteers…" oninput="filterRsvpManualList(this.value)"
+                style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+              <div id="rsvp-manual-list" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:180px;overflow-y:auto">
+                ${[...volunteers].filter(v=>v.status==='active'&&v.email).sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`
+                  <label class="rsvp-vol-row" data-name="${escHtml(v.name.toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)">
+                    <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" onchange="updateRsvpPreview('${e.id}')" style="accent-color:var(--teal);flex-shrink:0"/>
+                    ${avatarHTML(v.name,24)}
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(v.name)}</div>
+                    </div>
+                  </label>`).join('')}
+              </div>
+              <div style="display:flex;gap:6px;margin-top:6px">
+                <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=true);updateRsvpPreview('${e.id}')">All</button>
+                <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=false);updateRsvpPreview('${e.id}')">None</button>
+              </div>
+            </div>
+
+            <!-- Recipient preview pill -->
+            <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:14px;text-align:center">
+              Calculating…
+            </div>
+
+            <!-- Message -->
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+            <textarea id="rsvp-message-text" placeholder="Add a personal note to the invite email — e.g. 'We especially need help with setup and teardown this time!'"
+              style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:14px">${escHtml(e.rsvp_message||'')}</textarea>
+
+            <button class="btn btn-primary" style="width:100%" id="rsvp-send-btn" onclick="confirmSendRsvp('${e.id}')">
+              📤 Send Invites
+            </button>
+          </div>
+        </div>`
       :`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
           <div style="font-size:40px;margin-bottom:12px">📬</div>
           <div style="font-weight:600;font-size:16px;margin-bottom:8px">Sign-ups not enabled for this event</div>
@@ -9304,10 +9373,13 @@ function switchEventTab(eid, tab){
       btn.style.color = t===tab ? 'var(--teal)' : 'var(--text-muted)'
     }
   })
-  // Load RSVPs on first open of signups tab
+  // Load RSVPs on first open of signups tab and init preview
   if(tab==='signups'){
     const e = allEvents.find(e=>e.id===eid)
-    if(e?.rsvp_enabled) loadEventRsvps(eid)
+    if(e?.rsvp_enabled){
+      loadEventRsvps(eid)
+      setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
+    }
   }
 }
 
@@ -9832,137 +9904,70 @@ function toggleRsvpMessage(){
   if(wrap) wrap.style.display = enabled ? '' : 'none'
 }
 
-async function sendRsvpInvites(eid){
-  const evt = allEvents.find(e=>e.id===eid)
-  if(!evt) return
-
-  // Build filter modal
-  const existing = document.getElementById('rsvp-invite-modal')
-  if(existing) existing.remove()
-
-  const interestOpts = interestTypes.map(it=>`<option value="interest:${escHtml(it.name)}">${escHtml(it.name)}</option>`).join('')
-  const overlay = document.createElement('div')
-  overlay.id = 'rsvp-invite-modal'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML = `
-    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:540px;box-shadow:var(--shadow-lg);max-height:90vh;overflow-y:auto">
-      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:16px;font-weight:700">📤 Send Sign-up Invites</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(evt.name)}</div>
-        </div>
-        <button onclick="document.getElementById('rsvp-invite-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
-      </div>
-      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
-
-        <div class="form-group">
-          <label>Send to</label>
-          <select id="rsvp-filter-type" onchange="onRsvpFilterChange()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-            <option value="all">All active volunteers</option>
-            <option value="interest">Volunteers by interest</option>
-            <option value="event">Volunteered at a past event</option>
-            <option value="manual">Choose volunteers manually</option>
-          </select>
-        </div>
-
-        <!-- Interest filter -->
-        <div id="rsvp-filter-interest" style="display:none" class="form-group">
-          <label>Interest</label>
-          <select id="rsvp-interest-val" onchange="updateRsvpPreview()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-            <option value="">— Select interest —</option>
-            ${interestOpts}
-          </select>
-        </div>
-
-        <!-- Past event filter -->
-        <div id="rsvp-filter-event" style="display:none" class="form-group">
-          <label>Past event</label>
-          <select id="rsvp-event-val" onchange="updateRsvpPreview()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-            <option value="">— Select event —</option>
-            ${allEvents.filter(e=>e.id!==eid&&e.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,60)
-              .map(e=>`<option value="${e.id}">${escHtml(e.name)} (${formatDate(e.event_date)})</option>`).join('')}
-          </select>
-        </div>
-
-        <!-- Manual volunteer picker -->
-        <div id="rsvp-filter-manual" style="display:none" class="form-group">
-          <label>Select volunteers</label>
-          <div style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:200px;overflow-y:auto;padding:8px">
-            ${[...volunteers].sort((a,b)=>a.name.localeCompare(b.name)).filter(v=>v.status==='active'&&v.email).map(v=>`
-              <label style="display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;font-size:13px">
-                <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" style="accent-color:var(--teal)"/>
-                <span>${escHtml(v.name)}</span>
-                <span style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}</span>
-              </label>`).join('')}
-          </div>
-          <div style="margin-top:6px;display:flex;gap:8px">
-            <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=true)">Select all</button>
-            <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=false)">Clear</button>
-          </div>
-        </div>
-
-        <div id="rsvp-recipient-preview" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 14px">
-          Calculating recipients…
-        </div>
-
-        <div style="display:flex;gap:10px;margin-top:4px">
-          <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('rsvp-invite-modal').remove()">Cancel</button>
-          <button class="btn btn-primary" style="flex:2" id="rsvp-send-btn" onclick="confirmSendRsvp('${eid}')">📤 Send Invites</button>
-        </div>
-      </div>
-    </div>`
-  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
-  document.body.appendChild(overlay)
-  onRsvpFilterChange()
+function setRsvpFilter(type, eid){
+  // Style the selected option
+  ;['all','interest','event','manual'].forEach(t=>{
+    const el = document.getElementById('rsvp-opt-'+t)
+    if(el){
+      el.style.borderColor = t===type ? 'var(--teal)' : 'var(--border)'
+      el.style.background  = t===type ? 'var(--teal-50)' : ''
+      el.style.color       = t===type ? 'var(--teal-dark)' : ''
+    }
+  })
+  document.getElementById('rsvp-sub-interest').style.display = type==='interest' ? '' : 'none'
+  document.getElementById('rsvp-sub-event').style.display    = type==='event'    ? '' : 'none'
+  document.getElementById('rsvp-sub-manual').style.display   = type==='manual'   ? '' : 'none'
+  updateRsvpPreview(eid)
 }
 
-function onRsvpFilterChange(){
-  const type = document.getElementById('rsvp-filter-type')?.value
-  document.getElementById('rsvp-filter-interest').style.display = type==='interest' ? '' : 'none'
-  document.getElementById('rsvp-filter-event').style.display    = type==='event'    ? '' : 'none'
-  document.getElementById('rsvp-filter-manual').style.display   = type==='manual'   ? '' : 'none'
-  updateRsvpPreview()
+function filterRsvpManualList(query){
+  const q = query.toLowerCase().trim()
+  document.querySelectorAll('.rsvp-vol-row').forEach(row=>{
+    const name = row.dataset.name || ''
+    row.style.display = !q || name.includes(q) ? '' : 'none'
+  })
 }
+
+function onRsvpFilterChange(){ /* legacy — no-op */ }
 
 function getRsvpTargetVolunteers(){
-  const type = document.getElementById('rsvp-filter-type')?.value
+  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
   const active = volunteers.filter(v=>v.status==='active' && v.email)
-
   if(type==='all') return active
-
   if(type==='interest'){
     const val = document.getElementById('rsvp-interest-val')?.value
     if(!val) return active
-    return active.filter(v=>{
-      try{ return JSON.parse(v.interests||'[]').includes(val) }catch{ return false }
-    })
+    return active.filter(v=>{ try{ return JSON.parse(v.interests||'[]').includes(val) }catch{ return false } })
   }
-
   if(type==='event'){
-    const eid = document.getElementById('rsvp-event-val')?.value
-    if(!eid) return active
-    return active.filter(v=>(v.hours||[]).some(h=>h.event_id===eid))
+    const evid = document.getElementById('rsvp-event-val')?.value
+    if(!evid) return active
+    return active.filter(v=>(v.hours||[]).some(h=>h.event_id===evid))
   }
-
   if(type==='manual'){
     const ids = [...document.querySelectorAll('.rsvp-manual-cb:checked')].map(c=>c.value)
     return active.filter(v=>ids.includes(v.id))
   }
-
   return active
 }
 
-function updateRsvpPreview(){
+function updateRsvpPreview(eid){
   const preview = document.getElementById('rsvp-recipient-preview')
   if(!preview) return
   const targets = getRsvpTargetVolunteers()
   if(!targets.length){
-    preview.innerHTML = '<span style="color:var(--red-600)">⚠️ No volunteers match this filter</span>'
+    preview.innerHTML = '⚠️ No volunteers match'
+    preview.style.background = 'var(--red-50)'; preview.style.color = 'var(--red-600)'
     return
   }
-  const names = targets.slice(0,5).map(v=>escHtml(v.name)).join(', ')
-  const extra = targets.length > 5 ? ` and ${targets.length-5} more` : ''
-  preview.innerHTML = `<strong>${targets.length} volunteer${targets.length!==1?'s':''}</strong> will receive an invite: ${names}${extra}`
+  preview.style.background = 'var(--teal-50)'; preview.style.color = 'var(--teal-dark)'
+  preview.innerHTML = `✉️ <strong>${targets.length}</strong> volunteer${targets.length!==1?'s':''} will receive this invite`
+}
+
+async function sendRsvpInvites(eid){
+  // Now a no-op — compose panel is inline in the sign-ups tab
+  // But keep for any legacy calls
+  switchEventTab(eid, 'signups')
 }
 
 async function confirmSendRsvp(eid){
@@ -9970,13 +9975,12 @@ async function confirmSendRsvp(eid){
   if(!targets.length){ toast('No volunteers match this filter','error'); return }
   const btn = document.getElementById('rsvp-send-btn')
   if(btn){ btn.disabled=true; btn.textContent='Sending…' }
-  const vol_ids = targets.map(v=>v.id)
-  const evt = allEvents.find(e=>e.id===eid)
+  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
   const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {
-    volunteer_ids: vol_ids,
-    message: evt?.rsvp_message||''
+    volunteer_ids: targets.map(v=>v.id),
+    message
   })
-  document.getElementById('rsvp-invite-modal')?.remove()
+  if(btn){ btn.disabled=false; btn.textContent='📤 Send Invites' }
   if(res.error){ toast(res.error,'error'); return }
   toast(`✅ Sent to ${res.sent} volunteer${res.sent!==1?'s':''}`, 'success')
   loadEventRsvps(eid)

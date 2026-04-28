@@ -822,6 +822,30 @@ def init_db():
 
     conn.close()
 
+    # One-time backfill: copy application notes to volunteer profile notes
+    try:
+        conn2 = get_db()
+        c2 = conn2.cursor()
+        c2.execute("""
+            INSERT INTO notes (id, volunteer_id, author, content)
+            SELECT gen_random_uuid()::text, a.volunteer_id, 'Join Form', a.notes
+            FROM volunteer_applications a
+            WHERE a.status = 'approved'
+              AND a.volunteer_id IS NOT NULL
+              AND (a.notes IS NOT NULL AND a.notes != '')
+              AND NOT EXISTS (
+                SELECT 1 FROM notes n
+                WHERE n.volunteer_id = a.volunteer_id
+                  AND n.author = 'Join Form'
+                  AND n.content = a.notes
+              )
+        """)
+        conn2.commit()
+        conn2.close()
+    except Exception:
+        try: conn2.rollback(); conn2.close()
+        except Exception: pass
+
 # ─────────────────────────────────────────────
 #  HELPERS
 # ─────────────────────────────────────────────
@@ -4425,6 +4449,14 @@ def approve_application(aid):
 
         execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
             (vid, session.get('user_name',''), aid))
+
+        # Copy application notes to volunteer profile notes
+        app_notes = (app_row.get('notes') or '').strip()
+        if app_notes:
+            nid = str(uuid.uuid4())
+            execute(conn, "INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s)",
+                (nid, vid, 'Join Form', app_notes))
+
         conn.commit()
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
         conn.close()

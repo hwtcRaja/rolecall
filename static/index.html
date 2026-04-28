@@ -9510,9 +9510,41 @@ function renderEventDetailPage(eid){
     <!-- Staff & Waivers tab -->
     <div id="evt-panel-staff" style="display:${_eventDetailTab==='staff'?'':'none'}">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        <!-- Event Staff -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px">👥 Event Staff</div>
+          ${(e.staff||[]).length ? (e.staff||[]).map(s=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+              ${avatarHTML(s.volunteer_name,32)}
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">
+                  <span style="cursor:pointer;color:var(--teal-600)" onclick="openProfile('${s.volunteer_id}')">${escHtml(s.volunteer_name)}</span>
+                  ${bgcBadgeHTML(s.background_check_status, true)}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted)">${escHtml(s.role||'Staff')}</div>
+              </div>
+              ${isAdmin?`<button onclick="removeEventStaff('${s.id}','${e.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
+            </div>`).join('')
+          : '<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No staff assigned yet</div>'}
+          ${isAdmin?`
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+            <select id="staff-vol-sel-${e.id}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">+ Add staff member…</option>
+              ${[...volunteers].filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name))
+                .filter(v=>!(e.staff||[]).find(s=>s.volunteer_id===v.id))
+                .map(v=>`<option value="${v.id}">${escHtml(v.name)}${v.background_check_status==='cleared'?' ✅':v.background_check_status==='pending'?' ⏳':' ⚠️'}</option>`).join('')}
+            </select>
+            <input type="text" id="staff-role-${e.id}" placeholder="Role (e.g. Stage Manager, Box Office, Security…)"
+              style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+            <button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="addEventStaff('${e.id}')">Add Staff</button>
+          </div>`:''}
+        </div>
+
         <!-- ELICs -->
         <div class="card" style="padding:20px">
-          <div style="font-size:15px;font-weight:700;margin-bottom:14px">🎬 ELICs (Event Leads)</div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">🎬 ELICs</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Event leads with kiosk PIN & checklist access</div>
           ${!elics.length?'<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No ELICs assigned yet</div>':
             elics.map(a=>{
               const vol = volunteers.find(v=>v.id===a.volunteer_id)
@@ -10100,6 +10132,35 @@ function deleteFromModal(){
   if(!eid) return
   closeModal('modal-edit-event')
   deleteEventFull(eid)
+}
+
+async function addEventStaff(eid){
+  const sel  = document.getElementById('staff-vol-sel-'+eid)
+  const role = document.getElementById('staff-role-'+eid)
+  const volId = sel?.value
+  if(!volId){ toast('Please select a volunteer','error'); return }
+  const res = await api(`/api/events/${eid}/staff`,'POST',{
+    volunteer_id: volId,
+    role: role?.value.trim()||''
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  // Reload event data and re-render
+  const events = await api('/api/events')
+  if(Array.isArray(events)){ allEvents = events }
+  renderEventDetailPage(eid)
+  switchEventTab(eid, 'staff')
+  toast('Staff member added!','success')
+}
+
+async function removeEventStaff(sid, eid){
+  if(!confirm('Remove this staff member from the event?')) return
+  const res = await api(`/api/events/staff/${sid}`,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  const events = await api('/api/events')
+  if(Array.isArray(events)){ allEvents = events }
+  renderEventDetailPage(eid)
+  switchEventTab(eid, 'staff')
+  toast('Staff member removed')
 }
 
 function toggleRsvpMessage(){

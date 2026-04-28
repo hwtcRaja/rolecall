@@ -461,6 +461,8 @@ def init_db():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_waivers BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_opened BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_closed BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_new_rsvp BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_role_filled BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
         """CREATE TABLE IF NOT EXISTS production_general_content (
@@ -3295,12 +3297,23 @@ def get_email_settings_route():
 def save_email_settings_route():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
-    for key, val in d.items():
-        execute(conn, '''INSERT INTO settings (key,value) VALUES (%s,%s)
-            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value''',
-            (key, json.dumps(val)))
+    # Build dynamic UPDATE for any fields passed
+    allowed = ['resend_api_key','from_email','report_recipients','report_recipient_user_ids',
+        'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
+        'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
+        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
+    sets = []; vals = []
+    for key in allowed:
+        if key in d:
+            sets.append(f'{key}=%s')
+            val = d[key]
+            if isinstance(val, list): val = json.dumps(val)
+            vals.append(val)
+    if sets:
+        vals.append(1)
+        execute(conn, f"UPDATE email_settings SET {','.join(sets)} WHERE id=%s", vals)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6330,6 +6343,30 @@ def rsvp_submit(token):
         (role_id or None, role_name, token))
     conn.commit()
     date_str = rsvp.get('event_date','')
+
+    # Send admin alert emails
+    try:
+        s = get_email_settings()
+        recipients = get_recipient_emails(s)
+        if recipients:
+            vol_name = rsvp.get('volunteer_name','A volunteer')
+            evt_name = rsvp['event_name']
+            role_line = f' for <strong>{role_name}</strong>' if role_name else ''
+            # New RSVP alert
+            if s.get('alert_new_rsvp', True):
+                send_email(recipients, f'New Sign-up: {evt_name}',
+                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> signed up to volunteer{role_line} for <strong>{evt_name}</strong>.</p>'
+                    f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
+            # Role filled alert
+            if role_id and role_name and s.get('alert_role_filled', True):
+                filled_now = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
+                role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
+                if filled_now and role_row and int(filled_now['c']) >= int(role_row['slots']):
+                    send_email(recipients, f'Role Filled: {role_name} — {evt_name}',
+                        f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> role for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
+    except Exception as e:
+        app.logger.warning(f'rsvp alert email error: {e}')
+
     conn.close()
     return f'''<html><head><title>Signed Up!</title>
     <meta name="viewport" content="width=device-width,initial-scale=1"></head>

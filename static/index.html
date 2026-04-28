@@ -100,6 +100,9 @@ thead th{text-align:left;font-size:11px;font-weight:600;letter-spacing:0.5px;tex
 tbody tr{border-bottom:1px solid var(--border);transition:background 0.1s}
 tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:var(--gray-50)}
+.vol-row-hover:hover{background:var(--teal-50)!important}
+.vol-row-hover:hover td:nth-child(2) .volunteer-name,
+.vol-row-hover:hover td:nth-child(2) div[style*="teal"]{text-decoration:underline}
 tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 /* STATS */
@@ -338,11 +341,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   /* Toast: bottom left on mobile, full width */
   .toast-container{right:12px;left:12px;bottom:16px}
 
-  /* Volunteer table: hide less important columns */
+  /* Volunteer table: hide interests and BGC on mobile */
   #vol-table-body tr td:nth-child(3),
-  #vol-table-body tr td:nth-child(4),
+  #vol-table-body tr td:nth-child(6),
   thead tr th:nth-child(3),
-  thead tr th:nth-child(4){display:none}
+  thead tr th:nth-child(6){display:none}
 
   /* Hours table: hide notes column */
   #hours-table-body tr td:nth-child(6),
@@ -549,7 +552,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </div>
           <div class="card">
             <table>
-              <thead><tr><th><input type="checkbox" id="select-all-vols" onchange="toggleSelectAll(this)" style="width:16px;height:16px;accent-color:var(--teal-400)"/></th><th>Volunteer</th><th>Phone</th><th>Interests</th><th>Waiver</th><th>Status</th><th>Hours</th><th></th></tr></thead>
+              <thead><tr>
+                <th style="width:32px"><input type="checkbox" id="select-all-vols" onchange="toggleSelectAll(this)" style="width:16px;height:16px;accent-color:var(--teal-400)"/></th>
+                <th>Volunteer</th>
+                <th>Interests</th>
+                <th style="width:90px">Waiver</th>
+                <th style="width:80px">Status</th>
+                <th style="width:60px">BGC</th>
+                <th style="width:60px">Hours</th>
+                <th style="width:36px"></th>
+              </tr></thead>
               <tbody id="vol-table-body"></tbody>
             </table>
           </div>
@@ -2239,6 +2251,34 @@ function calcAge(dob){
 function waiverStatus(v){
   return v.waiver_status || 'none'
 }
+function bgcBadgeHTML(status, compact=false){
+  if(status==='cleared') return compact
+    ? '<span title="Background check cleared" style="font-size:13px">✅</span>'
+    : '<span style="background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">✅ BGC Cleared</span>'
+  if(status==='pending') return compact
+    ? '<span title="Background check pending" style="font-size:13px">⏳</span>'
+    : '<span style="background:#fefce8;color:#a16207;border:1.5px solid #fde047;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⏳ BGC Pending</span>'
+  // Not submitted — this is the one that needs to be VERY obvious in youth contexts
+  return compact
+    ? '<span title="No background check on file" style="font-size:13px;color:var(--red-600)">⚠️</span>'
+    : '<span style="background:#fef2f2;color:#dc2626;border:1.5px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⚠️ No BGC on file</span>'
+}
+
+function bgcYouthWarning(vol){
+  // Returns a prominent banner if this volunteer hasn't cleared a BGC
+  // Use this wherever volunteers interact with youth
+  if(!vol || vol.background_check_status==='cleared') return ''
+  const msg = vol.background_check_status==='pending'
+    ? `⏳ Background check pending for <strong>${escHtml(vol.name)}</strong>`
+    : `⚠️ <strong>${escHtml(vol.name)}</strong> has no background check on file`
+  const style = vol.background_check_status==='pending'
+    ? 'background:#fefce8;border:2px solid #fde047;color:#854d0e'
+    : 'background:#fef2f2;border:2px solid #fca5a5;color:#991b1b'
+  return `<div style="${style};border-radius:8px;padding:8px 12px;font-size:13px;margin-top:6px">
+    ${msg} — <strong>this person works with youth</strong>
+  </div>`
+}
+
 function waiverBadgeHTML(s){
   const m={valid:['waiver-valid','✅ Valid'],expiring:['waiver-expiring','⚠️ Expiring'],expired:['waiver-expired','❌ Expired'],none:['waiver-none','— None']}
   const [cls,label]=m[s||'none']
@@ -2889,19 +2929,28 @@ function renderVolunteers(){
   tbody.innerHTML=filtered.map(v=>{
     const interests=JSON.parse(v.interests||'[]')
     const checked=selectedVolIds.has(v.id)
-    return `<tr>
-      <td><input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''} onchange="toggleVolSelect('${v.id}',this.checked)"/></td>
-      <td><div class="volunteer-name-cell">${avatarHTML(v.name)}<div><div class="volunteer-name">${v.name}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}</div><div class="volunteer-email">${v.email}</div></div></div></td>
-      <td style="color:var(--text-muted)">${v.phone||'—'}</td>
+    return `<tr style="cursor:pointer" onclick="openProfile('${v.id}')" class="vol-row-hover">
+      <td onclick="event.stopPropagation()" style="width:32px">
+        <input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''}
+          onchange="toggleVolSelect('${v.id}',this.checked)"/>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${avatarHTML(v.name)}
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}${v.phone?` · ${escHtml(v.phone)}`:''}</div>
+          </div>
+        </div>
+      </td>
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
       <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
-      <td>${v.background_check_status==='cleared'?'<span style="font-size:11px;background:var(--green-50);color:var(--green-600);padding:2px 6px;border-radius:8px;font-weight:600">✅ BGC</span>':v.background_check_status==='pending'?'<span style="font-size:11px;background:var(--amber-50);color:var(--amber-600);padding:2px 6px;border-radius:8px;font-weight:600">⏳ BGC</span>':''}</td>
-      <td style="font-weight:600;color:var(--teal-600)">${v.total_hours||0}h</td>
-      <td><div class="action-btns">
-        <button class="btn btn-secondary btn-sm" onclick="openProfile('${v.id}')">View</button>
-        <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email">✉️</a>
-      </div></td>
+      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}</td>
+      <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
+      <td onclick="event.stopPropagation()">
+        <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">✉️</a>
+      </td>
     </tr>`
   }).join('')
   updateBulkActions()
@@ -3003,7 +3052,10 @@ async function openProfile(volId){
         <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(v.name)}</div>
         <div class="profile-name">${v.name}</div>
         ${v.pronouns?`<div style="text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:6px">${escHtml(v.pronouns)}</div>`:''}
-        <div style="text-align:center;margin-bottom:16px"><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></div>
+        <div style="text-align:center;margin-bottom:16px">
+          <span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span>
+        </div>
+        <div style="text-align:center;margin-bottom:16px">${bgcBadgeHTML(v.background_check_status, false)}</div>
         <hr class="divider"/>
         <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
           <div>📧 <a href="mailto:${v.email}" style="color:var(--teal-600)">${v.email}</a></div>
@@ -7228,12 +7280,29 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
       s += '<div style="margin-bottom:20px">'
       s += '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">'+dept+'</div>'
       mems.forEach(function(mem){
-        s += '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+        var vol = volunteers.find(function(v){ return v.id===mem.volunteer_id })
+        var bgcStatus = vol ? vol.background_check_status : 'none'
+        var isYouthProd = p.stage==='rising_stars'
+        s += '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+        s += '<div style="display:flex;align-items:center;gap:12px">'
         s += avatarHTML(mem.volunteer_name,36)
-        s += '<div style="flex:1"><div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile(\'' + mem.volunteer_id + '\')">'+mem.volunteer_name+'</div>'
+        s += '<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile(\'' + mem.volunteer_id + '\')">'
+        s += mem.volunteer_name
+        if(isYouthProd) s += ' ' + bgcBadgeHTML(bgcStatus, true)
+        s += '</div>'
         s += '<div style="font-size:12px;color:var(--text-muted)">'+mem.role+'</div></div>'
         s += '<span style="font-size:11px;font-weight:500;color:'+(memberStatusColors[mem.status]||'var(--text-muted)')+'">'+mem.status+'</span>'
         if(isAdmin) s += '<div style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal(\'' + mem.id + '\',\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember(\'' + mem.id + '\',\'' + p.id + '\')">✕</button></div>'
+        s += '</div>'
+        if(isYouthProd && bgcStatus!=='cleared'){
+          var warnBg = bgcStatus==='pending' ? '#fefce8' : '#fef2f2'
+          var warnBorder = bgcStatus==='pending' ? '#fde047' : '#fca5a5'
+          var warnColor = bgcStatus==='pending' ? '#854d0e' : '#991b1b'
+          var warnMsg = bgcStatus==='pending'
+            ? '⏳ Background check pending — please follow up before allowing work with youth'
+            : '⚠️ No background check on file — required for working with youth in Rising Stars'
+          s += '<div style="background:'+warnBg+';border:1.5px solid '+warnBorder+';color:'+warnColor+';border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;margin-top:4px">'+warnMsg+'</div>'
+        }
         s += '</div>'
       })
       s += '</div>'
@@ -8283,17 +8352,29 @@ function renderElicsSettings(){
   const el=document.getElementById('elics-list')
   if(!el) return
   if(!allElics.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No ELICs yet</div>';return}
-  el.innerHTML=allElics.map(e=>`
-    <div class="setting-item">
-      <div>
-        <div class="setting-item-label">${e.volunteer_name} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}</div>
-        <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+  el.innerHTML=allElics.map(e=>{
+    const vol = volunteers.find(v=>v.id===e.volunteer_id)
+    const bgcStatus = vol?.background_check_status || 'none'
+    return `
+    <div class="setting-item" style="flex-direction:column;align-items:stretch;gap:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="setting-item-label" style="display:flex;align-items:center;gap:8px">
+            ${escHtml(e.volunteer_name)} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}
+            ${bgcBadgeHTML(bgcStatus, true)}
+          </div>
+          <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
+          <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">✕</button>
+        </div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
-        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">✕</button>
-      </div>
-    </div>`).join('')
+      ${bgcStatus!=='cleared'?`<div style="background:${bgcStatus==='pending'?'#fefce8':'#fef2f2'};border:1.5px solid ${bgcStatus==='pending'?'#fde047':'#fca5a5'};color:${bgcStatus==='pending'?'#854d0e':'#991b1b'};border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600">
+        ${bgcStatus==='pending'?'⏳ BGC pending':'⚠️ No BGC on file'} — ELICs work directly with youth, please ensure a background check is on file
+      </div>`:''}
+    </div>`
+  }).join('')
 }
 
 async function addElic(){
@@ -9433,12 +9514,26 @@ function renderEventDetailPage(eid){
         <div class="card" style="padding:20px">
           <div style="font-size:15px;font-weight:700;margin-bottom:14px">🎬 ELICs (Event Leads)</div>
           ${!elics.length?'<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No ELICs assigned yet</div>':
-            elics.map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
-              ${avatarHTML(a.volunteer_name,32)}
-              <div style="flex:1"><div style="font-weight:600;font-size:13px">${escHtml(a.volunteer_name)}</div>
-              <div style="font-size:11px;color:var(--text-muted)">${a.is_master?'Master ELIC':'Event ELIC'}</div></div>
-              ${isAdmin?`<button onclick="removeEventElicUI('${e.id}','${a.assignment_id}');setTimeout(()=>renderEventDetailPage('${e.id}'),300)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
-            </div>`).join('')}
+            elics.map(a=>{
+              const vol = volunteers.find(v=>v.id===a.volunteer_id)
+              const bgcStatus = vol?.background_check_status || 'none'
+              return `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  ${avatarHTML(a.volunteer_name,32)}
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">
+                      ${escHtml(a.volunteer_name)}
+                      ${bgcBadgeHTML(bgcStatus, true)}
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted)">${a.is_master?'Master ELIC':'Event ELIC'}</div>
+                  </div>
+                  ${isAdmin?`<button onclick="removeEventElicUI('${e.id}','${a.assignment_id}');setTimeout(()=>renderEventDetailPage('${e.id}'),300)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
+                </div>
+                ${bgcStatus!=='cleared'?`<div style="background:${bgcStatus==='pending'?'#fefce8':'#fef2f2'};border:1.5px solid ${bgcStatus==='pending'?'#fde047':'#fca5a5'};color:${bgcStatus==='pending'?'#854d0e':'#991b1b'};border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:4px">
+                  ${bgcStatus==='pending'?'⏳ Background check pending':'⚠️ No background check on file'}
+                </div>`:''}
+              </div>`
+            }).join('')}
           ${isAdmin?`<select onchange="addEventElicUI('${e.id}',this);setTimeout(()=>renderEventDetailPage('${e.id}'),400)" style="width:100%;margin-top:10px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
             <option value="">+ Assign ELIC…</option>
             ${allElics.filter(el=>el.active&&!elics.find(a=>a.elic_id===el.id)).map(el=>`<option value="${el.id}">${escHtml(el.volunteer_name)}${el.is_master?' ★':''}</option>`).join('')}
@@ -10896,7 +10991,8 @@ function renderYouthProgramsPage(){
           ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
           <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px">
             ${p.start_date?`<div>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
-            ${instructor?`<div>👤 ${instructor.name}</div>`:''}
+            ${instructor?`<div>👤 ${escHtml(instructor.name)} ${bgcBadgeHTML(instructor.background_check_status, true)}</div>
+            ${bgcYouthWarning(instructor)}`:''}
           </div>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -12954,7 +13050,20 @@ function renderRisingStarsPage(){
     return
   }
 
-  grid.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
+  // BGC summary warning — check all crew members across all RS productions
+  const rsMemberIds = new Set()
+  filtered.forEach(p=>{ (p.members||[]).forEach(m=>{ if(m.volunteer_id) rsMemberIds.add(m.volunteer_id) }) })
+  const unclearedRS = [...rsMemberIds].map(id=>volunteers.find(v=>v.id===id)).filter(v=>v&&v.background_check_status!=='cleared')
+  const bgcBanner = unclearedRS.length
+    ? `<div style="background:#fef2f2;border:2px solid #fca5a5;color:#991b1b;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px">⚠️</span>
+        <div>
+          <div style="font-weight:700;font-size:14px">${unclearedRS.length} crew member${unclearedRS.length!==1?'s':''} without a cleared background check</div>
+          <div style="font-size:13px;margin-top:2px">${unclearedRS.map(v=>escHtml(v.name)).join(', ')} — background checks are required for all adults working with youth in Rising Stars.</div>
+        </div>
+      </div>` : ''
+
+  grid.innerHTML = bgcBanner + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
     filtered.map(p=>{
       const[bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
       const memberCount = p.members?.length||0

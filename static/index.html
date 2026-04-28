@@ -1349,6 +1349,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                   <input type="checkbox" id="es-alert-not-closed" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
                   <div><div style="font-size:13px;font-weight:600">🔴 Event not closed</div><div style="font-size:11px;color:var(--text-muted)">Alert if event not closed 2 hrs after end</div></div>
                 </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-new-rsvp" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">✋ New volunteer sign-up</div><div style="font-size:11px;color:var(--text-muted)">Alert when a volunteer signs up for an event</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-role-filled" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">🎭 Role slot filled</div><div style="font-size:11px;color:var(--text-muted)">Alert when all slots for a role are taken</div></div>
+                </label>
               </div>
 
               <div style="display:flex;gap:10px">
@@ -1501,6 +1509,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <input type="text" id="ni-input-youth-signin" placeholder="log-in" value=""
           style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
           oninput="previewNavIcon('youth-signin',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-carpools">
+        <span style="font-size:16px">🚗</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Carpools</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-carpools" placeholder="car" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('carpools',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-reports">
+        <span style="font-size:16px">📊</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Reports</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-reports" placeholder="bar-chart-2" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('reports',this.value)"/>
       </div>
     </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
       <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-event-logs">
@@ -4459,6 +4487,8 @@ async function loadEmailSettings(){
   chk('es-alert-waivers', s.alert_waivers!==false)
   chk('es-alert-not-opened', s.alert_event_not_opened!==false)
   chk('es-alert-not-closed', s.alert_event_not_closed!==false)
+  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
+  chk('es-alert-role-filled', s.alert_role_filled!==false)
   let savedIds = []
   try { savedIds = JSON.parse(s.report_recipient_user_ids||'[]') } catch(e){}
   const listEl = document.getElementById('es-recipients-list')
@@ -4500,6 +4530,8 @@ async function saveEmailSettings(){
     alert_waivers: chk('es-alert-waivers'),
     alert_event_not_opened: chk('es-alert-not-opened'),
     alert_event_not_closed: chk('es-alert-not-closed'),
+    alert_new_rsvp: chk('es-alert-new-rsvp'),
+    alert_role_filled: chk('es-alert-role-filled'),
     alert_waiver_expiry: chk('es-alert-waivers')
   }
   const res = await api('/api/email-settings','PUT',data)

@@ -569,6 +569,14 @@ def init_db():
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS event_staff (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            role TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(event_id, volunteer_id))""",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
@@ -1133,10 +1141,14 @@ def get_events():
         e['required_waivers'] = fetchall(conn,
             'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (e['id'],))
         e['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
-            el.is_master, v.name as volunteer_name
+            el.is_master, v.name as volunteer_name, v.id as volunteer_id
             FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
             JOIN volunteers v ON el.volunteer_id=v.id
             WHERE ee.event_id=%s""", (e['id'],))
+        e['staff'] = fetchall(conn, """SELECT es.*, v.name as volunteer_name,
+            v.background_check_status, v.email
+            FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
+            WHERE es.event_id=%s ORDER BY es.role, v.name""", (e['id'],))
         e['status'] = e.get('status') or 'draft'
     conn.close()
     return jsonify(events)
@@ -6066,6 +6078,66 @@ def handle_exception(e):
     return jsonify({'error': str(e)}), 500
 
 
+
+
+# ── Event Staff ──────────────────────────────────────────────────
+
+@app.route('/api/events/<eid>/staff')
+def get_event_staff(eid):
+    conn = get_db()
+    staff = fetchall(conn, '''SELECT es.*, v.name as volunteer_name,
+        v.background_check_status, v.email
+        FROM event_staff es
+        JOIN volunteers v ON es.volunteer_id=v.id
+        WHERE es.event_id=%s ORDER BY es.role, v.name''', (eid,))
+    conn.close()
+    return jsonify(staff)
+
+@app.route('/api/events/<eid>/staff', methods=['POST'])
+def add_event_staff(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    vol_id = d.get('volunteer_id')
+    if not vol_id: return jsonify({'error': 'volunteer_id required'}), 400
+    sid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO event_staff (id,event_id,volunteer_id,role,notes)
+            VALUES (%s,%s,%s,%s,%s)''',
+            (sid, eid, vol_id, (d.get('role') or '').strip(), (d.get('notes') or '').strip()))
+        conn.commit()
+        row = fetchone(conn, '''SELECT es.*, v.name as volunteer_name,
+            v.background_check_status, v.email
+            FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
+            WHERE es.id=%s''', (sid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
+        conn.rollback(); conn.close()
+        if 'unique' in str(e).lower():
+            return jsonify({'error': 'This volunteer is already on the staff list'}), 400
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/events/staff/<sid>', methods=['PUT'])
+def update_event_staff(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE event_staff SET role=%s, notes=%s WHERE id=%s',
+        ((d.get('role') or '').strip(), (d.get('notes') or '').strip(), sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/staff/<sid>', methods=['DELETE'])
+def remove_event_staff(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM event_staff WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 # ── Event Roles ──────────────────────────────────────────────────
 

@@ -2814,7 +2814,11 @@ function renderApplications(apps){
                 <span style="color:#a16207"> Approving will update their existing record.</span>
               </div>
             </div>` : ''}
-          ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md);margin-top:4px"><em>${escHtml(a.notes)}</em></div>`:''}
+          ${a.notes?`<div style="margin-top:8px;background:var(--bg);border:1.5px solid var(--border-md);border-left:3px solid var(--teal-400);border-radius:var(--radius);padding:10px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">💬 Their message</div>
+            <div style="font-size:13px;color:var(--text)">${escHtml(a.notes)}</div>
+          </div>`:''}
+          ${a.how_heard?'':''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
           ${showActions?`
@@ -3135,11 +3139,13 @@ async function openProfile(volId){
             <div class="tab-pane" id="tab-notes">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openNoteModal('${v.id}')">+ Add Note</button></div>`:''}
               ${!(v.notes||[]).length?'<div style="color:var(--text-muted);font-size:13px">No notes yet</div>':
-                (v.notes||[]).map(n=>`
-                <div class="note-item">
-                  <div class="note-meta">📝 ${n.author} · ${formatDate((n.created_at||'').split('T')[0])}</div>
-                  <div class="note-content">${n.content}</div>
-                </div>`).join('')}
+                (v.notes||[]).map(n=>{
+                  const isJoinForm = n.author==='Join Form'
+                  return `<div class="note-item" ${isJoinForm?'style="border-left:3px solid var(--teal-400);background:var(--teal-50)"':''}>
+                    <div class="note-meta">${isJoinForm?'💬':'📝'} ${n.author} · ${formatDate((n.created_at||'').split('T')[0])}</div>
+                    <div class="note-content">${escHtml(n.content)}</div>
+                  </div>`
+                }).join('')}
             </div>
             <div class="tab-pane" id="tab-files">
               ${isAdmin?`<div style="margin-bottom:16px"><label class="btn btn-primary btn-sm" style="cursor:pointer">+ Attach File<input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display:none" onchange="attachFile(event,'${v.id}')"/></label></div>`:''}

@@ -973,7 +973,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth">
         <div class="page-header">
           <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
-          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-secondary" onclick="openBulkImport()">⬆ Bulk Import</button>
+            <button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button>
+          </div>
         </div>
         <div class="page-body">
           <div class="search-bar">
@@ -2003,6 +2006,113 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 </div>
 
 <!-- Youth Modal -->
+<!-- BULK IMPORT MODAL -->
+<div class="modal-overlay" id="modal-bulk-import" style="display:none;align-items:flex-start;padding:20px">
+  <div class="modal" style="width:100%;max-width:1000px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">⬆ Bulk Import Participants</div>
+      <button class="modal-close" onclick="closeModal('modal-bulk-import')">✕</button>
+    </div>
+    <div style="padding:20px 24px;overflow-y:auto;flex:1">
+
+      <!-- Step 1: Upload -->
+      <div id="bi-step-1">
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">Step 1: Upload your file</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+          Upload a CSV or Excel file. Download the template below to see the expected format.
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+          <button class="btn btn-secondary" onclick="downloadImportTemplate()">⬇ Download Template CSV</button>
+          <label class="btn btn-primary" style="cursor:pointer">
+            📂 Choose File
+            <input type="file" id="bi-file-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleBulkFile(this)"/>
+          </label>
+        </div>
+
+        <!-- Column mapping -->
+        <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px">
+          <div style="font-weight:700;margin-bottom:8px;color:var(--text)">Expected columns (any order, headers must match):</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;font-size:12px">
+            ${[
+              'first_name *','last_name *','dob',
+              'guardian_name','guardian_phone','guardian_email','guardian_relationship',
+              'emergency_name','emergency_phone','emergency_relationship',
+              'pickup1_name','pickup1_phone','pickup1_relationship',
+              'pickup2_name','pickup2_phone','pickup2_relationship',
+              'medical_notes','allergies',
+              'photo_consent (yes/no)','medical_consent (yes/no)','status'
+            ].map(c=>`<code style="background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${c}</code>`).join('')}
+          </div>
+        </div>
+
+        <!-- Program enrollment -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px">
+          <div class="form-group">
+            <label>Enroll in program/class <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <select id="bi-program-id" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">— No program enrollment —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Enrollment date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <input type="date" id="bi-enrolled-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Preview & resolve duplicates -->
+      <div id="bi-step-2" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:15px;font-weight:700">Step 2: Review & resolve duplicates</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="bi-preview-summary">Checking for duplicates…</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary" onclick="biGoBack()">← Back</button>
+            <button class="btn btn-primary" id="bi-import-btn" onclick="runBulkImport()">Import All</button>
+          </div>
+        </div>
+
+        <!-- Duplicate resolution bulk actions -->
+        <div id="bi-dup-actions" style="display:none;background:var(--amber-50);border:1.5px solid var(--amber-200);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;display:none">
+          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:8px">⚠️ Duplicates found — choose how to handle them:</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="biSetAllDups('skip')">Skip all duplicates</button>
+            <button class="btn btn-sm btn-secondary" onclick="biSetAllDups('update')">Update all existing</button>
+            <button class="btn btn-sm btn-secondary" onclick="biSetAllDups('create')">Create anyway (allow duplicates)</button>
+          </div>
+        </div>
+
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:var(--bg);border-bottom:2px solid var(--border)">
+                <th style="padding:8px 10px;text-align:left;width:28px"><input type="checkbox" id="bi-select-all" onchange="biToggleAll(this)" style="accent-color:var(--teal)"/></th>
+                <th style="padding:8px 10px;text-align:left">Name</th>
+                <th style="padding:8px 10px;text-align:left">DOB</th>
+                <th style="padding:8px 10px;text-align:left">Guardian</th>
+                <th style="padding:8px 10px;text-align:left">Pickups</th>
+                <th style="padding:8px 10px;text-align:left">Medical</th>
+                <th style="padding:8px 10px;text-align:left;width:180px">Status</th>
+              </tr>
+            </thead>
+            <tbody id="bi-preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Step 3: Results -->
+      <div id="bi-step-3" style="display:none;text-align:center;padding:40px 20px">
+        <div style="font-size:48px;margin-bottom:16px" id="bi-result-icon">🎉</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px" id="bi-result-title">Import Complete!</div>
+        <div id="bi-result-body" style="font-size:14px;color:var(--text-muted);margin-bottom:20px"></div>
+        <div id="bi-result-errors" style="text-align:left;background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:12px;margin-bottom:16px;font-size:12px;display:none"></div>
+        <button class="btn btn-primary" onclick="biFinish()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-youth">
   <div class="modal modal-lg">
     <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
@@ -4039,6 +4149,248 @@ function toggleMinorSections(){
   const isMinor = document.getElementById('youth-is-minor')?.checked
   const sec = document.getElementById('youth-minor-sections')
   if(sec) sec.style.display = isMinor ? '' : 'none'
+}
+
+// ── BULK IMPORT ──────────────────────────────────────────────────
+
+let _biRows = []  // parsed rows from file
+let _biChecked = [] // duplicate check results
+
+const BI_COLUMNS = ['first_name','last_name','dob','guardian_name','guardian_phone',
+  'guardian_email','guardian_relationship','emergency_name','emergency_phone',
+  'emergency_relationship','pickup1_name','pickup1_phone','pickup1_relationship',
+  'pickup2_name','pickup2_phone','pickup2_relationship',
+  'medical_notes','allergies','photo_consent','medical_consent','status']
+
+async function openBulkImport(){
+  // Populate program dropdown
+  const sel = document.getElementById('bi-program-id')
+  if(sel && allYouthPrograms?.length){
+    sel.innerHTML = '<option value="">— No program enrollment —</option>' +
+      allYouthPrograms.map(p=>`<option value="${p.id}">${escHtml(p.name)}</option>`).join('')
+  } else {
+    // Load programs if not cached
+    const progs = await api('/api/youth-programs')
+    if(Array.isArray(progs) && sel){
+      sel.innerHTML = '<option value="">— No program enrollment —</option>' +
+        progs.map(p=>`<option value="${p.id}">${escHtml(p.name)}</option>`).join('')
+    }
+  }
+  // Reset to step 1
+  biShowStep(1)
+  _biRows = []; _biChecked = []
+  document.getElementById('bi-file-input').value = ''
+  openModal('modal-bulk-import')
+}
+
+function biShowStep(n){
+  ;[1,2,3].forEach(i=>{
+    const el = document.getElementById('bi-step-'+i)
+    if(el) el.style.display = i===n ? '' : 'none'
+  })
+}
+
+function downloadImportTemplate(){
+  const headers = BI_COLUMNS.join(',')
+  const example = 'Jane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,John Smith,555-5678,Father,Bob Smith,555-9999,Uncle,Sue Jones,555-8888,Aunt,None,Peanuts,yes,yes,active'
+  const csv = headers + '\n' + example
+  const blob = new Blob([csv], {type:'text/csv'})
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'participant_import_template.csv'
+  a.click()
+}
+
+async function handleBulkFile(input){
+  const file = input.files[0]
+  if(!file) return
+  const ext = file.name.split('.').pop().toLowerCase()
+
+  if(ext === 'csv'){
+    const text = await file.text()
+    _biRows = parseCSV(text)
+  } else if(ext === 'xlsx' || ext === 'xls'){
+    _biRows = await parseExcel(file)
+  } else {
+    toast('Please upload a CSV or Excel file','error'); return
+  }
+
+  if(!_biRows.length){ toast('No data rows found in file','error'); return }
+  if(!_biRows[0].first_name && !_biRows[0].last_name){
+    toast('Could not find first_name / last_name columns — check your headers match the template','error'); return
+  }
+
+  // Check duplicates
+  document.getElementById('bi-preview-summary').textContent = `Checking ${_biRows.length} rows for duplicates…`
+  biShowStep(2)
+
+  const res = await api('/api/youth-participants/check-duplicates','POST',{rows: _biRows})
+  _biChecked = Array.isArray(res) ? res : _biRows.map(()=>({existing:null}))
+
+  // Add action field to each row
+  _biRows = _biRows.map((row, i)=>({
+    ...row,
+    _existing: _biChecked[i]?.existing || null,
+    action: _biChecked[i]?.existing ? 'skip' : 'create',
+    _id: i
+  }))
+
+  renderBiPreview()
+}
+
+function parseCSV(text){
+  const lines = text.trim().split('\n')
+  if(lines.length < 2) return []
+  const headers = lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/\s+/g,'_'))
+  return lines.slice(1).filter(l=>l.trim()).map(line=>{
+    // Handle quoted fields
+    const vals = []; let cur = ''; let inQ = false
+    for(const ch of line + ','){
+      if(ch==='"'){ inQ=!inQ }
+      else if(ch===',' && !inQ){ vals.push(cur.trim()); cur='' }
+      else cur += ch
+    }
+    const row = {}
+    headers.forEach((h,i)=>{ if(h) row[h] = vals[i] || '' })
+    return row
+  })
+}
+
+async function parseExcel(file){
+  return new Promise((resolve)=>{
+    const reader = new FileReader()
+    reader.onload = e=>{
+      try {
+        const XLSX = window.XLSX
+        if(!XLSX){ toast('Excel support requires page reload — try CSV instead','error'); resolve([]); return }
+        const wb = XLSX.read(e.target.result, {type:'array'})
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(ws, {defval:''})
+        // Normalize headers
+        const rows = data.map(row=>{
+          const out = {}
+          Object.entries(row).forEach(([k,v])=>{
+            out[k.trim().toLowerCase().replace(/\s+/g,'_')] = String(v||'').trim()
+          })
+          return out
+        })
+        resolve(rows)
+      } catch(e){ toast('Could not parse Excel file: '+e.message,'error'); resolve([]) }
+    }
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+function renderBiPreview(){
+  const dups = _biRows.filter(r=>r._existing)
+  const dupActions = document.getElementById('bi-dup-actions')
+  if(dupActions) dupActions.style.display = dups.length ? '' : 'none'
+
+  const summary = `${_biRows.length} row${_biRows.length!==1?'s':''} ready to import · ${dups.length} duplicate${dups.length!==1?'s':''} found`
+  document.getElementById('bi-preview-summary').textContent = summary
+
+  const tbody = document.getElementById('bi-preview-body')
+  tbody.innerHTML = _biRows.map((row, i)=>{
+    const isDup = !!row._existing
+    const rowBg = isDup ? 'background:#fefce8' : ''
+    const actionSel = isDup ? `
+      <select onchange="biSetAction(${i},this.value)" style="width:100%;padding:4px 6px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px">
+        <option value="skip" ${row.action==='skip'?'selected':''}>⏭ Skip</option>
+        <option value="update" ${row.action==='update'?'selected':''}>✏️ Update existing</option>
+        <option value="create" ${row.action==='create'?'selected':''}>➕ Create new</option>
+      </select>` : '<span style="color:var(--green-600);font-size:12px;font-weight:600">✅ New</span>'
+
+    const dupNote = isDup ? `<div style="font-size:11px;color:var(--amber-600);margin-top:2px">
+      ⚠️ Matches: ${escHtml(row._existing.first_name)} ${escHtml(row._existing.last_name)}${row._existing.dob?' ('+row._existing.dob+')':''}
+    </div>` : ''
+
+    return `<tr style="${rowBg};border-bottom:1px solid var(--border)">
+      <td style="padding:8px 10px"><input type="checkbox" class="bi-row-cb" data-idx="${i}" checked style="accent-color:var(--teal)"/></td>
+      <td style="padding:8px 10px">
+        <div style="font-weight:600">${escHtml(row.first_name||'')} ${escHtml(row.last_name||'')}</div>
+        ${dupNote}
+      </td>
+      <td style="padding:8px 10px;color:var(--text-muted);font-size:12px">${escHtml(row.dob||'—')}</td>
+      <td style="padding:8px 10px;font-size:12px">${escHtml(row.guardian_name||'—')}<br/><span style="color:var(--text-muted)">${escHtml(row.guardian_phone||'')}</span></td>
+      <td style="padding:8px 10px;font-size:12px">
+        ${row.pickup1_name?`<div>${escHtml(row.pickup1_name)}${row.pickup1_relationship?' <span style="color:var(--text-muted)">('+escHtml(row.pickup1_relationship)+')</span>':''}</div>`:''}
+        ${row.pickup2_name?`<div>${escHtml(row.pickup2_name)}${row.pickup2_relationship?' <span style="color:var(--text-muted)">('+escHtml(row.pickup2_relationship)+')</span>':''}</div>`:''}
+        ${!row.pickup1_name&&!row.pickup2_name?'<span style="color:var(--text-hint)">—</span>':''}
+      </td>
+      <td style="padding:8px 10px;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(row.allergies||'')}">
+        ${row.allergies?'🚨 '+escHtml(row.allergies):''}${row.medical_notes?'<br/>'+escHtml(row.medical_notes):''}
+      </td>
+      <td style="padding:8px 10px">${actionSel}</td>
+    </tr>`
+  }).join('')
+}
+
+function biSetAction(idx, val){
+  _biRows[idx].action = val
+}
+
+function biSetAllDups(action){
+  _biRows.forEach((r,i)=>{ if(r._existing) _biRows[i].action = action })
+  renderBiPreview()
+}
+
+function biToggleAll(cb){
+  document.querySelectorAll('.bi-row-cb').forEach(c=>c.checked=cb.checked)
+}
+
+function biGoBack(){
+  biShowStep(1)
+}
+
+async function runBulkImport(){
+  const btn = document.getElementById('bi-import-btn')
+  btn.disabled = true; btn.textContent = 'Importing…'
+
+  // Only include checked rows
+  const checkedIdxs = new Set([...document.querySelectorAll('.bi-row-cb:checked')].map(c=>parseInt(c.dataset.idx)))
+  const toImport = _biRows.filter((r,i)=>checkedIdxs.has(i)).map(r=>({
+    ...r,
+    existing_id: r._existing?.id || null
+  }))
+
+  const program_id    = document.getElementById('bi-program-id')?.value || null
+  const enrolled_date = document.getElementById('bi-enrolled-date')?.value || null
+
+  const res = await api('/api/youth-participants/bulk-import','POST',{
+    rows: toImport,
+    program_id,
+    enrolled_date
+  })
+
+  btn.disabled = false; btn.textContent = 'Import All'
+  biShowStep(3)
+
+  if(res.error){
+    document.getElementById('bi-result-icon').textContent = '❌'
+    document.getElementById('bi-result-title').textContent = 'Import Failed'
+    document.getElementById('bi-result-body').textContent = res.error
+    return
+  }
+
+  document.getElementById('bi-result-icon').textContent = '🎉'
+  document.getElementById('bi-result-title').textContent = 'Import Complete!'
+  document.getElementById('bi-result-body').innerHTML =
+    `<strong>${res.created}</strong> created · <strong>${res.updated}</strong> updated · <strong>${res.skipped}</strong> skipped`
+
+  if(res.errors?.length){
+    const errEl = document.getElementById('bi-result-errors')
+    errEl.style.display = ''
+    errEl.innerHTML = '<strong style="color:#dc2626">⚠️ Some rows had errors:</strong><ul style="margin:6px 0 0 16px">' +
+      res.errors.map(e=>`<li>${escHtml(e)}</li>`).join('') + '</ul>'
+  }
+}
+
+async function biFinish(){
+  closeModal('modal-bulk-import')
+  // Reload participants
+  const data = await api('/api/youth-participants')
+  if(Array.isArray(data)){ allYouth = data; renderYouth() }
+  toast('Participants updated!','success')
 }
 
 function openYouthModal(){

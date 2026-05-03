@@ -1189,15 +1189,15 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,rsvp_enabled,rsvp_message)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
-         d.get('auto_log_hours', False)))
+         d.get('auto_log_hours', False), d.get('rsvp_enabled', False), d.get('rsvp_message','')))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -1209,7 +1209,7 @@ def create_event():
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
         WHERE e.id=%s''', (eid,))
-    row['required_waivers'] = []; row['elics'] = []
+    row['required_waivers'] = []; row['elics'] = []; row['staff'] = []
     conn.close()
     return jsonify(row)
 
@@ -1245,9 +1245,13 @@ def update_event(eid):
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
-        el.is_master, v.name as volunteer_name FROM event_elics ee
+        el.is_master, v.name as volunteer_name, v.id as volunteer_id FROM event_elics ee
         JOIN elics el ON ee.elic_id=el.id JOIN volunteers v ON el.volunteer_id=v.id
         WHERE ee.event_id=%s""", (eid,))
+    row['staff'] = fetchall(conn, """SELECT es.*, v.name as volunteer_name,
+        v.background_check_status, v.email
+        FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
+        WHERE es.event_id=%s ORDER BY es.role, v.name""", (eid,))
     conn.close()
     return jsonify(row)
 

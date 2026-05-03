@@ -2280,36 +2280,106 @@ function bgcYouthWarning(vol){
 }
 
 function buildHoursRow(h, volId, isAdminFlag){
-  var el = document.createElement('div')
-  el.className = 'hours-item'
-  el.innerHTML = '<span style="font-size:18px;flex-shrink:0">🎭<\/span>'
-    + '<div style="flex:1;min-width:0"><div class="event-name">'+escHtml(h.event||'')+'<\/div>'
-    + '<div class="event-date">'+formatDate(h.date||'')+(h.role?' · '+escHtml(h.role):'')+'<\/div><\/div>'
-    + '<div class="event-hours" style="flex-shrink:0">'+h.hours+'h<\/div>'
+  var hoursDisplay = h.hours
+  var hid = h.id
+  var notes = (h.notes||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+  var html = '<div class="hours-item">'
+    + '<span style="font-size:18px;flex-shrink:0">🎭<\/span>'
+    + '<div style="flex:1;min-width:0">'
+    + '<div class="event-name">'+escHtml(h.event||'')+'<\/div>'
+    + '<div class="event-date">'+formatDate(h.date||'')+(h.role?' · '+escHtml(h.role):'')+'<\/div>'
+    + '<\/div>'
+    + '<div class="event-hours" style="flex-shrink:0">'+hoursDisplay+'h<\/div>'
   if(isAdminFlag){
-    var btns = document.createElement('div')
-    btns.style.cssText = 'display:flex;gap:4px;flex-shrink:0'
-    var editBtn = document.createElement('button')
-    editBtn.className = 'btn btn-secondary btn-sm'
-    editBtn.style.cssText = 'padding:3px 7px;font-size:11px'
-    editBtn.textContent = '✏️'
-    editBtn.dataset.hid   = h.id
-    editBtn.dataset.hours = h.hours
-    editBtn.dataset.notes = h.notes||''
-    editBtn.dataset.volid = volId
-    editBtn.onclick = function(){ editApprovedHours(this.dataset.hid, this.dataset.hours, this.dataset.notes, this.dataset.volid) }
-    var delBtn = document.createElement('button')
-    delBtn.className = 'btn btn-danger btn-sm'
-    delBtn.style.cssText = 'padding:3px 7px;font-size:11px'
-    delBtn.textContent = '✕'
-    delBtn.dataset.hid   = h.id
-    delBtn.dataset.volid = volId
-    delBtn.onclick = function(){ deleteHours(this.dataset.hid, this.dataset.volid) }
-    btns.appendChild(editBtn)
-    btns.appendChild(delBtn)
-    el.appendChild(btns)
+    html += '<div style="display:flex;gap:4px;flex-shrink:0">'
+      + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px"'
+      + ' onclick="openEditHoursModal(\''+hid+'\','+hoursDisplay+',\''+notes+'\',\''+volId+'\')">✏️<\/button>'
+      + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px"'
+      + ' onclick="deleteHours(\''+hid+'\',\''+volId+'\')">✕<\/button>'
+      + '<\/div>'
   }
-  return el.outerHTML
+  html += '<\/div>'
+  return html
+}
+
+function openEditHoursModal(hid, currentHours, currentNotes, volId){
+  var existing = document.getElementById('edit-hours-overlay')
+  if(existing) existing.remove()
+  var overlay = document.createElement('div')
+  overlay.id = 'edit-hours-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var box = document.createElement('div')
+  box.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px'
+  box.innerHTML = '<div style="font-size:16px;font-weight:700;margin-bottom:4px">✏️ Edit Hours<\/div>'
+  overlay.appendChild(box)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+
+  // Hours input
+  var hoursLabel = document.createElement('label')
+  hoursLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px'
+  hoursLabel.textContent = 'Hours worked'
+  var hoursInput = document.createElement('input')
+  hoursInput.type = 'number'
+  hoursInput.id = 'eh-hours-input'
+  hoursInput.value = parseFloat(currentHours||0)
+  hoursInput.min = '0.25'
+  hoursInput.step = '0.25'
+  hoursInput.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:20px;font-weight:700;box-sizing:border-box'
+  var hoursHint = document.createElement('div')
+  hoursHint.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:4px'
+  hoursHint.textContent = 'Enter actual hours — e.g. 2.5 for 2h 30min'
+  var hoursWrap = document.createElement('div')
+  hoursWrap.appendChild(hoursLabel)
+  hoursWrap.appendChild(hoursInput)
+  hoursWrap.appendChild(hoursHint)
+  box.appendChild(hoursWrap)
+
+  // Notes input
+  var notesLabel = document.createElement('label')
+  notesLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px'
+  notesLabel.textContent = 'Notes (optional)'
+  var notesInput = document.createElement('input')
+  notesInput.type = 'text'
+  notesInput.id = 'eh-notes-input'
+  notesInput.value = currentNotes||''
+  notesInput.placeholder = 'Reason for edit…'
+  notesInput.style.cssText = 'width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box'
+  var notesWrap = document.createElement('div')
+  notesWrap.appendChild(notesLabel)
+  notesWrap.appendChild(notesInput)
+  box.appendChild(notesWrap)
+
+  // Buttons
+  var btnRow = document.createElement('div')
+  btnRow.style.cssText = 'display:flex;gap:10px;margin-top:4px'
+  var cancelBtn = document.createElement('button')
+  cancelBtn.className = 'btn btn-secondary'
+  cancelBtn.style.flex = '1'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.onclick = function(){ overlay.remove() }
+  var saveBtn = document.createElement('button')
+  saveBtn.className = 'btn btn-primary'
+  saveBtn.style.flex = '2'
+  saveBtn.textContent = 'Save Hours'
+  saveBtn.onclick = async function(){
+    var hours = parseFloat(hoursInput.value)
+    var notes = notesInput.value.trim()
+    if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
+    var res = await api('/api/hours/'+hid,'PUT',{hours:hours,notes:notes})
+    saveBtn.disabled = false; saveBtn.textContent = 'Save Hours'
+    if(res&&res.error){ toast(res.error,'error'); return }
+    overlay.remove()
+    toast('Hours updated to '+hours+'h','success')
+    await loadAllData()
+    if(volId) openProfile(volId)
+  }
+  btnRow.appendChild(cancelBtn)
+  btnRow.appendChild(saveBtn)
+  box.appendChild(btnRow)
+
+  setTimeout(function(){ hoursInput.focus(); hoursInput.select() }, 50)
 }
 
 function waiverBadgeHTML(s){
@@ -3325,47 +3395,6 @@ function renderHours(){
     <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.notes||'—'}</td>
     ${isAdmin?`<td><button class="btn btn-danger btn-sm" onclick="deleteHoursGlobal('${h.id}')">✕</button></td>`:'<td></td>'}
   </tr>`).join('')
-}
-
-function editApprovedHours(hid, currentHours, currentNotes, volId){
-  var existing = document.getElementById('edit-hours-overlay')
-  if(existing) existing.remove()
-  var overlay = document.createElement('div')
-  overlay.id = 'edit-hours-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var box = document.createElement('div')
-  box.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg)'
-  box.innerHTML = '<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
-    + '<div style="font-size:16px;font-weight:700">✏️ Edit Hours<\/div>'
-    + '<button id="eh-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×<\/button>'
-    + '<\/div>'
-    + '<div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">'
-    + '<div class="form-group"><label>Hours worked<\/label>'
-    + '<input type="number" id="eh-hours" value="'+parseFloat(currentHours||0)+'" min="0.25" step="0.25" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;box-sizing:border-box"\/>'
-    + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">e.g. 2.5 for 2h 30min<\/div><\/div>'
-    + '<div class="form-group"><label>Notes (optional)<\/label>'
-    + '<input type="text" id="eh-notes" value="'+(currentNotes||'')+'" placeholder="Reason for edit…" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"\/><\/div>'
-    + '<div style="display:flex;gap:10px">'
-    + '<button id="eh-cancel" class="btn btn-secondary" style="flex:1">Cancel<\/button>'
-    + '<button id="eh-save" class="btn btn-primary" style="flex:2">Save Hours<\/button>'
-    + '<\/div><\/div>'
-  overlay.appendChild(box)
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
-  document.getElementById('eh-close').onclick = function(){ overlay.remove() }
-  document.getElementById('eh-cancel').onclick = function(){ overlay.remove() }
-  document.getElementById('eh-save').onclick = async function(){
-    var hours = parseFloat(document.getElementById('eh-hours').value)
-    var notes = document.getElementById('eh-notes').value.trim()
-    if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
-    var res = await api('/api/hours/'+hid,'PUT',{hours:hours,notes:notes})
-    if(res.error){ toast(res.error,'error'); return }
-    overlay.remove()
-    toast('Hours updated to '+hours+'h','success')
-    await loadAllData()
-    if(volId) openProfile(volId)
-  }
-  document.body.appendChild(overlay)
-  setTimeout(function(){ var el=document.getElementById('eh-hours'); if(el){el.focus();el.select()} },50)
 }
 
 async function deleteHours(hId,volId){

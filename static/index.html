@@ -2302,7 +2302,7 @@ function buildHoursRow(h, volId, isAdminFlag){
   return html
 }
 
-function openEditHoursModal(hid, currentHours, currentNotes, volId){
+function openEditHoursModal(hoursRecordId, currentHours, currentNotes, volId){
   var existing = document.getElementById('edit-hours-overlay')
   if(existing) existing.remove()
   var overlay = document.createElement('div')
@@ -2366,10 +2366,12 @@ function openEditHoursModal(hid, currentHours, currentNotes, volId){
     var hours = parseFloat(hoursInput.value)
     var notes = notesInput.value.trim()
     if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
+    if(!hoursRecordId){ toast('Error: missing hours ID — please reload and try again','error'); return }
     saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
-    var res = await api('/api/hours/'+hid,'PUT',{hours:hours,notes:notes})
+    var res = await api('/api/hours/'+hoursRecordId,'PUT',{hours:hours,notes:notes})
     saveBtn.disabled = false; saveBtn.textContent = 'Save Hours'
-    if(res&&res.error){ toast(res.error,'error'); return }
+    if(!res){ toast('No response from server','error'); return }
+    if(res.error){ toast('Error: '+res.error,'error'); return }
     overlay.remove()
     toast('Hours updated to '+hours+'h','success')
     await loadAllData()
@@ -2678,7 +2680,17 @@ async function loadAllData(){
   }).catch(()=>{})
   // Apply saved nav icons (only if lucide loaded)
   setTimeout(function(){
-    api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error && window.lucide) applyNavIcons(icons) }).catch(function(){})
+    api('/api/nav-icons').then(function(icons){
+      if(!icons||icons.error) return
+      // Lucide loads async — wait for it before applying icons
+      if(window.lucide){ applyNavIcons(icons); return }
+      var attempts = 0
+      var poll = setInterval(function(){
+        attempts++
+        if(window.lucide){ clearInterval(poll); applyNavIcons(icons) }
+        if(attempts > 20) clearInterval(poll) // give up after 2s
+      }, 100)
+    }).catch(function(){})
   }, 500)
 }
 
@@ -10215,15 +10227,14 @@ async function saveEditEvent(){
   }
 
   closeModal('modal-edit-event')
+  await loadAllData()
   populateHoursFilters()
   renderEventsSettings()
   renderEventsPage()
   toast(eid?'Event updated!':'Event created!','success')
   if(eid&&currentEventId===eid){
-    closeModal('modal-edit-event')
     renderEventDetailPage(eid)
   } else if(res.id){
-    closeModal('modal-edit-event')
     openEventDetail(res.id)
   }
   } catch(err){

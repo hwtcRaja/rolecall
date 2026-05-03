@@ -175,7 +175,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .hours-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
 .hours-item:last-child{border-bottom:none}
 .event-name{font-weight:500;font-size:13px}.event-date{font-size:12px;color:var(--text-muted)}
-.event-hours{font-weight:600;color:var(--teal-600);margin-left:auto;font-size:13px}
+.event-hours{font-weight:600;color:var(--teal-600);font-size:13px;flex-shrink:0}
 
 /* TIMELINE */
 .timeline{padding-left:16px;border-left:2px solid var(--border)}
@@ -2389,6 +2389,49 @@ function bgcYouthWarning(vol){
   </div>`
 }
 
+function buildHoursRow(h, volId, isAdmin){
+  var adminBtns = ''
+  if(isAdmin){
+    adminBtns = '<div style="display:flex;gap:4px;flex-shrink:0">'
+      + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" '
+      + 'onclick="editApprovedHoursById(this)">✏️</button>'
+      + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px" '
+      + 'onclick="deleteHoursById(this)">✕</button>'
+      + '</div>'
+  }
+  var el = document.createElement('div')
+  el.className = 'hours-item'
+  el.innerHTML = '<span style="font-size:18px;flex-shrink:0">🎭</span>'
+    + '<div style="flex:1;min-width:0"><div class="event-name">'+escHtml(h.event||'')+'</div>'
+    + '<div class="event-date">'+formatDate(h.date||'')+(h.role?' · '+escHtml(h.role):'')+'</div></div>'
+    + '<div class="event-hours" style="flex-shrink:0">'+h.hours+'h</div>'
+    + adminBtns
+  // Store data on the buttons so we don't need to escape into onclick
+  if(isAdmin){
+    var editBtn = el.querySelectorAll('button')[0]
+    var delBtn  = el.querySelectorAll('button')[1]
+    editBtn.dataset.hid   = h.id
+    editBtn.dataset.hours = h.hours
+    editBtn.dataset.notes = h.notes||''
+    editBtn.dataset.volid = volId
+    delBtn.dataset.hid    = h.id
+    delBtn.dataset.volid  = volId
+  }
+  return el.outerHTML
+}
+
+function editApprovedHoursById(btn){
+  var hid   = btn.dataset.hid
+  var hours = btn.dataset.hours
+  var notes = btn.dataset.notes
+  var volId = btn.dataset.volid
+  editApprovedHours(hid, hours, notes, volId)
+}
+
+function deleteHoursById(btn){
+  deleteHours(btn.dataset.hid, btn.dataset.volid)
+}
+
 function waiverBadgeHTML(s){
   const m={valid:['waiver-valid','✅ Valid'],expiring:['waiver-expiring','⚠️ Expiring'],expired:['waiver-expired','❌ Expired'],none:['waiver-none','— None']}
   const [cls,label]=m[s||'none']
@@ -3234,13 +3277,7 @@ async function openProfile(volId){
             <div class="tab-pane active" id="tab-hours">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
               ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':
-                (v.hours||[]).map(h=>`
-                <div class="hours-item">
-                  <span style="font-size:18px">🎭</span>
-                  <div><div class="event-name">${h.event}</div><div class="event-date">${formatDate(h.date)}${h.role?' · '+h.role:''}</div></div>
-                  <div class="event-hours">${h.hours}h</div>
-                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteHours('${h.id}','${v.id}')">✕</button>`:''}
-                </div>`).join('')}
+                (v.hours||[]).map(h=>buildHoursRow(h,v.id,isAdmin)).join('')
             </div>
             <div class="tab-pane" id="tab-history">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
@@ -8468,6 +8505,7 @@ function renderNotifCard(n, showActions){
 
 function getNotifActions(n){
   if(n.type==='pending_hours') return `
+    <button class="btn btn-secondary btn-sm" onclick="editPendingHours('${n.id}','${n.data?.hours||0}','${escHtml(n.data?.notes||'')}')">✏️ Edit</button>
     <button class="btn btn-primary btn-sm" onclick="approveHours('${n.id}').then(()=>loadNotifications())">✅ Approve</button>
     <button class="btn btn-danger btn-sm" onclick="rejectHoursNotif('${n.id}')">✕</button>`
   if(n.type==='profile_update') return `
@@ -8479,6 +8517,103 @@ function getNotifActions(n){
   if(n.type==='missing_waiver') return `
     <button class="btn btn-secondary btn-sm" onclick="openYouthProfile('${n.data.youth.id}')">View Profile →</button>`
   return ''
+}
+
+function editPendingHours(hid, currentHours, currentNotes){
+  const existing = document.getElementById('edit-hours-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'edit-hours-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">✏️ Edit Hours</div>
+        <button onclick="document.getElementById('edit-hours-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label>Hours worked</label>
+          <input type="number" id="eh-hours" value="${parseFloat(currentHours)||0}" min="0.25" step="0.25"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;box-sizing:border-box"/>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Enter actual hours — e.g. 2.5 for 2h 30min</div>
+        </div>
+        <div class="form-group">
+          <label>Notes <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+          <input type="text" id="eh-notes" value="${currentNotes||''}" placeholder="Reason for edit…"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('edit-hours-overlay').remove()">Cancel</button>
+          <button class="btn btn-primary" style="flex:2" onclick="savePendingHoursEdit('${hid}')">Save Hours</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>{ document.getElementById('eh-hours')?.focus(); document.getElementById('eh-hours')?.select() }, 50)
+}
+
+async function savePendingHoursEdit(hid){
+  const hours = parseFloat(document.getElementById('eh-hours')?.value)
+  const notes = document.getElementById('eh-notes')?.value.trim()
+  if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
+  const res = await api(`/api/pending-hours/${hid}`,'PUT',{hours, notes})
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('edit-hours-overlay')?.remove()
+  toast(`Hours updated to ${hours}h`,'success')
+  loadNotifications()
+}
+
+function editApprovedHours(hid, currentHours, currentNotes, volId){
+  const existing = document.getElementById('edit-hours-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'edit-hours-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">✏️ Edit Approved Hours</div>
+        <button onclick="document.getElementById('edit-hours-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div style="background:var(--amber-50);border:1px solid var(--amber-200);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--amber-600)">
+          ⚠️ These hours have already been approved. Editing will update the approved record directly.
+        </div>
+        <div class="form-group">
+          <label>Hours worked</label>
+          <input type="number" id="eh-hours" value="${parseFloat(currentHours)||0}" min="0.25" step="0.25"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;box-sizing:border-box"/>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Enter actual hours — e.g. 2.5 for 2h 30min</div>
+        </div>
+        <div class="form-group">
+          <label>Notes <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+          <input type="text" id="eh-notes" value="${currentNotes||''}" placeholder="Reason for edit…"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('edit-hours-overlay').remove()">Cancel</button>
+          <button class="btn btn-primary" style="flex:2" onclick="saveApprovedHoursEdit('${hid}','${volId||''}')">Save Hours</button>
+        </div>
+      </div>
+    </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>{ document.getElementById('eh-hours')?.focus(); document.getElementById('eh-hours')?.select() }, 50)
+}
+
+async function saveApprovedHoursEdit(hid, volId){
+  const hours = parseFloat(document.getElementById('eh-hours')?.value)
+  const notes = document.getElementById('eh-notes')?.value.trim()
+  if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
+  const res = await api(`/api/hours/${hid}`,'PUT',{hours, notes})
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('edit-hours-overlay')?.remove()
+  toast(`Hours updated to ${hours}h`,'success')
+  // Refresh data
+  await loadAllData()
+  if(volId) openProfile(volId)
 }
 
 async function rejectHoursNotif(pid){

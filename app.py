@@ -3377,6 +3377,42 @@ def get_pending_hours():
     conn.close()
     return jsonify(rows)
 
+@app.route('/api/pending-hours/<hid>', methods=['PUT'])
+def update_pending_hours(hid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    hours = d.get('hours')
+    notes = (d.get('notes') or '').strip()
+    if hours is None: return jsonify({'error': 'hours required'}), 400
+    try:
+        hours = round(float(hours), 2)
+        if hours <= 0: return jsonify({'error': 'Hours must be greater than 0'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid hours value'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE pending_hours SET hours=%s, notes=%s WHERE id=%s', (hours, notes, hid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'hours': hours})
+
+@app.route('/api/hours/<hid>', methods=['PUT'])
+def update_approved_hours(hid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    hours = d.get('hours')
+    notes = (d.get('notes') or '').strip()
+    if hours is None: return jsonify({'error': 'hours required'}), 400
+    try:
+        hours = round(float(hours), 2)
+        if hours <= 0: return jsonify({'error': 'Hours must be greater than 0'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid hours value'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE hours SET hours=%s, notes=%s WHERE id=%s', (hours, notes, hid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'hours': hours})
+
 @app.route('/api/pending-hours/<hid>/approve', methods=['POST'])
 def approve_pending_hours(hid):
     err = require_auth()

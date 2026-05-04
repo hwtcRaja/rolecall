@@ -1169,10 +1169,14 @@ def get_events():
             FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
             JOIN volunteers v ON el.volunteer_id=v.id
             WHERE ee.event_id=%s""", (e['id'],))
-        e['staff'] = fetchall(conn, """SELECT es.*, v.name as volunteer_name,
-            v.background_check_status, v.email
-            FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
-            WHERE es.event_id=%s ORDER BY es.role, v.name""", (e['id'],))
+        e['staff'] = []
+        try:
+            e['staff'] = fetchall(conn, """SELECT es.*, v.name as volunteer_name,
+                v.background_check_status, v.email
+                FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
+                WHERE es.event_id=%s ORDER BY es.role, v.name""", (e['id'],))
+        except Exception:
+            pass
         e['status'] = e.get('status') or 'draft'
     conn.close()
     return jsonify(events)
@@ -1189,15 +1193,15 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,rsvp_enabled,rsvp_message)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
-         d.get('auto_log_hours', False), d.get('rsvp_enabled', False), d.get('rsvp_message','')))
+         d.get('auto_log_hours', False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -1209,7 +1213,7 @@ def create_event():
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
         WHERE e.id=%s''', (eid,))
-    row['required_waivers'] = []; row['elics'] = []; row['staff'] = []
+    row['required_waivers'] = []; row['elics'] = []
     conn.close()
     return jsonify(row)
 
@@ -1245,13 +1249,9 @@ def update_event(eid):
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
-        el.is_master, v.name as volunteer_name, v.id as volunteer_id FROM event_elics ee
+        el.is_master, v.name as volunteer_name FROM event_elics ee
         JOIN elics el ON ee.elic_id=el.id JOIN volunteers v ON el.volunteer_id=v.id
         WHERE ee.event_id=%s""", (eid,))
-    row['staff'] = fetchall(conn, """SELECT es.*, v.name as volunteer_name,
-        v.background_check_status, v.email
-        FROM event_staff es JOIN volunteers v ON es.volunteer_id=v.id
-        WHERE es.event_id=%s ORDER BY es.role, v.name""", (eid,))
     conn.close()
     return jsonify(row)
 
@@ -1638,146 +1638,7 @@ def delete_waiver_record(wid):
 #  YOUTH PROGRAMS
 # ─────────────────────────────────────────────
 
-@app.route('/api/youth-participants/bulk-import', methods=['POST'])
-def bulk_import_youth():
-    err = require_admin()
-    if err: return err
-    d = request.json or {}
-    rows = d.get('rows', [])
-    program_id = d.get('program_id') or None
-    enrolled_date = d.get('enrolled_date') or None
-    if not rows:
-        return jsonify({'error': 'No rows provided'}), 400
-
-    conn = get_db()
-    results = {'created': 0, 'updated': 0, 'skipped': 0, 'errors': []}
-
-    for i, row in enumerate(rows):
-        try:
-            first = (row.get('first_name') or '').strip()
-            last  = (row.get('last_name') or '').strip()
-            if not first or not last:
-                results['errors'].append(f'Row {i+1}: first_name and last_name are required')
-                continue
-
-            action  = row.get('action', 'create')  # create | update | skip
-            existing_id = row.get('existing_id')
-
-            if action == 'skip':
-                results['skipped'] += 1
-                continue
-
-            dob            = (row.get('dob') or '').strip() or None
-            status         = (row.get('status') or 'active').strip()
-            medical_notes  = (row.get('medical_notes') or '').strip()
-            allergies      = (row.get('allergies') or '').strip()
-            photo_consent  = 1 if str(row.get('photo_consent','')).lower() in ('1','yes','true','y') else 0
-            medical_consent= 1 if str(row.get('medical_consent','')).lower() in ('1','yes','true','y') else 0
-            passphrase     = (row.get('passphrase') or '').strip() or None
-
-            if action == 'update' and existing_id:
-                execute(conn, '''UPDATE youth_participants SET
-                    first_name=%s, last_name=%s, dob=%s, status=%s,
-                    medical_notes=%s, allergies=%s,
-                    photo_consent=%s, medical_consent=%s
-                    WHERE id=%s''',
-                    (first, last, dob, status, medical_notes, allergies,
-                     photo_consent, medical_consent, existing_id))
-                yid = existing_id
-                results['updated'] += 1
-            else:
-                yid = str(uuid.uuid4())
-                execute(conn, '''INSERT INTO youth_participants
-                    (id, first_name, last_name, dob, status,
-                     medical_notes, allergies, photo_consent, medical_consent, passphrase)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-                    (yid, first, last, dob, status,
-                     medical_notes, allergies, photo_consent, medical_consent, passphrase))
-                results['created'] += 1
-
-            # Guardian
-            guardian_name  = (row.get('guardian_name') or '').strip()
-            guardian_phone = (row.get('guardian_phone') or '').strip()
-            guardian_email = (row.get('guardian_email') or '').strip()
-            guardian_rel   = (row.get('guardian_relationship') or 'Parent/Guardian').strip()
-            if guardian_name:
-                # Upsert guardian — update if exists (update action), insert if new
-                existing_g = fetchone(conn, "SELECT id FROM youth_guardians WHERE youth_id=%s AND is_primary=1", (yid,))
-                if existing_g:
-                    execute(conn, '''UPDATE youth_guardians SET name=%s, relationship=%s, phone=%s, email=%s
-                        WHERE id=%s''', (guardian_name, guardian_rel, guardian_phone, guardian_email, existing_g['id']))
-                else:
-                    execute(conn, '''INSERT INTO youth_guardians
-                        (id, youth_id, name, relationship, phone, email, is_primary)
-                        VALUES (%s,%s,%s,%s,%s,%s,1)''',
-                        (str(uuid.uuid4()), yid, guardian_name, guardian_rel, guardian_phone, guardian_email))
-
-            # Emergency contact
-            ec_name  = (row.get('emergency_name') or '').strip()
-            ec_phone = (row.get('emergency_phone') or '').strip()
-            ec_rel   = (row.get('emergency_relationship') or '').strip()
-            if ec_name and ec_phone:
-                execute(conn, '''INSERT INTO youth_emergency_contacts
-                    (id, youth_id, name, relationship, phone)
-                    VALUES (%s,%s,%s,%s,%s)
-                    ON CONFLICT DO NOTHING''',
-                    (str(uuid.uuid4()), yid, ec_name, ec_rel, ec_phone))
-
-            # Authorized pickups (pickup1 and pickup2)
-            for priority, prefix in enumerate(['pickup1', 'pickup2'], 1):
-                pu_name  = (row.get(f'{prefix}_name') or '').strip()
-                pu_phone = (row.get(f'{prefix}_phone') or '').strip()
-                pu_rel   = (row.get(f'{prefix}_relationship') or '').strip()
-                if pu_name:
-                    execute(conn, '''INSERT INTO youth_authorized_pickups
-                        (id, youth_id, name, relationship, phone, priority)
-                        VALUES (%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT DO NOTHING''',
-                        (str(uuid.uuid4()), yid, pu_name, pu_rel, pu_phone, priority))
-
-            # Program enrollment
-            if program_id:
-                try:
-                    execute(conn, '''INSERT INTO youth_program_enrollments
-                        (id, youth_id, program_id, enrolled_date)
-                        VALUES (%s,%s,%s,%s)
-                        ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                        (str(uuid.uuid4()), yid, program_id, enrolled_date))
-                except Exception:
-                    pass
-
-        except Exception as e:
-            results['errors'].append(f'Row {i+1} ({row.get("first_name","")} {row.get("last_name","")}): {str(e)}')
-            try: conn.rollback()
-            except Exception: pass
-
-    conn.commit()
-    conn.close()
-    return jsonify(results)
-
-@app.route('/api/youth-participants/check-duplicates', methods=['POST'])
-def check_youth_duplicates():
-    """Check a list of participants for duplicates against existing records."""
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
-    rows = d.get('rows', [])
-    conn = get_db()
-    results = []
-    for row in rows:
-        first = (row.get('first_name') or '').strip().lower()
-        last  = (row.get('last_name') or '').strip().lower()
-        dob   = (row.get('dob') or '').strip()
-        # Match on first+last+dob, or first+last if no dob
-        if dob:
-            match = fetchone(conn, '''SELECT id, first_name, last_name, dob FROM youth_participants
-                WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s AND dob=%s''', (first, last, dob))
-        else:
-            match = fetchone(conn, '''SELECT id, first_name, last_name, dob FROM youth_participants
-                WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s''', (first, last))
-        results.append({'existing': match})
-    conn.close()
-    return jsonify(results)
+@app.route('/api/youth-programs')
 def get_youth_programs():
     err = require_auth()
     if err: return err
@@ -3386,16 +3247,13 @@ def update_pending_hours(hid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    hours = d.get('hours')
-    notes = (d.get('notes') or '').strip()
-    if hours is None: return jsonify({'error': 'hours required'}), 400
     try:
-        hours = round(float(hours), 2)
+        hours = round(float(d.get('hours', 0)), 2)
         if hours <= 0: return jsonify({'error': 'Hours must be greater than 0'}), 400
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours value'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE pending_hours SET hours=%s, notes=%s WHERE id=%s', (hours, notes, hid))
+    execute(conn, 'UPDATE pending_hours SET hours=%s WHERE id=%s', (hours, hid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours})
 
@@ -3404,16 +3262,13 @@ def update_approved_hours(hid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    hours = d.get('hours')
-    notes = (d.get('notes') or '').strip()
-    if hours is None: return jsonify({'error': 'hours required'}), 400
     try:
-        hours = round(float(hours), 2)
+        hours = round(float(d.get('hours', 0)), 2)
         if hours <= 0: return jsonify({'error': 'Hours must be greater than 0'}), 400
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours value'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE hours SET hours=%s, notes=%s WHERE id=%s', (hours, notes, hid))
+    execute(conn, 'UPDATE hours SET hours=%s WHERE id=%s', (hours, hid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours})
 

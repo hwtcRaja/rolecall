@@ -1638,6 +1638,108 @@ def delete_waiver_record(wid):
 #  YOUTH PROGRAMS
 # ─────────────────────────────────────────────
 
+@app.route('/api/youth-participants/check-duplicates', methods=['POST'])
+def check_youth_duplicates():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    rows = d.get('rows', [])
+    conn = get_db()
+    results = []
+    for row in rows:
+        first = (row.get('first_name') or '').strip().lower()
+        last  = (row.get('last_name') or '').strip().lower()
+        dob   = (row.get('dob') or '').strip()
+        if dob:
+            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s AND dob=%s', (first, last, dob))
+        else:
+            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s', (first, last))
+        results.append({'existing': match})
+    conn.close()
+    return jsonify(results)
+
+@app.route('/api/youth-participants/bulk-import', methods=['POST'])
+def bulk_import_youth():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    rows = d.get('rows', [])
+    program_id = d.get('program_id') or None
+    enrolled_date = d.get('enrolled_date') or None
+    if not rows:
+        return jsonify({'error': 'No rows provided'}), 400
+    conn = get_db()
+    results = {'created': 0, 'updated': 0, 'skipped': 0, 'errors': []}
+    for i, row in enumerate(rows):
+        try:
+            first = (row.get('first_name') or '').strip()
+            last  = (row.get('last_name') or '').strip()
+            if not first or not last:
+                results['errors'].append(f'Row {i+1}: first_name and last_name required')
+                continue
+            action      = row.get('action', 'create')
+            existing_id = row.get('existing_id')
+            if action == 'skip':
+                results['skipped'] += 1
+                continue
+            dob             = (row.get('dob') or '').strip() or None
+            status          = (row.get('status') or 'active').strip()
+            medical_notes   = (row.get('medical_notes') or '').strip()
+            allergies       = (row.get('allergies') or '').strip()
+            photo_consent   = 1 if str(row.get('photo_consent','')).lower() in ('1','yes','true','y') else 0
+            medical_consent = 1 if str(row.get('medical_consent','')).lower() in ('1','yes','true','y') else 0
+            if action == 'update' and existing_id:
+                execute(conn, 'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s WHERE id=%s',
+                    (first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent, existing_id))
+                yid = existing_id
+                results['updated'] += 1
+            else:
+                yid = str(uuid.uuid4())
+                execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,dob,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (yid, first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent))
+                results['created'] += 1
+            # Guardian
+            gname = (row.get('guardian_name') or '').strip()
+            if gname:
+                existing_g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s AND is_primary=1', (yid,))
+                if existing_g:
+                    execute(conn, 'UPDATE youth_guardians SET name=%s,relationship=%s,phone=%s,email=%s WHERE id=%s',
+                        (gname, (row.get('guardian_relationship') or '').strip(), (row.get('guardian_phone') or '').strip(), (row.get('guardian_email') or '').strip(), existing_g['id']))
+                else:
+                    execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,1)',
+                        (str(uuid.uuid4()), yid, gname, (row.get('guardian_relationship') or '').strip(), (row.get('guardian_phone') or '').strip(), (row.get('guardian_email') or '').strip()))
+            # Emergency contact
+            ecname = (row.get('emergency_name') or '').strip()
+            if ecname and (row.get('emergency_phone') or '').strip():
+                try:
+                    execute(conn, 'INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',
+                        (str(uuid.uuid4()), yid, ecname, (row.get('emergency_relationship') or '').strip(), (row.get('emergency_phone') or '').strip()))
+                except Exception:
+                    pass
+            # Authorized pickups
+            for priority, prefix in enumerate(['pickup1','pickup2'], 1):
+                puname = (row.get(prefix+'_name') or '').strip()
+                if puname:
+                    try:
+                        execute(conn, 'INSERT INTO youth_authorized_pickups (id,youth_id,name,relationship,phone,priority) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',
+                            (str(uuid.uuid4()), yid, puname, (row.get(prefix+'_relationship') or '').strip(), (row.get(prefix+'_phone') or '').strip(), priority))
+                    except Exception:
+                        pass
+            # Program enrollment
+            if program_id:
+                try:
+                    execute(conn, 'INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date) VALUES (%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING',
+                        (str(uuid.uuid4()), yid, program_id, enrolled_date))
+                except Exception:
+                    pass
+            conn.commit()
+        except Exception as e:
+            results['errors'].append(f'Row {i+1} ({row.get("first_name","")} {row.get("last_name","")}): {str(e)}')
+            try: conn.rollback()
+            except Exception: pass
+    conn.close()
+    return jsonify(results)
+
 @app.route('/api/youth-programs')
 def get_youth_programs():
     err = require_auth()

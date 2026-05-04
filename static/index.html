@@ -2556,6 +2556,7 @@ function applyPermissionUI(){
     'openLogTimeModal':   'hours',
     'openProductionModal':'productions',
     'openYouthModal':     'youth',
+    'openBulkImport':     'youth',
     'openSaveTemplateModal': 'email',
   }
   document.querySelectorAll('.admin-only').forEach(el=>{
@@ -4231,16 +4232,19 @@ var BI_COLS = ['first_name','last_name','dob',
   'medical_notes','allergies','photo_consent','medical_consent','status']
 
 async function openBulkImport(){
+  // Open modal immediately so user sees something
+  _biRows = []
+  biShowStep(1)
+  openModal('modal-bulk-import')
+  // Populate program dropdown
   var sel = document.getElementById('bi-program')
   if(sel){
-    var progs = allYouthPrograms && allYouthPrograms.length ? allYouthPrograms : (await api('/api/youth-programs'))
+    var progs = Array.isArray(allPrograms) && allPrograms.length ? allPrograms : (await api('/api/youth-programs'))
     sel.innerHTML = '<option value="">— No enrollment —</option>'
       + (Array.isArray(progs)?progs:[]).map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('')
   }
-  _biRows = []
-  document.getElementById('bi-file').value = ''
-  biShowStep(1)
-  openModal('modal-bulk-import')
+  var fileInput = document.getElementById('bi-file')
+  if(fileInput) fileInput.value = ''
 }
 
 function biShowStep(n){

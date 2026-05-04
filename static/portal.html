@@ -716,6 +716,13 @@ async function selectContext(type, id, name, color){
 
     document.getElementById('detail-tab-contents').innerHTML = tabHTML
     panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+  } catch(err) {
+    console.error('[Portal] selectContext error:', err)
+    document.getElementById('detail-tab-contents').innerHTML =
+      '<div class="empty-state"><div class="icon">⚠️</div>'
+      +'<div style="font-weight:600;margin-bottom:8px">Could not load content</div>'
+      +'<div style="font-size:13px;color:var(--text-muted)">'+err.message+'</div>'
+      +'</div>'
   } finally {
     _selectLock = false
   }

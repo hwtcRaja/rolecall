@@ -973,7 +973,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth">
         <div class="page-header">
           <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
-          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-secondary" onclick="openBulkImport()">⬆ Bulk Import</button>
+            <button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button>
+          </div>
         </div>
         <div class="page-body">
           <div class="search-bar">
@@ -2003,6 +2006,88 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 </div>
 
 <!-- Youth Modal -->
+<div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
+  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">⬆ Bulk Import Participants</div>
+      <button class="modal-close" onclick="closeModal('modal-bulk-import')">✕</button>
+    </div>
+    <div style="padding:20px 24px;overflow-y:auto;flex:1">
+      <div id="bi-step-1">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">CSV or Excel. Download the template to see the expected columns.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+          <button class="btn btn-secondary" onclick="biDownloadTemplate()">⬇ Download Template CSV</button>
+          <label class="btn btn-primary" style="cursor:pointer">
+            📂 Choose File
+            <input type="file" id="bi-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="biHandleFile(this)"/>
+          </label>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;line-height:1.8">
+          <strong style="color:var(--text)">Columns:</strong>
+          first_name*, last_name*, dob, guardian_name, guardian_phone, guardian_email, guardian_relationship,
+          emergency_name, emergency_phone, emergency_relationship,
+          pickup1_name, pickup1_phone, pickup1_relationship, pickup2_name, pickup2_phone, pickup2_relationship,
+          medical_notes, allergies, photo_consent, medical_consent, status
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group">
+            <label>Enroll in program <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <select id="bi-program" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">— No enrollment —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Enrollment date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <input type="date" id="bi-enroll-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+          </div>
+        </div>
+      </div>
+      <div id="bi-step-2" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:14px;font-weight:600">Step 2 — Review &amp; resolve duplicates</div>
+            <div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="bi-summary">Checking…</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary" onclick="biBack()">← Back</button>
+            <button class="btn btn-primary" id="bi-run-btn" onclick="biRunImport()">Import</button>
+          </div>
+        </div>
+        <div id="bi-dup-banner" style="display:none;background:var(--amber-50);border:1.5px solid var(--amber-200);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:8px">⚠️ Duplicates found — choose how to handle them all:</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('skip')">Skip all duplicates</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('update')">Update all existing</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('create')">Create anyway</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="background:var(--bg);border-bottom:2px solid var(--border)">
+              <th style="padding:8px;width:28px"><input type="checkbox" id="bi-all-cb" onchange="biToggleAll(this)" style="accent-color:var(--teal)"/></th>
+              <th style="padding:8px;text-align:left">Name</th>
+              <th style="padding:8px;text-align:left">DOB</th>
+              <th style="padding:8px;text-align:left">Guardian</th>
+              <th style="padding:8px;text-align:left">Pickups</th>
+              <th style="padding:8px;text-align:left">Medical</th>
+              <th style="padding:8px;text-align:left;width:160px">Action</th>
+            </tr></thead>
+            <tbody id="bi-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="bi-step-3" style="display:none;text-align:center;padding:40px 20px">
+        <div style="font-size:48px;margin-bottom:12px" id="bi-result-icon">🎉</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px" id="bi-result-title">Done!</div>
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:16px" id="bi-result-body"></div>
+        <div id="bi-result-errors" style="display:none;text-align:left;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px"></div>
+        <button class="btn btn-primary" onclick="biDone()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-youth">
   <div class="modal modal-lg">
     <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
@@ -4133,6 +4218,185 @@ function toggleMinorSections(){
   const isMinor = document.getElementById('youth-is-minor')?.checked
   const sec = document.getElementById('youth-minor-sections')
   if(sec) sec.style.display = isMinor ? '' : 'none'
+}
+
+// ── BULK IMPORT ──────────────────────────────────────────────────
+var _biRows = []
+
+var BI_COLS = ['first_name','last_name','dob',
+  'guardian_name','guardian_phone','guardian_email','guardian_relationship',
+  'emergency_name','emergency_phone','emergency_relationship',
+  'pickup1_name','pickup1_phone','pickup1_relationship',
+  'pickup2_name','pickup2_phone','pickup2_relationship',
+  'medical_notes','allergies','photo_consent','medical_consent','status']
+
+async function openBulkImport(){
+  var sel = document.getElementById('bi-program')
+  if(sel){
+    var progs = allYouthPrograms && allYouthPrograms.length ? allYouthPrograms : (await api('/api/youth-programs'))
+    sel.innerHTML = '<option value="">— No enrollment —</option>'
+      + (Array.isArray(progs)?progs:[]).map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('')
+  }
+  _biRows = []
+  document.getElementById('bi-file').value = ''
+  biShowStep(1)
+  openModal('modal-bulk-import')
+}
+
+function biShowStep(n){
+  ;[1,2,3].forEach(function(i){
+    var el = document.getElementById('bi-step-'+i)
+    if(el) el.style.display = i===n ? '' : 'none'
+  })
+}
+
+function biDownloadTemplate(){
+  var csv = BI_COLS.join(',') + '\n'
+    + 'Jane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,'
+    + 'John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,'
+    + 'None,Peanuts,yes,yes,active'
+  var a = document.createElement('a')
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+  a.download = 'participant_import_template.csv'
+  a.click()
+}
+
+async function biHandleFile(input){
+  var file = input.files[0]
+  if(!file) return
+  var ext = file.name.split('.').pop().toLowerCase()
+  if(ext === 'csv'){
+    var text = await file.text()
+    _biRows = biParseCSV(text)
+  } else {
+    toast('Please use a CSV file — Excel coming soon','error')
+    return
+  }
+  if(!_biRows.length){ toast('No data rows found','error'); return }
+  if(!_biRows[0].first_name && !_biRows[0].last_name){
+    toast('Could not find first_name/last_name columns — check headers match template','error'); return
+  }
+  document.getElementById('bi-summary').textContent = 'Checking ' + _biRows.length + ' rows for duplicates…'
+  biShowStep(2)
+  var res = await api('/api/youth-participants/check-duplicates','POST',{rows: _biRows})
+  var checks = Array.isArray(res) ? res : _biRows.map(function(){ return {existing:null} })
+  _biRows = _biRows.map(function(row, i){
+    row._existing = checks[i] && checks[i].existing ? checks[i].existing : null
+    row._action = row._existing ? 'skip' : 'create'
+    return row
+  })
+  biRenderPreview()
+}
+
+function biParseCSV(text){
+  var lines = text.trim().split('\n')
+  if(lines.length < 2) return []
+  var headers = lines[0].split(',').map(function(h){ return h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/\s+/g,'_') })
+  return lines.slice(1).filter(function(l){ return l.trim() }).map(function(line){
+    var vals = [], cur = '', inQ = false
+    for(var i=0;i<line.length;i++){
+      var ch = line[i]
+      if(ch==='"'){ inQ=!inQ }
+      else if(ch===','&&!inQ){ vals.push(cur.trim()); cur='' }
+      else cur+=ch
+    }
+    vals.push(cur.trim())
+    var row = {}
+    headers.forEach(function(h,i){ if(h) row[h] = vals[i] || '' })
+    return row
+  })
+}
+
+function biRenderPreview(){
+  var dups = _biRows.filter(function(r){ return r._existing })
+  var dupBanner = document.getElementById('bi-dup-banner')
+  if(dupBanner) dupBanner.style.display = dups.length ? '' : 'none'
+  var summary = _biRows.length + ' row' + (_biRows.length!==1?'s':'') + ' · ' + dups.length + ' duplicate' + (dups.length!==1?'s':'') + ' found'
+  document.getElementById('bi-summary').textContent = summary
+
+  var tbody = document.getElementById('bi-tbody')
+  tbody.innerHTML = _biRows.map(function(row, i){
+    var isDup = !!row._existing
+    var bg = isDup ? 'background:#fefce8' : ''
+    var actionCell = isDup
+      ? '<select onchange="_biRows['+i+']._action=this.value" style="width:100%;padding:4px 6px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px">'
+        + '<option value="skip"'+(row._action==='skip'?' selected':'')+'>⏭ Skip</option>'
+        + '<option value="update"'+(row._action==='update'?' selected':'')+'>✏️ Update</option>'
+        + '<option value="create"'+(row._action==='create'?' selected':'')+'>➕ Create new</option>'
+        + '</select>'
+        + '<div style="font-size:11px;color:var(--amber-600);margin-top:2px">⚠️ Matches: '
+        + escHtml(row._existing.first_name)+' '+escHtml(row._existing.last_name)
+        + (row._existing.dob?' ('+row._existing.dob+')':'')+'</div>'
+      : '<span style="color:var(--green-600);font-size:12px;font-weight:600">✅ New</span>'
+    var pickups = [row.pickup1_name, row.pickup2_name].filter(Boolean).map(function(n){ return escHtml(n) }).join(', ')
+    var medical = [row.allergies?'🚨 '+row.allergies:'', row.medical_notes].filter(Boolean).join(' ')
+    return '<tr style="'+bg+';border-bottom:1px solid var(--border)">'
+      + '<td style="padding:8px;text-align:center"><input type="checkbox" class="bi-cb" data-idx="'+i+'" checked style="accent-color:var(--teal)"/></td>'
+      + '<td style="padding:8px;font-weight:600">'+escHtml(row.first_name||'')+' '+escHtml(row.last_name||'')+'</td>'
+      + '<td style="padding:8px;color:var(--text-muted);font-size:12px">'+escHtml(row.dob||'—')+'</td>'
+      + '<td style="padding:8px;font-size:12px">'+escHtml(row.guardian_name||'—')+(row.guardian_phone?'<br><span style="color:var(--text-muted)">'+escHtml(row.guardian_phone)+'</span>':'')+'</td>'
+      + '<td style="padding:8px;font-size:12px">'+(pickups||'—')+'</td>'
+      + '<td style="padding:8px;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(medical||'—')+'</td>'
+      + '<td style="padding:8px">'+actionCell+'</td>'
+      + '</tr>'
+  }).join('')
+}
+
+function biSetAllDups(action){
+  _biRows.forEach(function(r){ if(r._existing) r._action = action })
+  biRenderPreview()
+}
+
+function biToggleAll(cb){
+  document.querySelectorAll('.bi-cb').forEach(function(c){ c.checked = cb.checked })
+}
+
+function biBack(){
+  biShowStep(1)
+}
+
+async function biRunImport(){
+  var btn = document.getElementById('bi-run-btn')
+  btn.disabled = true; btn.textContent = 'Importing…'
+  var checkedIdxs = new Set()
+  document.querySelectorAll('.bi-cb:checked').forEach(function(c){ checkedIdxs.add(parseInt(c.dataset.idx)) })
+  var toImport = _biRows.filter(function(r,i){ return checkedIdxs.has(i) }).map(function(r){
+    var out = {}
+    BI_COLS.forEach(function(k){ out[k] = r[k] || '' })
+    out.action = r._action || 'create'
+    out.existing_id = r._existing ? r._existing.id : null
+    return out
+  })
+  var res = await api('/api/youth-participants/bulk-import','POST',{
+    rows: toImport,
+    program_id: document.getElementById('bi-program').value || null,
+    enrolled_date: document.getElementById('bi-enroll-date').value || null
+  })
+  btn.disabled = false; btn.textContent = 'Import'
+  biShowStep(3)
+  if(res.error){
+    document.getElementById('bi-result-icon').textContent = '❌'
+    document.getElementById('bi-result-title').textContent = 'Import failed'
+    document.getElementById('bi-result-body').textContent = res.error
+    return
+  }
+  document.getElementById('bi-result-icon').textContent = '🎉'
+  document.getElementById('bi-result-title').textContent = 'Import complete!'
+  document.getElementById('bi-result-body').innerHTML =
+    '<strong>'+res.created+'</strong> created &nbsp;·&nbsp; <strong>'+res.updated+'</strong> updated &nbsp;·&nbsp; <strong>'+res.skipped+'</strong> skipped'
+  if(res.errors && res.errors.length){
+    var errEl = document.getElementById('bi-result-errors')
+    errEl.style.display = ''
+    errEl.innerHTML = '<strong style="color:#dc2626">⚠️ Some rows had errors:</strong><ul style="margin:6px 0 0 16px">'
+      + res.errors.map(function(e){ return '<li>'+escHtml(e)+'</li>' }).join('') + '</ul>'
+  }
+}
+
+async function biDone(){
+  closeModal('modal-bulk-import')
+  await loadAllData()
+  if(typeof renderYouth === 'function') renderYouth()
+  toast('Participants updated!','success')
 }
 
 function openYouthModal(){

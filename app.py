@@ -6055,6 +6055,51 @@ def portal_update_youth(yid):
     return jsonify({'ok': True})
 
 # ── Portal program waiver status ──
+@app.route('/api/portal/production/<pid>/events')
+def portal_production_events(pid):
+    conn = get_db()
+    events = fetchall(conn, '''SELECT e.*,
+        et.name as event_type_name, et.color as event_type_color
+        FROM events e
+        LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s
+        ORDER BY e.event_date ASC NULLS LAST, e.start_time ASC NULLS LAST''', (pid,))
+    conn.close()
+    return jsonify(events)
+
+@app.route('/api/portal/program/<pid>/events')
+def portal_program_events(pid):
+    conn = get_db()
+    events = fetchall(conn, '''SELECT e.*,
+        et.name as event_type_name, et.color as event_type_color
+        FROM events e
+        LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.program_id=%s
+        ORDER BY e.event_date ASC NULLS LAST, e.start_time ASC NULLS LAST''', (pid,))
+    conn.close()
+    return jsonify(events)
+
+@app.route('/api/portal/production/<pid>/conflicts')
+def portal_production_conflicts(pid):
+    yid = request.args.get('youth_id')
+    conn = get_db()
+    try:
+        if yid:
+            conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name, e.event_date
+                FROM production_conflicts pc
+                LEFT JOIN events e ON pc.event_id=e.id
+                WHERE pc.production_id=%s
+                ORDER BY e.event_date ASC NULLS LAST''', (pid,))
+            # Mark which ones belong to this youth
+            for c in conflicts:
+                c['is_mine'] = str(c.get('youth_id','')) == str(yid)
+        else:
+            conflicts = []
+    except Exception:
+        conflicts = []
+    conn.close()
+    return jsonify(conflicts)
+
 @app.route('/api/portal/program/<pid>/waiver-status')
 def portal_program_waiver_status(pid):
     yid = request.args.get('youth_id')

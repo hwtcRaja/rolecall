@@ -4984,6 +4984,65 @@ async function sendEventReport(eventId){
   else toast(res.error||'Send failed','error')
 }
 
+async function downloadEventReportPdf(eventId, logId){
+  const res = await api('/api/event-logs/'+logId+'/report')
+  if(!res || res.error){ toast(res&&res.error?res.error:'Could not load report','error'); return }
+  const log = res
+  const checklist = (log.checklist||[]).map(function(r){
+    var val = String(r.response||'')
+    var valStr = r.item_type==='checkbox' ? (val==='true'?'✅ Done':'❌ Not Done') : (val||'—')
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+escHtml(valStr)+'</td></tr>'
+  }).join('')
+  const hours = (log.hours||[]).map(function(h){
+    return '<tr>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+h.hours+'h</td>'
+      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td>'
+      + '</tr>'
+  }).join('')
+  var totalHours = (log.hours||[]).reduce(function(s,h){ return s+(parseFloat(h.hours)||0) },0)
+  var volCount = (log.hours||[]).length
+
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<title>Event Report — '+escHtml(log.event_name||'')+'<\/title>'
+    + '<style>'
+    + 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:0;background:#fff;color:#1a1a1a}'
+    + '.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}'
+    + '.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}'
+    + '.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}'
+    + '.stat-num{font-size:28px;font-weight:900;color:#145466}'
+    + '.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}'
+    + 'h3{color:#145466;font-size:15px;font-weight:700;margin:24px 0 10px}'
+    + 'table{width:100%;border-collapse:collapse;border:1px solid #e0e0db}'
+    + 'thead{background:#f0f8fa}'
+    + 'th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}'
+    + '.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}'
+    + '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
+    + '<\/style><\/head><body>'
+    + '<div class="header">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<\/div>'
+    + '<div style="font-size:22px;font-weight:800;margin-bottom:4px">🔒 '+escHtml(log.event_name||'')+'<\/div>'
+    + '<div style="font-size:13px;opacity:0.7">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<\/div>'
+    + '<\/div>'
+    + '<div style="padding:28px 32px">'
+    + '<div class="stat-grid">'
+    + '<div class="stat"><div class="stat-num">'+volCount+'<\/div><div class="stat-label">Volunteers<\/div><\/div>'
+    + '<div class="stat"><div class="stat-num">'+totalHours.toFixed(1)+'h<\/div><div class="stat-label">Total Hours<\/div><\/div>'
+    + '<div class="stat"><div class="stat-num">'+( log.checklist||[]).length+'<\/div><div class="stat-label">Checklist Items<\/div><\/div>'
+    + '<\/div>'
+    + (checklist ? '<h3>✅ Closing Checklist<\/h3><table><thead><tr><th>Item<\/th><th>Response<\/th><\/tr><\/thead><tbody>'+checklist+'<\/tbody><\/table>' : '<p><em>No checklist items recorded.<\/em><\/p>')
+    + (hours ? '<h3>⏱ Hours Logged<\/h3><table><thead><tr><th>Volunteer<\/th><th>Hours<\/th><th>Status<\/th><\/tr><\/thead><tbody>'+hours+'<\/tbody><\/table>' : '<p><em>No hours recorded for this event.<\/em><\/p>')
+    + '<\/div>'
+    + '<div class="footer">RoleCall — Horizon West Theatre Company Management System<\/div>'
+    + '<script>window.onload=function(){window.print()}<\/scr'+'ipt>'
+    + '<\/body><\/html>'
+
+  var win = window.open('','_blank')
+  if(win){ win.document.write(html); win.document.close() }
+  else toast('Please allow popups to download the PDF','error')
+}
+
 let _eventAlertInterval = null
 function startEventAlertPolling(){
   if(_eventAlertInterval) return
@@ -9294,7 +9353,10 @@ async function loadEventLogs(){
           <div style="font-size:13px;font-weight:600;color:${actionColors[log.action]||'var(--text-muted)'}">${actionLabels[log.action]||log.action}</div>
           <div style="font-size:12px;color:var(--text-muted)">${log.elic_name}</div>
           <div style="font-size:11px;color:var(--text-hint)">${formatDate((log.timestamp||'').split('T')[0])} ${(log.timestamp||'').split('T')[1]?.substring(0,5)||''}</div>
-          ${log.action==='close'&&isAdmin?`<button class="btn btn-secondary btn-sm" style="font-size:11px;margin-top:4px" onclick="sendEventReport('${log.event_id}')">📧 Send Report</button>`:''}
+          ${log.action==='close'&&isAdmin?`<div style="display:flex;gap:6px;margin-top:4px">
+            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="sendEventReport('${log.event_id}')">📧 Email</button>
+            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="downloadEventReportPdf('${log.event_id}','${log.log_id||log.id}')">📄 PDF</button>
+          </div>`:''}
         </div>
       </div>
       ${log.checklist?.length?`

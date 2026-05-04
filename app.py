@@ -3872,8 +3872,8 @@ def enroll_youth_in_prod(pid):
             if existing:
                 skipped += 1
                 continue
-            execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
-                VALUES (%s,%s,%s,%s,'enrolled')''',
+            execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role)
+                VALUES (%s,%s,%s,%s)''',
                 (mid, pid, yid, d.get('role','')))
             enrolled += 1
         conn.commit()

@@ -1013,7 +1013,7 @@ def debug():
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
-    d = request.json
+    d = request.json or {}
     pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
     conn = get_db()
     user = fetchone(conn, 'SELECT * FROM users WHERE email=%s AND password_hash=%s', (d.get('email',''), pw_hash))
@@ -1349,7 +1349,7 @@ def get_volunteer(vol_id):
 def create_volunteer():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     vid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -1411,7 +1411,7 @@ def get_hours():
 def create_hours():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     hid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -1438,7 +1438,7 @@ def delete_hours(hid):
 def create_note(vol_id):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     nid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s)',
@@ -1456,7 +1456,7 @@ def create_note(vol_id):
 def create_history(vol_id):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     hid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteer_history (id,volunteer_id,event,role,date,notes) VALUES (%s,%s,%s,%s,%s,%s)',
@@ -1474,7 +1474,7 @@ def create_history(vol_id):
 def create_file(vol_id):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     fid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO volunteer_files (id,volunteer_id,name,size,type,date) VALUES (%s,%s,%s,%s,%s,%s)',
@@ -1501,7 +1501,7 @@ def get_waiver_types():
 def create_waiver_type():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
@@ -1522,7 +1522,7 @@ def create_waiver_type():
 def update_waiver_type(tid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE waiver_types SET name=%s, description=%s, template_body=%s,
         can_sign_online=%s WHERE id=%s''',
@@ -1593,7 +1593,7 @@ def upload_waiver(vol_id):
 
 @app.route('/api/sign-waiver', methods=['POST'])
 def sign_waiver_online():
-    d = request.json
+    d = request.json or {}
     vol_id         = d.get('volunteer_id')
     waiver_type_id = d.get('waiver_type_id')
     signed_name    = (d.get('signed_name') or '').strip()
@@ -1757,7 +1757,7 @@ def get_youth_programs():
 def create_youth_program():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     pid = str(uuid.uuid4())
     conn = get_db()
@@ -1779,7 +1779,7 @@ def create_youth_program():
 def update_youth_program(pid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
     execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
@@ -1821,7 +1821,7 @@ def get_email_templates():
 def create_email_template():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     tid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO email_templates (id,name,subject,body) VALUES (%s,%s,%s,%s)',
@@ -1882,7 +1882,7 @@ def get_youth_participant(yid):
 def create_youth():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     yid = str(uuid.uuid4())
     conn = get_db()
     execute(conn,
@@ -1907,7 +1907,7 @@ def create_youth():
 def update_youth(yid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn,
         'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s WHERE id=%s',
@@ -1931,7 +1931,7 @@ def delete_youth(yid):
 def add_guardian(yid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     gid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
@@ -1954,7 +1954,7 @@ def delete_guardian(gid):
 def add_emergency_contact(yid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
@@ -2050,7 +2050,7 @@ def dashboard():
 def create_user():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     if not d.get('name') or not d.get('email') or not d.get('password'):
         return jsonify({'error': 'Name, email, and password are required'}), 400
     pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
@@ -2097,7 +2097,7 @@ def get_productions():
 def create_production():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     pid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO productions (id,name,production_type,stage,start_date,end_date,description,status,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -2115,7 +2115,7 @@ def create_production():
 def update_production(pid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE productions SET name=%s,production_type=%s,stage=%s,start_date=%s,end_date=%s,description=%s,status=%s,default_elic_id=%s,image_url=%s WHERE id=%s',
             (d.get('name',''), d.get('production_type','show'), d.get('stage','mainstage'),
@@ -2145,7 +2145,7 @@ def delete_production(pid):
 def add_production_member(pid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     mid = str(uuid.uuid4())
     conn = get_db()
     try:
@@ -2196,7 +2196,7 @@ def remove_production_member(mid):
 def enroll_youth(yid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     eid = str(uuid.uuid4())
     conn = get_db()
     try:
@@ -2286,7 +2286,7 @@ def get_donor_tiers():
 def create_donor_tier():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     tid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donor_tiers (id,name,min_amount,max_amount,color,description,sort_order)
@@ -2303,7 +2303,7 @@ def create_donor_tier():
 def update_donor_tier(tid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE donor_tiers SET name=%s,min_amount=%s,max_amount=%s,color=%s,description=%s,sort_order=%s WHERE id=%s',
         (d.get('name',''), d.get('min_amount',0), d.get('max_amount') or None,
@@ -2325,7 +2325,7 @@ def delete_donor_tier(tid):
 def add_tier_benefit(tid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     bid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donor_tier_benefits (id,tier_id,name,description,is_trackable,sort_order)
@@ -2340,7 +2340,7 @@ def add_tier_benefit(tid):
 def update_tier_benefit(bid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE donor_tier_benefits SET name=%s,description=%s,is_trackable=%s,sort_order=%s WHERE id=%s',
         (d.get('name',''), d.get('description',''), d.get('is_trackable',True), d.get('sort_order',0), bid))
@@ -2431,7 +2431,7 @@ def delete_campaign_benefit(bid):
 def create_donor_campaign():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     cid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donor_campaigns (id,name,description,goal_amount,start_date,end_date,status)
@@ -2447,7 +2447,7 @@ def create_donor_campaign():
 def update_donor_campaign(cid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE donor_campaigns SET name=%s,description=%s,goal_amount=%s,start_date=%s,end_date=%s,status=%s WHERE id=%s',
         (d.get('name',''), d.get('description',''), d.get('goal_amount') or None,
@@ -2484,7 +2484,7 @@ def get_donors():
 def create_donor():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     did = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donors
@@ -2641,7 +2641,7 @@ def bulk_import_donors():
 def update_donor(did):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE donors SET type=%s,display_name=%s,legal_name=%s,email=%s,phone=%s,
         address=%s,website=%s,volunteer_id=%s,is_anonymous=%s,recognition_name=%s,
@@ -2668,7 +2668,7 @@ def merge_donors(primary_id):
     """Merge one or more duplicate donors into a primary donor."""
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     merge_ids = d.get('merge_ids', [])
     if not merge_ids:
         return jsonify({'error': 'No donors to merge'}), 400
@@ -2796,7 +2796,7 @@ def recalc_donor_totals(conn, donor_id):
 def add_donation(did):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     donation_id = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donor_donations
@@ -2820,7 +2820,7 @@ def add_donation(did):
 def update_donation(donation_id):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE donor_donations SET amount=%s,donation_date=%s,type=%s,
         payment_status=%s,campaign_id=%s,check_number=%s,notes=%s WHERE id=%s''',
@@ -2972,7 +2972,7 @@ def get_donor_email_templates():
 def create_donor_email_template():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     tid = str(uuid.uuid4())
     conn = get_db()
     if d.get('is_default'):
@@ -2993,7 +2993,7 @@ def create_donor_email_template():
 def update_donor_email_template(tid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     if d.get('is_default'):
         execute(conn, "UPDATE donor_email_templates SET is_default=FALSE WHERE template_type=%s AND id!=%s",
@@ -3019,7 +3019,7 @@ def delete_donor_email_template(tid):
 def record_benefit_use(did):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     uid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO donor_benefit_usage (id,donor_id,benefit_id,notes,recorded_by)
@@ -3041,7 +3041,7 @@ def delete_benefit_use(uid):
 def set_donor_tier(did):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE donors SET tier_id=%s, tier_override=%s WHERE id=%s',
         (d.get('tier_id') or None, d.get('override', False), did))
@@ -3089,7 +3089,7 @@ def get_nav_icons():
 def save_nav_icons():
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     for key, name in d.items():
         if name:
@@ -3117,7 +3117,7 @@ def get_event_types():
 def create_event_type():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     tid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO event_types (id,name,color,description) VALUES (%s,%s,%s,%s)',
@@ -3131,7 +3131,7 @@ def create_event_type():
 def update_event_type(tid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE event_types SET name=%s,color=%s,description=%s WHERE id=%s',
         (d.get('name',''), d.get('color','blue'), d.get('description',''), tid))
@@ -3165,7 +3165,7 @@ def get_elics():
 def create_elic():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events)
@@ -3182,7 +3182,7 @@ def create_elic():
 def update_elic(eid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s WHERE id=%s',
         (d.get('volunteer_id'), d.get('pin','0000'),
@@ -3202,7 +3202,7 @@ def delete_elic(eid):
 @app.route('/api/kiosk/elic-auth', methods=['POST'])
 @app.route('/api/kiosk/elic-login', methods=['POST'])
 def kiosk_elic_auth():
-    d = request.json
+    d = request.json or {}
     pin = d.get('pin','')
     conn = get_db()
     elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
@@ -3255,7 +3255,7 @@ def get_checklist_items():
 def create_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     iid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
@@ -3269,7 +3269,7 @@ def create_checklist_item():
 def update_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
         (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
@@ -3297,7 +3297,7 @@ def get_opening_checklist_items():
 def create_opening_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     iid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO opening_checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
@@ -3311,7 +3311,7 @@ def create_opening_checklist_item():
 def update_opening_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE opening_checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
         (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
@@ -3421,7 +3421,7 @@ def get_alerts():
 def create_alert():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     aid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO alerts (id,type,message,source,status)
@@ -3515,7 +3515,7 @@ def test_email_route():
 def update_user(uid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     if d.get('password'):
         pw_hash = hashlib.sha256(d.get('password','').encode()).hexdigest()
@@ -3545,7 +3545,7 @@ def delete_user(uid):
 def update_user_permissions(uid):
     err = require_admin()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
         (json.dumps(d.get('permissions',{})), uid))
@@ -3603,7 +3603,7 @@ def get_families():
 def create_family():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     fid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO families (id,name,passphrase,email,phone) VALUES (%s,%s,%s,%s,%s)',
@@ -3617,7 +3617,7 @@ def create_family():
 def update_family(fid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE families SET name=%s, passphrase=%s, email=%s, phone=%s WHERE id=%s',
         (d.get('name',''), d.get('passphrase',''), d.get('email',''), d.get('phone',''), fid))
@@ -3628,7 +3628,7 @@ def update_family(fid):
 def set_youth_passphrase(yid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE youth SET passphrase=%s WHERE id=%s',
         (d.get('passphrase',''), yid))
@@ -3685,7 +3685,7 @@ def get_portal_announcements():
 
 @app.route('/api/portal/contact-production', methods=['POST'])
 def portal_contact_production():
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (d.get('production_id'),))
     conn.close()
@@ -3854,29 +3854,35 @@ def get_prod_youth_members(pid):
 def enroll_youth_in_prod(pid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
+    if not d:
+        return jsonify({'error': 'No data received'}), 400
     conn = get_db()
     try:
-        # Support both single youth_id and bulk youth_ids array
         youth_ids = d.get('youth_ids') or ([d.get('youth_id')] if d.get('youth_id') else [])
         if not youth_ids:
             conn.close()
             return jsonify({'error': 'No youth specified'}), 400
         enrolled = 0
+        skipped = 0
         for yid in youth_ids:
+            if not yid: continue
             mid = str(uuid.uuid4())
-            try:
-                execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
-                    VALUES (%s,%s,%s,%s,'enrolled') ON CONFLICT (production_id,youth_id) DO NOTHING''',
-                    (mid, pid, yid, d.get('role','')))
-                enrolled += 1
-            except Exception:
-                pass
+            existing = fetchone(conn, 'SELECT id FROM youth_production_members WHERE production_id=%s AND youth_id=%s', (pid, yid))
+            if existing:
+                skipped += 1
+                continue
+            execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role,status)
+                VALUES (%s,%s,%s,%s,'enrolled')''',
+                (mid, pid, yid, d.get('role','')))
+            enrolled += 1
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'enrolled': enrolled})
+        return jsonify({'ok': True, 'enrolled': enrolled, 'skipped': skipped})
     except Exception as e:
-        conn.rollback(); conn.close()
+        app.logger.error(f'enroll_youth_in_prod error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/productions/<pid>/youth-members/<mid>', methods=['PUT'])
@@ -4030,7 +4036,7 @@ def get_general_content(pid):
 def save_general_content(pid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE productions SET general_content=%s WHERE id=%s',
         (d.get('content',''), pid))
@@ -4041,7 +4047,7 @@ def save_general_content(pid):
 def update_production_about(pid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE productions SET
         director=%s, venue=%s, performance_location=%s,
@@ -4057,7 +4063,7 @@ def update_production_about(pid):
 def create_portal_announcement(pid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     aid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO portal_announcements
@@ -4074,7 +4080,7 @@ def create_portal_announcement(pid):
 def update_portal_announcement(pid, aid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE portal_announcements SET title=%s, body=%s, status=%s WHERE id=%s AND production_id=%s',
         (d.get('title',''), d.get('body',''), d.get('status','draft'), aid, pid))
@@ -4103,7 +4109,7 @@ def push_announcement(pid, aid):
 def add_prod_waiver(pid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
@@ -4176,7 +4182,7 @@ def kiosk_events():
 
 @app.route('/api/kiosk/submit', methods=['POST'])
 def kiosk_submit():
-    d = request.json
+    d = request.json or {}
     if not d.get('volunteer_id') or not d.get('event') or not d.get('hours'):
         return jsonify({'error': 'Missing required fields'}), 400
     try:
@@ -4227,7 +4233,7 @@ def kiosk_waiver_check():
 
 @app.route('/api/kiosk/sign-waiver', methods=['POST'])
 def kiosk_sign_waiver():
-    d = request.json
+    d = request.json or {}
     vol_id = d.get('volunteer_id')
     waiver_type_id = d.get('waiver_type_id')
     signed_name = d.get('signed_name', '')
@@ -4250,7 +4256,7 @@ def kiosk_sign_waiver():
 
 @app.route('/api/kiosk/update-profile', methods=['POST'])
 def kiosk_update_profile():
-    d = request.json
+    d = request.json or {}
     vol_id = d.get('volunteer_id')
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
@@ -4439,7 +4445,7 @@ def kiosk_log_full_event():
 
 @app.route('/api/kiosk/sign-in', methods=['POST'])
 def kiosk_youth_sign_in():
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     yid = d.get('youth_id')
     eid = d.get('event_id')
@@ -4454,7 +4460,7 @@ def kiosk_youth_sign_in():
 
 @app.route('/api/kiosk/sign-out', methods=['POST'])
 def kiosk_youth_sign_out():
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     yid = d.get('youth_id')
     eid = d.get('event_id')
@@ -4960,7 +4966,7 @@ def get_scheduled_reports():
 def create_scheduled_report():
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     rid = str(uuid.uuid4())
     conn = get_db()
     # Calculate next send date
@@ -4982,7 +4988,7 @@ def create_scheduled_report():
 def update_scheduled_report(rid):
     err = require_auth()
     if err: return err
-    d = request.json
+    d = request.json or {}
     conn = get_db()
     next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,

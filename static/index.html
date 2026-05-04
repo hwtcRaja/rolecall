@@ -2279,111 +2279,6 @@ function bgcYouthWarning(vol){
   </div>`
 }
 
-function buildHoursRow(h, volId, isAdminFlag){
-  var hoursDisplay = h.hours
-  var hid = h.id
-  var notes = (h.notes||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")
-  var html = '<div class="hours-item">'
-    + '<span style="font-size:18px;flex-shrink:0">🎭<\/span>'
-    + '<div style="flex:1;min-width:0">'
-    + '<div class="event-name">'+escHtml(h.event||'')+'<\/div>'
-    + '<div class="event-date">'+formatDate(h.date||'')+(h.role?' · '+escHtml(h.role):'')+'<\/div>'
-    + '<\/div>'
-    + '<div class="event-hours" style="flex-shrink:0">'+hoursDisplay+'h<\/div>'
-  if(isAdminFlag){
-    html += '<div style="display:flex;gap:4px;flex-shrink:0">'
-      + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px"'
-      + ' onclick="openEditHoursModal(\''+hid+'\','+hoursDisplay+',\''+notes+'\',\''+volId+'\')">✏️<\/button>'
-      + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px"'
-      + ' onclick="deleteHours(\''+hid+'\',\''+volId+'\')">✕<\/button>'
-      + '<\/div>'
-  }
-  html += '<\/div>'
-  return html
-}
-
-function openEditHoursModal(hoursRecordId, currentHours, currentNotes, volId){
-  var existing = document.getElementById('edit-hours-overlay')
-  if(existing) existing.remove()
-  var overlay = document.createElement('div')
-  overlay.id = 'edit-hours-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var box = document.createElement('div')
-  box.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px'
-  box.innerHTML = '<div style="font-size:16px;font-weight:700;margin-bottom:4px">✏️ Edit Hours<\/div>'
-  overlay.appendChild(box)
-  document.body.appendChild(overlay)
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
-
-  // Hours input
-  var hoursLabel = document.createElement('label')
-  hoursLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px'
-  hoursLabel.textContent = 'Hours worked'
-  var hoursInput = document.createElement('input')
-  hoursInput.type = 'number'
-  hoursInput.id = 'eh-hours-input'
-  hoursInput.value = parseFloat(currentHours||0)
-  hoursInput.min = '0.25'
-  hoursInput.step = '0.25'
-  hoursInput.style.cssText = 'width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:20px;font-weight:700;box-sizing:border-box'
-  var hoursHint = document.createElement('div')
-  hoursHint.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:4px'
-  hoursHint.textContent = 'Enter actual hours — e.g. 2.5 for 2h 30min'
-  var hoursWrap = document.createElement('div')
-  hoursWrap.appendChild(hoursLabel)
-  hoursWrap.appendChild(hoursInput)
-  hoursWrap.appendChild(hoursHint)
-  box.appendChild(hoursWrap)
-
-  // Notes input
-  var notesLabel = document.createElement('label')
-  notesLabel.style.cssText = 'font-size:13px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px'
-  notesLabel.textContent = 'Notes (optional)'
-  var notesInput = document.createElement('input')
-  notesInput.type = 'text'
-  notesInput.id = 'eh-notes-input'
-  notesInput.value = currentNotes||''
-  notesInput.placeholder = 'Reason for edit…'
-  notesInput.style.cssText = 'width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box'
-  var notesWrap = document.createElement('div')
-  notesWrap.appendChild(notesLabel)
-  notesWrap.appendChild(notesInput)
-  box.appendChild(notesWrap)
-
-  // Buttons
-  var btnRow = document.createElement('div')
-  btnRow.style.cssText = 'display:flex;gap:10px;margin-top:4px'
-  var cancelBtn = document.createElement('button')
-  cancelBtn.className = 'btn btn-secondary'
-  cancelBtn.style.flex = '1'
-  cancelBtn.textContent = 'Cancel'
-  cancelBtn.onclick = function(){ overlay.remove() }
-  var saveBtn = document.createElement('button')
-  saveBtn.className = 'btn btn-primary'
-  saveBtn.style.flex = '2'
-  saveBtn.textContent = 'Save Hours'
-  saveBtn.onclick = async function(){
-    var hours = parseFloat(hoursInput.value)
-    var notes = notesInput.value.trim()
-    if(isNaN(hours)||hours<=0){ toast('Please enter valid hours','error'); return }
-    if(!hoursRecordId){ toast('Error: missing hours ID — please reload and try again','error'); return }
-    saveBtn.disabled = true; saveBtn.textContent = 'Saving…'
-    var res = await api('/api/hours/'+hoursRecordId,'PUT',{hours:hours,notes:notes})
-    saveBtn.disabled = false; saveBtn.textContent = 'Save Hours'
-    if(!res){ toast('No response from server','error'); return }
-    if(res.error){ toast('Error: '+res.error,'error'); return }
-    overlay.remove()
-    toast('Hours updated to '+hours+'h','success')
-    await loadAllData()
-    if(volId) openProfile(volId)
-  }
-  btnRow.appendChild(cancelBtn)
-  btnRow.appendChild(saveBtn)
-  box.appendChild(btnRow)
-
-  setTimeout(function(){ hoursInput.focus(); hoursInput.select() }, 50)
-}
-
 function waiverBadgeHTML(s){
   const m={valid:['waiver-valid','✅ Valid'],expiring:['waiver-expiring','⚠️ Expiring'],expired:['waiver-expired','❌ Expired'],none:['waiver-none','— None']}
   const [cls,label]=m[s||'none']
@@ -2680,17 +2575,7 @@ async function loadAllData(){
   }).catch(()=>{})
   // Apply saved nav icons (only if lucide loaded)
   setTimeout(function(){
-    api('/api/nav-icons').then(function(icons){
-      if(!icons||icons.error) return
-      // Lucide loads async — wait for it before applying icons
-      if(window.lucide){ applyNavIcons(icons); return }
-      var attempts = 0
-      var poll = setInterval(function(){
-        attempts++
-        if(window.lucide){ clearInterval(poll); applyNavIcons(icons) }
-        if(attempts > 20) clearInterval(poll) // give up after 2s
-      }, 100)
-    }).catch(function(){})
+    api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error && window.lucide) applyNavIcons(icons) }).catch(function(){})
   }, 500)
 }
 
@@ -3239,7 +3124,7 @@ async function openProfile(volId){
             <div class="tab-pane active" id="tab-hours">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
               ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':
-                (v.hours||[]).map(h=>buildHoursRow(h,v.id,isAdmin)).join('')}
+                v.hours.map(h=>renderHoursRow(h,v.id,isAdmin)).join('')}
             </div>
             <div class="tab-pane" id="tab-history">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
@@ -3407,6 +3292,138 @@ function renderHours(){
     <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.notes||'—'}</td>
     ${isAdmin?`<td><button class="btn btn-danger btn-sm" onclick="deleteHoursGlobal('${h.id}')">✕</button></td>`:'<td></td>'}
   </tr>`).join('')
+}
+
+function renderHoursRow(h, volId, isAdminFlag) {
+  // Build using DOM to avoid any escaping/nesting issues
+  var wrap = document.createElement('div')
+  wrap.className = 'hours-item'
+
+  var icon = document.createElement('span')
+  icon.style.fontSize = '18px'
+  icon.textContent = '🎭'
+  wrap.appendChild(icon)
+
+  var info = document.createElement('div')
+  info.style.flex = '1'
+  var evName = document.createElement('div')
+  evName.className = 'event-name'
+  evName.textContent = h.event || ''
+  var evDate = document.createElement('div')
+  evDate.className = 'event-date'
+  evDate.textContent = formatDate(h.date || '') + (h.role ? ' · ' + h.role : '')
+  info.appendChild(evName)
+  info.appendChild(evDate)
+  wrap.appendChild(info)
+
+  var hoursEl = document.createElement('div')
+  hoursEl.className = 'event-hours'
+  hoursEl.textContent = h.hours + 'h'
+  wrap.appendChild(hoursEl)
+
+  if (isAdminFlag) {
+    var editBtn = document.createElement('button')
+    editBtn.className = 'btn btn-secondary btn-sm'
+    editBtn.style.padding = '3px 7px'
+    editBtn.style.fontSize = '11px'
+    editBtn.textContent = '✏️'
+    editBtn.addEventListener('click', function() {
+      openEditHoursModal(h.id, h.hours, volId)
+    })
+
+    var delBtn = document.createElement('button')
+    delBtn.className = 'btn btn-danger btn-sm'
+    delBtn.style.padding = '3px 7px'
+    delBtn.style.fontSize = '11px'
+    delBtn.textContent = '✕'
+    delBtn.addEventListener('click', function() {
+      deleteHours(h.id, volId)
+    })
+
+    var btnGroup = document.createElement('div')
+    btnGroup.style.display = 'flex'
+    btnGroup.style.gap = '4px'
+    btnGroup.appendChild(editBtn)
+    btnGroup.appendChild(delBtn)
+    wrap.appendChild(btnGroup)
+  }
+
+  return wrap.outerHTML
+}
+
+function openEditHoursModal(hoursId, currentHours, volId) {
+  var old = document.getElementById('edit-hours-modal')
+  if (old) old.remove()
+
+  var overlay = document.createElement('div')
+  overlay.id = 'edit-hours-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+
+  var box = document.createElement('div')
+  box.style.cssText = 'background:var(--surface);border-radius:12px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:16px'
+
+  var title = document.createElement('div')
+  title.style.cssText = 'font-size:16px;font-weight:700'
+  title.textContent = '✏️ Edit Hours'
+  box.appendChild(title)
+
+  var hoursLabel = document.createElement('label')
+  hoursLabel.style.cssText = 'font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px'
+  hoursLabel.textContent = 'Hours worked'
+  box.appendChild(hoursLabel)
+
+  var hoursInput = document.createElement('input')
+  hoursInput.type = 'number'
+  hoursInput.min = '0.25'
+  hoursInput.step = '0.25'
+  hoursInput.value = parseFloat(currentHours) || 0
+  hoursInput.style.cssText = 'width:100%;padding:12px;border:2px solid var(--teal);border-radius:8px;font-size:24px;font-weight:700;box-sizing:border-box;font-family:inherit;color:var(--teal-dark)'
+  box.appendChild(hoursInput)
+
+  var hint = document.createElement('div')
+  hint.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:-8px'
+  hint.textContent = 'e.g. enter 2.5 for 2 hours 30 minutes'
+  box.appendChild(hint)
+
+  var btnRow = document.createElement('div')
+  btnRow.style.cssText = 'display:flex;gap:10px;margin-top:4px'
+
+  var cancelBtn = document.createElement('button')
+  cancelBtn.className = 'btn btn-secondary'
+  cancelBtn.style.flex = '1'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.onclick = function() { overlay.remove() }
+
+  var saveBtn = document.createElement('button')
+  saveBtn.className = 'btn btn-primary'
+  saveBtn.style.flex = '2'
+  saveBtn.textContent = 'Save Hours'
+  saveBtn.onclick = async function() {
+    var hours = parseFloat(hoursInput.value)
+    if (!hours || hours <= 0) { toast('Please enter valid hours', 'error'); return }
+    saveBtn.disabled = true
+    saveBtn.textContent = 'Saving…'
+    var res = await api('/api/hours/' + hoursId, 'PUT', { hours: hours })
+    if (res && res.error) {
+      toast(res.error, 'error')
+      saveBtn.disabled = false
+      saveBtn.textContent = 'Save Hours'
+      return
+    }
+    overlay.remove()
+    toast('Updated to ' + hours + 'h', 'success')
+    await loadAllData()
+    openProfile(volId)
+  }
+
+  btnRow.appendChild(cancelBtn)
+  btnRow.appendChild(saveBtn)
+  box.appendChild(btnRow)
+
+  overlay.appendChild(box)
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(function() { hoursInput.focus(); hoursInput.select() }, 50)
 }
 
 async function deleteHours(hId,volId){
@@ -10227,14 +10244,15 @@ async function saveEditEvent(){
   }
 
   closeModal('modal-edit-event')
-  await loadAllData()
   populateHoursFilters()
   renderEventsSettings()
   renderEventsPage()
   toast(eid?'Event updated!':'Event created!','success')
   if(eid&&currentEventId===eid){
+    closeModal('modal-edit-event')
     renderEventDetailPage(eid)
   } else if(res.id){
+    closeModal('modal-edit-event')
     openEventDetail(res.id)
   }
   } catch(err){

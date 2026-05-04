@@ -3448,11 +3448,42 @@ def get_event_logs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT el.*, e.name as event_name
-        FROM event_logs el LEFT JOIN events e ON el.event_id=e.id
+    rows = fetchall(conn, '''SELECT el.*, e.name as event_name, e.event_date,
+        v.name as elic_name
+        FROM event_logs el
+        LEFT JOIN events e ON el.event_id=e.id
+        LEFT JOIN elics eli ON el.elic_id=eli.id
+        LEFT JOIN volunteers v ON eli.volunteer_id=v.id
         ORDER BY el.created_at DESC LIMIT 200''')
+    for row in rows:
+        row['checklist'] = fetchall(conn,
+            'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id', (row['id'],))
+        row['log_id'] = row['id']
     conn.close()
     return jsonify(rows)
+
+@app.route('/api/event-logs/<lid>/report')
+def get_event_log_report(lid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
+        v.name as elic_name
+        FROM event_logs el
+        LEFT JOIN events e ON el.event_id=e.id
+        LEFT JOIN elics eli ON el.elic_id=eli.id
+        LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+        WHERE el.id=%s''', (lid,))
+    if not row:
+        conn.close(); return jsonify({'error': 'Log not found'}), 404
+    row['checklist'] = fetchall(conn,
+        'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id', (lid,))
+    row['hours'] = fetchall(conn, '''SELECT h.*, v.name as volunteer_name
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.event_id=%s ORDER BY v.name''', (row['event_id'],))
+    # Also add any pending hours that were auto-approved
+    conn.close()
+    return jsonify(row)
 
 # ─────────────────────────────────────────────
 #  EMAIL SETTINGS

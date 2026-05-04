@@ -3454,7 +3454,7 @@ def get_event_logs():
         LEFT JOIN events e ON el.event_id=e.id
         LEFT JOIN elics eli ON el.elic_id=eli.id
         LEFT JOIN volunteers v ON eli.volunteer_id=v.id
-        ORDER BY el.created_at DESC LIMIT 200''')
+        ORDER BY el.timestamp DESC LIMIT 200''')
     for row in rows:
         row['checklist'] = fetchall(conn,
             'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id', (row['id'],))

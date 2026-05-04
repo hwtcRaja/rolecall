@@ -13417,15 +13417,16 @@ function filterEpyList(){
 async function submitYouthProdEnrollment(prodId){
   const checked=[...document.querySelectorAll('#epy-list input:checked')].map(c=>c.value)
   if(!checked.length){toast('Select at least one participant','error');return}
-  // Store as youth production members in a dedicated endpoint
+  const btn = document.querySelector('#modal-enroll-youth-prod .btn-primary')
+  if(btn){ btn.disabled=true; btn.textContent='Saving…' }
   const res=await api('/api/productions/'+prodId+'/youth-members','POST',{youth_ids:checked})
-  if(res&&res.error){toast(res.error,'error');return}
+  if(btn){ btn.disabled=false; btn.textContent='Enroll Selected' }
+  if(res&&res.error){toast('Error: '+res.error,'error');return}
   document.getElementById('modal-enroll-youth-prod')?.remove()
-  toast(checked.length+' youth enrolled in production!','success')
-  // Reload youth members display
-  loadYouthProdMembers(prodId)
-  // Reload sign-in sheet if we're on it
-  if(ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
+  const msg = (res.enrolled||checked.length)+' enrolled'+(res.skipped?' ('+res.skipped+' already in cast)':'')
+  toast(msg,'success')
+  await loadYouthProdMembers(prodId)
+  if(ysiCurrentFilter&&ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
     loadYouthSignInSheet()
   }
 }

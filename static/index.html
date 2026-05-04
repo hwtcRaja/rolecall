@@ -3294,64 +3294,32 @@ function renderHours(){
   </tr>`).join('')
 }
 
+var _hoursEditData = {}
+
 function renderHoursRow(h, volId, isAdminFlag) {
-  // Build using DOM to avoid any escaping/nesting issues
-  var wrap = document.createElement('div')
-  wrap.className = 'hours-item'
-
-  var icon = document.createElement('span')
-  icon.style.fontSize = '18px'
-  icon.textContent = '🎭'
-  wrap.appendChild(icon)
-
-  var info = document.createElement('div')
-  info.style.flex = '1'
-  var evName = document.createElement('div')
-  evName.className = 'event-name'
-  evName.textContent = h.event || ''
-  var evDate = document.createElement('div')
-  evDate.className = 'event-date'
-  evDate.textContent = formatDate(h.date || '') + (h.role ? ' · ' + h.role : '')
-  info.appendChild(evName)
-  info.appendChild(evDate)
-  wrap.appendChild(info)
-
-  var hoursEl = document.createElement('div')
-  hoursEl.className = 'event-hours'
-  hoursEl.textContent = h.hours + 'h'
-  wrap.appendChild(hoursEl)
-
   if (isAdminFlag) {
-    var editBtn = document.createElement('button')
-    editBtn.className = 'btn btn-secondary btn-sm'
-    editBtn.style.padding = '3px 7px'
-    editBtn.style.fontSize = '11px'
-    editBtn.textContent = '✏️'
-    editBtn.addEventListener('click', function() {
-      openEditHoursModal(h.id, h.hours, volId)
-    })
-
-    var delBtn = document.createElement('button')
-    delBtn.className = 'btn btn-danger btn-sm'
-    delBtn.style.padding = '3px 7px'
-    delBtn.style.fontSize = '11px'
-    delBtn.textContent = '✕'
-    delBtn.addEventListener('click', function() {
-      deleteHours(h.id, volId)
-    })
-
-    var btnGroup = document.createElement('div')
-    btnGroup.style.display = 'flex'
-    btnGroup.style.gap = '4px'
-    btnGroup.appendChild(editBtn)
-    btnGroup.appendChild(delBtn)
-    wrap.appendChild(btnGroup)
+    _hoursEditData[h.id] = { hours: h.hours, volId: volId }
   }
-
-  return wrap.outerHTML
+  var editBtns = isAdminFlag
+    ? '<div style="display:flex;gap:4px">'
+      + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" onclick="openEditHoursModal(\'' + h.id + '\')">✏️</button>'
+      + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px" onclick="deleteHours(\'' + h.id + '\',\'' + volId + '\')">✕</button>'
+      + '</div>'
+    : ''
+  return '<div class="hours-item">'
+    + '<span style="font-size:18px">🎭</span>'
+    + '<div style="flex:1"><div class="event-name">' + escHtml(h.event || '') + '</div>'
+    + '<div class="event-date">' + formatDate(h.date || '') + (h.role ? ' · ' + escHtml(h.role) : '') + '</div></div>'
+    + '<div class="event-hours">' + h.hours + 'h</div>'
+    + editBtns
+    + '</div>'
 }
 
-function openEditHoursModal(hoursId, currentHours, volId) {
+function openEditHoursModal(hoursId) {
+  var data = _hoursEditData[hoursId]
+  if (!data) { toast('Could not find hours record', 'error'); return }
+  var currentHours = data.hours
+  var volId = data.volId
   var old = document.getElementById('edit-hours-modal')
   if (old) old.remove()
 

@@ -3205,16 +3205,25 @@ async function openProfile(volId){
       v.employer_program==='Universal Team Member'?{label:'🎬 Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
       {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
     ].filter(Boolean),
-    actions: isAdmin ? [
-      {label:'✉️ Email', href:'mailto:'+v.email},
-      {label:'Edit', onclick:"openEditVolModal('"+v.id+"')"},
-      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"},
-      {label:'🔗 Link Participant', onclick:"openLinkModal('volunteer','"+v.id+"','')"},
-      {label:'Delete', onclick:"deleteVol('"+v.id+"')", danger:true}
-    ] : [
-      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"}
-    ]
+    actions: []
   })
+  // Add action buttons via DOM so onclick handlers are reliable
+  if(isAdmin){
+    var actBar = document.createElement('div')
+    actBar.style.cssText='display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;padding:0 32px 16px'
+    var btnStyle='background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
+    var emailA=document.createElement('a'); emailA.href='mailto:'+v.email; emailA.style.cssText=btnStyle+';text-decoration:none'; emailA.textContent='✉️ Email'
+    var editB=document.createElement('button'); editB.style.cssText=btnStyle; editB.textContent='Edit'
+    editB.addEventListener('click', function(){ openEditVolModal(v.id) })
+    var idB=document.createElement('button'); idB.style.cssText=btnStyle; idB.textContent='🪪 ID Card'
+    idB.addEventListener('click', function(){ printVolIdCard(v.id, v.name) })
+    var linkB=document.createElement('button'); linkB.style.cssText=btnStyle; linkB.textContent='🔗 Link Participant'
+    linkB.addEventListener('click', function(){ openLinkModal('volunteer', v.id, '') })
+    var delB=document.createElement('button'); delB.style.cssText=btnStyle+';background:rgba(192,57,43,0.5);border-color:rgba(255,255,255,0.4)'; delB.textContent='Delete'
+    delB.addEventListener('click', function(){ deleteVol(v.id) })
+    actBar.appendChild(emailA); actBar.appendChild(editB); actBar.appendChild(idB); actBar.appendChild(linkB); actBar.appendChild(delB)
+    document.getElementById('profile-header').appendChild(actBar)
+  }
 
   document.getElementById('profile-content').innerHTML=`
     <div class="profile-layout">

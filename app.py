@@ -476,6 +476,7 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS employer_program TEXT DEFAULT ''",
         "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
@@ -519,6 +520,7 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS employer_program TEXT DEFAULT ''",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_by TEXT",
@@ -1417,14 +1419,22 @@ def update_volunteer(vol_id):
     if err: return err
     d = request.json or {}
     conn = get_db()
+    # Ensure employer_program column exists (safe migration)
+    try:
+        execute(conn, "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS employer_program TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
     sub_selections = json.dumps(d.get('sub_selections') or {})
     execute(conn, '''UPDATE volunteers SET name=%s,email=%s,phone=%s,pronouns=%s,birthday=%s,status=%s,
-        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s
+        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s,employer_program=%s
         WHERE id=%s''',
         (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('pronouns',''),
          d.get('birthday') or None, d.get('status','active'),
          json.dumps(d.get('interests',[])), sub_selections,
-         d.get('background_check_status','none'), d.get('background_check_date') or None, vol_id))
+         d.get('background_check_status','none'), d.get('background_check_date') or None,
+         d.get('employer_program','') or '', vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()
@@ -4574,13 +4584,13 @@ def join_submit():
     try:
         sub_selections = json.dumps(d.get('sub_selections') or {})
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
-             sub_selections))
+             sub_selections, (d.get('employer_program') or '').strip()))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
@@ -4609,7 +4619,8 @@ def join_submit():
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
                   {sub_rows}
                   <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
                 </table>
             </div>'''
             send_email(recipients, f'New Volunteer Interest — {d["name"]}', html_body)
@@ -4653,9 +4664,11 @@ def approve_application(aid):
             execute(conn, """UPDATE volunteers SET
                 name=COALESCE(NULLIF(name,''),%s),
                 phone=COALESCE(NULLIF(phone,''),%s),
-                pronouns=CASE WHEN pronouns IS NULL OR pronouns='' THEN %s ELSE pronouns END
+                pronouns=CASE WHEN pronouns IS NULL OR pronouns='' THEN %s ELSE pronouns END,
+                employer_program=CASE WHEN employer_program IS NULL OR employer_program='' THEN %s ELSE employer_program END
                 WHERE id=%s""",
-                (app_row['name'], app_row.get('phone',''), app_row.get('pronouns',''), vid))
+                (app_row['name'], app_row.get('phone',''), app_row.get('pronouns',''),
+                 app_row.get('employer_program','') or '', vid))
             try:
                 old_row = fetchone(conn, 'SELECT sub_selections FROM volunteers WHERE id=%s', (vid,))
                 old_ss = json.loads((old_row or {}).get('sub_selections') or '{}')
@@ -4667,9 +4680,10 @@ def approve_application(aid):
         else:
             vid = str(uuid.uuid4())
             interests = app_row.get('interests') or '[]'
-            execute(conn, "INSERT INTO volunteers (id,name,email,phone,pronouns,status,interests,sub_selections) VALUES (%s,%s,%s,%s,%s,'active',%s,%s)",
+            execute(conn, "INSERT INTO volunteers (id,name,email,phone,pronouns,status,interests,sub_selections,employer_program) VALUES (%s,%s,%s,%s,%s,'active',%s,%s,%s)",
                 (vid, app_row['name'], app_row['email'], app_row.get('phone',''),
-                 app_row.get('pronouns',''), interests, sub_selections))
+                 app_row.get('pronouns',''), interests, sub_selections,
+                 app_row.get('employer_program','') or ''))
 
         execute(conn, "UPDATE volunteer_applications SET status='approved', volunteer_id=%s, reviewed_at=NOW(), reviewed_by=%s WHERE id=%s",
             (vid, session.get('user_name',''), aid))
@@ -7182,6 +7196,80 @@ def submit_board_availability():
         (json.dumps(blocked), token))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/volunteers/employer-program-reminder', methods=['POST'])
+def send_employer_program_reminder():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    program_filter = d.get('program')  # 'disney', 'universal', or None for both
+    conn = get_db()
+    # Find volunteers with an employer program who have logged hours in last 90 days
+    if program_filter == 'disney':
+        condition = "LOWER(v.employer_program) LIKE '%disney%'"
+    elif program_filter == 'universal':
+        condition = "LOWER(v.employer_program) LIKE '%universal%'"
+    else:
+        condition = "(LOWER(v.employer_program) LIKE '%disney%' OR LOWER(v.employer_program) LIKE '%universal%')"
+    volunteers = fetchall(conn, f'''
+        SELECT DISTINCT v.id, v.name, v.email, v.employer_program
+        FROM volunteers v
+        JOIN hours h ON h.volunteer_id=v.id
+        WHERE {condition}
+          AND v.status='active'
+          AND h.date >= (CURRENT_DATE - INTERVAL '90 days')
+          AND v.email IS NOT NULL AND v.email != ''
+    ''')
+    conn.close()
+    if not volunteers:
+        return jsonify({'ok': True, 'sent': 0, 'message': 'No qualifying volunteers found with recent hours'})
+    sent = 0
+    for v in volunteers:
+        prog = (v.get('employer_program') or '').strip()
+        is_disney = 'disney' in prog.lower()
+        icon = '🏰' if is_disney else '🎬'
+        prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
+        submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
+        submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
+        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
+            <div style="font-size:48px;margin-bottom:8px">{icon}</div>
+            <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
+          </div>
+          <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+            <p style="font-size:15px;color:#374151">Hi {v['name']},</p>
+            <p style="font-size:15px;color:#374151;line-height:1.6">
+              We noticed you've been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you so much for giving your time!
+            </p>
+            <p style="font-size:15px;color:#374151;line-height:1.6">
+              As a <strong>{prog_label}</strong>, you may be eligible to submit your volunteer hours through <strong>{submit_name}</strong>,
+              which can result in a donation to our organization. It's a great way to double the impact of your volunteer work at no cost to you!
+            </p>
+            <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
+              <p style="margin:0;font-size:14px;color:#374151;line-height:1.6">
+                <strong>To submit your hours:</strong><br/>
+                Visit <a href="{submit_link}" style="color:#145466;font-weight:600">{submit_name}</a> and log your volunteer hours
+                for Horizon West Theatre Company as your chosen nonprofit.
+              </p>
+            </div>
+            <p style="font-size:15px;color:#374151;line-height:1.6">
+              If you have any questions or need help with the process, please don't hesitate to reach out — we're happy to assist!
+            </p>
+            <p style="font-size:15px;color:#374151;margin-top:24px">
+              With gratitude,<br/>
+              <strong>Horizon West Theatre Company</strong>
+            </p>
+          </div>
+          <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:12px">
+            You're receiving this because you are listed as a {prog_label} in our volunteer system.
+          </p>
+        </div>'''
+        try:
+            send_email([v['email']], f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program', body)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'Employer reminder email failed for {v["email"]}: {e}')
+    return jsonify({'ok': True, 'sent': sent, 'total': len(volunteers)})
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

@@ -3110,7 +3110,7 @@ function renderVolunteers(){
         <div style="display:flex;align-items:center;gap:10px">
           ${avatarHTML(v.name)}
           <div>
-            <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}</div>
+            <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}${v.employer_program==='Disney Cast Member'?` <img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Disney Cast Member"/>`:v.employer_program==='Universal Team Member'?' <span title="Universal Team Member" style="font-size:13px">🎬</span>':''}</div>
             <div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}${v.phone?` · ${escHtml(v.phone)}`:''}</div>
           </div>
         </div>
@@ -3118,7 +3118,7 @@ function renderVolunteers(){
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
       <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
-      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}${v.employer_program==='Disney Cast Member'?'<img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" alt="Disney" title="Disney Cast Member"/>':v.employer_program==='Universal Team Member'?'<span title="Universal Team Member" style="font-size:16px;margin-left:4px">🎬</span>':''}</td>
+      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}</td>
       <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
       <td onclick="event.stopPropagation()">
         <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">✉️</a>
@@ -4385,7 +4385,14 @@ function renderBoardMembers(){
         +'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div>'
         +'<div style="display:flex;gap:6px;align-items:center">'+sb
         +'<button data-id="'+m.id+'" onclick="editBoardMember(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button></div></div>'
-        +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">📧 '+escHtml(m.email)+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">📧 '+escHtml(m.email)+'</div>'
+        +(m.latest_availability_token
+          ? '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px">'
+            + '<div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+            + '🔗 Availability link ('+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.latest_availability_month-1]+' '+m.latest_availability_year+')</div>'
+            + '<button data-token="'+m.latest_availability_token+'" onclick="copyAvailLink(this.dataset.token)" class="btn btn-secondary btn-sm" style="flex-shrink:0;padding:2px 8px;font-size:11px">📋 Copy</button>'
+            + '</div>'
+          : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic">No availability link yet — use Request Availability to generate one</div>')
         +'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:10px">'
         +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings attended</div>'
         +(rate!==null?'<div style="font-size:18px;font-weight:900;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">—</div>')
@@ -4483,6 +4490,15 @@ function scheduleMeetingOnDate(date){
   document.getElementById('bmeet-time').value=''; document.getElementById('bmeet-location').value=''; document.getElementById('bmeet-notes').value=''
   document.getElementById('board-meeting-modal-title').textContent='Schedule Meeting'
   openModal('modal-board-meeting')
+}
+
+function copyAvailLink(token){
+  var url = window.location.origin + '/board/availability/' + token
+  navigator.clipboard.writeText(url).then(function(){
+    toast('Link copied to clipboard!','success')
+  }).catch(function(){
+    prompt('Copy this link:', url)
+  })
 }
 
 function openBoardMemberModal(){

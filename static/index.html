@@ -472,7 +472,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page active" id="page-dashboard">
         <div class="page-header">
           <div><div class="page-title">Dashboard</div><div class="page-subtitle">HWTC — Programs, productions, volunteers & participants</div></div>
-          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-secondary" onclick="openEmployerReminderModal()"><img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-right:2px" alt="Disney"/>🎬 Send Giving Reminder</button>
+            <button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button>
+          </div>
         </div>
         <div class="page-body">
           <!-- Stat row -->
@@ -1844,6 +1847,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Background Check</label><select id="vol-bgcheck"><option value="none">Not on file</option><option value="pending">Pending</option><option value="cleared">Cleared</option></select></div>
         <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
       </div>
+      <div class="form-group">
+        <label>Employer Giving Program</label>
+        <select id="vol-employer-program">
+          <option value="">— None —</option>
+          <option value="Disney Cast Member"><img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Member</option>
+          <option value="Universal Team Member">🎬 Universal Team Member</option>
+        </select>
+      </div>
       <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
       <div id="vol-sub-selections-wrap" style="display:none">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;margin-top:4px">Sub-selections</div>
@@ -3090,7 +3101,7 @@ function renderVolunteers(){
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
       <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
-      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}</td>
+      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}${v.employer_program==='Disney Cast Member'?'<img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" alt="Disney" title="Disney Cast Member"/>':v.employer_program==='Universal Team Member'?'<span title="Universal Team Member" style="font-size:16px;margin-left:4px">🎬</span>':''}</td>
       <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
       <td onclick="event.stopPropagation()">
         <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">✉️</a>
@@ -3177,6 +3188,8 @@ async function openProfile(volId){
       v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:'🔗 Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
       v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
+      v.employer_program==='Disney Cast Member'?{label:'<img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
+      v.employer_program==='Universal Team Member'?{label:'🎬 Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
       {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
     ].filter(Boolean),
     actions: isAdmin ? [
@@ -4943,6 +4956,7 @@ function openEditVolModal(volId){
   document.getElementById('vol-pronouns').value=v.pronouns||''
   document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
   document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
+  const epEl=document.getElementById('vol-employer-program'); if(epEl) epEl.value=v.employer_program||''
   setCheckedInterests(JSON.parse(v.interests||'[]'))
   let subSel={}
   try{ subSel=JSON.parse(v.sub_selections||'{}') }catch(e){}
@@ -4962,7 +4976,8 @@ async function saveVolunteer(){
     interests:getCheckedInterests(),
     sub_selections:getVolSubSelections(),
     background_check_status:document.getElementById('vol-bgcheck').value,
-    background_check_date:document.getElementById('vol-bgcheck-date').value||null
+    background_check_date:document.getElementById('vol-bgcheck-date').value||null,
+    employer_program:document.getElementById('vol-employer-program')?.value||''
   }
   const res = editId
     ? await api(`/api/volunteers/${editId}`,'PUT',data)
@@ -5232,6 +5247,50 @@ async function testEmail(){
     toast(res.error||'Send failed — check API key and From Email in settings','error')
     if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">✗ '+(res.error||'Failed')+'</span>'
   }
+}
+
+function openEmployerReminderModal(){
+  var existing=document.getElementById('employer-reminder-overlay'); if(existing) existing.remove()
+  var disney=allVolunteers ? allVolunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length : '?'
+  var universal=allVolunteers ? allVolunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length : '?'
+  var overlay=document.createElement('div'); overlay.id='employer-reminder-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;box-shadow:var(--shadow-lg);padding:28px;display:flex;flex-direction:column;gap:16px">'
+    +'<div style="font-size:18px;font-weight:700"><img src="/static/images/mickey.png" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" alt="Disney"/>🎬 Employer Giving Program Reminder</div>'
+    +'<div style="font-size:13px;color:var(--text-muted);line-height:1.6">Send a reminder email to volunteers who are Disney Cast Members or Universal Team Members and have logged hours recently, encouraging them to submit their hours to their employer\'s giving program.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
+    +'<div style="margin-bottom:4px"><img src="/static/images/mickey.png" style="width:40px;height:40px;filter:invert(0)" alt="Disney"/></div>'
+    +'<div style="font-weight:700;font-size:15px">'+disney+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted)">Disney Cast Members</div></div>'
+    +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
+    +'<div style="font-size:28px;margin-bottom:4px">🎬</div>'
+    +'<div style="font-weight:700;font-size:15px">'+universal+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted)">Universal Team Members</div></div></div>'
+    +'<div class="form-group" style="margin:0"><label>Send to</label>'
+    +'<select id="emp-remind-filter" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +'<option value="">Both Disney &amp; Universal</option>'
+    +'<option value="disney"><img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Members only</option>'
+    +'<option value="universal">🎬 Universal Team Members only</option>'
+    +'</select></div>'
+    +'<div style="background:var(--amber-50);border:1px solid var(--amber-200);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber-700)">⚠️ Only volunteers who have logged hours in the last 90 days will receive this email.</div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'employer-reminder-overlay\').remove()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="emp-remind-btn" onclick="sendEmployerReminder()">📬 Send Reminders</button>'
+    +'</div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
+  document.body.appendChild(overlay)
+}
+
+async function sendEmployerReminder(){
+  var btn=document.getElementById('emp-remind-btn'); btn.disabled=true; btn.textContent='Sending…'
+  var filter=document.getElementById('emp-remind-filter').value
+  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null})
+  btn.disabled=false; btn.textContent='📬 Send Reminders'
+  if(res&&res.error){toast(res.error,'error');return}
+  document.getElementById('employer-reminder-overlay')?.remove()
+  if(res.sent===0) toast(res.message||'No qualifying volunteers found','error')
+  else toast('Sent to '+res.sent+' volunteer'+(res.sent!==1?'s':'')+'!','success')
 }
 
 async function sendEventReport(eventId){

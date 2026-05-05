@@ -148,6 +148,15 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
         <div class="err" id="err-heard">Please let us know how you found us.</div>
       </div>
       <div class="form-group">
+        <label>Are you a Disney Cast Member or Universal Team Member? <span>(optional)</span></label>
+        <p style="font-size:13px;color:#6b7280;margin:-8px 0 10px">Disney and Universal employees can submit volunteer hours to their employer's giving program, which may result in a donation to HWTC at no cost to you!</p>
+        <select id="f-employer-program">
+          <option value="">— Not applicable —</option>
+          <option value="Disney Cast Member"><img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Member</option>
+          <option value="Universal Team Member">🎬 Universal Team Member</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Anything else you'd like us to know? <span>(optional)</span></label>
         <textarea id="f-notes" placeholder="Skills, availability, questions, anything at all…"></textarea>
       </div>
@@ -273,7 +282,7 @@ async function submitForm(e){
   try {
     const res = await fetch('/api/join/submit',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes})
+      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes,employer_program:document.getElementById('f-employer-program')?.value||''})
     })
     const data = await res.json()
     if(data.ok){

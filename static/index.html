@@ -974,10 +974,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth">
         <div class="page-header">
           <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
-          <div class="page-actions">
-            <button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button>
-            <button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button>
-          </div>
+          <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
           <div class="search-bar">
@@ -1125,22 +1122,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PENDING HOURS -->
-      <!-- BOARD MANAGEMENT PAGE -->
+      <!-- BOARD PAGE -->
       <section class="page" id="page-board">
         <div class="page-header">
           <div><div class="page-title">🏛️ Board</div><div class="page-subtitle" id="board-subtitle">Loading…</div></div>
           <div class="page-actions">
-            <button class="btn btn-secondary" onclick="openBoardScheduler()">📅 Schedule Meeting</button>
             <button class="btn btn-secondary" onclick="openBoardAvailability()">📬 Request Availability</button>
             <button class="btn btn-primary" onclick="openBoardMemberModal()">+ Add Member</button>
           </div>
         </div>
         <div class="page-body">
-          <!-- Tabs -->
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-            <button onclick="switchBoardTab('members')" id="btab-members" class="board-tab active-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">👥 Members</button>
-            <button onclick="switchBoardTab('meetings')" id="btab-meetings" class="board-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📋 Meetings</button>
-            <button onclick="switchBoardTab('schedule')" id="btab-schedule" class="board-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📅 Find Best Time</button>
+            <button onclick="switchBoardTab('members')" id="btab-members" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">👥 Members</button>
+            <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📋 Meetings</button>
+            <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📅 Find Best Time</button>
           </div>
           <div id="btab-panel-members"></div>
           <div id="btab-panel-meetings" style="display:none"></div>
@@ -1714,53 +1709,116 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- BULK IMPORT MODAL -->
+<div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
+  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header"><div class="modal-title">⬆ Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')">✕</button></div>
+    <div style="padding:20px 24px;overflow-y:auto;flex:1">
+      <div id="bi-step-1">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">CSV file. Download the template to see the expected columns.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+          <button class="btn btn-secondary" onclick="biDownloadTemplate()">⬇ Download Template CSV</button>
+          <label class="btn btn-primary" style="cursor:pointer">📂 Choose File<input type="file" id="bi-file" accept=".csv" style="display:none" onchange="biHandleFile(this)"/></label>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;line-height:1.8">
+          <strong style="color:var(--text)">Columns:</strong> first_name*, last_name*, dob, guardian_name, guardian_phone, guardian_email, guardian_relationship, emergency_name, emergency_phone, emergency_relationship, pickup1_name, pickup1_phone, pickup1_relationship, pickup2_name, pickup2_phone, pickup2_relationship, medical_notes, allergies, photo_consent, medical_consent, status
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group"><label>Enroll in program <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <select id="bi-program" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">— No enrollment —</option></select></div>
+          <div class="form-group"><label>Enrollment date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <input type="date" id="bi-enroll-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+        </div>
+      </div>
+      <div id="bi-step-2" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div><div style="font-size:14px;font-weight:600">Step 2 — Review &amp; resolve duplicates</div><div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="bi-summary">Checking…</div></div>
+          <div style="display:flex;gap:8px"><button class="btn btn-secondary" onclick="biBack()">← Back</button><button class="btn btn-primary" id="bi-run-btn" onclick="biRunImport()">Import</button></div>
+        </div>
+        <div id="bi-dup-banner" style="display:none;background:var(--amber-50);border:1.5px solid var(--amber-200);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:8px">⚠️ Duplicates found:</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('skip')">Skip all</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('update')">Update all</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('create')">Create anyway</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:var(--bg);border-bottom:2px solid var(--border)">
+            <th style="padding:8px;width:28px"><input type="checkbox" id="bi-all-cb" onchange="biToggleAll(this)" style="accent-color:var(--teal)"/></th>
+            <th style="padding:8px;text-align:left">Name</th><th style="padding:8px;text-align:left">DOB</th>
+            <th style="padding:8px;text-align:left">Guardian</th><th style="padding:8px;text-align:left">Pickups</th>
+            <th style="padding:8px;text-align:left">Medical</th><th style="padding:8px;text-align:left;width:160px">Action</th>
+          </tr></thead>
+          <tbody id="bi-tbody"></tbody>
+        </table></div>
+      </div>
+      <div id="bi-step-3" style="display:none;text-align:center;padding:40px 20px">
+        <div style="font-size:48px;margin-bottom:12px" id="bi-result-icon">🎉</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px" id="bi-result-title">Done!</div>
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:16px" id="bi-result-body"></div>
+        <div id="bi-result-errors" style="display:none;text-align:left;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px"></div>
+        <button class="btn btn-primary" onclick="biDone()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- BOARD MEMBER MODAL -->
 <div class="modal-overlay" id="modal-board-member">
   <div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <div class="modal-title" id="board-member-modal-title">Add Board Member</div>
-      <button class="modal-close" onclick="closeModal('modal-board-member')">✕</button>
-    </div>
+    <div class="modal-header"><div class="modal-title" id="board-member-modal-title">Add Board Member</div><button class="modal-close" onclick="closeModal('modal-board-member')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="bm-id"/>
       <div class="form-group"><label>Name *</label><input type="text" id="bm-name"/></div>
       <div class="form-group"><label>Email *</label><input type="email" id="bm-email"/></div>
-      <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer, Secretary…"/></div>
+      <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer…"/></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Status</label>
-          <select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select>
-        </div>
+        <div class="form-group"><label>Status</label><select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select></div>
         <div class="form-group"><label>Join Date</label><input type="date" id="bm-join-date"/></div>
       </div>
       <div class="form-group"><label>Notes</label><textarea id="bm-notes" style="min-height:60px"></textarea></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveBoardMember()">Save</button>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button><button class="btn btn-primary" onclick="saveBoardMember()">Save</button></div>
+  </div>
+</div>
+
+<!-- BOARD NOMINATION MODAL -->
+<div class="modal-overlay" id="modal-board-nomination">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header"><div class="modal-title">Add Election / Nomination</div><button class="modal-close" onclick="closeModal('modal-board-nomination')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="bnm-member-id"/>
+      <div class="form-group"><label>Date</label><input type="date" id="bnm-date"/></div>
+      <div class="form-group"><label>Type</label>
+        <select id="bnm-type" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+          <option value="election">🗳️ Initial Election</option>
+          <option value="renomination">🔄 Renomination</option>
+          <option value="appointment">📋 Appointment</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Term Length (years)</label><input type="number" id="bnm-term" value="3" min="1" max="10" style="width:100px"/></div>
+      <div class="form-group"><label>Notes</label><input type="text" id="bnm-notes" placeholder="Optional…"/></div>
     </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-nomination')">Cancel</button><button class="btn btn-primary" onclick="saveBoardNomination()">Save</button></div>
   </div>
 </div>
 
 <!-- BOARD MEETING MODAL -->
 <div class="modal-overlay" id="modal-board-meeting">
   <div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div>
-      <button class="modal-close" onclick="closeModal('modal-board-meeting')">✕</button>
-    </div>
+    <div class="modal-header"><div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div><button class="modal-close" onclick="closeModal('modal-board-meeting')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="bmeet-id"/>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group"><label>Date *</label><input type="date" id="bmeet-date"/></div>
         <div class="form-group"><label>Time</label><input type="time" id="bmeet-time"/></div>
       </div>
-      <div class="form-group"><label>Location</label><input type="text" id="bmeet-location" placeholder="e.g. Zoom, Theatre, etc."/></div>
+      <div class="form-group"><label>Location</label><input type="text" id="bmeet-location"/></div>
       <div class="form-group"><label>Notes</label><textarea id="bmeet-notes" style="min-height:60px"></textarea></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-board-meeting')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveBoardMeeting()">Save</button>
-    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-meeting')">Cancel</button><button class="btn btn-primary" onclick="saveBoardMeeting()">Save</button></div>
   </div>
 </div>
 
@@ -2080,88 +2138,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 </div>
 
 <!-- Youth Modal -->
-<div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
-  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
-    <div class="modal-header">
-      <div class="modal-title">⬆ Bulk Import Participants</div>
-      <button class="modal-close" onclick="closeModal('modal-bulk-import')">✕</button>
-    </div>
-    <div style="padding:20px 24px;overflow-y:auto;flex:1">
-      <div id="bi-step-1">
-        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">CSV or Excel. Download the template to see the expected columns.</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-          <button class="btn btn-secondary" onclick="biDownloadTemplate()">⬇ Download Template CSV</button>
-          <label class="btn btn-primary" style="cursor:pointer">
-            📂 Choose File
-            <input type="file" id="bi-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="biHandleFile(this)"/>
-          </label>
-        </div>
-        <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;line-height:1.8">
-          <strong style="color:var(--text)">Columns:</strong>
-          first_name*, last_name*, dob, guardian_name, guardian_phone, guardian_email, guardian_relationship,
-          emergency_name, emergency_phone, emergency_relationship,
-          pickup1_name, pickup1_phone, pickup1_relationship, pickup2_name, pickup2_phone, pickup2_relationship,
-          medical_notes, allergies, photo_consent, medical_consent, status
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-          <div class="form-group">
-            <label>Enroll in program <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-            <select id="bi-program" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-              <option value="">— No enrollment —</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Enrollment date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-            <input type="date" id="bi-enroll-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-          </div>
-        </div>
-      </div>
-      <div id="bi-step-2" style="display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <div>
-            <div style="font-size:14px;font-weight:600">Step 2 — Review &amp; resolve duplicates</div>
-            <div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="bi-summary">Checking…</div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary" onclick="biBack()">← Back</button>
-            <button class="btn btn-primary" id="bi-run-btn" onclick="biRunImport()">Import</button>
-          </div>
-        </div>
-        <div id="bi-dup-banner" style="display:none;background:var(--amber-50);border:1.5px solid var(--amber-200);border-radius:8px;padding:10px 14px;margin-bottom:12px">
-          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:8px">⚠️ Duplicates found — choose how to handle them all:</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('skip')">Skip all duplicates</button>
-            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('update')">Update all existing</button>
-            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('create')">Create anyway</button>
-          </div>
-        </div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead><tr style="background:var(--bg);border-bottom:2px solid var(--border)">
-              <th style="padding:8px;width:28px"><input type="checkbox" id="bi-all-cb" onchange="biToggleAll(this)" style="accent-color:var(--teal)"/></th>
-              <th style="padding:8px;text-align:left">Name</th>
-              <th style="padding:8px;text-align:left">DOB</th>
-              <th style="padding:8px;text-align:left">Guardian</th>
-              <th style="padding:8px;text-align:left">Pickups</th>
-              <th style="padding:8px;text-align:left">Medical</th>
-              <th style="padding:8px;text-align:left;width:160px">Action</th>
-            </tr></thead>
-            <tbody id="bi-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-      <div id="bi-step-3" style="display:none;text-align:center;padding:40px 20px">
-        <div style="font-size:48px;margin-bottom:12px" id="bi-result-icon">🎉</div>
-        <div style="font-size:18px;font-weight:700;margin-bottom:8px" id="bi-result-title">Done!</div>
-        <div style="font-size:14px;color:var(--text-muted);margin-bottom:16px" id="bi-result-body"></div>
-        <div id="bi-result-errors" style="display:none;text-align:left;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px"></div>
-        <button class="btn btn-primary" onclick="biDone()">Done</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div class="modal-overlay" id="modal-youth">
   <div class="modal modal-lg">
     <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">✕</button></div>
@@ -3284,8 +3260,7 @@ async function openProfile(volId){
           <div style="padding:0 0 20px">
             <div class="tab-pane active" id="tab-hours">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
-              ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':
-                v.hours.map(h=>renderHoursRow(h,v.id,isAdmin)).join('')}
+              ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':v.hours.map(h=>renderHoursRow(h,v.id,isAdmin)).join('')}
             </div>
             <div class="tab-pane" id="tab-history">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
@@ -3458,9 +3433,7 @@ function renderHours(){
 var _hoursEditData = {}
 
 function renderHoursRow(h, volId, isAdminFlag) {
-  if (isAdminFlag) {
-    _hoursEditData[h.id] = { hours: h.hours, volId: volId }
-  }
+  if (isAdminFlag) _hoursEditData[h.id] = { hours: h.hours, volId: volId }
   var editBtns = isAdminFlag
     ? '<div style="display:flex;gap:4px">'
       + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" onclick="openEditHoursModal(\'' + h.id + '\')">✏️</button>'
@@ -3472,87 +3445,69 @@ function renderHoursRow(h, volId, isAdminFlag) {
     + '<div style="flex:1"><div class="event-name">' + escHtml(h.event || '') + '</div>'
     + '<div class="event-date">' + formatDate(h.date || '') + (h.role ? ' · ' + escHtml(h.role) : '') + '</div></div>'
     + '<div class="event-hours">' + h.hours + 'h</div>'
-    + editBtns
-    + '</div>'
+    + editBtns + '</div>'
 }
 
 function openEditHoursModal(hoursId) {
   var data = _hoursEditData[hoursId]
   if (!data) { toast('Could not find hours record', 'error'); return }
-  var currentHours = data.hours
-  var volId = data.volId
-  var old = document.getElementById('edit-hours-modal')
-  if (old) old.remove()
-
+  var old2 = document.getElementById('edit-hours-modal')
+  if (old2) old2.remove()
   var overlay = document.createElement('div')
   overlay.id = 'edit-hours-modal'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-
   var box = document.createElement('div')
   box.style.cssText = 'background:var(--surface);border-radius:12px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:16px'
-
-  var title = document.createElement('div')
-  title.style.cssText = 'font-size:16px;font-weight:700'
-  title.textContent = '✏️ Edit Hours'
-  box.appendChild(title)
-
-  var hoursLabel = document.createElement('label')
-  hoursLabel.style.cssText = 'font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px'
-  hoursLabel.textContent = 'Hours worked'
-  box.appendChild(hoursLabel)
-
-  var hoursInput = document.createElement('input')
-  hoursInput.type = 'number'
-  hoursInput.min = '0.25'
-  hoursInput.step = '0.25'
-  hoursInput.value = parseFloat(currentHours) || 0
-  hoursInput.style.cssText = 'width:100%;padding:12px;border:2px solid var(--teal);border-radius:8px;font-size:24px;font-weight:700;box-sizing:border-box;font-family:inherit;color:var(--teal-dark)'
-  box.appendChild(hoursInput)
-
-  var hint = document.createElement('div')
-  hint.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:-8px'
-  hint.textContent = 'e.g. enter 2.5 for 2 hours 30 minutes'
-  box.appendChild(hint)
-
-  var btnRow = document.createElement('div')
-  btnRow.style.cssText = 'display:flex;gap:10px;margin-top:4px'
-
-  var cancelBtn = document.createElement('button')
-  cancelBtn.className = 'btn btn-secondary'
-  cancelBtn.style.flex = '1'
-  cancelBtn.textContent = 'Cancel'
-  cancelBtn.onclick = function() { overlay.remove() }
-
-  var saveBtn = document.createElement('button')
-  saveBtn.className = 'btn btn-primary'
-  saveBtn.style.flex = '2'
-  saveBtn.textContent = 'Save Hours'
-  saveBtn.onclick = async function() {
-    var hours = parseFloat(hoursInput.value)
-    if (!hours || hours <= 0) { toast('Please enter valid hours', 'error'); return }
-    saveBtn.disabled = true
-    saveBtn.textContent = 'Saving…'
-    var res = await api('/api/hours/' + hoursId, 'PUT', { hours: hours })
-    if (res && res.error) {
-      toast(res.error, 'error')
-      saveBtn.disabled = false
-      saveBtn.textContent = 'Save Hours'
-      return
-    }
-    overlay.remove()
-    toast('Updated to ' + hours + 'h', 'success')
-    await loadAllData()
-    openProfile(volId)
+  var title = document.createElement('div'); title.style.cssText='font-size:16px;font-weight:700'; title.textContent='✏️ Edit Hours'; box.appendChild(title)
+  var lbl = document.createElement('label'); lbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px'; lbl.textContent='Hours worked'; box.appendChild(lbl)
+  var inp = document.createElement('input'); inp.type='number'; inp.min='0.25'; inp.step='0.25'; inp.value=parseFloat(data.hours)||0
+  inp.style.cssText='width:100%;padding:12px;border:2px solid var(--teal);border-radius:8px;font-size:24px;font-weight:700;box-sizing:border-box;font-family:inherit;color:var(--teal-dark)'; box.appendChild(inp)
+  var hint = document.createElement('div'); hint.style.cssText='font-size:12px;color:var(--text-muted);margin-top:-8px'; hint.textContent='e.g. 2.5 for 2 hours 30 minutes'; box.appendChild(hint)
+  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:10px;margin-top:4px'
+  var cancelBtn = document.createElement('button'); cancelBtn.className='btn btn-secondary'; cancelBtn.style.flex='1'; cancelBtn.textContent='Cancel'; cancelBtn.onclick=function(){overlay.remove()}
+  var saveBtn = document.createElement('button'); saveBtn.className='btn btn-primary'; saveBtn.style.flex='2'; saveBtn.textContent='Save Hours'
+  saveBtn.onclick = async function(){
+    var hours = parseFloat(inp.value)
+    if(!hours||hours<=0){toast('Please enter valid hours','error');return}
+    saveBtn.disabled=true; saveBtn.textContent='Saving…'
+    var res = await api('/api/hours/'+hoursId,'PUT',{hours:hours})
+    if(res&&res.error){toast(res.error,'error');saveBtn.disabled=false;saveBtn.textContent='Save Hours';return}
+    overlay.remove(); toast('Updated to '+hours+'h','success')
+    await loadAllData(); openProfile(data.volId)
   }
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(saveBtn); box.appendChild(btnRow)
+  overlay.appendChild(box); overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()}); document.body.appendChild(overlay)
+  setTimeout(function(){inp.focus();inp.select()},50)
+}
 
-  btnRow.appendChild(cancelBtn)
-  btnRow.appendChild(saveBtn)
-  box.appendChild(btnRow)
-
-  overlay.appendChild(box)
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove() })
-  document.body.appendChild(overlay)
-  setTimeout(function() { hoursInput.focus(); hoursInput.select() }, 50)
+async function downloadEventReportPdf(eventId, logId){
+  var res = await api('/api/event-logs/'+logId+'/report')
+  if(!res||res.error){toast(res&&res.error?res.error:'Could not load report','error');return}
+  var log = res
+  var checklist = (log.checklist||[]).map(function(r){
+    var val=String(r.response||'')
+    var valStr=r.item_type==='checkbox'?(val==='true'?'✅ Done':'❌ Not Done'):(val||'—')
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+escHtml(valStr)+'</td></tr>'
+  }).join('')
+  var hours=(log.hours||[]).map(function(h){
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+h.hours+'h</td><td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td></tr>'
+  }).join('')
+  var total=(log.hours||[]).reduce(function(s,h){return s+(parseFloat(h.hours)||0)},0)
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Event Report</title>'
+    +'<style>body{font-family:-apple-system,sans-serif;margin:0;padding:0}.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}.stat-num{font-size:28px;font-weight:900;color:#145466}.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}h3{color:#145466;font-size:15px;font-weight:700;margin:24px 0 10px}table{width:100%;border-collapse:collapse;border:1px solid #e0e0db}thead{background:#f0f8fa}th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}<'+'/style><'+'/head><body>'
+    +'<div class="header"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<'+'/div>'
+    +'<div style="font-size:22px;font-weight:800;margin-bottom:4px">🔒 '+escHtml(log.event_name||'')+'<'+'/div>'
+    +'<div style="font-size:13px;opacity:0.7">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<'+'/div><'+'/div>'
+    +'<div style="padding:28px 32px"><div class="stat-grid">'
+    +'<div class="stat"><div class="stat-num">'+( log.hours||[]).length+'<'+'/div><div class="stat-label">Volunteers<'+'/div><'+'/div>'
+    +'<div class="stat"><div class="stat-num">'+total.toFixed(1)+'h<'+'/div><div class="stat-label">Total Hours<'+'/div><'+'/div>'
+    +'<div class="stat"><div class="stat-num">'+( log.checklist||[]).length+'<'+'/div><div class="stat-label">Checklist Items<'+'/div><'+'/div><'+'/div>'
+    +(checklist?'<h3>✅ Closing Checklist<'+'/h3><table><thead><tr><th>Item<'+'/th><th>Response<'+'/th><'+'/tr><'+'/thead><tbody>'+checklist+'<'+'/tbody><'+'/table>':'<p><em>No checklist items.<'+'/em><'+'/p>')
+    +(hours?'<h3>⏱ Hours Logged<'+'/h3><table><thead><tr><th>Volunteer<'+'/th><th>Hours<'+'/th><th>Status<'+'/th><'+'/tr><'+'/thead><tbody>'+hours+'<'+'/tbody><'+'/table>':'<p><em>No hours recorded.<'+'/em><'+'/p>')
+    +'<'+'/div><div class="footer">RoleCall — Horizon West Theatre Company<'+'/div>'
+    +'<script>window.onload=function(){window.print()}<'+'/scr'+'ipt><'+'/body><'+'/html>'
+  var win=window.open('','_blank')
+  if(win){win.document.write(html);win.document.close()}else toast('Please allow popups','error')
 }
 
 async function deleteHours(hId,volId){
@@ -4296,6 +4251,7 @@ function toggleMinorSections(){
   if(sec) sec.style.display = isMinor ? '' : 'none'
 }
 
+
 // ── BOARD MANAGEMENT ─────────────────────────────────────────────
 
 var _boardMembers = []
@@ -4303,28 +4259,21 @@ var _boardMeetings = []
 var _boardTab = 'members'
 
 async function loadBoardPage(){
-  var [members, meetings] = await Promise.all([
-    api('/api/board/members'),
-    api('/api/board/meetings')
-  ])
+  var members = await api('/api/board/members')
+  var meetings = await api('/api/board/meetings')
   _boardMembers = Array.isArray(members) ? members : []
   _boardMeetings = Array.isArray(meetings) ? meetings : []
   var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
-  document.getElementById('board-subtitle').textContent =
-    active + ' active member' + (active!==1?'s':'') + ' · ' + _boardMeetings.length + ' meeting' + (_boardMeetings.length!==1?'s':'') + ' recorded'
+  document.getElementById('board-subtitle').textContent = active+' active member'+(active!==1?'s':'')+' · '+_boardMeetings.length+' meeting'+(_boardMeetings.length!==1?'s':'')+' recorded'
   renderBoardTab(_boardTab)
 }
 
 function switchBoardTab(tab){
   _boardTab = tab
   ;['members','meetings','schedule'].forEach(function(t){
-    var btn = document.getElementById('btab-'+t)
-    var panel = document.getElementById('btab-panel-'+t)
-    if(btn){
-      btn.style.borderBottomColor = t===tab ? 'var(--teal)' : 'transparent'
-      btn.style.color = t===tab ? 'var(--teal)' : 'var(--text-muted)'
-    }
-    if(panel) panel.style.display = t===tab ? '' : 'none'
+    var btn=document.getElementById('btab-'+t), panel=document.getElementById('btab-panel-'+t)
+    if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
+    if(panel) panel.style.display=t===tab?'':'none'
   })
   renderBoardTab(tab)
 }
@@ -4336,518 +4285,370 @@ function renderBoardTab(tab){
 }
 
 function renderBoardMembers(){
-  var el = document.getElementById('btab-panel-members')
+  var el=document.getElementById('btab-panel-members')
   if(!el) return
-  if(!_boardMembers.length){
-    el.innerHTML = '<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'
-    return
-  }
-  var active = _boardMembers.filter(function(m){ return m.status==='active' })
-  var other  = _boardMembers.filter(function(m){ return m.status!=='active' })
-
-  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">'
+  if(!_boardMembers.length){ el.innerHTML='<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'; return }
+  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">'
     + _boardMembers.map(function(m){
-      var rate = m.meetings_total > 0 ? Math.round(m.meetings_attended/m.meetings_total*100) : null
-      var rateColor = rate===null ? 'var(--text-muted)' : rate>=80 ? 'var(--green-600)' : rate>=60 ? 'var(--amber-600)' : 'var(--red-600)'
-      var statusBadge = m.status==='active'
-        ? '<span style="background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">● Active</span>'
-        : '<span style="background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">○ '+m.status+'</span>'
+      var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
+      var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
+      var sb=m.status==='active'
+        ?'<span style="background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">● Active</span>'
+        :'<span style="background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">○ '+m.status+'</span>'
+      var noms=m.nominations||[]
+      var latestNom=noms.length?noms[noms.length-1]:null
+      var dueWarn=''
+      if(latestNom){
+        var ny=parseInt((latestNom.nomination_date||'').split('-')[0])
+        var ty=parseInt(latestNom.term_years||3)
+        if(!isNaN(ny)){
+          var dy=ny+ty, now=new Date(), mu=(dy-now.getFullYear())*12-now.getMonth()
+          if(mu<=0) dueWarn='<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⚠️ Renomination overdue — due '+dy+'</div>'
+          else if(mu<=6) dueWarn='<div style="background:#fefce8;border:1.5px solid #fde047;color:#854d0e;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⏳ Renomination due '+dy+' ('+mu+' months)</div>'
+        }
+      }
+      var nomH=noms.length
+        ?noms.map(function(n,i){
+          var tl={election:'🗳️ Elected',renomination:'🔄 Renominated',appointment:'📋 Appointed'}[n.nomination_type]||n.nomination_type
+          var te=parseInt((n.nomination_date||'').split('-')[0])+parseInt(n.term_years||3)
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;'+(i<noms.length-1?'border-bottom:1px solid var(--border)':'')+'">'
+            +'<div><span style="font-size:12px;font-weight:600">'+tl+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px">'+formatDate(n.nomination_date)+'</span></div>'
+            +'<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--text-muted)">→ '+te+'</span>'
+            +'<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--text-muted)">→ '+te+'</span>'
+            +'<button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:14px;padding:0">×</button></div></div>'
+        }).join('')
+        :'<div style="font-size:12px;color:var(--text-muted);font-style:italic">No elections recorded</div>'
       return '<div class="card" style="padding:16px">'
-        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
-        + '<div style="display:flex;align-items:center;gap:10px">'
-        + avatarHTML(m.name, 36)
-        + '<div><div style="font-weight:700;font-size:14px">'+escHtml(m.name)+'</div>'
-        + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div>'
-        + '</div>'
-        + '<div style="display:flex;gap:6px;align-items:center">'
-        + statusBadge
-        + '<button onclick="editBoardMember(\''+m.id+'\',\''+escHtml(m.name)+'\',\''+escHtml(m.email)+'\',\''+escHtml(m.role||'')+'\',\''+m.status+'\',\''+( m.join_date||'')+'\',\''+escHtml(m.notes||'')+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button>'
-        + '</div></div>'
-        + '<div style="font-size:12px;color:var(--text-muted)">📧 '+escHtml(m.email)+'</div>'
-        + '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
-        + '<div style="font-size:13px;color:var(--text-muted)">'+m.meetings_attended+' / '+m.meetings_total+' meetings</div>'
-        + (rate!==null ? '<div style="font-size:16px;font-weight:800;color:'+rateColor+'">'+rate+'%</div>' : '<div style="font-size:12px;color:var(--text-muted)">No meetings yet</div>')
-        + '</div>'
-        + '</div>'
-    }).join('')
-    + '</div>'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
+        +'<div style="display:flex;align-items:center;gap:10px">'+avatarHTML(m.name,36)
+        +'<div><div style="font-weight:700;font-size:14px">'+escHtml(m.name)+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div>'
+        +'<div style="display:flex;gap:6px;align-items:center">'+sb
+        +'<button data-id="+m.id+" onclick="editBoardMember(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button></div></div>'
+        +'<div style="font-size:12px;color:var(--text-muted)">📧 '+escHtml(m.email)+'</div>'
+        +'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+        +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings</div>'
+        +(rate!==null?'<div style="font-size:16px;font-weight:800;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">No meetings yet</div>')
+        +'</div>'
+        +'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Election History</div>'
+        +'<button onclick="openNominationModal(this.dataset.bid)" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px">+ Add</button></div>'
+        +nomH+dueWarn+'</div></div>'
+    }).join('')+'</div>'
 }
 
 function renderBoardMeetings(){
-  var el = document.getElementById('btab-panel-meetings')
+  var el=document.getElementById('btab-panel-meetings')
   if(!el) return
-  if(!_boardMeetings.length){
-    el.innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>No meetings recorded yet</p></div>'
-    return
-  }
-  el.innerHTML = _boardMeetings.map(function(m){
-    var attended = (m.attendance||[]).filter(function(a){ return a.attended }).length
-    var total = (m.attendance||[]).length
+  if(!_boardMeetings.length){ el.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No meetings recorded yet</p></div>'; return }
+  el.innerHTML=_boardMeetings.map(function(m){
+    var att=(m.attendance||[]).filter(function(a){return a.attended}).length
+    var tot=(m.attendance||[]).length
     return '<div class="card" style="padding:20px;margin-bottom:16px">'
-      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
-      + '<div>'
-      + '<div style="font-size:16px;font-weight:700">'+formatDate(m.meeting_date)+(m.meeting_time?' at '+fmtTime(m.meeting_time):'')+'</div>'
-      + (m.location?'<div style="font-size:13px;color:var(--text-muted)">📍 '+escHtml(m.location)+'</div>':'')
-      + '</div>'
-      + '<div style="display:flex;gap:8px;align-items:center">'
-      + '<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+attended+'/'+total+' attended</span>'
-      + '<button onclick="openAttendanceEditor(\''+m.id+'\')" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
-      + '<button onclick="deleteBoardMeeting(\''+m.id+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
-      + '</div></div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:8px">'
-      + (m.attendance||[]).map(function(a){
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+      +'<div><div style="font-size:16px;font-weight:700">'+formatDate(m.meeting_date)+(m.meeting_time?' at '+fmtTime(m.meeting_time):'')+'</div>'
+      +(m.location?'<div style="font-size:13px;color:var(--text-muted)">📍 '+escHtml(m.location)+'</div>':'')
+      +'</div>'
+      +'<div style="display:flex;gap:8px;align-items:center">'
+      +'<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+att+'/'+tot+' attended</span>'
+      +'<button data-id="+m.id+" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
+      +'<button data-id="+m.id+" onclick="deleteBoardMeeting(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
+      +'</div></div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px">'
+      +(m.attendance||[]).map(function(a){
         return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;'
-          + (a.attended?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)')+';">'
-          + (a.attended?'✅':'○')+' '+escHtml(a.member_name||'')+'</div>'
+          +(a.attended?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)')+';">'
+          +(a.attended?'✅':'○')+' '+escHtml(a.member_name||'')+'</div>'
       }).join('')
-      + '</div>'
-      + '</div>'
+      +'</div></div>'
   }).join('')
 }
 
 function renderBoardScheduler(){
-  var el = document.getElementById('btab-panel-schedule')
+  var el=document.getElementById('btab-panel-schedule')
   if(!el) return
-  var now = new Date()
-  var month = now.getMonth() + 1
-  var year  = now.getFullYear()
-  el.innerHTML = '<div class="card" style="padding:20px;max-width:640px">'
-    + '<div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Find the Best Meeting Date</div>'
-    + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">'
-    + '<div class="form-group" style="margin:0"><label>Month</label>'
-    + '<select id="sched-month" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
-    + ['January','February','March','April','May','June','July','August','September','October','November','December']
-      .map(function(n,i){ return '<option value="'+(i+1)+'"'+(i+1===month?' selected':'')+'>'+n+'</option>' }).join('')
-    + '</select></div>'
-    + '<div class="form-group" style="margin:0"><label>Year</label>'
-    + '<input type="number" id="sched-year" value="'+year+'" style="width:90px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
-    + '</div>'
-    + '<button class="btn btn-primary" onclick="loadScheduleRecommendations()">Show Availability</button>'
-    + '</div>'
-    + '<div id="sched-results"></div>'
-    + '</div>'
+  var now=new Date(), month=now.getMonth()+1, year=now.getFullYear()
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December']
+  el.innerHTML='<div class="card" style="padding:20px;max-width:640px">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Find the Best Meeting Date</div>'
+    +'<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">'
+    +'<div class="form-group" style="margin:0"><label>Month</label><select id="sched-month" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +months.map(function(n,i){return '<option value="'+(i+1)+'"'+(i+1===month?' selected':'')+'>'+n+'</option>'}).join('')
+    +'</select></div>'
+    +'<div class="form-group" style="margin:0"><label>Year</label><input type="number" id="sched-year" value="'+year+'" style="width:90px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>'
+    +'<button class="btn btn-primary" onclick="loadScheduleRecommendations()">Show Availability</button></div>'
+    +'<div id="sched-results"></div></div>'
 }
 
 async function loadScheduleRecommendations(){
-  var month = document.getElementById('sched-month').value
-  var year  = document.getElementById('sched-year').value
-  var el    = document.getElementById('sched-results')
-  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
-
-  var [recs, avail] = await Promise.all([
-    api('/api/board/recommend/'+month+'/'+year),
-    api('/api/board/availability/'+month+'/'+year)
-  ])
-  if(!Array.isArray(recs)||!recs.length){ el.innerHTML='<div style="color:var(--text-muted)">No data yet.</div>'; return }
-
-  var submitted = avail.filter(function(a){ return a.submitted_at }).length
-  var total     = _boardMembers.filter(function(m){ return m.status==='active' }).length
-
-  var html = '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">'
-    + submitted+' of '+total+' members have submitted availability'
-    + (submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some members haven\'t responded yet</span>':'')
-    + '</div>'
-
-  // Top 10 ranked dates
-  html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked by availability)</div>'
-  html += recs.slice(0,10).map(function(r, i){
-    var pct  = r.pct
-    var barColor = pct>=80 ? 'var(--green-600)' : pct>=60 ? 'var(--amber-500)' : 'var(--red-400)'
-    var badge = i===0 ? '<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px">BEST</span>' : ''
+  var month=document.getElementById('sched-month').value, year=document.getElementById('sched-year').value
+  var el=document.getElementById('sched-results')
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+  var recs=await api('/api/board/recommend/'+month+'/'+year)
+  var avail=await api('/api/board/availability/'+month+'/'+year)
+  if(!Array.isArray(recs)||!recs.length){el.innerHTML='<div style="color:var(--text-muted)">No data yet. Send availability requests first.</div>';return}
+  var submitted=avail.filter(function(a){return a.submitted_at}).length
+  var total=_boardMembers.filter(function(m){return m.status==='active'}).length
+  var html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">'+submitted+' of '+total+' members responded'+(submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some haven\u0027t responded</span>':'')+'</div>'
+  html+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked)</div>'
+  html+=recs.slice(0,10).map(function(r,i){
+    var pct=r.pct, bc=pct>=80?'var(--green-600)':pct>=60?'var(--amber-500)':'var(--red-400)'
+    var badge=i===0?'<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px">BEST</span>':''
     return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
-      + '<div style="min-width:120px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
-      + '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
-      + '<div style="height:100%;width:'+pct+'%;background:'+barColor+';border-radius:4px;transition:width 0.3s"></div></div>'
-      + '<div style="min-width:80px;text-align:right;font-size:13px;font-weight:700;color:'+barColor+'">'+r.available+'/'+r.total_members+' free</div>'
-      + '<button onclick="scheduleMeetingOnDate(\''+r.date+'\')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
-      + '</div>'
+      +'<div style="min-width:140px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
+      +'<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+bc+';border-radius:4px"></div></div>'
+      +'<div style="min-width:80px;text-align:right;font-size:13px;font-weight:700;color:'+bc+'">'+r.available+'/'+r.total_members+' free</div>'
+      +'<button data-date="'+ r.date +'" onclick="scheduleMeetingOnDate(this.dataset.date)" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
+      +'</div>'
   }).join('')
-
-  // Per-person breakdown
   if(avail.length){
-    html += '<div style="margin-top:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Responses</div>'
-    html += '<div style="display:flex;flex-wrap:wrap;gap:8px">'
-    html += avail.map(function(a){
-      var blocked = JSON.parse(a.blocked_dates||'[]')
+    html+='<div style="margin-top:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Responses</div>'
+    html+='<div style="display:flex;flex-wrap:wrap;gap:8px">'
+    html+=avail.map(function(a){
+      var bl=JSON.parse(a.blocked_dates||'[]')
       return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);font-size:12px">'
-        + '<div style="font-weight:600">'+escHtml(a.member_name||'')+'</div>'
-        + '<div style="color:var(--text-muted);margin-top:2px">'
-        + (a.submitted_at ? (blocked.length ? blocked.length+' date'+(blocked.length!==1?'s':'')+' blocked' : '✅ All available') : '<span style="color:var(--amber-600)">⏳ Not responded</span>')
-        + '</div></div>'
+        +'<div style="font-weight:600">'+escHtml(a.member_name||'')+'</div>'
+        +'<div style="color:var(--text-muted);margin-top:2px">'+(a.submitted_at?(bl.length?bl.length+' date'+(bl.length!==1?'s':'')+' blocked':'✅ All available'):'<span style="color:var(--amber-600)">⏳ Not responded</span>')+'</div></div>'
     }).join('')
-    // Show members who haven't responded
-    var respondedIds = new Set(avail.map(function(a){ return a.member_id }))
-    var missing = _boardMembers.filter(function(m){ return m.status==='active' && !respondedIds.has(m.id) })
-    if(missing.length){
-      html += missing.map(function(m){
-        return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px dashed var(--border);font-size:12px">'
-          + '<div style="font-weight:600">'+escHtml(m.name)+'</div>'
-          + '<div style="color:var(--text-muted)">⏳ Not responded</div></div>'
-      }).join('')
-    }
-    html += '</div>'
+    var respondedIds=new Set(avail.map(function(a){return a.member_id}))
+    var missing=_boardMembers.filter(function(m){return m.status==='active'&&!respondedIds.has(m.id)})
+    html+=missing.map(function(m){return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px dashed var(--border);font-size:12px"><div style="font-weight:600">'+escHtml(m.name)+'</div><div style="color:var(--text-muted)">⏳ Not responded</div></div>'}).join('')
+    html+='</div>'
   }
-  el.innerHTML = html
+  el.innerHTML=html
 }
 
 function scheduleMeetingOnDate(date){
-  document.getElementById('bmeet-id').value = ''
-  document.getElementById('bmeet-date').value = date
-  document.getElementById('bmeet-time').value = ''
-  document.getElementById('bmeet-location').value = ''
-  document.getElementById('bmeet-notes').value = ''
-  document.getElementById('board-meeting-modal-title').textContent = 'Schedule Meeting'
+  document.getElementById('bmeet-id').value=''; document.getElementById('bmeet-date').value=date
+  document.getElementById('bmeet-time').value=''; document.getElementById('bmeet-location').value=''; document.getElementById('bmeet-notes').value=''
+  document.getElementById('board-meeting-modal-title').textContent='Schedule Meeting'
   openModal('modal-board-meeting')
 }
 
-// Member modal
 function openBoardMemberModal(){
-  document.getElementById('board-member-modal-title').textContent = 'Add Board Member'
-  ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){ document.getElementById(id).value='' })
-  document.getElementById('bm-status').value = 'active'
+  document.getElementById('board-member-modal-title').textContent='Add Board Member'
+  ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){document.getElementById(id).value=''})
+  document.getElementById('bm-status').value='active'
   openModal('modal-board-member')
 }
 
-function editBoardMember(id,name,email,role,status,joinDate,notes){
-  document.getElementById('board-member-modal-title').textContent = 'Edit Board Member'
-  document.getElementById('bm-id').value = id
-  document.getElementById('bm-name').value = name
-  document.getElementById('bm-email').value = email
-  document.getElementById('bm-role').value = role
-  document.getElementById('bm-status').value = status
-  document.getElementById('bm-join-date').value = joinDate
-  document.getElementById('bm-notes').value = notes
+function editBoardMember(id){
+  var m=_boardMembers.find(function(m){return m.id===id})
+  if(!m) return
+  document.getElementById('board-member-modal-title').textContent='Edit Board Member'
+  document.getElementById('bm-id').value=m.id; document.getElementById('bm-name').value=m.name
+  document.getElementById('bm-email').value=m.email; document.getElementById('bm-role').value=m.role||''
+  document.getElementById('bm-status').value=m.status; document.getElementById('bm-join-date').value=m.join_date||''
+  document.getElementById('bm-notes').value=m.notes||''
   openModal('modal-board-member')
 }
 
 async function saveBoardMember(){
-  var name  = document.getElementById('bm-name').value.trim()
-  var email = document.getElementById('bm-email').value.trim()
-  if(!name||!email){ toast('Name and email required','error'); return }
-  var id = document.getElementById('bm-id').value
-  var data = {
-    name, email,
-    role:      document.getElementById('bm-role').value.trim(),
-    status:    document.getElementById('bm-status').value,
-    join_date: document.getElementById('bm-join-date').value || null,
-    notes:     document.getElementById('bm-notes').value.trim()
-  }
-  var res = id ? await api('/api/board/members/'+id,'PUT',data) : await api('/api/board/members','POST',data)
-  if(res&&res.error){ toast(res.error,'error'); return }
-  closeModal('modal-board-member')
-  toast(id?'Member updated!':'Member added!','success')
+  var name=document.getElementById('bm-name').value.trim(), email=document.getElementById('bm-email').value.trim()
+  if(!name||!email){toast('Name and email required','error');return}
+  var id=document.getElementById('bm-id').value
+  var data={name,email,role:document.getElementById('bm-role').value.trim(),status:document.getElementById('bm-status').value,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim()}
+  var res=id?await api('/api/board/members/'+id,'PUT',data):await api('/api/board/members','POST',data)
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-member'); toast(id?'Member updated!':'Member added!','success')
   await loadBoardPage()
 }
 
-// Meeting modal
-function openBoardScheduler(){
-  switchBoardTab('schedule')
+function openNominationModal(memberId){
+  document.getElementById('bnm-member-id').value=memberId
+  document.getElementById('bnm-date').value=''; document.getElementById('bnm-type').value='election'
+  document.getElementById('bnm-term').value='3'; document.getElementById('bnm-notes').value=''
+  openModal('modal-board-nomination')
 }
 
-function openBoardMeetingModal(date){
-  document.getElementById('board-meeting-modal-title').textContent = 'Schedule Meeting'
-  document.getElementById('bmeet-id').value = ''
-  document.getElementById('bmeet-date').value = date || ''
-  document.getElementById('bmeet-time').value = ''
-  document.getElementById('bmeet-location').value = ''
-  document.getElementById('bmeet-notes').value = ''
+async function saveBoardNomination(){
+  var mid=document.getElementById('bnm-member-id').value, date=document.getElementById('bnm-date').value
+  if(!date){toast('Date required','error');return}
+  var res=await api('/api/board/members/'+mid+'/nominations','POST',{nomination_date:date,nomination_type:document.getElementById('bnm-type').value,term_years:parseInt(document.getElementById('bnm-term').value)||3,notes:document.getElementById('bnm-notes').value.trim()})
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-nomination'); toast('Election record added!','success')
+  await loadBoardPage()
+}
+
+async function deleteBoardNomination(nid, mid){
+  if(!confirm('Remove this election record?')) return
+  var res=await api('/api/board/nominations/'+nid,'DELETE')
+  if(res&&res.error){toast(res.error,'error');return}
+  toast('Removed'); await loadBoardPage()
+}
+
+function openBoardMeetingModal(){
+  document.getElementById('board-meeting-modal-title').textContent='Schedule Meeting'
+  ;['bmeet-id','bmeet-date','bmeet-time','bmeet-location','bmeet-notes'].forEach(function(id){document.getElementById(id).value=''})
   openModal('modal-board-meeting')
 }
 
 async function saveBoardMeeting(){
-  var date = document.getElementById('bmeet-date').value
-  if(!date){ toast('Date required','error'); return }
-  var id = document.getElementById('bmeet-id').value
-  var data = {
-    meeting_date: date,
-    meeting_time: document.getElementById('bmeet-time').value,
-    location:     document.getElementById('bmeet-location').value.trim(),
-    notes:        document.getElementById('bmeet-notes').value.trim()
-  }
-  var res = id ? await api('/api/board/meetings/'+id,'PUT',data) : await api('/api/board/meetings','POST',data)
-  if(res&&res.error){ toast(res.error,'error'); return }
-  closeModal('modal-board-meeting')
-  toast('Meeting saved!','success')
-  await loadBoardPage()
-  switchBoardTab('meetings')
+  var date=document.getElementById('bmeet-date').value
+  if(!date){toast('Date required','error');return}
+  var id=document.getElementById('bmeet-id').value
+  var data={meeting_date:date,meeting_time:document.getElementById('bmeet-time').value,location:document.getElementById('bmeet-location').value.trim(),notes:document.getElementById('bmeet-notes').value.trim()}
+  var res=id?await api('/api/board/meetings/'+id,'PUT',data):await api('/api/board/meetings','POST',data)
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-meeting'); toast('Meeting saved!','success')
+  await loadBoardPage(); switchBoardTab('meetings')
 }
 
 async function deleteBoardMeeting(mid){
   if(!confirm('Delete this meeting?')) return
-  var res = await api('/api/board/meetings/'+mid,'DELETE')
-  if(res&&res.error){ toast(res.error,'error'); return }
-  toast('Meeting deleted')
-  await loadBoardPage()
+  var res=await api('/api/board/meetings/'+mid,'DELETE')
+  if(res&&res.error){toast(res.error,'error');return}
+  toast('Meeting deleted'); await loadBoardPage()
 }
 
-// Attendance editor
+function closeAttendanceOverlay(){ var el=document.getElementById("attendance-editor-overlay"); if(el) el.remove() }
+function closeAvailReqOverlay(){ var el=document.getElementById("avail-req-overlay"); if(el) el.remove() }
+
 function openAttendanceEditor(meetingId){
-  var meeting = _boardMeetings.find(function(m){ return m.id===meetingId })
+  var meeting=_boardMeetings.find(function(m){return m.id===meetingId})
   if(!meeting) return
-  var existing = document.getElementById('attendance-editor-overlay')
-  if(existing) existing.remove()
-  var overlay = document.createElement('div')
-  overlay.id = 'attendance-editor-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var attended = {}
-  ;(meeting.attendance||[]).forEach(function(a){ attended[a.member_id]=a.attended })
-  var rows = _boardMembers.filter(function(m){ return m.status==='active' }).map(function(m){
-    var chk = attended[m.id]!==false ? 'checked' : ''
+  var existing=document.getElementById('attendance-editor-overlay'); if(existing) existing.remove()
+  var overlay=document.createElement('div'); overlay.id='attendance-editor-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var attended={}; (meeting.attendance||[]).forEach(function(a){attended[a.member_id]=a.attended})
+  var rows=_boardMembers.filter(function(m){return m.status==='active'}).map(function(m){
     return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">'
-      + '<input type="checkbox" class="att-cb" data-mid="'+m.id+'" '+chk+' style="accent-color:var(--teal);width:16px;height:16px"/>'
-      + avatarHTML(m.name,28)
-      + '<span style="font-weight:500">'+escHtml(m.name)+'</span>'
-      + (m.role?'<span style="color:var(--text-muted);font-size:11px;margin-left:auto">'+escHtml(m.role)+'</span>':'')
-      + '</label>'
+      +'<input type="checkbox" class="att-cb" data-mid="'+m.id+'" '+(attended[m.id]!==false?'checked':'')+' style="accent-color:var(--teal);width:16px;height:16px"/>'
+      +avatarHTML(m.name,28)+'<span style="font-weight:500">'+escHtml(m.name)+'</span>'
+      +(m.role?'<span style="color:var(--text-muted);font-size:11px;margin-left:auto">'+escHtml(m.role)+'</span>':'')+'</label>'
   }).join('')
-  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
-    + '<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
-    + '<div style="font-size:16px;font-weight:700">✅ Attendance — '+formatDate(meeting.meeting_date)+'</div>'
-    + '<button onclick="document.getElementById(\'attendance-editor-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
-    + '</div>'
-    + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+rows+'</div>'
-    + '<div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
-    + '<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'attendance-editor-overlay\').remove()">Cancel</button>'
-    + '<button class="btn btn-primary" style="flex:2" onclick="saveAttendance(\''+meetingId+'\')">Save Attendance</button>'
-    + '</div></div>'
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+    +'<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    +'<div style="font-size:16px;font-weight:700">✅ Attendance — '+formatDate(meeting.meeting_date)+'</div>'
+    +'<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button></div>'
+    +'<div style="padding:16px 24px;overflow-y:auto;flex:1">'+rows+'</div>'
+    +'<div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAttendanceOverlay()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="att-save-btn">Save Attendance</button></div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
   document.body.appendChild(overlay)
+  document.querySelector('#att-save-btn').onclick = function(){ saveAttendance(meetingId) }
 }
 
 async function saveAttendance(meetingId){
-  var attendance = []
-  document.querySelectorAll('.att-cb').forEach(function(cb){
-    attendance.push({member_id: cb.dataset.mid, attended: cb.checked})
-  })
-  var res = await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:attendance})
-  if(res&&res.error){ toast(res.error,'error'); return }
+  var att=[]
+  document.querySelectorAll('.att-cb').forEach(function(cb){att.push({member_id:cb.dataset.mid,attended:cb.checked})})
+  var res=await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:att})
+  if(res&&res.error){toast(res.error,'error');return}
   document.getElementById('attendance-editor-overlay')?.remove()
-  toast('Attendance saved!','success')
-  await loadBoardPage()
+  toast('Attendance saved!','success'); await loadBoardPage()
 }
 
-// Availability request
 async function openBoardAvailability(){
-  var now = new Date()
-  var months = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  var existing = document.getElementById('avail-req-overlay')
-  if(existing) existing.remove()
-  var overlay = document.createElement('div')
-  overlay.id = 'avail-req-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
-  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px">'
-    + '<div style="font-size:16px;font-weight:700">📬 Request Availability</div>'
-    + '<div style="font-size:13px;color:var(--text-muted)">Send availability form links to all '+active+' active board members.</div>'
-    + '<div style="display:flex;gap:10px">'
-    + '<div class="form-group" style="margin:0;flex:1"><label>Month</label>'
-    + '<select id="avail-month" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
-    + months.map(function(n,i){ return '<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+n+'</option>' }).join('')
-    + '</select></div>'
-    + '<div class="form-group" style="margin:0;width:90px"><label>Year</label>'
-    + '<input type="number" id="avail-year" value="'+now.getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
-    + '</div></div>'
-    + '<div style="display:flex;gap:10px">'
-    + '<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'avail-req-overlay\').remove()">Cancel</button>'
-    + '<button class="btn btn-primary" style="flex:2" id="avail-send-btn" onclick="sendAvailabilityRequest()">📬 Send Emails</button>'
-    + '</div></div>'
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  var now=new Date()
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December']
+  var existing=document.getElementById('avail-req-overlay'); if(existing) existing.remove()
+  var overlay=document.createElement('div'); overlay.id='avail-req-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var active=_boardMembers.filter(function(m){return m.status==='active'}).length
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px">'
+    +'<div style="font-size:16px;font-weight:700">📬 Request Availability</div>'
+    +'<div style="font-size:13px;color:var(--text-muted)">Send availability form links to all '+active+' active board members.</div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<div class="form-group" style="margin:0;flex:1"><label>Month</label><select id="avail-month" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +months.map(function(n,i){return '<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+n+'</option>'}).join('')+'</select></div>'
+    +'<div class="form-group" style="margin:0;width:90px"><label>Year</label><input type="number" id="avail-year" value="'+now.getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAvailReqOverlay()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="avail-send-btn" onclick="sendAvailabilityRequest()">📬 Send Emails</button></div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
   document.body.appendChild(overlay)
 }
 
 async function sendAvailabilityRequest(){
-  var month = document.getElementById('avail-month').value
-  var year  = document.getElementById('avail-year').value
-  var btn   = document.getElementById('avail-send-btn')
-  btn.disabled = true; btn.textContent = 'Sending…'
-  var res = await api('/api/board/availability/send','POST',{month:parseInt(month),year:parseInt(year)})
-  btn.disabled = false; btn.textContent = '📬 Send Emails'
-  if(res&&res.error){ toast(res.error,'error'); return }
+  var month=document.getElementById('avail-month').value, year=document.getElementById('avail-year').value
+  var btn=document.getElementById('avail-send-btn'); btn.disabled=true; btn.textContent='Sending…'
+  var res=await api('/api/board/availability/send','POST',{month:parseInt(month),year:parseInt(year)})
+  btn.disabled=false; btn.textContent='📬 Send Emails'
+  if(res&&res.error){toast(res.error,'error');return}
   document.getElementById('avail-req-overlay')?.remove()
   toast('Sent to '+res.sent+' board member'+(res.sent!==1?'s':'')+'!','success')
 }
 
 // ── BULK IMPORT ──────────────────────────────────────────────────
 var _biRows = []
-
-var BI_COLS = ['first_name','last_name','dob',
-  'guardian_name','guardian_phone','guardian_email','guardian_relationship',
-  'emergency_name','emergency_phone','emergency_relationship',
-  'pickup1_name','pickup1_phone','pickup1_relationship',
-  'pickup2_name','pickup2_phone','pickup2_relationship',
-  'medical_notes','allergies','photo_consent','medical_consent','status']
+var BI_COLS = ['first_name','last_name','dob','guardian_name','guardian_phone','guardian_email','guardian_relationship','emergency_name','emergency_phone','emergency_relationship','pickup1_name','pickup1_phone','pickup1_relationship','pickup2_name','pickup2_phone','pickup2_relationship','medical_notes','allergies','photo_consent','medical_consent','status']
 
 async function openBulkImport(){
-  // Open modal immediately so user sees something
-  _biRows = []
-  biShowStep(1)
-  openModal('modal-bulk-import')
-  // Populate program dropdown
-  var sel = document.getElementById('bi-program')
+  _biRows=[]; biShowStep(1); openModal('modal-bulk-import')
+  var sel=document.getElementById('bi-program')
   if(sel){
-    var progs = Array.isArray(allPrograms) && allPrograms.length ? allPrograms : (await api('/api/youth-programs'))
-    sel.innerHTML = '<option value="">— No enrollment —</option>'
-      + (Array.isArray(progs)?progs:[]).map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('')
+    var progs=Array.isArray(allPrograms)&&allPrograms.length?allPrograms:(await api('/api/youth-programs'))
+    sel.innerHTML='<option value="">— No enrollment —</option>'+(Array.isArray(progs)?progs:[]).map(function(p){return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>'}).join('')
   }
-  var fileInput = document.getElementById('bi-file')
-  if(fileInput) fileInput.value = ''
+  var fi=document.getElementById('bi-file'); if(fi) fi.value=''
 }
-
-function biShowStep(n){
-  ;[1,2,3].forEach(function(i){
-    var el = document.getElementById('bi-step-'+i)
-    if(el) el.style.display = i===n ? '' : 'none'
-  })
-}
-
+function biShowStep(n){;[1,2,3].forEach(function(i){var el=document.getElementById('bi-step-'+i);if(el)el.style.display=i===n?'':'none'})}
 function biDownloadTemplate(){
-  var csv = BI_COLS.join(',') + '\n'
-    + 'Jane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,'
-    + 'John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,'
-    + 'None,Peanuts,yes,yes,active'
-  var a = document.createElement('a')
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
-  a.download = 'participant_import_template.csv'
-  a.click()
+  var csv=BI_COLS.join(',')+('\nJane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,None,Peanuts,yes,yes,active')
 }
-
 async function biHandleFile(input){
-  var file = input.files[0]
-  if(!file) return
-  var ext = file.name.split('.').pop().toLowerCase()
-  if(ext === 'csv'){
-    var text = await file.text()
-    _biRows = biParseCSV(text)
-  } else {
-    toast('Please use a CSV file — Excel coming soon','error')
-    return
-  }
-  if(!_biRows.length){ toast('No data rows found','error'); return }
-  if(!_biRows[0].first_name && !_biRows[0].last_name){
-    toast('Could not find first_name/last_name columns — check headers match template','error'); return
-  }
-  document.getElementById('bi-summary').textContent = 'Checking ' + _biRows.length + ' rows for duplicates…'
-  biShowStep(2)
-  var res = await api('/api/youth-participants/check-duplicates','POST',{rows: _biRows})
-  var checks = Array.isArray(res) ? res : _biRows.map(function(){ return {existing:null} })
-  _biRows = _biRows.map(function(row, i){
-    row._existing = checks[i] && checks[i].existing ? checks[i].existing : null
-    row._action = row._existing ? 'skip' : 'create'
-    return row
-  })
+  var file=input.files[0]; if(!file) return
+  if(!file.name.endsWith('.csv')){toast('Please use a CSV file','error');return}
+  var text=await file.text(); _biRows=biParseCSV(text)
+  if(!_biRows.length){toast('No data rows found','error');return}
+  if(!_biRows[0].first_name&&!_biRows[0].last_name){toast('Could not find first_name/last_name columns','error');return}
+  document.getElementById('bi-summary').textContent='Checking '+_biRows.length+' rows…'; biShowStep(2)
+  var res=await api('/api/youth-participants/check-duplicates','POST',{rows:_biRows})
+  var checks=Array.isArray(res)?res:_biRows.map(function(){return{existing:null}})
+  _biRows=_biRows.map(function(row,i){row._existing=checks[i]&&checks[i].existing?checks[i].existing:null; row._action=row._existing?'skip':'create'; return row})
   biRenderPreview()
 }
-
 function biParseCSV(text){
-  var lines = text.trim().split('\n')
-  if(lines.length < 2) return []
-  var headers = lines[0].split(',').map(function(h){ return h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/\s+/g,'_') })
-  return lines.slice(1).filter(function(l){ return l.trim() }).map(function(line){
-    var vals = [], cur = '', inQ = false
-    for(var i=0;i<line.length;i++){
-      var ch = line[i]
-      if(ch==='"'){ inQ=!inQ }
-      else if(ch===','&&!inQ){ vals.push(cur.trim()); cur='' }
-      else cur+=ch
-    }
+  var lines=text.trim().split('\n'); if(lines.length<2) return []
+  var headers=lines[0].split(',').map(function(h){return h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/\s+/g,'_')})
+  return lines.slice(1).filter(function(l){return l.trim()}).map(function(line){
+    var vals=[],cur='',inQ=false
+    for(var i=0;i<line.length;i++){var ch=line[i];if(ch==='"'){inQ=!inQ}else if(ch===','&&!inQ){vals.push(cur.trim());cur=''}else cur+=ch}
     vals.push(cur.trim())
-    var row = {}
-    headers.forEach(function(h,i){ if(h) row[h] = vals[i] || '' })
-    return row
+    var row={}; headers.forEach(function(h,i){if(h)row[h]=vals[i]||''}); return row
   })
 }
-
 function biRenderPreview(){
-  var dups = _biRows.filter(function(r){ return r._existing })
-  var dupBanner = document.getElementById('bi-dup-banner')
-  if(dupBanner) dupBanner.style.display = dups.length ? '' : 'none'
-  var summary = _biRows.length + ' row' + (_biRows.length!==1?'s':'') + ' · ' + dups.length + ' duplicate' + (dups.length!==1?'s':'') + ' found'
-  document.getElementById('bi-summary').textContent = summary
-
-  var tbody = document.getElementById('bi-tbody')
-  tbody.innerHTML = _biRows.map(function(row, i){
-    var isDup = !!row._existing
-    var bg = isDup ? 'background:#fefce8' : ''
-    var actionCell = isDup
-      ? '<select onchange="_biRows['+i+']._action=this.value" style="width:100%;padding:4px 6px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px">'
-        + '<option value="skip"'+(row._action==='skip'?' selected':'')+'>⏭ Skip</option>'
-        + '<option value="update"'+(row._action==='update'?' selected':'')+'>✏️ Update</option>'
-        + '<option value="create"'+(row._action==='create'?' selected':'')+'>➕ Create new</option>'
-        + '</select>'
-        + '<div style="font-size:11px;color:var(--amber-600);margin-top:2px">⚠️ Matches: '
-        + escHtml(row._existing.first_name)+' '+escHtml(row._existing.last_name)
-        + (row._existing.dob?' ('+row._existing.dob+')':'')+'</div>'
-      : '<span style="color:var(--green-600);font-size:12px;font-weight:600">✅ New</span>'
-    var pickups = [row.pickup1_name, row.pickup2_name].filter(Boolean).map(function(n){ return escHtml(n) }).join(', ')
-    var medical = [row.allergies?'🚨 '+row.allergies:'', row.medical_notes].filter(Boolean).join(' ')
+  var dups=_biRows.filter(function(r){return r._existing})
+  var db=document.getElementById('bi-dup-banner'); if(db) db.style.display=dups.length?'':'none'
+  document.getElementById('bi-summary').textContent=_biRows.length+' rows · '+dups.length+' duplicates found'
+  var tbody=document.getElementById('bi-tbody')
+  tbody.innerHTML=_biRows.map(function(row,i){
+    var isDup=!!row._existing, bg=isDup?'background:#fefce8':''
+    var ac=isDup
+      ?'<select onchange="_biRows['+i+']._action=this.value" style="width:100%;padding:4px 6px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px"><option value="skip"'+(row._action==='skip'?' selected':'')+'>⏭ Skip</option><option value="update"'+(row._action==='update'?' selected':'')+'>✏️ Update</option><option value="create"'+(row._action==='create'?' selected':'')+'>➕ Create</option></select><div style="font-size:11px;color:var(--amber-600);margin-top:2px">⚠️ Matches: '+escHtml(row._existing.first_name)+' '+escHtml(row._existing.last_name)+'</div>'
+      :'<span style="color:var(--green-600);font-size:12px;font-weight:600">✅ New</span>'
+    var pu=[row.pickup1_name,row.pickup2_name].filter(Boolean).map(function(n){return escHtml(n)}).join(', ')
+    var med=[row.allergies?'🚨 '+row.allergies:'',row.medical_notes].filter(Boolean).join(' ')
     return '<tr style="'+bg+';border-bottom:1px solid var(--border)">'
-      + '<td style="padding:8px;text-align:center"><input type="checkbox" class="bi-cb" data-idx="'+i+'" checked style="accent-color:var(--teal)"/></td>'
-      + '<td style="padding:8px;font-weight:600">'+escHtml(row.first_name||'')+' '+escHtml(row.last_name||'')+'</td>'
-      + '<td style="padding:8px;color:var(--text-muted);font-size:12px">'+escHtml(row.dob||'—')+'</td>'
-      + '<td style="padding:8px;font-size:12px">'+escHtml(row.guardian_name||'—')+(row.guardian_phone?'<br><span style="color:var(--text-muted)">'+escHtml(row.guardian_phone)+'</span>':'')+'</td>'
-      + '<td style="padding:8px;font-size:12px">'+(pickups||'—')+'</td>'
-      + '<td style="padding:8px;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(medical||'—')+'</td>'
-      + '<td style="padding:8px">'+actionCell+'</td>'
-      + '</tr>'
+      +'<td style="padding:8px;text-align:center"><input type="checkbox" class="bi-cb" data-idx="'+i+'" checked style="accent-color:var(--teal)"/></td>'
+      +'<td style="padding:8px;font-weight:600">'+escHtml(row.first_name||'')+' '+escHtml(row.last_name||'')+'</td>'
+      +'<td style="padding:8px;color:var(--text-muted);font-size:12px">'+escHtml(row.dob||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px">'+escHtml(row.guardian_name||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px">'+(pu||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(med||'—')+'</td>'
+      +'<td style="padding:8px">'+ac+'</td></tr>'
   }).join('')
 }
-
-function biSetAllDups(action){
-  _biRows.forEach(function(r){ if(r._existing) r._action = action })
-  biRenderPreview()
-}
-
-function biToggleAll(cb){
-  document.querySelectorAll('.bi-cb').forEach(function(c){ c.checked = cb.checked })
-}
-
-function biBack(){
-  biShowStep(1)
-}
-
+function biSetAllDups(action){_biRows.forEach(function(r){if(r._existing)r._action=action});biRenderPreview()}
+function biToggleAll(cb){document.querySelectorAll('.bi-cb').forEach(function(c){c.checked=cb.checked})}
+function biBack(){biShowStep(1)}
 async function biRunImport(){
-  var btn = document.getElementById('bi-run-btn')
-  btn.disabled = true; btn.textContent = 'Importing…'
-  var checkedIdxs = new Set()
-  document.querySelectorAll('.bi-cb:checked').forEach(function(c){ checkedIdxs.add(parseInt(c.dataset.idx)) })
-  var toImport = _biRows.filter(function(r,i){ return checkedIdxs.has(i) }).map(function(r){
-    var out = {}
-    BI_COLS.forEach(function(k){ out[k] = r[k] || '' })
-    out.action = r._action || 'create'
-    out.existing_id = r._existing ? r._existing.id : null
-    return out
+  var btn=document.getElementById('bi-run-btn'); btn.disabled=true; btn.textContent='Importing…'
+  var idxs=new Set(); document.querySelectorAll('.bi-cb:checked').forEach(function(c){idxs.add(parseInt(c.dataset.idx))})
+  var rows=_biRows.filter(function(r,i){return idxs.has(i)}).map(function(r){
+    var out={}; BI_COLS.forEach(function(k){out[k]=r[k]||''}); out.action=r._action||'create'; out.existing_id=r._existing?r._existing.id:null; return out
   })
-  var res = await api('/api/youth-participants/bulk-import','POST',{
-    rows: toImport,
-    program_id: document.getElementById('bi-program').value || null,
-    enrolled_date: document.getElementById('bi-enroll-date').value || null
-  })
-  btn.disabled = false; btn.textContent = 'Import'
-  biShowStep(3)
-  if(res.error){
-    document.getElementById('bi-result-icon').textContent = '❌'
-    document.getElementById('bi-result-title').textContent = 'Import failed'
-    document.getElementById('bi-result-body').textContent = res.error
-    return
-  }
-  document.getElementById('bi-result-icon').textContent = '🎉'
-  document.getElementById('bi-result-title').textContent = 'Import complete!'
-  document.getElementById('bi-result-body').innerHTML =
-    '<strong>'+res.created+'</strong> created &nbsp;·&nbsp; <strong>'+res.updated+'</strong> updated &nbsp;·&nbsp; <strong>'+res.skipped+'</strong> skipped'
-  if(res.errors && res.errors.length){
-    var errEl = document.getElementById('bi-result-errors')
-    errEl.style.display = ''
-    errEl.innerHTML = '<strong style="color:#dc2626">⚠️ Some rows had errors:</strong><ul style="margin:6px 0 0 16px">'
-      + res.errors.map(function(e){ return '<li>'+escHtml(e)+'</li>' }).join('') + '</ul>'
-  }
+  var res=await api('/api/youth-participants/bulk-import','POST',{rows:rows,program_id:document.getElementById('bi-program').value||null,enrolled_date:document.getElementById('bi-enroll-date').value||null})
+  btn.disabled=false; btn.textContent='Import'; biShowStep(3)
+  if(res&&res.error){document.getElementById('bi-result-icon').textContent='❌';document.getElementById('bi-result-title').textContent='Failed';document.getElementById('bi-result-body').textContent=res.error;return}
+  document.getElementById('bi-result-icon').textContent='🎉'; document.getElementById('bi-result-title').textContent='Import complete!'
+  document.getElementById('bi-result-body').innerHTML='<strong>'+res.created+'</strong> created &nbsp;·&nbsp; <strong>'+res.updated+'</strong> updated &nbsp;·&nbsp; <strong>'+res.skipped+'</strong> skipped'
+  if(res.errors&&res.errors.length){var e=document.getElementById('bi-result-errors');e.style.display='';e.innerHTML='<strong style="color:#dc2626">Errors:</strong><ul style="margin:4px 0 0 16px">'+res.errors.map(function(e){return'<li>'+escHtml(e)+'</li>'}).join('')+'</ul>'}
 }
-
-async function biDone(){
-  closeModal('modal-bulk-import')
-  await loadAllData()
-  if(typeof renderYouth === 'function') renderYouth()
-  toast('Participants updated!','success')
-}
+async function biDone(){closeModal('modal-bulk-import');await loadAllData();if(typeof renderYouth==='function')renderYouth();toast('Participants updated!','success')}
 
 function openYouthModal(){
   document.getElementById('youth-modal-title').textContent='Add Participant'
@@ -5428,65 +5229,6 @@ async function sendEventReport(eventId){
   const res = await api('/api/email-settings/send-report/'+eventId,'POST')
   if(res.ok) toast('Report sent to recipients!','success')
   else toast(res.error||'Send failed','error')
-}
-
-async function downloadEventReportPdf(eventId, logId){
-  const res = await api('/api/event-logs/'+logId+'/report')
-  if(!res || res.error){ toast(res&&res.error?res.error:'Could not load report','error'); return }
-  const log = res
-  const checklist = (log.checklist||[]).map(function(r){
-    var val = String(r.response||'')
-    var valStr = r.item_type==='checkbox' ? (val==='true'?'✅ Done':'❌ Not Done') : (val||'—')
-    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+escHtml(valStr)+'</td></tr>'
-  }).join('')
-  const hours = (log.hours||[]).map(function(h){
-    return '<tr>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+h.hours+'h</td>'
-      + '<td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td>'
-      + '</tr>'
-  }).join('')
-  var totalHours = (log.hours||[]).reduce(function(s,h){ return s+(parseFloat(h.hours)||0) },0)
-  var volCount = (log.hours||[]).length
-
-  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
-    + '<title>Event Report — '+escHtml(log.event_name||'')+'<\/title>'
-    + '<style>'
-    + 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:0;background:#fff;color:#1a1a1a}'
-    + '.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}'
-    + '.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}'
-    + '.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}'
-    + '.stat-num{font-size:28px;font-weight:900;color:#145466}'
-    + '.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}'
-    + 'h3{color:#145466;font-size:15px;font-weight:700;margin:24px 0 10px}'
-    + 'table{width:100%;border-collapse:collapse;border:1px solid #e0e0db}'
-    + 'thead{background:#f0f8fa}'
-    + 'th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}'
-    + '.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}'
-    + '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
-    + '<\/style><\/head><body>'
-    + '<div class="header">'
-    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<\/div>'
-    + '<div style="font-size:22px;font-weight:800;margin-bottom:4px">🔒 '+escHtml(log.event_name||'')+'<\/div>'
-    + '<div style="font-size:13px;opacity:0.7">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<\/div>'
-    + '<\/div>'
-    + '<div style="padding:28px 32px">'
-    + '<div class="stat-grid">'
-    + '<div class="stat"><div class="stat-num">'+volCount+'<\/div><div class="stat-label">Volunteers<\/div><\/div>'
-    + '<div class="stat"><div class="stat-num">'+totalHours.toFixed(1)+'h<\/div><div class="stat-label">Total Hours<\/div><\/div>'
-    + '<div class="stat"><div class="stat-num">'+( log.checklist||[]).length+'<\/div><div class="stat-label">Checklist Items<\/div><\/div>'
-    + '<\/div>'
-    + (checklist ? '<h3>✅ Closing Checklist<\/h3><table><thead><tr><th>Item<\/th><th>Response<\/th><\/tr><\/thead><tbody>'+checklist+'<\/tbody><\/table>' : '<p><em>No checklist items recorded.<\/em><\/p>')
-    + (hours ? '<h3>⏱ Hours Logged<\/h3><table><thead><tr><th>Volunteer<\/th><th>Hours<\/th><th>Status<\/th><\/tr><\/thead><tbody>'+hours+'<\/tbody><\/table>' : '<p><em>No hours recorded for this event.<\/em><\/p>')
-    + '<\/div>'
-    + '<div class="footer">RoleCall — Horizon West Theatre Company Management System<\/div>'
-    + '<script>window.onload=function(){window.print()}<\/scr'+'ipt>'
-    + '<\/body><\/html>'
-
-  var win = window.open('','_blank')
-  if(win){ win.document.write(html); win.document.close() }
-  else toast('Please allow popups to download the PDF','error')
 }
 
 let _eventAlertInterval = null
@@ -9799,10 +9541,7 @@ async function loadEventLogs(){
           <div style="font-size:13px;font-weight:600;color:${actionColors[log.action]||'var(--text-muted)'}">${actionLabels[log.action]||log.action}</div>
           <div style="font-size:12px;color:var(--text-muted)">${log.elic_name}</div>
           <div style="font-size:11px;color:var(--text-hint)">${formatDate((log.timestamp||'').split('T')[0])} ${(log.timestamp||'').split('T')[1]?.substring(0,5)||''}</div>
-          ${log.action==='close'&&isAdmin?`<div style="display:flex;gap:6px;margin-top:4px">
-            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="sendEventReport('${log.event_id}')">📧 Email</button>
-            <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="downloadEventReportPdf('${log.event_id}','${log.log_id||log.id}')">📄 PDF</button>
-          </div>`:''}
+          ${log.action==='close'&&isAdmin?`<div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="sendEventReport('${log.event_id}')">📧 Email</button><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="downloadEventReportPdf('${log.event_id}','${log.log_id||log.id}')">📄 PDF</button></div>`:''}
         </div>
       </div>
       ${log.checklist?.length?`
@@ -13929,16 +13668,15 @@ function filterEpyList(){
 async function submitYouthProdEnrollment(prodId){
   const checked=[...document.querySelectorAll('#epy-list input:checked')].map(c=>c.value)
   if(!checked.length){toast('Select at least one participant','error');return}
-  const btn = document.querySelector('#modal-enroll-youth-prod .btn-primary')
-  if(btn){ btn.disabled=true; btn.textContent='Saving…' }
+  // Store as youth production members in a dedicated endpoint
   const res=await api('/api/productions/'+prodId+'/youth-members','POST',{youth_ids:checked})
-  if(btn){ btn.disabled=false; btn.textContent='Enroll Selected' }
-  if(res&&res.error){toast('Error: '+res.error,'error');return}
+  if(res&&res.error){toast(res.error,'error');return}
   document.getElementById('modal-enroll-youth-prod')?.remove()
-  const msg = (res.enrolled||checked.length)+' enrolled'+(res.skipped?' ('+res.skipped+' already in cast)':'')
-  toast(msg,'success')
-  await loadYouthProdMembers(prodId)
-  if(ysiCurrentFilter&&ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
+  toast(checked.length+' youth enrolled in production!','success')
+  // Reload youth members display
+  loadYouthProdMembers(prodId)
+  // Reload sign-in sheet if we're on it
+  if(ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
     loadYouthSignInSheet()
   }
 }

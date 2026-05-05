@@ -578,6 +578,14 @@ def init_db():
             join_date TEXT,
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_nominations (
+            id TEXT PRIMARY KEY,
+            member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
+            nomination_date TEXT NOT NULL,
+            nomination_type TEXT DEFAULT 'election',
+            term_years INTEGER DEFAULT 3,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS board_meetings (
             id TEXT PRIMARY KEY,
             meeting_date TEXT NOT NULL,
@@ -6759,12 +6767,41 @@ def get_board_members():
     conn = get_db()
     members = fetchall(conn, 'SELECT * FROM board_members ORDER BY name')
     for m in members:
-        total = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
+        total    = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
         attended = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attended=TRUE', (m['id'],))
         m['meetings_total']    = total['c'] if total else 0
         m['meetings_attended'] = attended['c'] if attended else 0
+        m['nominations'] = fetchall(conn,
+            'SELECT * FROM board_nominations WHERE member_id=%s ORDER BY nomination_date ASC', (m['id'],))
     conn.close()
     return jsonify(members)
+
+@app.route('/api/board/members/<mid>/nominations', methods=['POST'])
+def add_board_nomination(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    if not d.get('nomination_date'):
+        return jsonify({'error': 'Nomination date required'}), 400
+    nid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO board_nominations (id,member_id,nomination_date,nomination_type,term_years,notes)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (nid, mid, d['nomination_date'], d.get('nomination_type','election'),
+         int(d.get('term_years', 3)), d.get('notes','').strip()))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM board_nominations WHERE id=%s', (nid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/board/nominations/<nid>', methods=['DELETE'])
+def delete_board_nomination(nid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_nominations WHERE id=%s', (nid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/board/members', methods=['POST'])
 def create_board_member():

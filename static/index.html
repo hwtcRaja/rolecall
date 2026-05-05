@@ -4945,25 +4945,32 @@ function openVolModal(){
   openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
-  var v = volunteers.find(function(v){ return v.id===volId })
-  // Fall back to the profile data if volunteers array not yet populated
+  var v = volunteers.find(function(x){ return x.id===volId })
   if(!v && window._currentProfileData) v = window._currentProfileData
-  if(!v){ toast('Could not load volunteer data — please try again','error'); return }
+  if(!v){ toast('Could not load volunteer data','error'); return }
+
   document.getElementById('vol-modal-title').textContent='Edit Volunteer'
   document.getElementById('vol-edit-id').value=v.id
-  document.getElementById('vol-name').value=v.name
-  document.getElementById('vol-email').value=v.email
+  document.getElementById('vol-name').value=v.name||''
+  document.getElementById('vol-email').value=v.email||''
   document.getElementById('vol-phone').value=v.phone||''
   document.getElementById('vol-birthday').value=v.birthday||''
-  document.getElementById('vol-status').value=v.status
+  document.getElementById('vol-status').value=v.status||'active'
   document.getElementById('vol-pronouns').value=v.pronouns||''
-  document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
-  document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
-  const epEl=document.getElementById('vol-employer-program'); if(epEl) epEl.value=v.employer_program||''
-  setCheckedInterests(JSON.parse(v.interests||'[]'))
-  let subSel={}
-  try{ subSel=JSON.parse(v.sub_selections||'{}') }catch(e){}
-  setVolSubSelections(subSel)
+
+  var bgEl=document.getElementById('vol-bgcheck')
+  if(bgEl) bgEl.value=v.background_check_status||'none'
+  var bgdEl=document.getElementById('vol-bgcheck-date')
+  if(bgdEl) bgdEl.value=v.background_check_date||''
+  var epEl=document.getElementById('vol-employer-program')
+  if(epEl) epEl.value=v.employer_program||''
+
+  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
+  try{
+    var subSel=JSON.parse(v.sub_selections||'{}')
+    setVolSubSelections(subSel)
+  }catch(e){}
+
   openModal('modal-volunteer')
 }
 async function saveVolunteer(){

@@ -6795,8 +6795,34 @@ def get_board_members():
         m['meetings_attended'] = attended['c'] if attended else 0
         m['nominations'] = fetchall(conn,
             'SELECT * FROM board_nominations WHERE member_id=%s ORDER BY nomination_date ASC', (m['id'],))
+        # Include most recent availability token so admin can share link manually
+        latest_avail = fetchone(conn,
+            'SELECT token, month, year FROM board_availability WHERE member_id=%s ORDER BY year DESC, month DESC LIMIT 1',
+            (m['id'],))
+        m['latest_availability_token'] = latest_avail['token'] if latest_avail else None
+        m['latest_availability_month'] = latest_avail['month'] if latest_avail else None
+        m['latest_availability_year']  = latest_avail['year'] if latest_avail else None
     conn.close()
     return jsonify(members)
+
+@app.route('/api/board/members/<mid>/availability-link', methods=['POST'])
+def get_member_availability_link(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    month = int(d.get('month', datetime.now().month))
+    year  = int(d.get('year', datetime.now().year))
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT token FROM board_availability WHERE member_id=%s AND month=%s AND year=%s', (mid, month, year))
+    if existing:
+        token = existing['token']
+    else:
+        token = str(uuid.uuid4())
+        execute(conn, "INSERT INTO board_availability (id,member_id,month,year,token,blocked_dates) VALUES (%s,%s,%s,%s,%s,'[]')",
+            (str(uuid.uuid4()), mid, month, year, token))
+        conn.commit()
+    conn.close()
+    return jsonify({'token': token, 'month': month, 'year': year})
 
 @app.route('/api/board/members/<mid>/nominations', methods=['POST'])
 def add_board_nomination(mid):

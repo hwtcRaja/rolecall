@@ -3201,7 +3201,7 @@ async function openProfile(volId){
       v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:'🔗 Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
       v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
-      v.employer_program==='Disney Cast Member'?{label:'<img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
+      v.employer_program==='Disney Cast Member'?{label:'🐭 Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
       v.employer_program==='Universal Team Member'?{label:'🎬 Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
       {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
     ].filter(Boolean),

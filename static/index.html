@@ -1825,6 +1825,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <input type="checkbox" id="bmeet-sync" checked style="accent-color:var(--teal)"/>
         <label for="bmeet-sync" style="font-size:13px;cursor:pointer">📅 Also add to event calendar</label>
       </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-board-meeting')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBoardMeeting()">Save</button>
+    </div>
   </div>
 </div>
 
@@ -4976,9 +4981,12 @@ function openVolModal(){
   openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
+  console.log('openEditVolModal called with:', volId)
   var v = volunteers.find(function(x){ return x.id===volId })
-  if(!v && window._currentProfileData) v = window._currentProfileData
-  if(!v){ toast('Could not load volunteer data','error'); return }
+  console.log('found in volunteers:', !!v)
+  if(!v && window._currentProfileData){ v = window._currentProfileData; console.log('using _currentProfileData, id:', v && v.id) }
+  if(!v){ alert('Could not load volunteer data - volId: ' + volId); return }
+  console.log('volunteer found, opening modal...')
 
   document.getElementById('vol-modal-title').textContent='Edit Volunteer'
   document.getElementById('vol-edit-id').value=v.id

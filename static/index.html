@@ -4291,7 +4291,7 @@ function renderBoardMembers(){
   var el=document.getElementById('btab-panel-members')
   if(!el) return
   if(!_boardMembers.length){ el.innerHTML='<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'; return }
-  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">'
+  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px">'
     + _boardMembers.map(function(m){
       var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
       var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
@@ -4311,16 +4311,23 @@ function renderBoardMembers(){
         }
       }
       var nomH=noms.length
-        ?noms.map(function(n,i){
-          var tl={election:'🗳️ Elected',renomination:'🔄 Renominated',appointment:'📋 Appointed'}[n.nomination_type]||n.nomination_type
-          var te=parseInt((n.nomination_date||'').split('-')[0])+parseInt(n.term_years||3)
-          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;'+(i<noms.length-1?'border-bottom:1px solid var(--border)':'')+'">'
-            +'<div><span style="font-size:12px;font-weight:600">'+tl+'</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px">'+formatDate(n.nomination_date)+'</span></div>'
-            +'<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--text-muted)">→ '+te+'</span>'
-            +'<div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;color:var(--text-muted)">→ '+te+'</span>'
-            +'<button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:14px;padding:0">×</button></div></div>'
-        }).join('')
-        :'<div style="font-size:12px;color:var(--text-muted);font-style:italic">No elections recorded</div>'
+        ?'<table style="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px">'
+          +noms.map(function(n,i){
+            var tl={election:'🗳️ Initial Election',renomination:'🔄 Renomination',appointment:'📋 Appointment'}[n.nomination_type]||n.nomination_type
+            var startYear=parseInt((n.nomination_date||'').split('-')[0])
+            var termYrs=parseInt(n.term_years||3)
+            var endYear=startYear+termYrs
+            return '<tr style="border-top:'+(i>0?'1px solid var(--border)':'none')+'">'
+              +'<td style="padding:7px 0;font-weight:600;white-space:nowrap">'+tl+'</td>'
+              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+formatDate(n.nomination_date)+'</td>'
+              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+termYrs+'yr term</td>'
+              +'<td style="padding:7px 0;color:var(--text-muted);white-space:nowrap">until '+endYear+'</td>'
+              +'<td style="padding:7px 0;padding-left:8px;text-align:right">'
+              +'<button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" '
+              +'style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0;line-height:1">×</button></td>'
+              +'</tr>'
+          }).join('')+'</table>'
+        :'<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No elections recorded yet</div>'
       return '<div class="card" style="padding:16px">'
         +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
         +'<div style="display:flex;align-items:center;gap:10px">'+avatarHTML(m.name,36)
@@ -4328,16 +4335,15 @@ function renderBoardMembers(){
         +'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div>'
         +'<div style="display:flex;gap:6px;align-items:center">'+sb
         +'<button data-id="'+m.id+'" onclick="editBoardMember(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button></div></div>'
-        +'<div style="font-size:12px;color:var(--text-muted)">📧 '+escHtml(m.email)+'</div>'
-        +'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
-        +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings</div>'
-        +(rate!==null?'<div style="font-size:16px;font-weight:800;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">No meetings yet</div>')
+        +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">📧 '+escHtml(m.email)+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:10px">'
+        +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings attended</div>'
+        +(rate!==null?'<div style="font-size:18px;font-weight:900;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">—</div>')
         +'</div>'
-        +'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Election History</div>'
-        +'<button data-mid="'+m.id+'" onclick="openNominationModal(this.dataset.mid)" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px">+ Add</button></div>'
-        +nomH+dueWarn+'</div></div>'
+        +'<button data-mid="'+m.id+'" onclick="openNominationModal(this.dataset.mid)" class="btn btn-secondary btn-sm" style="padding:2px 10px;font-size:11px">+ Add</button></div>'
+        +nomH+dueWarn+'</div>'
     }).join('')+'</div>'
 }
 

@@ -3193,6 +3193,8 @@ async function openProfile(volId){
   const isAdmin=canEdit('volunteers')
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
+  const btnStyle='background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
+  const dangerStyle='background:rgba(192,57,43,0.5);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
   document.getElementById('profile-header').innerHTML=buildProfileBanner({
     name: v.name, email: v.email, phone: v.phone, status: v.status,
     bg, col, backFn: "navTo('volunteers')",
@@ -3207,22 +3209,30 @@ async function openProfile(volId){
     ].filter(Boolean),
     actions: []
   })
-  // Add action buttons via DOM so onclick handlers are reliable
+  // Wire up action buttons directly via addEventListener to avoid all escaping issues
   if(isAdmin){
-    var actBar = document.createElement('div')
-    actBar.style.cssText='display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0;padding:0 32px 16px'
-    var btnStyle='background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
-    var emailA=document.createElement('a'); emailA.href='mailto:'+v.email; emailA.style.cssText=btnStyle+';text-decoration:none'; emailA.textContent='✉️ Email'
-    var editB=document.createElement('button'); editB.style.cssText=btnStyle; editB.textContent='Edit'
-    editB.addEventListener('click', function(){ openEditVolModal(v.id) })
-    var idB=document.createElement('button'); idB.style.cssText=btnStyle; idB.textContent='🪪 ID Card'
-    idB.addEventListener('click', function(){ printVolIdCard(v.id, v.name) })
-    var linkB=document.createElement('button'); linkB.style.cssText=btnStyle; linkB.textContent='🔗 Link Participant'
-    linkB.addEventListener('click', function(){ openLinkModal('volunteer', v.id, '') })
-    var delB=document.createElement('button'); delB.style.cssText=btnStyle+';background:rgba(192,57,43,0.5);border-color:rgba(255,255,255,0.4)'; delB.textContent='Delete'
-    delB.addEventListener('click', function(){ deleteVol(v.id) })
-    actBar.appendChild(emailA); actBar.appendChild(editB); actBar.appendChild(idB); actBar.appendChild(linkB); actBar.appendChild(delB)
-    document.getElementById('profile-header').appendChild(actBar)
+    const banner = document.querySelector('#profile-header > div')
+    const actDiv = document.createElement('div')
+    actDiv.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0'
+    const mkBtn = (label, clickFn, danger) => {
+      const b = document.createElement('button')
+      b.style.cssText = danger ? dangerStyle : btnStyle
+      b.textContent = label
+      b.addEventListener('click', clickFn)
+      actDiv.appendChild(b)
+    }
+    const mkLink = (label, href) => {
+      const a = document.createElement('a')
+      a.style.cssText = btnStyle + ';text-decoration:none'
+      a.textContent = label; a.href = href
+      actDiv.appendChild(a)
+    }
+    mkLink('✉️ Email', 'mailto:'+v.email)
+    mkBtn('Edit', function(){ openEditVolModal(v.id) })
+    mkBtn('🪪 ID Card', function(){ printVolIdCard(v.id, v.name) })
+    mkBtn('🔗 Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
+    mkBtn('Delete', function(){ deleteVol(v.id) }, true)
+    if(banner) banner.appendChild(actDiv)
   }
 
   document.getElementById('profile-content').innerHTML=`

@@ -447,6 +447,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Admin</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
+        <div class="nav-item admin-only" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
@@ -1124,6 +1125,29 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PENDING HOURS -->
+      <!-- BOARD MANAGEMENT PAGE -->
+      <section class="page" id="page-board">
+        <div class="page-header">
+          <div><div class="page-title">🏛️ Board</div><div class="page-subtitle" id="board-subtitle">Loading…</div></div>
+          <div class="page-actions">
+            <button class="btn btn-secondary" onclick="openBoardScheduler()">📅 Schedule Meeting</button>
+            <button class="btn btn-secondary" onclick="openBoardAvailability()">📬 Request Availability</button>
+            <button class="btn btn-primary" onclick="openBoardMemberModal()">+ Add Member</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <!-- Tabs -->
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+            <button onclick="switchBoardTab('members')" id="btab-members" class="board-tab active-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">👥 Members</button>
+            <button onclick="switchBoardTab('meetings')" id="btab-meetings" class="board-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📋 Meetings</button>
+            <button onclick="switchBoardTab('schedule')" id="btab-schedule" class="board-tab" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📅 Find Best Time</button>
+          </div>
+          <div id="btab-panel-members"></div>
+          <div id="btab-panel-meetings" style="display:none"></div>
+          <div id="btab-panel-schedule" style="display:none"></div>
+        </div>
+      </section>
+
       <section class="page" id="page-notifications">
         <div class="page-header">
           <div><div class="page-title">🔔 Notifications</div><div class="page-subtitle">Everything that needs your attention</div></div>
@@ -1686,6 +1710,56 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-program')">Cancel</button>
       <button class="btn btn-primary" onclick="saveYouthProgram()">Save Program</button>
+    </div>
+  </div>
+</div>
+
+<!-- BOARD MEMBER MODAL -->
+<div class="modal-overlay" id="modal-board-member">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="board-member-modal-title">Add Board Member</div>
+      <button class="modal-close" onclick="closeModal('modal-board-member')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="bm-id"/>
+      <div class="form-group"><label>Name *</label><input type="text" id="bm-name"/></div>
+      <div class="form-group"><label>Email *</label><input type="email" id="bm-email"/></div>
+      <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer, Secretary…"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Status</label>
+          <select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select>
+        </div>
+        <div class="form-group"><label>Join Date</label><input type="date" id="bm-join-date"/></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="bm-notes" style="min-height:60px"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBoardMember()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- BOARD MEETING MODAL -->
+<div class="modal-overlay" id="modal-board-meeting">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div>
+      <button class="modal-close" onclick="closeModal('modal-board-meeting')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="bmeet-id"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Date *</label><input type="date" id="bmeet-date"/></div>
+        <div class="form-group"><label>Time</label><input type="time" id="bmeet-time"/></div>
+      </div>
+      <div class="form-group"><label>Location</label><input type="text" id="bmeet-location" placeholder="e.g. Zoom, Theatre, etc."/></div>
+      <div class="form-group"><label>Notes</label><textarea id="bmeet-notes" style="min-height:60px"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-board-meeting')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBoardMeeting()">Save</button>
     </div>
   </div>
 </div>
@@ -2611,6 +2685,7 @@ function navTo(page,el){
   if(page==='notifications') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='reports') initReportsPage()
+  if(page==='board') loadBoardPage()
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
   if(page==='rising-stars-page') renderRisingStarsPage()
@@ -4219,6 +4294,377 @@ function toggleMinorSections(){
   const isMinor = document.getElementById('youth-is-minor')?.checked
   const sec = document.getElementById('youth-minor-sections')
   if(sec) sec.style.display = isMinor ? '' : 'none'
+}
+
+// ── BOARD MANAGEMENT ─────────────────────────────────────────────
+
+var _boardMembers = []
+var _boardMeetings = []
+var _boardTab = 'members'
+
+async function loadBoardPage(){
+  var [members, meetings] = await Promise.all([
+    api('/api/board/members'),
+    api('/api/board/meetings')
+  ])
+  _boardMembers = Array.isArray(members) ? members : []
+  _boardMeetings = Array.isArray(meetings) ? meetings : []
+  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
+  document.getElementById('board-subtitle').textContent =
+    active + ' active member' + (active!==1?'s':'') + ' · ' + _boardMeetings.length + ' meeting' + (_boardMeetings.length!==1?'s':'') + ' recorded'
+  renderBoardTab(_boardTab)
+}
+
+function switchBoardTab(tab){
+  _boardTab = tab
+  ;['members','meetings','schedule'].forEach(function(t){
+    var btn = document.getElementById('btab-'+t)
+    var panel = document.getElementById('btab-panel-'+t)
+    if(btn){
+      btn.style.borderBottomColor = t===tab ? 'var(--teal)' : 'transparent'
+      btn.style.color = t===tab ? 'var(--teal)' : 'var(--text-muted)'
+    }
+    if(panel) panel.style.display = t===tab ? '' : 'none'
+  })
+  renderBoardTab(tab)
+}
+
+function renderBoardTab(tab){
+  if(tab==='members') renderBoardMembers()
+  else if(tab==='meetings') renderBoardMeetings()
+  else if(tab==='schedule') renderBoardScheduler()
+}
+
+function renderBoardMembers(){
+  var el = document.getElementById('btab-panel-members')
+  if(!el) return
+  if(!_boardMembers.length){
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'
+    return
+  }
+  var active = _boardMembers.filter(function(m){ return m.status==='active' })
+  var other  = _boardMembers.filter(function(m){ return m.status!=='active' })
+
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">'
+    + _boardMembers.map(function(m){
+      var rate = m.meetings_total > 0 ? Math.round(m.meetings_attended/m.meetings_total*100) : null
+      var rateColor = rate===null ? 'var(--text-muted)' : rate>=80 ? 'var(--green-600)' : rate>=60 ? 'var(--amber-600)' : 'var(--red-600)'
+      var statusBadge = m.status==='active'
+        ? '<span style="background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">● Active</span>'
+        : '<span style="background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">○ '+m.status+'</span>'
+      return '<div class="card" style="padding:16px">'
+        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
+        + '<div style="display:flex;align-items:center;gap:10px">'
+        + avatarHTML(m.name, 36)
+        + '<div><div style="font-weight:700;font-size:14px">'+escHtml(m.name)+'</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;align-items:center">'
+        + statusBadge
+        + '<button onclick="editBoardMember(\''+m.id+'\',\''+escHtml(m.name)+'\',\''+escHtml(m.email)+'\',\''+escHtml(m.role||'')+'\',\''+m.status+'\',\''+( m.join_date||'')+'\',\''+escHtml(m.notes||'')+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button>'
+        + '</div></div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">📧 '+escHtml(m.email)+'</div>'
+        + '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-size:13px;color:var(--text-muted)">'+m.meetings_attended+' / '+m.meetings_total+' meetings</div>'
+        + (rate!==null ? '<div style="font-size:16px;font-weight:800;color:'+rateColor+'">'+rate+'%</div>' : '<div style="font-size:12px;color:var(--text-muted)">No meetings yet</div>')
+        + '</div>'
+        + '</div>'
+    }).join('')
+    + '</div>'
+}
+
+function renderBoardMeetings(){
+  var el = document.getElementById('btab-panel-meetings')
+  if(!el) return
+  if(!_boardMeetings.length){
+    el.innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>No meetings recorded yet</p></div>'
+    return
+  }
+  el.innerHTML = _boardMeetings.map(function(m){
+    var attended = (m.attendance||[]).filter(function(a){ return a.attended }).length
+    var total = (m.attendance||[]).length
+    return '<div class="card" style="padding:20px;margin-bottom:16px">'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+      + '<div>'
+      + '<div style="font-size:16px;font-weight:700">'+formatDate(m.meeting_date)+(m.meeting_time?' at '+fmtTime(m.meeting_time):'')+'</div>'
+      + (m.location?'<div style="font-size:13px;color:var(--text-muted)">📍 '+escHtml(m.location)+'</div>':'')
+      + '</div>'
+      + '<div style="display:flex;gap:8px;align-items:center">'
+      + '<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+attended+'/'+total+' attended</span>'
+      + '<button onclick="openAttendanceEditor(\''+m.id+'\')" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
+      + '<button onclick="deleteBoardMeeting(\''+m.id+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
+      + '</div></div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:8px">'
+      + (m.attendance||[]).map(function(a){
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;'
+          + (a.attended?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)')+';">'
+          + (a.attended?'✅':'○')+' '+escHtml(a.member_name||'')+'</div>'
+      }).join('')
+      + '</div>'
+      + '</div>'
+  }).join('')
+}
+
+function renderBoardScheduler(){
+  var el = document.getElementById('btab-panel-schedule')
+  if(!el) return
+  var now = new Date()
+  var month = now.getMonth() + 1
+  var year  = now.getFullYear()
+  el.innerHTML = '<div class="card" style="padding:20px;max-width:640px">'
+    + '<div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Find the Best Meeting Date</div>'
+    + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">'
+    + '<div class="form-group" style="margin:0"><label>Month</label>'
+    + '<select id="sched-month" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + ['January','February','March','April','May','June','July','August','September','October','November','December']
+      .map(function(n,i){ return '<option value="'+(i+1)+'"'+(i+1===month?' selected':'')+'>'+n+'</option>' }).join('')
+    + '</select></div>'
+    + '<div class="form-group" style="margin:0"><label>Year</label>'
+    + '<input type="number" id="sched-year" value="'+year+'" style="width:90px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+    + '</div>'
+    + '<button class="btn btn-primary" onclick="loadScheduleRecommendations()">Show Availability</button>'
+    + '</div>'
+    + '<div id="sched-results"></div>'
+    + '</div>'
+}
+
+async function loadScheduleRecommendations(){
+  var month = document.getElementById('sched-month').value
+  var year  = document.getElementById('sched-year').value
+  var el    = document.getElementById('sched-results')
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+
+  var [recs, avail] = await Promise.all([
+    api('/api/board/recommend/'+month+'/'+year),
+    api('/api/board/availability/'+month+'/'+year)
+  ])
+  if(!Array.isArray(recs)||!recs.length){ el.innerHTML='<div style="color:var(--text-muted)">No data yet.</div>'; return }
+
+  var submitted = avail.filter(function(a){ return a.submitted_at }).length
+  var total     = _boardMembers.filter(function(m){ return m.status==='active' }).length
+
+  var html = '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">'
+    + submitted+' of '+total+' members have submitted availability'
+    + (submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some members haven\'t responded yet</span>':'')
+    + '</div>'
+
+  // Top 10 ranked dates
+  html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked by availability)</div>'
+  html += recs.slice(0,10).map(function(r, i){
+    var pct  = r.pct
+    var barColor = pct>=80 ? 'var(--green-600)' : pct>=60 ? 'var(--amber-500)' : 'var(--red-400)'
+    var badge = i===0 ? '<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px">BEST</span>' : ''
+    return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="min-width:120px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
+      + '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden">'
+      + '<div style="height:100%;width:'+pct+'%;background:'+barColor+';border-radius:4px;transition:width 0.3s"></div></div>'
+      + '<div style="min-width:80px;text-align:right;font-size:13px;font-weight:700;color:'+barColor+'">'+r.available+'/'+r.total_members+' free</div>'
+      + '<button onclick="scheduleMeetingOnDate(\''+r.date+'\')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
+      + '</div>'
+  }).join('')
+
+  // Per-person breakdown
+  if(avail.length){
+    html += '<div style="margin-top:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Responses</div>'
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px">'
+    html += avail.map(function(a){
+      var blocked = JSON.parse(a.blocked_dates||'[]')
+      return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);font-size:12px">'
+        + '<div style="font-weight:600">'+escHtml(a.member_name||'')+'</div>'
+        + '<div style="color:var(--text-muted);margin-top:2px">'
+        + (a.submitted_at ? (blocked.length ? blocked.length+' date'+(blocked.length!==1?'s':'')+' blocked' : '✅ All available') : '<span style="color:var(--amber-600)">⏳ Not responded</span>')
+        + '</div></div>'
+    }).join('')
+    // Show members who haven't responded
+    var respondedIds = new Set(avail.map(function(a){ return a.member_id }))
+    var missing = _boardMembers.filter(function(m){ return m.status==='active' && !respondedIds.has(m.id) })
+    if(missing.length){
+      html += missing.map(function(m){
+        return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px dashed var(--border);font-size:12px">'
+          + '<div style="font-weight:600">'+escHtml(m.name)+'</div>'
+          + '<div style="color:var(--text-muted)">⏳ Not responded</div></div>'
+      }).join('')
+    }
+    html += '</div>'
+  }
+  el.innerHTML = html
+}
+
+function scheduleMeetingOnDate(date){
+  document.getElementById('bmeet-id').value = ''
+  document.getElementById('bmeet-date').value = date
+  document.getElementById('bmeet-time').value = ''
+  document.getElementById('bmeet-location').value = ''
+  document.getElementById('bmeet-notes').value = ''
+  document.getElementById('board-meeting-modal-title').textContent = 'Schedule Meeting'
+  openModal('modal-board-meeting')
+}
+
+// Member modal
+function openBoardMemberModal(){
+  document.getElementById('board-member-modal-title').textContent = 'Add Board Member'
+  ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){ document.getElementById(id).value='' })
+  document.getElementById('bm-status').value = 'active'
+  openModal('modal-board-member')
+}
+
+function editBoardMember(id,name,email,role,status,joinDate,notes){
+  document.getElementById('board-member-modal-title').textContent = 'Edit Board Member'
+  document.getElementById('bm-id').value = id
+  document.getElementById('bm-name').value = name
+  document.getElementById('bm-email').value = email
+  document.getElementById('bm-role').value = role
+  document.getElementById('bm-status').value = status
+  document.getElementById('bm-join-date').value = joinDate
+  document.getElementById('bm-notes').value = notes
+  openModal('modal-board-member')
+}
+
+async function saveBoardMember(){
+  var name  = document.getElementById('bm-name').value.trim()
+  var email = document.getElementById('bm-email').value.trim()
+  if(!name||!email){ toast('Name and email required','error'); return }
+  var id = document.getElementById('bm-id').value
+  var data = {
+    name, email,
+    role:      document.getElementById('bm-role').value.trim(),
+    status:    document.getElementById('bm-status').value,
+    join_date: document.getElementById('bm-join-date').value || null,
+    notes:     document.getElementById('bm-notes').value.trim()
+  }
+  var res = id ? await api('/api/board/members/'+id,'PUT',data) : await api('/api/board/members','POST',data)
+  if(res&&res.error){ toast(res.error,'error'); return }
+  closeModal('modal-board-member')
+  toast(id?'Member updated!':'Member added!','success')
+  await loadBoardPage()
+}
+
+// Meeting modal
+function openBoardScheduler(){
+  switchBoardTab('schedule')
+}
+
+function openBoardMeetingModal(date){
+  document.getElementById('board-meeting-modal-title').textContent = 'Schedule Meeting'
+  document.getElementById('bmeet-id').value = ''
+  document.getElementById('bmeet-date').value = date || ''
+  document.getElementById('bmeet-time').value = ''
+  document.getElementById('bmeet-location').value = ''
+  document.getElementById('bmeet-notes').value = ''
+  openModal('modal-board-meeting')
+}
+
+async function saveBoardMeeting(){
+  var date = document.getElementById('bmeet-date').value
+  if(!date){ toast('Date required','error'); return }
+  var id = document.getElementById('bmeet-id').value
+  var data = {
+    meeting_date: date,
+    meeting_time: document.getElementById('bmeet-time').value,
+    location:     document.getElementById('bmeet-location').value.trim(),
+    notes:        document.getElementById('bmeet-notes').value.trim()
+  }
+  var res = id ? await api('/api/board/meetings/'+id,'PUT',data) : await api('/api/board/meetings','POST',data)
+  if(res&&res.error){ toast(res.error,'error'); return }
+  closeModal('modal-board-meeting')
+  toast('Meeting saved!','success')
+  await loadBoardPage()
+  switchBoardTab('meetings')
+}
+
+async function deleteBoardMeeting(mid){
+  if(!confirm('Delete this meeting?')) return
+  var res = await api('/api/board/meetings/'+mid,'DELETE')
+  if(res&&res.error){ toast(res.error,'error'); return }
+  toast('Meeting deleted')
+  await loadBoardPage()
+}
+
+// Attendance editor
+function openAttendanceEditor(meetingId){
+  var meeting = _boardMeetings.find(function(m){ return m.id===meetingId })
+  if(!meeting) return
+  var existing = document.getElementById('attendance-editor-overlay')
+  if(existing) existing.remove()
+  var overlay = document.createElement('div')
+  overlay.id = 'attendance-editor-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var attended = {}
+  ;(meeting.attendance||[]).forEach(function(a){ attended[a.member_id]=a.attended })
+  var rows = _boardMembers.filter(function(m){ return m.status==='active' }).map(function(m){
+    var chk = attended[m.id]!==false ? 'checked' : ''
+    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">'
+      + '<input type="checkbox" class="att-cb" data-mid="'+m.id+'" '+chk+' style="accent-color:var(--teal);width:16px;height:16px"/>'
+      + avatarHTML(m.name,28)
+      + '<span style="font-weight:500">'+escHtml(m.name)+'</span>'
+      + (m.role?'<span style="color:var(--text-muted);font-size:11px;margin-left:auto">'+escHtml(m.role)+'</span>':'')
+      + '</label>'
+  }).join('')
+  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+    + '<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    + '<div style="font-size:16px;font-weight:700">✅ Attendance — '+formatDate(meeting.meeting_date)+'</div>'
+    + '<button onclick="document.getElementById(\'attendance-editor-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+    + '</div>'
+    + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+rows+'</div>'
+    + '<div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
+    + '<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'attendance-editor-overlay\').remove()">Cancel</button>'
+    + '<button class="btn btn-primary" style="flex:2" onclick="saveAttendance(\''+meetingId+'\')">Save Attendance</button>'
+    + '</div></div>'
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveAttendance(meetingId){
+  var attendance = []
+  document.querySelectorAll('.att-cb').forEach(function(cb){
+    attendance.push({member_id: cb.dataset.mid, attended: cb.checked})
+  })
+  var res = await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:attendance})
+  if(res&&res.error){ toast(res.error,'error'); return }
+  document.getElementById('attendance-editor-overlay')?.remove()
+  toast('Attendance saved!','success')
+  await loadBoardPage()
+}
+
+// Availability request
+async function openBoardAvailability(){
+  var now = new Date()
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  var existing = document.getElementById('avail-req-overlay')
+  if(existing) existing.remove()
+  var overlay = document.createElement('div')
+  overlay.id = 'avail-req-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
+  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px">'
+    + '<div style="font-size:16px;font-weight:700">📬 Request Availability</div>'
+    + '<div style="font-size:13px;color:var(--text-muted)">Send availability form links to all '+active+' active board members.</div>'
+    + '<div style="display:flex;gap:10px">'
+    + '<div class="form-group" style="margin:0;flex:1"><label>Month</label>'
+    + '<select id="avail-month" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + months.map(function(n,i){ return '<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+n+'</option>' }).join('')
+    + '</select></div>'
+    + '<div class="form-group" style="margin:0;width:90px"><label>Year</label>'
+    + '<input type="number" id="avail-year" value="'+now.getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+    + '</div></div>'
+    + '<div style="display:flex;gap:10px">'
+    + '<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'avail-req-overlay\').remove()">Cancel</button>'
+    + '<button class="btn btn-primary" style="flex:2" id="avail-send-btn" onclick="sendAvailabilityRequest()">📬 Send Emails</button>'
+    + '</div></div>'
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function sendAvailabilityRequest(){
+  var month = document.getElementById('avail-month').value
+  var year  = document.getElementById('avail-year').value
+  var btn   = document.getElementById('avail-send-btn')
+  btn.disabled = true; btn.textContent = 'Sending…'
+  var res = await api('/api/board/availability/send','POST',{month:parseInt(month),year:parseInt(year)})
+  btn.disabled = false; btn.textContent = '📬 Send Emails'
+  if(res&&res.error){ toast(res.error,'error'); return }
+  document.getElementById('avail-req-overlay')?.remove()
+  toast('Sent to '+res.sent+' board member'+(res.sent!==1?'s':'')+'!','success')
 }
 
 // ── BULK IMPORT ──────────────────────────────────────────────────

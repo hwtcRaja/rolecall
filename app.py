@@ -7108,6 +7108,7 @@ def board_availability_form(token):
     <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fff;border:2px solid #e5e7eb"></div> Available</div>
     <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fef2f2;border:2px solid #fca5a5"></div> Can't make it</div>
   </div>
+  <div style="font-size:20px;font-weight:800;color:#145466;margin-bottom:12px;text-align:center">{month_name} {record['year']}</div>
   <div class="calendar" id="calendar"></div>
   <button class="btn" id="submit-btn" onclick="submitAvailability()">✅ Submit My Availability</button>
   <button class="btn btn-secondary" onclick="clearAll()">Clear all</button>

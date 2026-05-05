@@ -568,6 +568,41 @@ def init_db():
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_id TEXT",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
+        # Board management
+        """CREATE TABLE IF NOT EXISTS board_members (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            role TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            join_date TEXT,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_meetings (
+            id TEXT PRIMARY KEY,
+            meeting_date TEXT NOT NULL,
+            meeting_time TEXT,
+            location TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'scheduled',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_meeting_attendance (
+            id TEXT PRIMARY KEY,
+            meeting_id TEXT NOT NULL REFERENCES board_meetings(id) ON DELETE CASCADE,
+            member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
+            attended BOOLEAN DEFAULT TRUE,
+            notes TEXT DEFAULT '',
+            UNIQUE(meeting_id, member_id))""",
+        """CREATE TABLE IF NOT EXISTS board_availability (
+            id TEXT PRIMARY KEY,
+            member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            blocked_dates TEXT DEFAULT '[]',
+            token TEXT UNIQUE NOT NULL,
+            submitted_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(member_id, month, year))""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS event_staff (
             id TEXT PRIMARY KEY,
@@ -6713,6 +6748,377 @@ def remove_rsvp(eid, rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+
+# ── Board Management ─────────────────────────────────────────────
+
+@app.route('/api/board/members')
+def get_board_members():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    members = fetchall(conn, 'SELECT * FROM board_members ORDER BY name')
+    for m in members:
+        total = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
+        attended = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attended=TRUE', (m['id'],))
+        m['meetings_total']    = total['c'] if total else 0
+        m['meetings_attended'] = attended['c'] if attended else 0
+    conn.close()
+    return jsonify(members)
+
+@app.route('/api/board/members', methods=['POST'])
+def create_board_member():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    if not d.get('name') or not d.get('email'):
+        return jsonify({'error': 'Name and email required'}), 400
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (mid, d['name'].strip(), d['email'].strip().lower(),
+             d.get('role','').strip(), d.get('status','active'),
+             d.get('join_date') or None, d.get('notes','').strip()))
+        conn.commit()
+        row = fetchone(conn, 'SELECT * FROM board_members WHERE id=%s', (mid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/board/members/<mid>', methods=['PUT'])
+def update_board_member(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s
+        WHERE id=%s''',
+        (d.get('name','').strip(), d.get('email','').strip().lower(),
+         d.get('role','').strip(), d.get('status','active'),
+         d.get('join_date') or None, d.get('notes','').strip(), mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/members/<mid>', methods=['DELETE'])
+def delete_board_member(mid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_members WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/meetings')
+def get_board_meetings():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    meetings = fetchall(conn, 'SELECT * FROM board_meetings ORDER BY meeting_date DESC')
+    for m in meetings:
+        m['attendance'] = fetchall(conn, '''SELECT bma.*, bm.name as member_name, bm.role
+            FROM board_meeting_attendance bma JOIN board_members bm ON bma.member_id=bm.id
+            WHERE bma.meeting_id=%s ORDER BY bm.name''', (m['id'],))
+    conn.close()
+    return jsonify(meetings)
+
+@app.route('/api/board/meetings', methods=['POST'])
+def create_board_meeting():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    if not d.get('meeting_date'):
+        return jsonify({'error': 'Meeting date required'}), 400
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO board_meetings (id,meeting_date,meeting_time,location,notes,status)
+        VALUES (%s,%s,%s,%s,%s,'scheduled')''',
+        (mid, d['meeting_date'], d.get('meeting_time',''), d.get('location',''), d.get('notes','')))
+    # Auto-create attendance records for all active members
+    members = fetchall(conn, "SELECT id FROM board_members WHERE status='active'")
+    for m in members:
+        execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended) VALUES (%s,%s,%s,FALSE)',
+            (str(uuid.uuid4()), mid, m['id']))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM board_meetings WHERE id=%s', (mid,))
+    row['attendance'] = fetchall(conn, '''SELECT bma.*, bm.name as member_name, bm.role
+        FROM board_meeting_attendance bma JOIN board_members bm ON bma.member_id=bm.id
+        WHERE bma.meeting_id=%s ORDER BY bm.name''', (mid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/board/meetings/<mid>', methods=['PUT'])
+def update_board_meeting(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE board_meetings SET meeting_date=%s,meeting_time=%s,location=%s,notes=%s,status=%s
+        WHERE id=%s''',
+        (d.get('meeting_date',''), d.get('meeting_time',''),
+         d.get('location',''), d.get('notes',''), d.get('status','scheduled'), mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/meetings/<mid>/attendance', methods=['PUT'])
+def update_board_attendance(mid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    attendance = d.get('attendance', [])
+    conn = get_db()
+    for a in attendance:
+        existing = fetchone(conn, 'SELECT id FROM board_meeting_attendance WHERE meeting_id=%s AND member_id=%s', (mid, a['member_id']))
+        if existing:
+            execute(conn, 'UPDATE board_meeting_attendance SET attended=%s WHERE meeting_id=%s AND member_id=%s',
+                (a.get('attended', False), mid, a['member_id']))
+        else:
+            execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended) VALUES (%s,%s,%s,%s)',
+                (str(uuid.uuid4()), mid, a['member_id'], a.get('attended', False)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/meetings/<mid>', methods=['DELETE'])
+def delete_board_meeting(mid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_meetings WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/availability/send', methods=['POST'])
+def send_board_availability_request():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    month = d.get('month')
+    year  = d.get('year')
+    if not month or not year:
+        return jsonify({'error': 'month and year required'}), 400
+    conn = get_db()
+    members = fetchall(conn, "SELECT * FROM board_members WHERE status='active'")
+    base_url = request.host_url.rstrip('/')
+    sent = 0
+    month_name = ['','January','February','March','April','May','June',
+                  'July','August','September','October','November','December'][int(month)]
+    for m in members:
+        # Create or get availability record + token
+        existing = fetchone(conn, 'SELECT * FROM board_availability WHERE member_id=%s AND month=%s AND year=%s',
+            (m['id'], month, year))
+        if existing:
+            token = existing['token']
+        else:
+            token = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO board_availability (id,member_id,month,year,token,blocked_dates)
+                VALUES (%s,%s,%s,%s,%s,'[]')''',
+                (str(uuid.uuid4()), m['id'], month, year, token))
+        link = f'{base_url}/board/availability/{token}'
+        body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+          <h2 style="color:#145466">Board Meeting Availability — {month_name} {year}</h2>
+          <p>Hi {m['name']},</p>
+          <p>We're scheduling the board meeting for <strong>{month_name} {year}</strong> and need to know your availability.</p>
+          <p>Please click the link below and mark any dates you <strong>cannot</strong> attend. It only takes a minute!</p>
+          <div style="text-align:center;margin:28px 0">
+            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
+              📅 Submit My Availability
+            </a>
+          </div>
+          <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
+        </div>'''
+        try:
+            send_email([m['email']], f'Board Meeting Availability — {month_name} {year}', body)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/api/board/availability/<month>/<year>')
+def get_board_availability(month, year):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT ba.*, bm.name as member_name, bm.email, bm.role
+        FROM board_availability ba JOIN board_members bm ON ba.member_id=bm.id
+        WHERE ba.month=%s AND ba.year=%s ORDER BY bm.name''', (month, year))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/board/recommend/<month>/<year>')
+def recommend_board_dates(month, year):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    members = fetchall(conn, "SELECT id FROM board_members WHERE status='active'")
+    total_members = len(members)
+    avail = fetchall(conn, 'SELECT * FROM board_availability WHERE month=%s AND year=%s', (month, year))
+    # Build blocked date map
+    blocked_map = {}
+    for a in avail:
+        try:
+            dates = json.loads(a['blocked_dates'] or '[]')
+            for d in dates:
+                if d not in blocked_map: blocked_map[d] = 0
+                blocked_map[d] += 1
+        except Exception:
+            pass
+    # Generate all dates in month
+    import calendar
+    year_int = int(year); month_int = int(month)
+    _, days_in_month = calendar.monthrange(year_int, month_int)
+    from datetime import date as _date
+    results = []
+    for day in range(1, days_in_month + 1):
+        d = _date(year_int, month_int, day)
+        date_str = d.strftime('%Y-%m-%d')
+        blocked = blocked_map.get(date_str, 0)
+        submitted = len(avail)
+        # Not blocked = available (members who haven't submitted assumed available)
+        available = total_members - blocked
+        results.append({
+            'date': date_str,
+            'day_name': d.strftime('%A'),
+            'day': day,
+            'available': available,
+            'blocked': blocked,
+            'total_members': total_members,
+            'submitted': submitted,
+            'pct': round(available / total_members * 100) if total_members else 0
+        })
+    results.sort(key=lambda x: (-x['available'], x['date']))
+    conn.close()
+    return jsonify(results)
+
+# Public board availability form
+@app.route('/board/availability/<token>')
+def board_availability_form(token):
+    conn = get_db()
+    record = fetchone(conn, '''SELECT ba.*, bm.name as member_name
+        FROM board_availability ba JOIN board_members bm ON ba.member_id=bm.id
+        WHERE ba.token=%s''', (token,))
+    conn.close()
+    if not record:
+        return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+    import calendar
+    month_name = ['','January','February','March','April','May','June',
+                  'July','August','September','October','November','December'][int(record['month'])]
+    return f'''<!DOCTYPE html>
+<html><head><title>Board Availability — {month_name} {record['year']}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f7fa;min-height:100vh}}
+  .header{{background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 20px;color:#fff;text-align:center}}
+  .header h1{{font-size:20px;font-weight:800;margin-bottom:4px}}
+  .header p{{font-size:14px;opacity:0.8}}
+  .card{{background:#fff;border-radius:12px;padding:24px;margin:20px auto;max-width:500px;box-shadow:0 2px 12px rgba(0,0,0,0.08)}}
+  h2{{font-size:15px;font-weight:700;color:#145466;margin-bottom:4px}}
+  .subtitle{{font-size:13px;color:#888;margin-bottom:16px}}
+  .calendar{{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:20px}}
+  .cal-header{{text-align:center;font-size:11px;font-weight:700;color:#888;padding:4px 0;text-transform:uppercase}}
+  .day{{border-radius:8px;border:2px solid #e5e7eb;padding:8px 4px;text-align:center;cursor:pointer;transition:all 0.15s;font-size:13px;font-weight:600;background:#fff;color:#374151;user-select:none}}
+  .day:hover{{border-color:#145466;background:#f0f8fa}}
+  .day.blocked{{background:#fef2f2;border-color:#fca5a5;color:#dc2626}}
+  .day.empty{{border:none;cursor:default;background:transparent}}
+  .day.weekend{{color:#9ca3af}}
+  .btn{{width:100%;padding:14px;background:#145466;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px}}
+  .btn:disabled{{opacity:0.6;cursor:not-allowed}}
+  .btn-secondary{{background:#f3f4f6;color:#374151;margin-top:8px}}
+  .legend{{display:flex;gap:16px;font-size:12px;color:#888;margin-bottom:16px}}
+  .legend-dot{{width:14px;height:14px;border-radius:4px;flex-shrink:0}}
+  .success{{text-align:center;padding:40px 20px;display:none}}
+  .success-icon{{font-size:56px;margin-bottom:12px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📅 Board Meeting Availability</h1>
+  <p>{month_name} {record['year']} &nbsp;·&nbsp; {record['member_name']}</p>
+</div>
+<div class="card" id="main-card">
+  <h2>Which dates can't you make it?</h2>
+  <p class="subtitle">Tap any dates you are <strong>NOT available</strong>. Leave dates blank if you can attend.</p>
+  <div class="legend">
+    <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fff;border:2px solid #e5e7eb"></div> Available</div>
+    <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fef2f2;border:2px solid #fca5a5"></div> Can't make it</div>
+  </div>
+  <div class="calendar" id="calendar"></div>
+  <button class="btn" id="submit-btn" onclick="submitAvailability()">✅ Submit My Availability</button>
+  <button class="btn btn-secondary" onclick="clearAll()">Clear all</button>
+</div>
+<div class="card success" id="success-card">
+  <div class="success-icon">🎉</div>
+  <h2 style="text-align:center;font-size:18px;margin-bottom:8px">Thanks, {record['member_name']}!</h2>
+  <p style="text-align:center;color:#888;font-size:14px">Your availability for {month_name} {record['year']} has been recorded. You can update it anytime by clicking this link again.</p>
+</div>
+<script>
+const MONTH={record['month']}, YEAR={record['year']}, TOKEN='{token}'
+var blocked = new Set({json.dumps(json.loads(record['blocked_dates'] or '[]'))})
+
+function buildCalendar(){{
+  var cal = document.getElementById('calendar')
+  cal.innerHTML = ''
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+  days.forEach(function(d){{ var h=document.createElement('div'); h.className='cal-header'; h.textContent=d; cal.appendChild(h) }})
+  var firstDay = new Date(YEAR, MONTH-1, 1).getDay()
+  var daysInMonth = new Date(YEAR, MONTH, 0).getDate()
+  for(var i=0;i<firstDay;i++){{ var e=document.createElement('div'); e.className='day empty'; cal.appendChild(e) }}
+  for(var d=1;d<=daysInMonth;d++){{
+    var date = YEAR+'-'+(MONTH<10?'0':'')+MONTH+'-'+(d<10?'0':'')+d
+    var dow = new Date(YEAR, MONTH-1, d).getDay()
+    var el = document.createElement('div')
+    el.className = 'day' + (dow===0||dow===6?' weekend':'') + (blocked.has(date)?' blocked':'')
+    el.textContent = d
+    el.dataset.date = date
+    el.addEventListener('click', function(){{ toggleDay(this) }})
+    cal.appendChild(el)
+  }}
+}}
+
+function toggleDay(el){{
+  var date = el.dataset.date
+  if(blocked.has(date)){{ blocked.delete(date); el.classList.remove('blocked') }}
+  else{{ blocked.add(date); el.classList.add('blocked') }}
+}}
+
+function clearAll(){{ blocked.clear(); buildCalendar() }}
+
+async function submitAvailability(){{
+  var btn = document.getElementById('submit-btn')
+  btn.disabled = true; btn.textContent = 'Saving…'
+  var r = await fetch('/api/board/availability/submit', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{token: TOKEN, blocked_dates: Array.from(blocked)}})
+  }})
+  var d = await r.json()
+  if(d.error){{ btn.disabled=false; btn.textContent='✅ Submit My Availability'; alert(d.error); return }}
+  document.getElementById('main-card').style.display='none'
+  document.getElementById('success-card').style.display='block'
+}}
+
+buildCalendar()
+</script>
+</body></html>'''
+
+@app.route('/api/board/availability/submit', methods=['POST'])
+def submit_board_availability():
+    d = request.json or {}
+    token = d.get('token','').strip()
+    blocked = d.get('blocked_dates', [])
+    if not token:
+        return jsonify({'error': 'Invalid token'}), 400
+    conn = get_db()
+    record = fetchone(conn, 'SELECT id FROM board_availability WHERE token=%s', (token,))
+    if not record:
+        conn.close(); return jsonify({'error': 'Token not found'}), 404
+    execute(conn, 'UPDATE board_availability SET blocked_dates=%s, submitted_at=NOW() WHERE token=%s',
+        (json.dumps(blocked), token))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

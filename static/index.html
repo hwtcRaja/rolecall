@@ -4336,7 +4336,7 @@ function renderBoardMembers(){
         +'<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
         +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Election History</div>'
-        +'<button onclick="openNominationModal(this.dataset.bid)" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px">+ Add</button></div>'
+        +'<button data-mid="'+m.id+'" onclick="openNominationModal(this.dataset.mid)" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px">+ Add</button></div>'
         +nomH+dueWarn+'</div></div>'
     }).join('')+'</div>'
 }

@@ -3062,6 +3062,18 @@ async function deleteApplication(aid){
   loadApplications()
 }
 
+function loadApplicationsBadge(){
+  api('/api/applications').then(function(apps){
+    if(!Array.isArray(apps)) return
+    allApplications = apps
+    var pending = apps.filter(function(a){ return a.status==='pending' }).length
+    var navBadge = document.getElementById('vol-interest-badge')
+    if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
+    var tabBadge = document.getElementById('app-pending-badge')
+    if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
+  }).catch(function(){})
+}
+
 function renderVolunteers(){
   const search=document.getElementById('vol-search').value.toLowerCase()
   const fs=document.getElementById('filter-status').value

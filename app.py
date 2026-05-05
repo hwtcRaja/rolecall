@@ -838,7 +838,15 @@ def init_db():
         except Exception:
             conn.rollback()
 
-    # Seed default HWTC donor tiers if none exist
+    # Seed board meeting event type if not exists
+    try:
+        existing = fetchone(conn, "SELECT id FROM event_types WHERE LOWER(name)='board meeting'")
+        if not existing:
+            execute(conn, "INSERT INTO event_types (id,name,color) VALUES (%s,'Board Meeting','#145466')", (str(uuid.uuid4()),))
+            conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
     try:
         c.execute("SELECT COUNT(*) FROM donor_tiers")
         if c.fetchone()[0] == 0:
@@ -6879,6 +6887,22 @@ def create_board_meeting():
     for m in members:
         execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended) VALUES (%s,%s,%s,FALSE)',
             (str(uuid.uuid4()), mid, m['id']))
+    # Sync to event calendar if requested
+    if d.get('sync_to_calendar', True):
+        try:
+            board_type = fetchone(conn, "SELECT id FROM event_types WHERE LOWER(name)='board meeting'")
+            eid = str(uuid.uuid4())
+            time_str = d.get('meeting_time','') or None
+            location = d.get('location','') or ''
+            notes = d.get('notes','') or ''
+            execute(conn, '''INSERT INTO events
+                (id,name,event_date,start_time,location,description,notes,status,event_type_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'draft',%s)''',
+                (eid, 'Board Meeting', d['meeting_date'], time_str, location,
+                 'Monthly board meeting', notes,
+                 board_type['id'] if board_type else None))
+        except Exception as e:
+            app.logger.warning(f'Board meeting calendar sync failed: {e}')
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM board_meetings WHERE id=%s', (mid,))
     row['attendance'] = fetchall(conn, '''SELECT bma.*, bm.name as member_name, bm.role
@@ -7074,7 +7098,8 @@ def board_availability_form(token):
 <body>
 <div class="header">
   <h1>📅 Board Meeting Availability</h1>
-  <p>{month_name} {record['year']} &nbsp;·&nbsp; {record['member_name']}</p>
+  <p style="font-size:22px;font-weight:800;opacity:1;margin:6px 0 2px">{month_name} {record['year']}</p>
+  <p style="font-size:14px;opacity:0.75">{record['member_name']}</p>
 </div>
 <div class="card" id="main-card">
   <h2>Which dates can't you make it?</h2>

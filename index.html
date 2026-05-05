@@ -100,6 +100,9 @@ thead th{text-align:left;font-size:11px;font-weight:600;letter-spacing:0.5px;tex
 tbody tr{border-bottom:1px solid var(--border);transition:background 0.1s}
 tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:var(--gray-50)}
+.vol-row-hover:hover{background:var(--teal-50)!important}
+.vol-row-hover:hover td:nth-child(2) .volunteer-name,
+.vol-row-hover:hover td:nth-child(2) div[style*="teal"]{text-decoration:underline}
 tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 /* STATS */
@@ -338,11 +341,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   /* Toast: bottom left on mobile, full width */
   .toast-container{right:12px;left:12px;bottom:16px}
 
-  /* Volunteer table: hide less important columns */
+  /* Volunteer table: hide interests and BGC on mobile */
   #vol-table-body tr td:nth-child(3),
-  #vol-table-body tr td:nth-child(4),
+  #vol-table-body tr td:nth-child(6),
   thead tr th:nth-child(3),
-  thead tr th:nth-child(4){display:none}
+  thead tr th:nth-child(6){display:none}
 
   /* Hours table: hide notes column */
   #hours-table-body tr td:nth-child(6),
@@ -444,6 +447,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Admin</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
+        <div class="nav-item admin-only" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
@@ -468,7 +472,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page active" id="page-dashboard">
         <div class="page-header">
           <div><div class="page-title">Dashboard</div><div class="page-subtitle">HWTC — Programs, productions, volunteers & participants</div></div>
-          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button></div>
+          <div class="page-actions admin-only">
+            <button class="btn btn-secondary" onclick="openEmployerReminderModal()"><img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-right:2px" alt="Disney"/>🎬 Send Giving Reminder</button>
+            <button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button>
+          </div>
         </div>
         <div class="page-body">
           <!-- Stat row -->
@@ -549,7 +556,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           </div>
           <div class="card">
             <table>
-              <thead><tr><th><input type="checkbox" id="select-all-vols" onchange="toggleSelectAll(this)" style="width:16px;height:16px;accent-color:var(--teal-400)"/></th><th>Volunteer</th><th>Phone</th><th>Interests</th><th>Waiver</th><th>Status</th><th>Hours</th><th></th></tr></thead>
+              <thead><tr>
+                <th style="width:32px"><input type="checkbox" id="select-all-vols" onchange="toggleSelectAll(this)" style="width:16px;height:16px;accent-color:var(--teal-400)"/></th>
+                <th>Volunteer</th>
+                <th>Interests</th>
+                <th style="width:90px">Waiver</th>
+                <th style="width:80px">Status</th>
+                <th style="width:60px">BGC</th>
+                <th style="width:60px">Hours</th>
+                <th style="width:36px"></th>
+              </tr></thead>
               <tbody id="vol-table-body"></tbody>
             </table>
           </div>
@@ -961,7 +977,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth">
         <div class="page-header">
           <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
-          <div class="page-actions admin-only"><button class="btn btn-primary" onclick="openYouthModal()">+ Add Participant</button></div>
+          <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
           <div class="search-bar">
@@ -1109,6 +1125,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- PENDING HOURS -->
+      <!-- BOARD PAGE -->
+      <section class="page" id="page-board">
+        <div class="page-header">
+          <div><div class="page-title">🏛️ Board</div><div class="page-subtitle" id="board-subtitle">Loading…</div></div>
+          <div class="page-actions">
+            <button class="btn btn-secondary" onclick="openBoardAvailability()">📬 Request Availability</button>
+            <button class="btn btn-secondary" onclick="openBoardMeetingModal()">📋 Schedule Meeting</button>
+            <button class="btn btn-primary" onclick="openBoardMemberModal()">+ Add Member</button>
+          </div>
+        </div>
+        <div class="page-body">
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+            <button onclick="switchBoardTab('members')" id="btab-members" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">👥 Members</button>
+            <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📋 Meetings</button>
+            <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">📅 Find Best Time</button>
+          </div>
+          <div id="btab-panel-members"></div>
+          <div id="btab-panel-meetings" style="display:none"></div>
+          <div id="btab-panel-schedule" style="display:none"></div>
+        </div>
+      </section>
+
       <section class="page" id="page-notifications">
         <div class="page-header">
           <div><div class="page-title">🔔 Notifications</div><div class="page-subtitle">Everything that needs your attention</div></div>
@@ -1349,6 +1387,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                   <input type="checkbox" id="es-alert-not-closed" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
                   <div><div style="font-size:13px;font-weight:600">🔴 Event not closed</div><div style="font-size:11px;color:var(--text-muted)">Alert if event not closed 2 hrs after end</div></div>
                 </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-new-rsvp" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">✋ New volunteer sign-up</div><div style="font-size:11px;color:var(--text-muted)">Alert when a volunteer signs up for an event</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+                  <input type="checkbox" id="es-alert-role-filled" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+                  <div><div style="font-size:13px;font-weight:600">🎭 Role slot filled</div><div style="font-size:11px;color:var(--text-muted)">Alert when all slots for a role are taken</div></div>
+                </label>
               </div>
 
               <div style="display:flex;gap:10px">
@@ -1503,6 +1549,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
           oninput="previewNavIcon('youth-signin',this.value)"/>
       </div>
     </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-carpools">
+        <span style="font-size:16px">🚗</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Carpools</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-carpools" placeholder="car" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('carpools',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-reports">
+        <span style="font-size:16px">📊</span>
+      </div>
+      <div style="flex:1;font-size:13px;font-weight:600">Reports</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="text" id="ni-input-reports" placeholder="bar-chart-2" value=""
+          style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+          oninput="previewNavIcon('reports',this.value)"/>
+      </div>
+    </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
       <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-event-logs">
         <span style="font-size:16px">📋</span>
       </div>
@@ -1647,6 +1713,126 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- BULK IMPORT MODAL -->
+<div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
+  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-header"><div class="modal-title">⬆ Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')">✕</button></div>
+    <div style="padding:20px 24px;overflow-y:auto;flex:1">
+      <div id="bi-step-1">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">CSV file. Download the template to see the expected columns.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+          <button class="btn btn-secondary" onclick="biDownloadTemplate()">⬇ Download Template CSV</button>
+          <label class="btn btn-primary" style="cursor:pointer">📂 Choose File<input type="file" id="bi-file" accept=".csv" style="display:none" onchange="biHandleFile(this)"/></label>
+        </div>
+        <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;line-height:1.8">
+          <strong style="color:var(--text)">Columns:</strong> first_name*, last_name*, dob, guardian_name, guardian_phone, guardian_email, guardian_relationship, emergency_name, emergency_phone, emergency_relationship, pickup1_name, pickup1_phone, pickup1_relationship, pickup2_name, pickup2_phone, pickup2_relationship, medical_notes, allergies, photo_consent, medical_consent, status
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group"><label>Enroll in program <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <select id="bi-program" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">— No enrollment —</option></select></div>
+          <div class="form-group"><label>Enrollment date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+            <input type="date" id="bi-enroll-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+        </div>
+      </div>
+      <div id="bi-step-2" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div><div style="font-size:14px;font-weight:600">Step 2 — Review &amp; resolve duplicates</div><div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="bi-summary">Checking…</div></div>
+          <div style="display:flex;gap:8px"><button class="btn btn-secondary" onclick="biBack()">← Back</button><button class="btn btn-primary" id="bi-run-btn" onclick="biRunImport()">Import</button></div>
+        </div>
+        <div id="bi-dup-banner" style="display:none;background:var(--amber-50);border:1.5px solid var(--amber-200);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:8px">⚠️ Duplicates found:</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('skip')">Skip all</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('update')">Update all</button>
+            <button class="btn btn-secondary btn-sm" onclick="biSetAllDups('create')">Create anyway</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:var(--bg);border-bottom:2px solid var(--border)">
+            <th style="padding:8px;width:28px"><input type="checkbox" id="bi-all-cb" onchange="biToggleAll(this)" style="accent-color:var(--teal)"/></th>
+            <th style="padding:8px;text-align:left">Name</th><th style="padding:8px;text-align:left">DOB</th>
+            <th style="padding:8px;text-align:left">Guardian</th><th style="padding:8px;text-align:left">Pickups</th>
+            <th style="padding:8px;text-align:left">Medical</th><th style="padding:8px;text-align:left;width:160px">Action</th>
+          </tr></thead>
+          <tbody id="bi-tbody"></tbody>
+        </table></div>
+      </div>
+      <div id="bi-step-3" style="display:none;text-align:center;padding:40px 20px">
+        <div style="font-size:48px;margin-bottom:12px" id="bi-result-icon">🎉</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px" id="bi-result-title">Done!</div>
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:16px" id="bi-result-body"></div>
+        <div id="bi-result-errors" style="display:none;text-align:left;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px"></div>
+        <button class="btn btn-primary" onclick="biDone()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BOARD MEMBER MODAL -->
+<div class="modal-overlay" id="modal-board-member">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title" id="board-member-modal-title">Add Board Member</div><button class="modal-close" onclick="closeModal('modal-board-member')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="bm-id"/>
+      <div class="form-group"><label>Name *</label><input type="text" id="bm-name"/></div>
+      <div class="form-group"><label>Email *</label><input type="email" id="bm-email"/></div>
+      <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer…"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Status</label><select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select></div>
+        <div class="form-group"><label>Join Date</label><input type="date" id="bm-join-date"/></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="bm-notes" style="min-height:60px"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button><button class="btn btn-primary" onclick="saveBoardMember()">Save</button></div>
+  </div>
+</div>
+
+<!-- BOARD NOMINATION MODAL -->
+<div class="modal-overlay" id="modal-board-nomination">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header"><div class="modal-title">Add Election / Nomination</div><button class="modal-close" onclick="closeModal('modal-board-nomination')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="bnm-member-id"/>
+      <div class="form-group"><label>Date</label><input type="date" id="bnm-date"/></div>
+      <div class="form-group"><label>Type</label>
+        <select id="bnm-type" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+          <option value="election">🗳️ Initial Election</option>
+          <option value="renomination">🔄 Renomination</option>
+          <option value="appointment">📋 Appointment</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Term Length (years)</label><input type="number" id="bnm-term" value="3" min="1" max="10" style="width:100px"/></div>
+      <div class="form-group"><label>Notes</label><input type="text" id="bnm-notes" placeholder="Optional…"/></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-nomination')">Cancel</button><button class="btn btn-primary" onclick="saveBoardNomination()">Save</button></div>
+  </div>
+</div>
+
+<!-- BOARD MEETING MODAL -->
+<div class="modal-overlay" id="modal-board-meeting">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div><button class="modal-close" onclick="closeModal('modal-board-meeting')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="bmeet-id"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Date *</label><input type="date" id="bmeet-date"/></div>
+        <div class="form-group"><label>Time</label><input type="time" id="bmeet-time"/></div>
+      </div>
+      <div class="form-group"><label>Location</label><input type="text" id="bmeet-location"/></div>
+      <div class="form-group"><label>Notes</label><textarea id="bmeet-notes" style="min-height:60px"></textarea></div>
+      <div class="form-check" style="margin-top:4px">
+        <input type="checkbox" id="bmeet-sync" checked style="accent-color:var(--teal)"/>
+        <label for="bmeet-sync" style="font-size:13px;cursor:pointer">📅 Also add to event calendar</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-board-meeting')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBoardMeeting()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-volunteer">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="vol-modal-title">Add Volunteer</div><button class="modal-close" onclick="closeModal('modal-volunteer')">✕</button></div>
@@ -1661,11 +1847,24 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Birthday</label><input type="date" id="vol-birthday"/></div>
       </div>
       <div class="form-group"><label>Status</label><select id="vol-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-group"><label>Pronouns</label><input type="text" id="vol-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>
       <div class="form-row">
         <div class="form-group"><label>Background Check</label><select id="vol-bgcheck"><option value="none">Not on file</option><option value="pending">Pending</option><option value="cleared">Cleared</option></select></div>
         <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
       </div>
+      <div class="form-group">
+        <label>Employer Giving Program</label>
+        <select id="vol-employer-program">
+          <option value="">— None —</option>
+          <option value="Disney Cast Member">🐭 Disney Cast Member</option>
+          <option value="Universal Team Member">🎬 Universal Team Member</option>
+        </select>
+      </div>
       <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
+      <div id="vol-sub-selections-wrap" style="display:none">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;margin-top:4px">Sub-selections</div>
+        <div id="vol-sub-selections-panels"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
@@ -1857,8 +2056,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
       <div class="form-group"><label>Internal Notes</label><textarea id="edit-event-notes" placeholder="Notes for staff/admins only…"></textarea></div>
       <div style="display:flex;gap:16px;padding:8px 0">
-        <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event</label>
+        <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event <span id="bgcheck-auto-note" style="font-size:11px;color:var(--amber-600);font-weight:600;display:none"> — required for youth programs & Rising Stars</span></label>
         <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-autolog" style="accent-color:var(--teal-400)"/> ⚡ Auto-log full event hours — volunteers get credited for the entire event duration without clocking in/out</label>
+        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400)"/> 📬 Enable volunteer sign-ups — send RSVP invites so volunteers can express interest in this event</label>
+        <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:8px">
+          <textarea id="edit-event-rsvp-msg" placeholder="Optional personal message to include in the invite email…" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
       </div>
     </div>
 
@@ -2150,6 +2353,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 // ═══════════════════════════════════════════════════════════════
 let currentUser = null
 let volunteers = []
+let allApplications = []
 let allHours = []
 let allEvents = []
 let interestTypes = []
@@ -2201,6 +2405,34 @@ function calcAge(dob){
 function waiverStatus(v){
   return v.waiver_status || 'none'
 }
+function bgcBadgeHTML(status, compact=false){
+  if(status==='cleared') return compact
+    ? '<span title="Background check cleared" style="font-size:13px">✅</span>'
+    : '<span style="background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">✅ BGC Cleared</span>'
+  if(status==='pending') return compact
+    ? '<span title="Background check pending" style="font-size:13px">⏳</span>'
+    : '<span style="background:#fefce8;color:#a16207;border:1.5px solid #fde047;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⏳ BGC Pending</span>'
+  // Not submitted — this is the one that needs to be VERY obvious in youth contexts
+  return compact
+    ? '<span title="No background check on file" style="font-size:13px;color:var(--red-600)">⚠️</span>'
+    : '<span style="background:#fef2f2;color:#dc2626;border:1.5px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⚠️ No BGC on file</span>'
+}
+
+function bgcYouthWarning(vol){
+  // Returns a prominent banner if this volunteer hasn't cleared a BGC
+  // Use this wherever volunteers interact with youth
+  if(!vol || vol.background_check_status==='cleared') return ''
+  const msg = vol.background_check_status==='pending'
+    ? `⏳ Background check pending for <strong>${escHtml(vol.name)}</strong>`
+    : `⚠️ <strong>${escHtml(vol.name)}</strong> has no background check on file`
+  const style = vol.background_check_status==='pending'
+    ? 'background:#fefce8;border:2px solid #fde047;color:#854d0e'
+    : 'background:#fef2f2;border:2px solid #fca5a5;color:#991b1b'
+  return `<div style="${style};border-radius:8px;padding:8px 12px;font-size:13px;margin-top:6px">
+    ${msg} — <strong>this person works with youth</strong>
+  </div>`
+}
+
 function waiverBadgeHTML(s){
   const m={valid:['waiver-valid','✅ Valid'],expiring:['waiver-expiring','⚠️ Expiring'],expired:['waiver-expired','❌ Expired'],none:['waiver-none','— None']}
   const [cls,label]=m[s||'none']
@@ -2393,6 +2625,7 @@ function applyPermissionUI(){
     'openLogTimeModal':   'hours',
     'openProductionModal':'productions',
     'openYouthModal':     'youth',
+    'openBulkImport':     'youth',
     'openSaveTemplateModal': 'email',
   }
   document.querySelectorAll('.admin-only').forEach(el=>{
@@ -2447,6 +2680,7 @@ function navTo(page,el){
   if(page==='notifications') loadPendingHours()
   if(page==='event-logs') loadEventLogs()
   if(page==='reports') initReportsPage()
+  if(page==='board') loadBoardPage()
   if(page==='youth') renderYouth()
   if(page==='youth-programs-page') renderYouthProgramsPage()
   if(page==='rising-stars-page') renderRisingStarsPage()
@@ -2485,9 +2719,10 @@ async function loadAllData(){
   populateYouthFilters()
   populateProgramsDropdown()
   populateProdVolSelect()
-  // Load applications count for nav badge on startup
+  // Load applications count for nav badge on startup and store for sub-interest filtering
   api('/api/applications').then(apps=>{
     if(!Array.isArray(apps)) return
+    allApplications = apps
     const pending = apps.filter(a=>a.status==='pending').length
     const navBadge = document.getElementById('vol-interest-badge')
     if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
@@ -2715,8 +2950,31 @@ function renderApplications(apps){
             ${a.how_heard?`<span style="color:var(--text-hint)">via ${escHtml(a.how_heard)}</span>`:''}
             <span style="color:var(--text-hint)">Submitted ${formatDateTime(a.created_at)}</span>
           </div>
-          ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>`<span style="background:var(--teal-50);color:var(--teal-600);border:1px solid var(--teal-100);padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(i)}</span>`).join('')}</div>`:''}
-          ${a.notes?`<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius);padding:8px 12px;border-left:3px solid var(--border-md);margin-top:4px"><em>${escHtml(a.notes)}</em></div>`:''}
+          ${interests.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${interests.map(i=>{
+            let subSel = []
+            try{
+              const ss = JSON.parse(a.sub_selections||'{}')
+              subSel = ss[i] || []
+            }catch(e){}
+            return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:10px;padding:4px 10px;">
+              <span style="color:var(--teal-600);font-size:12px;font-weight:700">${escHtml(i)}</span>
+              ${subSel.length?`<span style="font-size:11px;color:var(--teal-dark);margin-top:1px">↳ ${subSel.map(s=>escHtml(s)).join(', ')}</span>`:''}
+            </span>`
+          }).join('')}</div>`:''}
+          ${a.duplicate_volunteer ? `
+            <div style="display:flex;align-items:center;gap:8px;background:#fefce8;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px">
+              <span style="font-size:16px">⚠️</span>
+              <div>
+                <span style="font-weight:700;color:#854d0e">Possible duplicate</span>
+                <span style="color:#854d0e"> — a volunteer named <strong>${escHtml(a.duplicate_volunteer.name)}</strong> already exists with this email address.</span>
+                <span style="color:#a16207"> Approving will update their existing record.</span>
+              </div>
+            </div>` : ''}
+          ${a.notes?`<div style="margin-top:8px;background:var(--bg);border:1.5px solid var(--border-md);border-left:3px solid var(--teal-400);border-radius:var(--radius);padding:10px 14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">💬 Their message</div>
+            <div style="font-size:13px;color:var(--text)">${escHtml(a.notes)}</div>
+          </div>`:''}
+          ${a.how_heard?'':''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
           ${showActions?`
@@ -2730,19 +2988,57 @@ function renderApplications(apps){
   }
 
   let html = ''
+
+  // Pending — shown prominently, always expanded
   if(pending.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">${pending.length} New Submissions</div>`
+    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">
+      🔔 ${pending.length} Awaiting Review
+    </div>`
     html += pending.map(a=>renderCard(a, true)).join('')
+  } else {
+    html += `<div style="text-align:center;padding:32px 20px;color:var(--text-muted);background:var(--bg);border-radius:var(--radius-lg);margin-bottom:16px">
+      <div style="font-size:28px;margin-bottom:8px">✅</div>
+      <div style="font-weight:600">All caught up!</div>
+      <div style="font-size:13px;margin-top:4px">No new submissions to review.</div>
+    </div>`
   }
+
+  // Approved — collapsed by default
   if(approved.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${pending.length?'20px':0} 0 10px">${approved.length} Added to Volunteers</div>`
-    html += approved.map(a=>renderCard(a, false)).join('')
+    html += `<div style="margin-top:${pending.length?'20px':'0'}">
+      <button onclick="toggleAppSection('approved')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
+        <span id="app-chevron-approved" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s">▶</span>
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${approved.length} Added to Volunteers</span>
+      </button>
+      <div id="app-section-approved" style="display:none">
+        ${approved.map(a=>renderCard(a, false)).join('')}
+      </div>
+    </div>`
   }
+
+  // Declined — collapsed by default
   if(declined.length){
-    html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:${approved.length||pending.length?'20px':0} 0 10px">${declined.length} Not Right Now</div>`
-    html += declined.map(a=>renderCard(a, false)).join('')
+    html += `<div style="margin-top:8px">
+      <button onclick="toggleAppSection('declined')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
+        <span id="app-chevron-declined" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s">▶</span>
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${declined.length} Not Right Now</span>
+      </button>
+      <div id="app-section-declined" style="display:none">
+        ${declined.map(a=>renderCard(a, false)).join('')}
+      </div>
+    </div>`
   }
+
   el.innerHTML = html
+}
+
+function toggleAppSection(section){
+  const panel = document.getElementById('app-section-'+section)
+  const chevron = document.getElementById('app-chevron-'+section)
+  if(!panel) return
+  const open = panel.style.display !== 'none'
+  panel.style.display = open ? 'none' : ''
+  if(chevron) chevron.style.transform = open ? '' : 'rotate(90deg)'
 }
 
 async function approveApplication(aid){
@@ -2771,6 +3067,18 @@ async function deleteApplication(aid){
   loadApplications()
 }
 
+function loadApplicationsBadge(){
+  api('/api/applications').then(function(apps){
+    if(!Array.isArray(apps)) return
+    allApplications = apps
+    var pending = apps.filter(function(a){ return a.status==='pending' }).length
+    var navBadge = document.getElementById('vol-interest-badge')
+    if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
+    var tabBadge = document.getElementById('app-pending-badge')
+    if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
+  }).catch(function(){})
+}
+
 function renderVolunteers(){
   const search=document.getElementById('vol-search').value.toLowerCase()
   const fs=document.getElementById('filter-status').value
@@ -2793,19 +3101,28 @@ function renderVolunteers(){
   tbody.innerHTML=filtered.map(v=>{
     const interests=JSON.parse(v.interests||'[]')
     const checked=selectedVolIds.has(v.id)
-    return `<tr>
-      <td><input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''} onchange="toggleVolSelect('${v.id}',this.checked)"/></td>
-      <td><div class="volunteer-name-cell">${avatarHTML(v.name)}<div><div class="volunteer-name">${v.name}</div><div class="volunteer-email">${v.email}</div></div></div></td>
-      <td style="color:var(--text-muted)">${v.phone||'—'}</td>
+    return `<tr style="cursor:pointer" onclick="openProfile('${v.id}')" class="vol-row-hover">
+      <td onclick="event.stopPropagation()" style="width:32px">
+        <input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''}
+          onchange="toggleVolSelect('${v.id}',this.checked)"/>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${avatarHTML(v.name)}
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}${v.phone?` · ${escHtml(v.phone)}`:''}</div>
+          </div>
+        </div>
+      </td>
       <td>${interests.map(i=>interestTagHTML(i)).join('')}</td>
       <td>${waiverBadgeHTML(waiverStatus(v))}</td>
       <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></td>
-      <td>${v.background_check_status==='cleared'?'<span style="font-size:11px;background:var(--green-50);color:var(--green-600);padding:2px 6px;border-radius:8px;font-weight:600">✅ BGC</span>':v.background_check_status==='pending'?'<span style="font-size:11px;background:var(--amber-50);color:var(--amber-600);padding:2px 6px;border-radius:8px;font-weight:600">⏳ BGC</span>':''}</td>
-      <td style="font-weight:600;color:var(--teal-600)">${v.total_hours||0}h</td>
-      <td><div class="action-btns">
-        <button class="btn btn-secondary btn-sm" onclick="openProfile('${v.id}')">View</button>
-        <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email">✉️</a>
-      </div></td>
+      <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}${v.employer_program==='Disney Cast Member'?'<img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" alt="Disney" title="Disney Cast Member"/>':v.employer_program==='Universal Team Member'?'<span title="Universal Team Member" style="font-size:16px;margin-left:4px">🎬</span>':''}</td>
+      <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
+      <td onclick="event.stopPropagation()">
+        <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">✉️</a>
+      </td>
     </tr>`
   }).join('')
   updateBulkActions()
@@ -2877,9 +3194,12 @@ function printVolIdCard(volId, volName){
 async function openProfile(volId){
   currentVolId=volId
   const v=await api(`/api/volunteers/${volId}`)
+  window._currentProfileData = v
   const isAdmin=canEdit('volunteers')
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
+  const btnStyle='background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
+  const dangerStyle='background:rgba(192,57,43,0.5);color:#fff;border:1px solid rgba(255,255,255,0.4);padding:6px 14px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer'
   document.getElementById('profile-header').innerHTML=buildProfileBanner({
     name: v.name, email: v.email, phone: v.phone, status: v.status,
     bg, col, backFn: "navTo('volunteers')",
@@ -2888,25 +3208,48 @@ async function openProfile(volId){
       v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:'🔗 Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
       v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
+      v.employer_program==='Disney Cast Member'?{label:'🐭 Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
+      v.employer_program==='Universal Team Member'?{label:'🎬 Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
       {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
     ].filter(Boolean),
-    actions: isAdmin ? [
-      {label:'✉️ Email', href:'mailto:'+v.email},
-      {label:'Edit', onclick:"openEditVolModal('"+v.id+"')"},
-      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"},
-      {label:'🔗 Link Participant', onclick:"openLinkModal('volunteer','"+v.id+"','')"},
-      {label:'Delete', onclick:"deleteVol('"+v.id+"')", danger:true}
-    ] : [
-      {label:'🪪 ID Card', onclick:"printVolIdCard('"+v.id+"','"+v.name.replace(/'/g,"\\'")+"')"}
-    ]
+    actions: []
   })
+  // Wire up action buttons directly via addEventListener to avoid all escaping issues
+  if(isAdmin){
+    const banner = document.querySelector('#profile-header > div')
+    const actDiv = document.createElement('div')
+    actDiv.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0'
+    const mkBtn = (label, clickFn, danger) => {
+      const b = document.createElement('button')
+      b.style.cssText = danger ? dangerStyle : btnStyle
+      b.textContent = label
+      b.addEventListener('click', clickFn)
+      actDiv.appendChild(b)
+    }
+    const mkLink = (label, href) => {
+      const a = document.createElement('a')
+      a.style.cssText = btnStyle + ';text-decoration:none'
+      a.textContent = label; a.href = href
+      actDiv.appendChild(a)
+    }
+    mkLink('✉️ Email', 'mailto:'+v.email)
+    mkBtn('Edit', function(){ openEditVolModal(v.id) })
+    mkBtn('🪪 ID Card', function(){ printVolIdCard(v.id, v.name) })
+    mkBtn('🔗 Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
+    mkBtn('Delete', function(){ deleteVol(v.id) }, true)
+    if(banner) banner.appendChild(actDiv)
+  }
 
   document.getElementById('profile-content').innerHTML=`
     <div class="profile-layout">
       <div class="profile-card">
         <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(v.name)}</div>
         <div class="profile-name">${v.name}</div>
-        <div style="text-align:center;margin-bottom:16px"><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span></div>
+        ${v.pronouns?`<div style="text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:6px">${escHtml(v.pronouns)}</div>`:''}
+        <div style="text-align:center;margin-bottom:16px">
+          <span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?'● Active':'○ Inactive'}</span>
+        </div>
+        <div style="text-align:center;margin-bottom:16px">${bgcBadgeHTML(v.background_check_status, false)}</div>
         <hr class="divider"/>
         <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
           <div>📧 <a href="mailto:${v.email}" style="color:var(--teal-600)">${v.email}</a></div>
@@ -2919,7 +3262,14 @@ async function openProfile(volId){
         <hr class="divider"/>
         <div style="margin-bottom:12px">
           <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Interests</div>
-          <div>${interests.map(i=>interestTagHTML(i)).join('')||'<span style="color:var(--text-hint);font-size:13px">None</span>'}</div>
+          <div>${interests.length ? interests.map(i=>{
+            let subSel = []
+            try{ const ss=JSON.parse(v.sub_selections||'{}'); subSel=ss[i]||[] }catch(e){}
+            return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:10px;padding:4px 10px;margin:0 4px 4px 0">
+              <span style="color:var(--teal-600);font-size:12px;font-weight:700">${escHtml(i)}</span>
+              ${subSel.length?`<span style="font-size:11px;color:var(--teal-dark);margin-top:1px">↳ ${subSel.map(s=>escHtml(s)).join(', ')}</span>`:''}
+            </span>`
+          }).join('') : '<span style="color:var(--text-hint);font-size:13px">None</span>'}</div>
         </div>
         <hr class="divider"/>
         <div style="margin-bottom:12px">
@@ -2963,14 +3313,7 @@ async function openProfile(volId){
           <div style="padding:0 0 20px">
             <div class="tab-pane active" id="tab-hours">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
-              ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':
-                (v.hours||[]).map(h=>`
-                <div class="hours-item">
-                  <span style="font-size:18px">🎭</span>
-                  <div><div class="event-name">${h.event}</div><div class="event-date">${formatDate(h.date)}${h.role?' · '+h.role:''}</div></div>
-                  <div class="event-hours">${h.hours}h</div>
-                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteHours('${h.id}','${v.id}')">✕</button>`:''}
-                </div>`).join('')}
+              ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':v.hours.map(h=>renderHoursRow(h,v.id,isAdmin)).join('')}
             </div>
             <div class="tab-pane" id="tab-history">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
@@ -2979,11 +3322,13 @@ async function openProfile(volId){
             <div class="tab-pane" id="tab-notes">
               ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openNoteModal('${v.id}')">+ Add Note</button></div>`:''}
               ${!(v.notes||[]).length?'<div style="color:var(--text-muted);font-size:13px">No notes yet</div>':
-                (v.notes||[]).map(n=>`
-                <div class="note-item">
-                  <div class="note-meta">📝 ${n.author} · ${formatDate((n.created_at||'').split('T')[0])}</div>
-                  <div class="note-content">${n.content}</div>
-                </div>`).join('')}
+                (v.notes||[]).map(n=>{
+                  const isJoinForm = n.author==='Join Form'
+                  return `<div class="note-item" ${isJoinForm?'style="border-left:3px solid var(--teal-400);background:var(--teal-50)"':''}>
+                    <div class="note-meta">${isJoinForm?'💬':'📝'} ${n.author} · ${formatDate((n.created_at||'').split('T')[0])}</div>
+                    <div class="note-content">${escHtml(n.content)}</div>
+                  </div>`
+                }).join('')}
             </div>
             <div class="tab-pane" id="tab-files">
               ${isAdmin?`<div style="margin-bottom:16px"><label class="btn btn-primary btn-sm" style="cursor:pointer">+ Attach File<input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display:none" onchange="attachFile(event,'${v.id}')"/></label></div>`:''}
@@ -3136,6 +3481,86 @@ function renderHours(){
     <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.notes||'—'}</td>
     ${isAdmin?`<td><button class="btn btn-danger btn-sm" onclick="deleteHoursGlobal('${h.id}')">✕</button></td>`:'<td></td>'}
   </tr>`).join('')
+}
+
+var _hoursEditData = {}
+
+function renderHoursRow(h, volId, isAdminFlag) {
+  if (isAdminFlag) _hoursEditData[h.id] = { hours: h.hours, volId: volId }
+  var editBtns = isAdminFlag
+    ? '<div style="display:flex;gap:4px">'
+      + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" onclick="openEditHoursModal(\'' + h.id + '\')">✏️</button>'
+      + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px" onclick="deleteHours(\'' + h.id + '\',\'' + volId + '\')">✕</button>'
+      + '</div>'
+    : ''
+  return '<div class="hours-item">'
+    + '<span style="font-size:18px">🎭</span>'
+    + '<div style="flex:1"><div class="event-name">' + escHtml(h.event || '') + '</div>'
+    + '<div class="event-date">' + formatDate(h.date || '') + (h.role ? ' · ' + escHtml(h.role) : '') + '</div></div>'
+    + '<div class="event-hours">' + h.hours + 'h</div>'
+    + editBtns + '</div>'
+}
+
+function openEditHoursModal(hoursId) {
+  var data = _hoursEditData[hoursId]
+  if (!data) { toast('Could not find hours record', 'error'); return }
+  var old2 = document.getElementById('edit-hours-modal')
+  if (old2) old2.remove()
+  var overlay = document.createElement('div')
+  overlay.id = 'edit-hours-modal'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var box = document.createElement('div')
+  box.style.cssText = 'background:var(--surface);border-radius:12px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:16px'
+  var title = document.createElement('div'); title.style.cssText='font-size:16px;font-weight:700'; title.textContent='✏️ Edit Hours'; box.appendChild(title)
+  var lbl = document.createElement('label'); lbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px'; lbl.textContent='Hours worked'; box.appendChild(lbl)
+  var inp = document.createElement('input'); inp.type='number'; inp.min='0.25'; inp.step='0.25'; inp.value=parseFloat(data.hours)||0
+  inp.style.cssText='width:100%;padding:12px;border:2px solid var(--teal);border-radius:8px;font-size:24px;font-weight:700;box-sizing:border-box;font-family:inherit;color:var(--teal-dark)'; box.appendChild(inp)
+  var hint = document.createElement('div'); hint.style.cssText='font-size:12px;color:var(--text-muted);margin-top:-8px'; hint.textContent='e.g. 2.5 for 2 hours 30 minutes'; box.appendChild(hint)
+  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:10px;margin-top:4px'
+  var cancelBtn = document.createElement('button'); cancelBtn.className='btn btn-secondary'; cancelBtn.style.flex='1'; cancelBtn.textContent='Cancel'; cancelBtn.onclick=function(){overlay.remove()}
+  var saveBtn = document.createElement('button'); saveBtn.className='btn btn-primary'; saveBtn.style.flex='2'; saveBtn.textContent='Save Hours'
+  saveBtn.onclick = async function(){
+    var hours = parseFloat(inp.value)
+    if(!hours||hours<=0){toast('Please enter valid hours','error');return}
+    saveBtn.disabled=true; saveBtn.textContent='Saving…'
+    var res = await api('/api/hours/'+hoursId,'PUT',{hours:hours})
+    if(res&&res.error){toast(res.error,'error');saveBtn.disabled=false;saveBtn.textContent='Save Hours';return}
+    overlay.remove(); toast('Updated to '+hours+'h','success')
+    await loadAllData(); openProfile(data.volId)
+  }
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(saveBtn); box.appendChild(btnRow)
+  overlay.appendChild(box); overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()}); document.body.appendChild(overlay)
+  setTimeout(function(){inp.focus();inp.select()},50)
+}
+
+async function downloadEventReportPdf(eventId, logId){
+  var res = await api('/api/event-logs/'+logId+'/report')
+  if(!res||res.error){toast(res&&res.error?res.error:'Could not load report','error');return}
+  var log = res
+  var checklist = (log.checklist||[]).map(function(r){
+    var val=String(r.response||'')
+    var valStr=r.item_type==='checkbox'?(val==='true'?'✅ Done':'❌ Not Done'):(val||'—')
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+escHtml(valStr)+'</td></tr>'
+  }).join('')
+  var hours=(log.hours||[]).map(function(h){
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+h.hours+'h</td><td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td></tr>'
+  }).join('')
+  var total=(log.hours||[]).reduce(function(s,h){return s+(parseFloat(h.hours)||0)},0)
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Event Report</title>'
+    +'<style>body{font-family:-apple-system,sans-serif;margin:0;padding:0}.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}.stat-num{font-size:28px;font-weight:900;color:#145466}.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}h3{color:#145466;font-size:15px;font-weight:700;margin:24px 0 10px}table{width:100%;border-collapse:collapse;border:1px solid #e0e0db}thead{background:#f0f8fa}th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}<'+'/style><'+'/head><body>'
+    +'<div class="header"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<'+'/div>'
+    +'<div style="font-size:22px;font-weight:800;margin-bottom:4px">🔒 '+escHtml(log.event_name||'')+'<'+'/div>'
+    +'<div style="font-size:13px;opacity:0.7">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<'+'/div><'+'/div>'
+    +'<div style="padding:28px 32px"><div class="stat-grid">'
+    +'<div class="stat"><div class="stat-num">'+( log.hours||[]).length+'<'+'/div><div class="stat-label">Volunteers<'+'/div><'+'/div>'
+    +'<div class="stat"><div class="stat-num">'+total.toFixed(1)+'h<'+'/div><div class="stat-label">Total Hours<'+'/div><'+'/div>'
+    +'<div class="stat"><div class="stat-num">'+( log.checklist||[]).length+'<'+'/div><div class="stat-label">Checklist Items<'+'/div><'+'/div><'+'/div>'
+    +(checklist?'<h3>✅ Closing Checklist<'+'/h3><table><thead><tr><th>Item<'+'/th><th>Response<'+'/th><'+'/tr><'+'/thead><tbody>'+checklist+'<'+'/tbody><'+'/table>':'<p><em>No checklist items.<'+'/em><'+'/p>')
+    +(hours?'<h3>⏱ Hours Logged<'+'/h3><table><thead><tr><th>Volunteer<'+'/th><th>Hours<'+'/th><th>Status<'+'/th><'+'/tr><'+'/thead><tbody>'+hours+'<'+'/tbody><'+'/table>':'<p><em>No hours recorded.<'+'/em><'+'/p>')
+    +'<'+'/div><div class="footer">RoleCall — Horizon West Theatre Company<'+'/div>'
+    +'<script>window.onload=function(){window.print()}<'+'/scr'+'ipt><'+'/body><'+'/html>'
+  var win=window.open('','_blank')
+  if(win){win.document.write(html);win.document.close()}else toast('Please allow popups','error')
 }
 
 async function deleteHours(hId,volId){
@@ -3429,7 +3854,30 @@ function renderEmailGroupOptions(){
     interestTypes.forEach(it=>{
       sel.innerHTML+=`<option value="${it.name}">${it.name}</option>`
     })
-  } else if(type==='event'){
+    // Show sub-options selector when interest changes
+    sel.onchange = function(){
+      const chosen = interestTypes.find(it=>it.name===this.value)
+      let subOpts = []
+      try{ subOpts = JSON.parse(chosen?.sub_options||'[]') }catch(e){}
+      const existing = document.getElementById('email-sub-interest-detail')
+      if(existing) existing.remove()
+      if(subOpts.length){
+        const subDiv = document.createElement('div')
+        subDiv.id = 'email-sub-interest-detail'
+        subDiv.style.marginTop = '6px'
+        subDiv.innerHTML = `<select id="email-sub-interest-value" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+          <option value="">— All ${escHtml(this.value)} (any instrument) —</option>
+          ${subOpts.map(opt=>`<option value="${escHtml(opt)}">↳ ${escHtml(opt)} only</option>`).join('')}
+        </select>`
+        sel.parentNode.insertBefore(subDiv, sel.nextSibling)
+      }
+    }
+  } else {
+    // Clear sub-interest selector if switching away
+    const existing = document.getElementById('email-sub-interest-detail')
+    if(existing) existing.remove()
+  }
+  if(type==='event'){
     allEvents.filter(e=>e.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,50).forEach(e=>{
       sel.innerHTML+=`<option value="${e.id}">${e.name} (${formatDate(e.event_date)})</option>`
     })
@@ -3488,19 +3936,24 @@ async function applyEmailGroup(){
 
   } else if(type==='interest'){
     if(!val){toast('Select an interest','error');return}
+    const subVal = document.getElementById('email-sub-interest-value')?.value || ''
     matched=volunteers.filter(v=>{
       try{
         const ints=JSON.parse(v.interests||'[]')
-        return ints.includes(val)
+        if(!ints.includes(val)) return false
+        if(!subVal) return true
+        const ss=JSON.parse(v.sub_selections||'{}')
+        return (ss[val]||[]).includes(subVal)
       }catch{return false}
     })
-    label=`Volunteers interested in: ${val}`
+    label = subVal ? `Volunteers: ${val} → ${subVal}` : `Volunteers interested in: ${val}`
 
   } else if(type==='event'){
     if(!val){toast('Select an event','error');return}
     const evt=allEvents.find(e=>e.id===val)
-    // Get volunteers who logged hours for this event
-    matched=volunteers.filter(v=>(v.hours||[]).some(h=>h.event_id===val))
+    // Get volunteers who logged hours for this event using allHours flat array
+    const volIdsWithHours = new Set(allHours.filter(h=>h.event_id===val).map(h=>h.volunteer_id).filter(Boolean))
+    matched=volunteers.filter(v=>volIdsWithHours.has(v.id))
     // Also add ELIC assigned to this event
     ;(evt?.elics||[]).forEach(el=>{
       const v=volunteers.find(v=>v.id===el.volunteer_id)
@@ -3851,6 +4304,411 @@ function toggleMinorSections(){
   if(sec) sec.style.display = isMinor ? '' : 'none'
 }
 
+
+// ── BOARD MANAGEMENT ─────────────────────────────────────────────
+
+var _boardMembers = []
+var _boardMeetings = []
+var _boardTab = 'members'
+
+async function loadBoardPage(){
+  var members = await api('/api/board/members')
+  var meetings = await api('/api/board/meetings')
+  _boardMembers = Array.isArray(members) ? members : []
+  _boardMeetings = Array.isArray(meetings) ? meetings : []
+  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
+  document.getElementById('board-subtitle').textContent = active+' active member'+(active!==1?'s':'')+' · '+_boardMeetings.length+' meeting'+(_boardMeetings.length!==1?'s':'')+' recorded'
+  renderBoardTab(_boardTab)
+}
+
+function switchBoardTab(tab){
+  _boardTab = tab
+  ;['members','meetings','schedule'].forEach(function(t){
+    var btn=document.getElementById('btab-'+t), panel=document.getElementById('btab-panel-'+t)
+    if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
+    if(panel) panel.style.display=t===tab?'':'none'
+  })
+  renderBoardTab(tab)
+}
+
+function renderBoardTab(tab){
+  if(tab==='members') renderBoardMembers()
+  else if(tab==='meetings') renderBoardMeetings()
+  else if(tab==='schedule') renderBoardScheduler()
+}
+
+function renderBoardMembers(){
+  var el=document.getElementById('btab-panel-members')
+  if(!el) return
+  if(!_boardMembers.length){ el.innerHTML='<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'; return }
+  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px">'
+    + _boardMembers.map(function(m){
+      var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
+      var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
+      var sb=m.status==='active'
+        ?'<span style="background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">● Active</span>'
+        :'<span style="background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">○ '+m.status+'</span>'
+      var noms=m.nominations||[]
+      var latestNom=noms.length?noms[noms.length-1]:null
+      var dueWarn=''
+      if(latestNom){
+        var ny=parseInt((latestNom.nomination_date||'').split('-')[0])
+        var ty=parseInt(latestNom.term_years||3)
+        if(!isNaN(ny)){
+          var dy=ny+ty, now=new Date(), mu=(dy-now.getFullYear())*12-now.getMonth()
+          if(mu<=0) dueWarn='<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⚠️ Renomination overdue — due '+dy+'</div>'
+          else if(mu<=6) dueWarn='<div style="background:#fefce8;border:1.5px solid #fde047;color:#854d0e;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⏳ Renomination due '+dy+' ('+mu+' months)</div>'
+        }
+      }
+      var nomH=noms.length
+        ?'<table style="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px">'
+          +noms.map(function(n,i){
+            var tl={election:'🗳️ Initial Election',renomination:'🔄 Renomination',appointment:'📋 Appointment'}[n.nomination_type]||n.nomination_type
+            var startYear=parseInt((n.nomination_date||'').split('-')[0])
+            var termYrs=parseInt(n.term_years||3)
+            var endYear=startYear+termYrs
+            return '<tr style="border-top:'+(i>0?'1px solid var(--border)':'none')+'">'
+              +'<td style="padding:7px 0;font-weight:600;white-space:nowrap">'+tl+'</td>'
+              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+formatDate(n.nomination_date)+'</td>'
+              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+termYrs+'yr term</td>'
+              +'<td style="padding:7px 0;color:var(--text-muted);white-space:nowrap">until '+endYear+'</td>'
+              +'<td style="padding:7px 0;padding-left:8px;text-align:right">'
+              +'<button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" '
+              +'style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0;line-height:1">×</button></td>'
+              +'</tr>'
+          }).join('')+'</table>'
+        :'<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No elections recorded yet</div>'
+      return '<div class="card" style="padding:16px">'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
+        +'<div style="display:flex;align-items:center;gap:10px">'+avatarHTML(m.name,36)
+        +'<div><div style="font-weight:700;font-size:14px">'+escHtml(m.name)+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div>'
+        +'<div style="display:flex;gap:6px;align-items:center">'+sb
+        +'<button data-id="'+m.id+'" onclick="editBoardMember(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button></div></div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">📧 '+escHtml(m.email)+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:10px">'
+        +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings attended</div>'
+        +(rate!==null?'<div style="font-size:18px;font-weight:900;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">—</div>')
+        +'</div>'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Election History</div>'
+        +'<button data-mid="'+m.id+'" onclick="openNominationModal(this.dataset.mid)" class="btn btn-secondary btn-sm" style="padding:2px 10px;font-size:11px">+ Add</button></div>'
+        +nomH+dueWarn+'</div>'
+    }).join('')+'</div>'
+}
+
+function renderBoardMeetings(){
+  var el=document.getElementById('btab-panel-meetings')
+  if(!el) return
+  if(!_boardMeetings.length){ el.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No meetings recorded yet</p></div>'; return }
+  el.innerHTML=_boardMeetings.map(function(m){
+    var att=(m.attendance||[]).filter(function(a){return a.attended}).length
+    var tot=(m.attendance||[]).length
+    return '<div class="card" style="padding:20px;margin-bottom:16px">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+      +'<div><div style="font-size:16px;font-weight:700">'+formatDate(m.meeting_date)+(m.meeting_time?' at '+fmtTime(m.meeting_time):'')+'</div>'
+      +(m.location?'<div style="font-size:13px;color:var(--text-muted)">📍 '+escHtml(m.location)+'</div>':'')
+      +'</div>'
+      +'<div style="display:flex;gap:8px;align-items:center">'
+      +'<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+att+'/'+tot+' attended</span>'
+      +'<button data-id="+m.id+" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
+      +'<button data-id="+m.id+" onclick="deleteBoardMeeting(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
+      +'</div></div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px">'
+      +(m.attendance||[]).map(function(a){
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;'
+          +(a.attended?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)')+';">'
+          +(a.attended?'✅':'○')+' '+escHtml(a.member_name||'')+'</div>'
+      }).join('')
+      +'</div></div>'
+  }).join('')
+}
+
+function renderBoardScheduler(){
+  var el=document.getElementById('btab-panel-schedule')
+  if(!el) return
+  var now=new Date(), month=now.getMonth()+1, year=now.getFullYear()
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December']
+  el.innerHTML='<div class="card" style="padding:20px;max-width:640px">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Find the Best Meeting Date</div>'
+    +'<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">'
+    +'<div class="form-group" style="margin:0"><label>Month</label><select id="sched-month" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +months.map(function(n,i){return '<option value="'+(i+1)+'"'+(i+1===month?' selected':'')+'>'+n+'</option>'}).join('')
+    +'</select></div>'
+    +'<div class="form-group" style="margin:0"><label>Year</label><input type="number" id="sched-year" value="'+year+'" style="width:90px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>'
+    +'<button class="btn btn-primary" onclick="loadScheduleRecommendations()">Show Availability</button></div>'
+    +'<div id="sched-results"></div></div>'
+}
+
+async function loadScheduleRecommendations(){
+  var month=document.getElementById('sched-month').value, year=document.getElementById('sched-year').value
+  var el=document.getElementById('sched-results')
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+  var recs=await api('/api/board/recommend/'+month+'/'+year)
+  var avail=await api('/api/board/availability/'+month+'/'+year)
+  if(!Array.isArray(recs)||!recs.length){el.innerHTML='<div style="color:var(--text-muted)">No data yet. Send availability requests first.</div>';return}
+  var submitted=avail.filter(function(a){return a.submitted_at}).length
+  var total=_boardMembers.filter(function(m){return m.status==='active'}).length
+  var html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">'+submitted+' of '+total+' members responded'+(submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some haven\u0027t responded</span>':'')+'</div>'
+  html+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked)</div>'
+  html+=recs.slice(0,10).map(function(r,i){
+    var pct=r.pct, bc=pct>=80?'var(--green-600)':pct>=60?'var(--amber-500)':'var(--red-400)'
+    var badge=i===0?'<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px">BEST</span>':''
+    return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="min-width:140px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
+      +'<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+bc+';border-radius:4px"></div></div>'
+      +'<div style="min-width:80px;text-align:right;font-size:13px;font-weight:700;color:'+bc+'">'+r.available+'/'+r.total_members+' free</div>'
+      +'<button data-date="'+ r.date +'" onclick="scheduleMeetingOnDate(this.dataset.date)" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
+      +'</div>'
+  }).join('')
+  if(avail.length){
+    html+='<div style="margin-top:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Responses</div>'
+    html+='<div style="display:flex;flex-wrap:wrap;gap:8px">'
+    html+=avail.map(function(a){
+      var bl=JSON.parse(a.blocked_dates||'[]')
+      return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);font-size:12px">'
+        +'<div style="font-weight:600">'+escHtml(a.member_name||'')+'</div>'
+        +'<div style="color:var(--text-muted);margin-top:2px">'+(a.submitted_at?(bl.length?bl.length+' date'+(bl.length!==1?'s':'')+' blocked':'✅ All available'):'<span style="color:var(--amber-600)">⏳ Not responded</span>')+'</div></div>'
+    }).join('')
+    var respondedIds=new Set(avail.map(function(a){return a.member_id}))
+    var missing=_boardMembers.filter(function(m){return m.status==='active'&&!respondedIds.has(m.id)})
+    html+=missing.map(function(m){return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px dashed var(--border);font-size:12px"><div style="font-weight:600">'+escHtml(m.name)+'</div><div style="color:var(--text-muted)">⏳ Not responded</div></div>'}).join('')
+    html+='</div>'
+  }
+  el.innerHTML=html
+}
+
+function scheduleMeetingOnDate(date){
+  document.getElementById('bmeet-id').value=''; document.getElementById('bmeet-date').value=date
+  document.getElementById('bmeet-time').value=''; document.getElementById('bmeet-location').value=''; document.getElementById('bmeet-notes').value=''
+  document.getElementById('board-meeting-modal-title').textContent='Schedule Meeting'
+  openModal('modal-board-meeting')
+}
+
+function openBoardMemberModal(){
+  document.getElementById('board-member-modal-title').textContent='Add Board Member'
+  ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){document.getElementById(id).value=''})
+  document.getElementById('bm-status').value='active'
+  openModal('modal-board-member')
+}
+
+function editBoardMember(id){
+  var m=_boardMembers.find(function(m){return m.id===id})
+  if(!m) return
+  document.getElementById('board-member-modal-title').textContent='Edit Board Member'
+  document.getElementById('bm-id').value=m.id; document.getElementById('bm-name').value=m.name
+  document.getElementById('bm-email').value=m.email; document.getElementById('bm-role').value=m.role||''
+  document.getElementById('bm-status').value=m.status; document.getElementById('bm-join-date').value=m.join_date||''
+  document.getElementById('bm-notes').value=m.notes||''
+  openModal('modal-board-member')
+}
+
+async function saveBoardMember(){
+  var name=document.getElementById('bm-name').value.trim(), email=document.getElementById('bm-email').value.trim()
+  if(!name||!email){toast('Name and email required','error');return}
+  var id=document.getElementById('bm-id').value
+  var data={name,email,role:document.getElementById('bm-role').value.trim(),status:document.getElementById('bm-status').value,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim()}
+  var res=id?await api('/api/board/members/'+id,'PUT',data):await api('/api/board/members','POST',data)
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-member'); toast(id?'Member updated!':'Member added!','success')
+  await loadBoardPage()
+}
+
+function openNominationModal(memberId){
+  document.getElementById('bnm-member-id').value=memberId
+  document.getElementById('bnm-date').value=''; document.getElementById('bnm-type').value='election'
+  document.getElementById('bnm-term').value='3'; document.getElementById('bnm-notes').value=''
+  openModal('modal-board-nomination')
+}
+
+async function saveBoardNomination(){
+  var mid=document.getElementById('bnm-member-id').value, date=document.getElementById('bnm-date').value
+  if(!date){toast('Date required','error');return}
+  var res=await api('/api/board/members/'+mid+'/nominations','POST',{nomination_date:date,nomination_type:document.getElementById('bnm-type').value,term_years:parseInt(document.getElementById('bnm-term').value)||3,notes:document.getElementById('bnm-notes').value.trim()})
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-nomination'); toast('Election record added!','success')
+  await loadBoardPage()
+}
+
+async function deleteBoardNomination(nid, mid){
+  if(!confirm('Remove this election record?')) return
+  var res=await api('/api/board/nominations/'+nid,'DELETE')
+  if(res&&res.error){toast(res.error,'error');return}
+  toast('Removed'); await loadBoardPage()
+}
+
+function openBoardMeetingModal(){
+  document.getElementById('board-meeting-modal-title').textContent='Schedule Meeting'
+  ;['bmeet-id','bmeet-date','bmeet-time','bmeet-location','bmeet-notes'].forEach(function(id){document.getElementById(id).value=''})
+  openModal('modal-board-meeting')
+}
+
+async function saveBoardMeeting(){
+  var date=document.getElementById('bmeet-date').value
+  if(!date){toast('Date required','error');return}
+  var id=document.getElementById('bmeet-id').value
+  var data={meeting_date:date,meeting_time:document.getElementById('bmeet-time').value,location:document.getElementById('bmeet-location').value.trim(),notes:document.getElementById('bmeet-notes').value.trim(),sync_to_calendar:document.getElementById('bmeet-sync')?.checked!==false}
+  var res=id?await api('/api/board/meetings/'+id,'PUT',data):await api('/api/board/meetings','POST',data)
+  if(res&&res.error){toast(res.error,'error');return}
+  closeModal('modal-board-meeting'); toast('Meeting saved!','success')
+  await loadBoardPage(); switchBoardTab('meetings')
+}
+
+async function deleteBoardMeeting(mid){
+  if(!confirm('Delete this meeting?')) return
+  var res=await api('/api/board/meetings/'+mid,'DELETE')
+  if(res&&res.error){toast(res.error,'error');return}
+  toast('Meeting deleted'); await loadBoardPage()
+}
+
+function closeAttendanceOverlay(){ var el=document.getElementById("attendance-editor-overlay"); if(el) el.remove() }
+function closeAvailReqOverlay(){ var el=document.getElementById("avail-req-overlay"); if(el) el.remove() }
+
+function openAttendanceEditor(meetingId){
+  var meeting=_boardMeetings.find(function(m){return m.id===meetingId})
+  if(!meeting) return
+  var existing=document.getElementById('attendance-editor-overlay'); if(existing) existing.remove()
+  var overlay=document.createElement('div'); overlay.id='attendance-editor-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var attended={}; (meeting.attendance||[]).forEach(function(a){attended[a.member_id]=a.attended})
+  var rows=_boardMembers.filter(function(m){return m.status==='active'}).map(function(m){
+    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">'
+      +'<input type="checkbox" class="att-cb" data-mid="'+m.id+'" '+(attended[m.id]!==false?'checked':'')+' style="accent-color:var(--teal);width:16px;height:16px"/>'
+      +avatarHTML(m.name,28)+'<span style="font-weight:500">'+escHtml(m.name)+'</span>'
+      +(m.role?'<span style="color:var(--text-muted);font-size:11px;margin-left:auto">'+escHtml(m.role)+'</span>':'')+'</label>'
+  }).join('')
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+    +'<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    +'<div style="font-size:16px;font-weight:700">✅ Attendance — '+formatDate(meeting.meeting_date)+'</div>'
+    +'<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button></div>'
+    +'<div style="padding:16px 24px;overflow-y:auto;flex:1">'+rows+'</div>'
+    +'<div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAttendanceOverlay()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="att-save-btn">Save Attendance</button></div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
+  document.body.appendChild(overlay)
+  document.querySelector('#att-save-btn').onclick = function(){ saveAttendance(meetingId) }
+}
+
+async function saveAttendance(meetingId){
+  var att=[]
+  document.querySelectorAll('.att-cb').forEach(function(cb){att.push({member_id:cb.dataset.mid,attended:cb.checked})})
+  var res=await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:att})
+  if(res&&res.error){toast(res.error,'error');return}
+  document.getElementById('attendance-editor-overlay')?.remove()
+  toast('Attendance saved!','success'); await loadBoardPage()
+}
+
+async function openBoardAvailability(){
+  var now=new Date()
+  var months=['January','February','March','April','May','June','July','August','September','October','November','December']
+  var existing=document.getElementById('avail-req-overlay'); if(existing) existing.remove()
+  var overlay=document.createElement('div'); overlay.id='avail-req-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  var active=_boardMembers.filter(function(m){return m.status==='active'}).length
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px">'
+    +'<div style="font-size:16px;font-weight:700">📬 Request Availability</div>'
+    +'<div style="font-size:13px;color:var(--text-muted)">Send availability form links to all '+active+' active board members.</div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<div class="form-group" style="margin:0;flex:1"><label>Month</label><select id="avail-month" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +months.map(function(n,i){return '<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+n+'</option>'}).join('')+'</select></div>'
+    +'<div class="form-group" style="margin:0;width:90px"><label>Year</label><input type="number" id="avail-year" value="'+now.getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAvailReqOverlay()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="avail-send-btn" onclick="sendAvailabilityRequest()">📬 Send Emails</button></div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
+  document.body.appendChild(overlay)
+}
+
+async function sendAvailabilityRequest(){
+  var month=document.getElementById('avail-month').value, year=document.getElementById('avail-year').value
+  var btn=document.getElementById('avail-send-btn'); btn.disabled=true; btn.textContent='Sending…'
+  var res=await api('/api/board/availability/send','POST',{month:parseInt(month),year:parseInt(year)})
+  btn.disabled=false; btn.textContent='📬 Send Emails'
+  if(res&&res.error){toast(res.error,'error');return}
+  document.getElementById('avail-req-overlay')?.remove()
+  toast('Sent to '+res.sent+' board member'+(res.sent!==1?'s':'')+'!','success')
+}
+
+// ── BULK IMPORT ──────────────────────────────────────────────────
+var _biRows = []
+var BI_COLS = ['first_name','last_name','dob','guardian_name','guardian_phone','guardian_email','guardian_relationship','emergency_name','emergency_phone','emergency_relationship','pickup1_name','pickup1_phone','pickup1_relationship','pickup2_name','pickup2_phone','pickup2_relationship','medical_notes','allergies','photo_consent','medical_consent','status']
+
+async function openBulkImport(){
+  _biRows=[]; biShowStep(1); openModal('modal-bulk-import')
+  var sel=document.getElementById('bi-program')
+  if(sel){
+    var progs=Array.isArray(allPrograms)&&allPrograms.length?allPrograms:(await api('/api/youth-programs'))
+    sel.innerHTML='<option value="">— No enrollment —</option>'+(Array.isArray(progs)?progs:[]).map(function(p){return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>'}).join('')
+  }
+  var fi=document.getElementById('bi-file'); if(fi) fi.value=''
+}
+function biShowStep(n){;[1,2,3].forEach(function(i){var el=document.getElementById('bi-step-'+i);if(el)el.style.display=i===n?'':'none'})}
+function biDownloadTemplate(){
+  var csv=BI_COLS.join(',')+('\nJane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,None,Peanuts,yes,yes,active')
+}
+async function biHandleFile(input){
+  var file=input.files[0]; if(!file) return
+  if(!file.name.endsWith('.csv')){toast('Please use a CSV file','error');return}
+  var text=await file.text(); _biRows=biParseCSV(text)
+  if(!_biRows.length){toast('No data rows found','error');return}
+  if(!_biRows[0].first_name&&!_biRows[0].last_name){toast('Could not find first_name/last_name columns','error');return}
+  document.getElementById('bi-summary').textContent='Checking '+_biRows.length+' rows…'; biShowStep(2)
+  var res=await api('/api/youth-participants/check-duplicates','POST',{rows:_biRows})
+  var checks=Array.isArray(res)?res:_biRows.map(function(){return{existing:null}})
+  _biRows=_biRows.map(function(row,i){row._existing=checks[i]&&checks[i].existing?checks[i].existing:null; row._action=row._existing?'skip':'create'; return row})
+  biRenderPreview()
+}
+function biParseCSV(text){
+  var lines=text.trim().split('\n'); if(lines.length<2) return []
+  var headers=lines[0].split(',').map(function(h){return h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/\s+/g,'_')})
+  return lines.slice(1).filter(function(l){return l.trim()}).map(function(line){
+    var vals=[],cur='',inQ=false
+    for(var i=0;i<line.length;i++){var ch=line[i];if(ch==='"'){inQ=!inQ}else if(ch===','&&!inQ){vals.push(cur.trim());cur=''}else cur+=ch}
+    vals.push(cur.trim())
+    var row={}; headers.forEach(function(h,i){if(h)row[h]=vals[i]||''}); return row
+  })
+}
+function biRenderPreview(){
+  var dups=_biRows.filter(function(r){return r._existing})
+  var db=document.getElementById('bi-dup-banner'); if(db) db.style.display=dups.length?'':'none'
+  document.getElementById('bi-summary').textContent=_biRows.length+' rows · '+dups.length+' duplicates found'
+  var tbody=document.getElementById('bi-tbody')
+  tbody.innerHTML=_biRows.map(function(row,i){
+    var isDup=!!row._existing, bg=isDup?'background:#fefce8':''
+    var ac=isDup
+      ?'<select onchange="_biRows['+i+']._action=this.value" style="width:100%;padding:4px 6px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px"><option value="skip"'+(row._action==='skip'?' selected':'')+'>⏭ Skip</option><option value="update"'+(row._action==='update'?' selected':'')+'>✏️ Update</option><option value="create"'+(row._action==='create'?' selected':'')+'>➕ Create</option></select><div style="font-size:11px;color:var(--amber-600);margin-top:2px">⚠️ Matches: '+escHtml(row._existing.first_name)+' '+escHtml(row._existing.last_name)+'</div>'
+      :'<span style="color:var(--green-600);font-size:12px;font-weight:600">✅ New</span>'
+    var pu=[row.pickup1_name,row.pickup2_name].filter(Boolean).map(function(n){return escHtml(n)}).join(', ')
+    var med=[row.allergies?'🚨 '+row.allergies:'',row.medical_notes].filter(Boolean).join(' ')
+    return '<tr style="'+bg+';border-bottom:1px solid var(--border)">'
+      +'<td style="padding:8px;text-align:center"><input type="checkbox" class="bi-cb" data-idx="'+i+'" checked style="accent-color:var(--teal)"/></td>'
+      +'<td style="padding:8px;font-weight:600">'+escHtml(row.first_name||'')+' '+escHtml(row.last_name||'')+'</td>'
+      +'<td style="padding:8px;color:var(--text-muted);font-size:12px">'+escHtml(row.dob||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px">'+escHtml(row.guardian_name||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px">'+(pu||'—')+'</td>'
+      +'<td style="padding:8px;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(med||'—')+'</td>'
+      +'<td style="padding:8px">'+ac+'</td></tr>'
+  }).join('')
+}
+function biSetAllDups(action){_biRows.forEach(function(r){if(r._existing)r._action=action});biRenderPreview()}
+function biToggleAll(cb){document.querySelectorAll('.bi-cb').forEach(function(c){c.checked=cb.checked})}
+function biBack(){biShowStep(1)}
+async function biRunImport(){
+  var btn=document.getElementById('bi-run-btn'); btn.disabled=true; btn.textContent='Importing…'
+  var idxs=new Set(); document.querySelectorAll('.bi-cb:checked').forEach(function(c){idxs.add(parseInt(c.dataset.idx))})
+  var rows=_biRows.filter(function(r,i){return idxs.has(i)}).map(function(r){
+    var out={}; BI_COLS.forEach(function(k){out[k]=r[k]||''}); out.action=r._action||'create'; out.existing_id=r._existing?r._existing.id:null; return out
+  })
+  var res=await api('/api/youth-participants/bulk-import','POST',{rows:rows,program_id:document.getElementById('bi-program').value||null,enrolled_date:document.getElementById('bi-enroll-date').value||null})
+  btn.disabled=false; btn.textContent='Import'; biShowStep(3)
+  if(res&&res.error){document.getElementById('bi-result-icon').textContent='❌';document.getElementById('bi-result-title').textContent='Failed';document.getElementById('bi-result-body').textContent=res.error;return}
+  document.getElementById('bi-result-icon').textContent='🎉'; document.getElementById('bi-result-title').textContent='Import complete!'
+  document.getElementById('bi-result-body').innerHTML='<strong>'+res.created+'</strong> created &nbsp;·&nbsp; <strong>'+res.updated+'</strong> updated &nbsp;·&nbsp; <strong>'+res.skipped+'</strong> skipped'
+  if(res.errors&&res.errors.length){var e=document.getElementById('bi-result-errors');e.style.display='';e.innerHTML='<strong style="color:#dc2626">Errors:</strong><ul style="margin:4px 0 0 16px">'+res.errors.map(function(e){return'<li>'+escHtml(e)+'</li>'}).join('')+'</ul>'}
+}
+async function biDone(){closeModal('modal-bulk-import');await loadAllData();if(typeof renderYouth==='function')renderYouth();toast('Participants updated!','success')}
+
 function openYouthModal(){
   document.getElementById('youth-modal-title').textContent='Add Participant'
   document.getElementById('youth-edit-id').value=''
@@ -4027,7 +4885,12 @@ function buildInterestCheckboxes(){
       <input type="checkbox" value="${t.name}" style="display:none">${t.name}
     </label>`).join('')
 }
-function toggleCheckTag(el){const cb=el.querySelector('input');cb.checked=!cb.checked;el.classList.toggle('checked',cb.checked)}
+function toggleCheckTag(el){
+  const cb=el.querySelector('input')
+  cb.checked=!cb.checked
+  el.classList.toggle('checked',cb.checked)
+  renderVolSubSelectionPanels()
+}
 function getCheckedInterests(){return[...document.querySelectorAll('#interests-checkboxes input:checked')].map(c=>c.value)}
 function setCheckedInterests(interests){
   document.querySelectorAll('#interests-checkboxes .checkbox-tag').forEach(el=>{
@@ -4035,28 +4898,115 @@ function setCheckedInterests(interests){
   })
 }
 
+function renderVolSubSelectionPanels(){
+  const wrap = document.getElementById('vol-sub-selections-wrap')
+  const panels = document.getElementById('vol-sub-selections-panels')
+  if(!wrap||!panels) return
+  const checked = getCheckedInterests()
+  // Save current checkbox states before re-rendering
+  const currentVals = getVolSubSelections()
+  const withSubs = interestTypes.filter(t=>{
+    if(!checked.includes(t.name)) return false
+    try{ return JSON.parse(t.sub_options||'[]').length>0 }catch(e){ return false }
+  })
+  wrap.style.display = withSubs.length ? '' : 'none'
+  panels.innerHTML = withSubs.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    const cur = currentVals[t.name]||[]
+    return `<div style="margin-bottom:10px;background:var(--bg);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:6px">${escHtml(t.name)}
+        <span style="font-weight:400;color:var(--text-muted)"> — ${escHtml(t.sub_options_label||'Select all that apply')}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${subOpts.map(opt=>`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:var(--surface);border:1.5px solid var(--border-md);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">
+          <input type="checkbox" class="vol-sub-cb" data-interest="${escHtml(t.name)}" value="${escHtml(opt)}"
+            ${cur.includes(opt)?'checked':''} style="accent-color:var(--teal)"/> ${escHtml(opt)}
+        </label>`).join('')}
+      </div>
+    </div>`
+  }).join('')
+}
+
+function getVolSubSelections(){
+  const result={}
+  document.querySelectorAll('.vol-sub-cb').forEach(cb=>{
+    const interest=cb.dataset.interest
+    if(!result[interest]) result[interest]=[]
+    if(cb.checked) result[interest].push(cb.value)
+  })
+  return result
+}
+
+function setVolSubSelections(subSelections){
+  // Render panels first with the values pre-set
+  const wrap = document.getElementById('vol-sub-selections-wrap')
+  const panels = document.getElementById('vol-sub-selections-panels')
+  if(!wrap||!panels) return
+  const checked = getCheckedInterests()
+  const withSubs = interestTypes.filter(t=>{
+    if(!checked.includes(t.name)) return false
+    try{ return JSON.parse(t.sub_options||'[]').length>0 }catch(e){ return false }
+  })
+  wrap.style.display = withSubs.length ? '' : 'none'
+  panels.innerHTML = withSubs.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    const cur = (subSelections||{})[t.name]||[]
+    return `<div style="margin-bottom:10px;background:var(--bg);border-radius:8px;padding:10px 12px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:6px">${escHtml(t.name)}
+        <span style="font-weight:400;color:var(--text-muted)"> — ${escHtml(t.sub_options_label||'Select all that apply')}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${subOpts.map(opt=>`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:var(--surface);border:1.5px solid var(--border-md);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500">
+          <input type="checkbox" class="vol-sub-cb" data-interest="${escHtml(t.name)}" value="${escHtml(opt)}"
+            ${cur.includes(opt)?'checked':''} style="accent-color:var(--teal)"/> ${escHtml(opt)}
+        </label>`).join('')}
+      </div>
+    </div>`
+  }).join('')
+}
+
 function openVolModal(){
   document.getElementById('vol-modal-title').textContent='Add Volunteer'
   document.getElementById('vol-edit-id').value=''
-  ;['vol-name','vol-email','vol-phone'].forEach(id=>document.getElementById(id).value='')
+  ;['vol-name','vol-email','vol-phone','vol-pronouns'].forEach(id=>document.getElementById(id).value='')
   document.getElementById('vol-birthday').value=''
   document.getElementById('vol-status').value='active'
   setCheckedInterests([])
+  const wrap=document.getElementById('vol-sub-selections-wrap')
+  if(wrap) wrap.style.display='none'
+  const panels=document.getElementById('vol-sub-selections-panels')
+  if(panels) panels.innerHTML=''
   openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
-  const v=volunteers.find(v=>v.id===volId)
-  if(!v) return
+  var v = volunteers.find(function(x){ return x.id===volId })
+  if(!v && window._currentProfileData) v = window._currentProfileData
+  if(!v){ toast('Could not load volunteer data','error'); return }
+
   document.getElementById('vol-modal-title').textContent='Edit Volunteer'
   document.getElementById('vol-edit-id').value=v.id
-  document.getElementById('vol-name').value=v.name
-  document.getElementById('vol-email').value=v.email
+  document.getElementById('vol-name').value=v.name||''
+  document.getElementById('vol-email').value=v.email||''
   document.getElementById('vol-phone').value=v.phone||''
   document.getElementById('vol-birthday').value=v.birthday||''
-  document.getElementById('vol-status').value=v.status
-  document.getElementById('vol-bgcheck').value=v.background_check_status||'none'
-  document.getElementById('vol-bgcheck-date').value=v.background_check_date||''
-  setCheckedInterests(JSON.parse(v.interests||'[]'))
+  document.getElementById('vol-status').value=v.status||'active'
+  document.getElementById('vol-pronouns').value=v.pronouns||''
+
+  var bgEl=document.getElementById('vol-bgcheck')
+  if(bgEl) bgEl.value=v.background_check_status||'none'
+  var bgdEl=document.getElementById('vol-bgcheck-date')
+  if(bgdEl) bgdEl.value=v.background_check_date||''
+  var epEl=document.getElementById('vol-employer-program')
+  if(epEl) epEl.value=v.employer_program||''
+
+  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
+  try{
+    var subSel=JSON.parse(v.sub_selections||'{}')
+    setVolSubSelections(subSel)
+  }catch(e){}
+
   openModal('modal-volunteer')
 }
 async function saveVolunteer(){
@@ -4064,9 +5014,21 @@ async function saveVolunteer(){
   const email=document.getElementById('vol-email').value.trim()
   if(!name||!email){toast('Name and email are required','error');return}
   const editId=document.getElementById('vol-edit-id').value
-  const data={name,email,phone:document.getElementById('vol-phone').value.trim(),birthday:document.getElementById('vol-birthday').value,status:document.getElementById('vol-status').value,interests:getCheckedInterests(),background_check_status:document.getElementById('vol-bgcheck').value,background_check_date:document.getElementById('vol-bgcheck-date').value||null}
-  if(editId) await api(`/api/volunteers/${editId}`,'PUT',data)
-  else await api('/api/volunteers','POST',data)
+  const data={name,email,
+    phone:document.getElementById('vol-phone').value.trim(),
+    pronouns:document.getElementById('vol-pronouns').value.trim(),
+    birthday:document.getElementById('vol-birthday').value,
+    status:document.getElementById('vol-status').value,
+    interests:getCheckedInterests(),
+    sub_selections:getVolSubSelections(),
+    background_check_status:document.getElementById('vol-bgcheck').value,
+    background_check_date:document.getElementById('vol-bgcheck-date').value||null,
+    employer_program:document.getElementById('vol-employer-program')?.value||''
+  }
+  const res = editId
+    ? await api(`/api/volunteers/${editId}`,'PUT',data)
+    : await api('/api/volunteers','POST',data)
+  if(res?.error){ toast(res.error,'error'); return }
   toast(editId?'Volunteer updated!':'Volunteer added!','success')
   closeModal('modal-volunteer')
   await loadAllData()
@@ -4262,6 +5224,8 @@ async function loadEmailSettings(){
   chk('es-alert-waivers', s.alert_waivers!==false)
   chk('es-alert-not-opened', s.alert_event_not_opened!==false)
   chk('es-alert-not-closed', s.alert_event_not_closed!==false)
+  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
+  chk('es-alert-role-filled', s.alert_role_filled!==false)
   let savedIds = []
   try { savedIds = JSON.parse(s.report_recipient_user_ids||'[]') } catch(e){}
   const listEl = document.getElementById('es-recipients-list')
@@ -4303,6 +5267,8 @@ async function saveEmailSettings(){
     alert_waivers: chk('es-alert-waivers'),
     alert_event_not_opened: chk('es-alert-not-opened'),
     alert_event_not_closed: chk('es-alert-not-closed'),
+    alert_new_rsvp: chk('es-alert-new-rsvp'),
+    alert_role_filled: chk('es-alert-role-filled'),
     alert_waiver_expiry: chk('es-alert-waivers')
   }
   const res = await api('/api/email-settings','PUT',data)
@@ -4329,6 +5295,50 @@ async function testEmail(){
   }
 }
 
+function openEmployerReminderModal(){
+  var existing=document.getElementById('employer-reminder-overlay'); if(existing) existing.remove()
+  var disney=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length : '?'
+  var universal=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length : '?'
+  var overlay=document.createElement('div'); overlay.id='employer-reminder-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;box-shadow:var(--shadow-lg);padding:28px;display:flex;flex-direction:column;gap:16px">'
+    +'<div style="font-size:18px;font-weight:700"><img src="/static/images/mickey.png" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" alt="Disney"/>🎬 Employer Giving Program Reminder</div>'
+    +'<div style="font-size:13px;color:var(--text-muted);line-height:1.6">Send a reminder email to volunteers who are Disney Cast Members or Universal Team Members and have logged hours recently, encouraging them to submit their hours to their employer\'s giving program.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
+    +'<div style="margin-bottom:4px"><img src="/static/images/mickey.png" style="width:40px;height:40px;filter:invert(0)" alt="Disney"/></div>'
+    +'<div style="font-weight:700;font-size:15px">'+disney+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted)">Disney Cast Members</div></div>'
+    +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
+    +'<div style="font-size:28px;margin-bottom:4px">🎬</div>'
+    +'<div style="font-weight:700;font-size:15px">'+universal+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted)">Universal Team Members</div></div></div>'
+    +'<div class="form-group" style="margin:0"><label>Send to</label>'
+    +'<select id="emp-remind-filter" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +'<option value="">Both Disney &amp; Universal</option>'
+    +'<option value="disney"><img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Members only</option>'
+    +'<option value="universal">🎬 Universal Team Members only</option>'
+    +'</select></div>'
+    +'<div style="background:var(--amber-50);border:1px solid var(--amber-200);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber-700)">⚠️ Only volunteers who have logged hours in the last 90 days will receive this email.</div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'employer-reminder-overlay\').remove()">Cancel</button>'
+    +'<button class="btn btn-primary" style="flex:2" id="emp-remind-btn" onclick="sendEmployerReminder()">📬 Send Reminders</button>'
+    +'</div></div>'
+  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
+  document.body.appendChild(overlay)
+}
+
+async function sendEmployerReminder(){
+  var btn=document.getElementById('emp-remind-btn'); btn.disabled=true; btn.textContent='Sending…'
+  var filter=document.getElementById('emp-remind-filter').value
+  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null})
+  btn.disabled=false; btn.textContent='📬 Send Reminders'
+  if(res&&res.error){toast(res.error,'error');return}
+  document.getElementById('employer-reminder-overlay')?.remove()
+  if(res.sent===0) toast(res.message||'No qualifying volunteers found','error')
+  else toast('Sent to '+res.sent+' volunteer'+(res.sent!==1?'s':'')+'!','success')
+}
+
 async function sendEventReport(eventId){
   const res = await api('/api/email-settings/send-report/'+eventId,'POST')
   if(res.ok) toast('Report sent to recipients!','success')
@@ -4352,17 +5362,84 @@ function renderInterestTypesSettings(){
   const el=document.getElementById('interest-types-list')
   if(!el) return
   if(!interestTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No interest types yet</div>';return}
-  el.innerHTML=interestTypes.map(t=>`
-    <div class="setting-item">
-      <div><div class="setting-item-label">${tagHTML(t.name,t.color)} ${t.name}</div></div>
-      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">✕</button>
-    </div>`).join('')
+  el.innerHTML=interestTypes.map(t=>{
+    let subOpts=[]
+    try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+    return `<div class="setting-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>${tagHTML(t.name,t.color)} <strong>${t.name}</strong></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openSubOptionsEditor('${t.id}')">⚙ Sub-options</button>
+          <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">✕</button>
+        </div>
+      </div>
+      ${subOpts.length?`<div style="font-size:12px;color:var(--text-muted)">
+        <span style="font-weight:600">↳ ${t.sub_options_label||'Sub-options'}:</span> ${subOpts.join(', ')}
+      </div>`:''}
+    </div>`
+  }).join('')
 }
+
+function openSubOptionsEditor(tid){
+  const t = interestTypes.find(i=>i.id===tid)
+  if(!t) return
+  let subOpts=[]
+  try{ subOpts=JSON.parse(t.sub_options||'[]') }catch(e){}
+  const existing = document.getElementById('sub-opt-editor')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'sub-opt-editor'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">⚙ Sub-options for "${t.name}"</div>
+        <button onclick="document.getElementById('sub-opt-editor').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
+      </div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label>Prompt label <span style="font-weight:400;color:var(--text-hint)">(shown above the sub-options on the form)</span></label>
+          <input type="text" id="soe-label" value="${escHtml(t.sub_options_label||'')}" placeholder="e.g. Which instruments do you play?"/>
+        </div>
+        <div class="form-group">
+          <label>Options <span style="font-weight:400;color:var(--text-hint)">(one per line)</span></label>
+          <textarea id="soe-opts" style="min-height:120px;font-family:inherit;font-size:13px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box;resize:vertical"
+            placeholder="Piano&#10;Guitar&#10;Violin&#10;Drums">${subOpts.join('\n')}</textarea>
+        </div>
+        <div style="background:var(--teal-50);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--teal-dark)">
+          💡 When someone selects "${t.name}" on the join form, these options will appear as checkboxes below it.
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="saveSubOptions('${tid}')">Save Sub-options</button>
+      </div>
+    </div>`
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>document.getElementById('soe-label')?.focus(),50)
+}
+
+async function saveSubOptions(tid){
+  const label = document.getElementById('soe-label')?.value.trim()
+  const optsRaw = document.getElementById('soe-opts')?.value || ''
+  const opts = optsRaw.split('\n').map(l=>l.trim()).filter(Boolean)
+  const t = interestTypes.find(i=>i.id===tid)
+  if(!t) return
+  const res = await api(`/api/interest-types/${tid}`,'PUT',{
+    name: t.name, color: t.color,
+    sub_options: opts,
+    sub_options_label: label
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  interestTypes = interestTypes.map(i=>i.id===tid?res:i)
+  document.getElementById('sub-opt-editor')?.remove()
+  renderInterestTypesSettings()
+  toast(`Sub-options saved — ${opts.length} option${opts.length!==1?'s':''}`, 'success')
+}
+
 async function addInterestType(){
   const name=document.getElementById('new-interest-name').value.trim()
   const color=document.getElementById('new-interest-color').value
   if(!name){toast('Name is required','error');return}
-  const res=await api('/api/interest-types','POST',{name,color})
+  const res=await api('/api/interest-types','POST',{name,color,sub_options:[],sub_options_label:''})
   if(res.error){toast(res.error,'error');return}
   interestTypes.push(res)
   document.getElementById('new-interest-name').value=''
@@ -6932,12 +8009,29 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
       s += '<div style="margin-bottom:20px">'
       s += '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">'+dept+'</div>'
       mems.forEach(function(mem){
-        s += '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+        var vol = volunteers.find(function(v){ return v.id===mem.volunteer_id })
+        var bgcStatus = vol ? vol.background_check_status : 'none'
+        var isYouthProd = p.stage==='rising_stars'
+        s += '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+        s += '<div style="display:flex;align-items:center;gap:12px">'
         s += avatarHTML(mem.volunteer_name,36)
-        s += '<div style="flex:1"><div style="font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile(\'' + mem.volunteer_id + '\')">'+mem.volunteer_name+'</div>'
+        s += '<div style="flex:1"><div style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile(\'' + mem.volunteer_id + '\')">'
+        s += mem.volunteer_name
+        if(isYouthProd) s += ' ' + bgcBadgeHTML(bgcStatus, true)
+        s += '</div>'
         s += '<div style="font-size:12px;color:var(--text-muted)">'+mem.role+'</div></div>'
         s += '<span style="font-size:11px;font-weight:500;color:'+(memberStatusColors[mem.status]||'var(--text-muted)')+'">'+mem.status+'</span>'
         if(isAdmin) s += '<div style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal(\'' + mem.id + '\',\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember(\'' + mem.id + '\',\'' + p.id + '\')">✕</button></div>'
+        s += '</div>'
+        if(isYouthProd && bgcStatus!=='cleared'){
+          var warnBg = bgcStatus==='pending' ? '#fefce8' : '#fef2f2'
+          var warnBorder = bgcStatus==='pending' ? '#fde047' : '#fca5a5'
+          var warnColor = bgcStatus==='pending' ? '#854d0e' : '#991b1b'
+          var warnMsg = bgcStatus==='pending'
+            ? '⏳ Background check pending — please follow up before allowing work with youth'
+            : '⚠️ No background check on file — required for working with youth in Rising Stars'
+          s += '<div style="background:'+warnBg+';border:1.5px solid '+warnBorder+';color:'+warnColor+';border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;margin-top:4px">'+warnMsg+'</div>'
+        }
         s += '</div>'
       })
       s += '</div>'
@@ -7987,17 +9081,29 @@ function renderElicsSettings(){
   const el=document.getElementById('elics-list')
   if(!el) return
   if(!allElics.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No ELICs yet</div>';return}
-  el.innerHTML=allElics.map(e=>`
-    <div class="setting-item">
-      <div>
-        <div class="setting-item-label">${e.volunteer_name} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}</div>
-        <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+  el.innerHTML=allElics.map(e=>{
+    const vol = volunteers.find(v=>v.id===e.volunteer_id)
+    const bgcStatus = vol?.background_check_status || 'none'
+    return `
+    <div class="setting-item" style="flex-direction:column;align-items:stretch;gap:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="setting-item-label" style="display:flex;align-items:center;gap:8px">
+            ${escHtml(e.volunteer_name)} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}
+            ${bgcBadgeHTML(bgcStatus, true)}
+          </div>
+          <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
+          <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">✕</button>
+        </div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
-        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">✕</button>
-      </div>
-    </div>`).join('')
+      ${bgcStatus!=='cleared'?`<div style="background:${bgcStatus==='pending'?'#fefce8':'#fef2f2'};border:1.5px solid ${bgcStatus==='pending'?'#fde047':'#fca5a5'};color:${bgcStatus==='pending'?'#854d0e':'#991b1b'};border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600">
+        ${bgcStatus==='pending'?'⏳ BGC pending':'⚠️ No BGC on file'} — ELICs work directly with youth, please ensure a background check is on file
+      </div>`:''}
+    </div>`
+  }).join('')
 }
 
 async function addElic(){
@@ -8549,7 +9655,7 @@ async function loadEventLogs(){
           <div style="font-size:13px;font-weight:600;color:${actionColors[log.action]||'var(--text-muted)'}">${actionLabels[log.action]||log.action}</div>
           <div style="font-size:12px;color:var(--text-muted)">${log.elic_name}</div>
           <div style="font-size:11px;color:var(--text-hint)">${formatDate((log.timestamp||'').split('T')[0])} ${(log.timestamp||'').split('T')[1]?.substring(0,5)||''}</div>
-          ${log.action==='close'&&isAdmin?`<button class="btn btn-secondary btn-sm" style="font-size:11px;margin-top:4px" onclick="sendEventReport('${log.event_id}')">📧 Send Report</button>`:''}
+          ${log.action==='close'&&isAdmin?`<div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="sendEventReport('${log.event_id}')">📧 Email</button><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="downloadEventReportPdf('${log.event_id}','${log.log_id||log.id}')">📄 PDF</button></div>`:''}
         </div>
       </div>
       ${log.checklist?.length?`
@@ -8872,127 +9978,392 @@ function eventListRow(e,isAdmin){
   </div>`
 }
 
-// ── EVENT DETAIL ──
+// ── EVENT DETAIL PAGE ──
+let _eventDetailTab = 'overview'
+
 function openEventDetail(eid){
-  currentEventId=eid
-  const e=allEvents.find(e=>e.id===eid)
+  currentEventId = eid
+  const e = allEvents.find(e=>e.id===eid)
   if(!e) return
-  const isAdmin=canEdit('events')
-  const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
-  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
+  _eventDetailTab = 'overview'
+  renderEventDetailPage(eid)
+  navTo('event-detail')
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  document.querySelectorAll('.nav-item').forEach(n=>{ if(n.textContent.includes('Events')) n.classList.add('active') })
+  // Load async sections
+  setTimeout(()=>{
+    if(e.rsvp_enabled) loadEventRsvps(eid)
+    if(e.stage==='rising_stars' || e.program_id) loadEventCarpools(eid)
+  }, 100)
+}
+
+function renderEventDetailPage(eid){
+  const e = allEvents.find(e=>e.id===eid)
+  if(!e) return
+  const isAdmin = canEdit('events')
+  const [tbg,tcol] = TYPE_COLORS[e.event_type_color||'blue'] || TYPE_COLORS.blue
+  const [sbg,scol,slabel] = STATUS_COLORS[e.status||'draft'] || STATUS_COLORS.draft
+  const timeStr = e.start_time ? (e.end_time ? `${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}` : `From ${fmtTime(e.start_time)}`) : ''
+  const reqWaivers = e.required_waivers || []
+  const elics = e.elics || []
+  const eventHours = allHours.filter(h=>h.event_id===e.id||h.event===e.name)
+  const totalHours = eventHours.reduce((s,h)=>s+(h.hours||0),0)
+
+  // Status action buttons
+  const statusActions = isAdmin ? {
+    draft:   `<button class="btn btn-primary btn-sm" onclick="setEventStatus('${e.id}','open')">📂 Open Event</button>`,
+    open:    `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')">🔒 Close Event</button>`,
+    closed:  `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')">↩ Re-open</button>`,
+  }[e.status||'draft'] || '' : ''
 
   document.getElementById('event-detail-header').innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-secondary btn-sm" onclick="navTo('events')">← Back</button>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('events')">← Events</button>
       <div>
-        <div class="page-title">${e.name}</div>
-        <div class="page-subtitle">${e.event_type_name||'Event'}${e.event_date?' · '+formatDate(e.event_date):''}</div>
+        <div class="page-title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          ${escHtml(e.name)}
+          <span style="background:${tbg};color:${tcol};padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">${e.event_type_name||'Event'}</span>
+          <span style="background:${sbg};color:${scol};padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">${slabel}</span>
+        </div>
+        <div class="page-subtitle">${e.event_date?formatDate(e.event_date):'No date set'}${timeStr?' · '+timeStr:''}${e.location?' · '+e.location:''}</div>
       </div>
     </div>
-    ${isAdmin?`<div class="page-actions">
-      <button class="btn btn-secondary btn-sm" onclick="openEventModal('${e.id}')">Edit</button>
+    ${isAdmin?`<div class="page-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+      ${statusActions}
+      <button class="btn btn-secondary btn-sm" onclick="openEventModal('${e.id}')">✏️ Edit Details</button>
+      <button class="btn btn-secondary btn-sm" onclick="duplicateEventFull('${e.id}')">⧉ Duplicate</button>
       <button class="btn btn-danger btn-sm" onclick="deleteEventFull('${e.id}')">Delete</button>
     </div>`:''}`
 
-  const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:`From ${fmtTime(e.start_time)}`):'Time TBD'
-  const reqWaivers=e.required_waivers||[]
-  const elics=e.elics||[]
-
   document.getElementById('event-detail-content').innerHTML=`
-    <div style="display:grid;grid-template-columns:260px 1fr;gap:24px">
-      <div class="profile-card">
-        <div style="text-align:center;margin-bottom:16px">
-          <div style="font-size:44px;margin-bottom:8px">📅</div>
-          <span style="background:${tbg};color:${tcol};padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700">${e.event_type_name||'Event'}</span>
-          <span style="background:${sbg};color:${scol};padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;margin-left:6px">${slabel}</span>
+    <!-- Tab Nav -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto">
+      ${[
+        ['overview', '📋 Overview'],
+        ['signups',  `📬 Sign-ups${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
+        ['hours',    `⏱ Hours${eventHours.length?' <span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700">'+eventHours.length+'</span>':''}`],
+        ['staff',    `🎬 Staff & Waivers`],
+      ].map(([tab,label])=>`
+        <button onclick="switchEventTab('${eid}','${tab}')" id="evt-tab-${tab}"
+          style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid ${_eventDetailTab===tab?'var(--teal)':'transparent'};margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:${_eventDetailTab===tab?'var(--teal)':'var(--text-muted)'};cursor:pointer;white-space:nowrap">
+          ${label}
+        </button>`).join('')}
+    </div>
+
+    <!-- Tab panels -->
+    <div id="evt-panel-overview" style="display:${_eventDetailTab==='overview'?'':'none'}">
+      <div style="display:grid;grid-template-columns:280px 1fr;gap:20px">
+        <!-- Left: Info card -->
+        <div>
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="font-size:13px;display:flex;flex-direction:column;gap:10px">
+              ${e.event_date?`<div style="display:flex;gap:10px;align-items:flex-start"><span style="width:18px;flex-shrink:0">📅</span><div><div style="font-weight:600;color:var(--text)">${formatDate(e.event_date)}${e.end_date&&e.end_date!==e.event_date?' → '+formatDate(e.end_date):''}</div></div></div>`:''}
+              ${timeStr?`<div style="display:flex;gap:10px"><span style="width:18px;flex-shrink:0">⏰</span><div style="font-weight:600;color:var(--text)">${timeStr}</div></div>`:''}
+              ${e.location?`<div style="display:flex;gap:10px"><span style="width:18px;flex-shrink:0">📍</span><div><span style="font-weight:600;color:var(--text)">${escHtml(e.location)}</span>${e.room?` <span style="color:var(--text-muted)">· ${escHtml(e.room)}</span>`:''}</div></div>`:''}
+              ${e.production_name?`<div style="display:flex;gap:10px"><span style="width:18px;flex-shrink:0">🎭</span><a onclick="openProductionDetail('${e.production_id}')" style="color:var(--teal-600);cursor:pointer;font-weight:600">${escHtml(e.production_name)}</a></div>`:''}
+              ${e.program_name?`<div style="display:flex;gap:10px"><span style="width:18px;flex-shrink:0">📚</span><span style="color:var(--purple-600);font-weight:600">${escHtml(e.program_name)}</span></div>`:''}
+              ${e.expected_volunteers?`<div style="display:flex;gap:10px"><span style="width:18px;flex-shrink:0">👥</span><span style="color:var(--text-muted)">${e.expected_volunteers} expected volunteers</span></div>`:''}
+              ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">🔍 Background check required</div>`:''}
+              ${e.auto_log_hours?`<div style="background:var(--teal-50);color:var(--teal-dark);padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">⚡ Auto-log full event hours</div>`:''}
+              ${e.rsvp_enabled?`<div style="background:#eff6ff;color:#1d4ed8;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">📬 Volunteer sign-ups enabled</div>`:''}
+            </div>
+          </div>
+          <!-- Quick stats -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+            <div class="card" style="padding:14px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--teal)">${eventHours.length}</div>
+              <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Volunteers</div>
+            </div>
+            <div class="card" style="padding:14px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--teal)">${totalHours}h</div>
+              <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Hours Logged</div>
+            </div>
+          </div>
         </div>
-        <hr class="divider"/>
-        <div style="font-size:13px;display:flex;flex-direction:column;gap:8px;color:var(--text-muted)">
-          ${e.event_date?`<div>📅 <strong style="color:var(--text)">${formatDate(e.event_date)}</strong>${e.end_date&&e.end_date!==e.event_date?' → '+formatDate(e.end_date):''}</div>`:''}
-          <div>⏰ <strong style="color:var(--text)">${timeStr}</strong></div>
-          ${e.location?`<div>📍 ${e.location}${e.room?' <span style="color:var(--text-hint)">·</span> '+e.room:''}</div>`:''}
-          ${e.production_name?`<div>🎭 <a onclick="openProductionDetail('${e.production_id}')" style="color:var(--teal-600);cursor:pointer">${e.production_name}</a></div>`:''}
-          ${e.program_name?`<div>📚 <span style="color:var(--purple-600)">${e.program_name}</span></div>`:''}
-          ${e.expected_volunteers?`<div>👥 ${e.expected_volunteers} expected volunteers</div>`:''}
-          ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;margin-top:4px">🔍 Background check required</div>`:''}
-          ${auditLine(e.created_at, e.created_by_name, e.updated_at, e.updated_by_name)}
+        <!-- Right: Description + Notes -->
+        <div>
+          ${e.description?`<div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">About this event</div>
+            <div style="font-size:14px;color:var(--text);line-height:1.7">${escHtml(e.description)}</div>
+          </div>`:''}
+          ${e.notes&&isAdmin?`<div class="card" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--amber-400)">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--amber-600);margin-bottom:8px">📝 Staff Notes</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">${escHtml(e.notes)}</div>
+          </div>`:''}
+          ${!e.description&&!e.notes?`<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+            <div style="font-size:32px;margin-bottom:8px">📋</div>
+            <div style="font-weight:600;margin-bottom:4px">No description yet</div>
+            ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="openEventModal('${e.id}')">Add description</button>`:''}
+          </div>`:''}
         </div>
-        ${e.description?`<hr class="divider"/><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.description}</div>`:''}
-        ${e.notes&&isAdmin?`<hr class="divider"/><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-hint);margin-bottom:4px">Staff Notes</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6">${e.notes}</div>`:''}
       </div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <!-- Youth Members (Rising Stars only) -->
-        ${p.stage==='rising_stars'?`<div class="card" style="padding:20px;margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="font-size:15px;font-weight:600">👶 Youth Cast</div>
-            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll('${p.id}')" >+ Enroll Youth</button>`:''}\n          </div>
-          <div id="youth-prod-members-${p.id}">
-            <div style="color:var(--text-muted);font-size:13px">Loading…</div>
+    </div>
+
+    <!-- Sign-ups tab -->
+    <div id="evt-panel-signups" style="display:${_eventDetailTab==='signups'?'':'none'}">
+      ${e.rsvp_enabled?`
+        <div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+
+          <!-- Left: who's signed up -->
+          <div>
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Sign-ups</div>
+            <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
+
+            <!-- Role Slots Manager -->
+            ${isAdmin?`<div style="margin-top:24px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Role Slots</div>
+                <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add Role</button>
+              </div>
+              <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+              <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                  <div class="form-group" style="margin:0;flex:2;min-width:140px">
+                    <label style="font-size:11px">Role name *</label>
+                    <input type="text" id="new-role-name-${e.id}" placeholder="e.g. Usher, Concessions…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <div class="form-group" style="margin:0;width:80px">
+                    <label style="font-size:11px">Slots *</label>
+                    <input type="number" id="new-role-slots-${e.id}" value="1" min="1" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <div class="form-group" style="margin:0;flex:2;min-width:140px">
+                    <label style="font-size:11px">Notes (optional)</label>
+                    <input type="text" id="new-role-desc-${e.id}" placeholder="Any special notes…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="addEventRole('${e.id}')">Add</button>
+                  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">Cancel</button>
+                </div>
+              </div>
+            </div>`:''}
           </div>
-        </div>`:''}
-        <!-- Carpools (youth events) -->
-        ${p.stage==='rising_stars'||e.program_id?`<div class="card" style="padding:20px;margin-bottom:16px" id="event-carpools-card-${e.id}">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="font-size:15px;font-weight:600">🚗 Carpools</div>
-            ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openCreateCarpoolForm('${e.id}')">+ New Carpool</button>`:''}
+
+          <!-- Right: compose & send -->
+          <div class="card" style="padding:20px;position:sticky;top:16px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📤 Send Invite</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
+
+            <!-- Recipients -->
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Send to</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+              ${[
+                ['all',      '👥 All active volunteers'],
+                ['interest', '🏷 Filter by interest'],
+                ['event',    '📅 Volunteered at past event'],
+                ['manual',   '✋ Choose manually'],
+              ].map(([val,label])=>`
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
+                  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
+                </label>`).join('')}
+            </div>
+
+            <!-- Sub-filters -->
+            <div id="rsvp-sub-interest" style="display:none;margin-bottom:12px">
+              <select id="rsvp-interest-val" onchange="updateRsvpPreview('${e.id}')" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+                <option value="">— All interests —</option>
+                ${interestTypes.map(it=>`<option value="${escHtml(it.name)}">${escHtml(it.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div id="rsvp-sub-event" style="display:none;margin-bottom:12px">
+              <select id="rsvp-event-val" onchange="updateRsvpPreview('${e.id}')" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+                <option value="">— Select past event —</option>
+                ${allEvents.filter(ev=>ev.id!==e.id&&ev.event_date).sort((a,b)=>b.event_date.localeCompare(a.event_date)).slice(0,60).map(ev=>`<option value="${ev.id}">${escHtml(ev.name)} (${formatDate(ev.event_date)})</option>`).join('')}
+              </select>
+            </div>
+            <div id="rsvp-sub-manual" style="display:none;margin-bottom:12px">
+              <input type="text" placeholder="🔍 Search volunteers…" oninput="filterRsvpManualList(this.value)"
+                style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+              <div id="rsvp-manual-list" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:180px;overflow-y:auto">
+                ${[...volunteers].filter(v=>v.status==='active'&&v.email).sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`
+                  <label class="rsvp-vol-row" data-name="${escHtml(v.name.toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);line-height:1">
+                    <input type="checkbox" class="rsvp-manual-cb" value="${v.id}" onchange="updateRsvpPreview('${e.id}')" style="accent-color:var(--teal);flex-shrink:0;width:15px;height:15px;margin:0;vertical-align:middle"/>
+                    <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500">${escHtml(v.name)}</span>
+                  </label>`).join('')}
+              </div>
+              <div style="display:flex;gap:6px;margin-top:6px">
+                <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=true);updateRsvpPreview('${e.id}')">All</button>
+                <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.rsvp-manual-cb').forEach(c=>c.checked=false);updateRsvpPreview('${e.id}')">None</button>
+              </div>
+            </div>
+
+            <!-- Recipient preview pill -->
+            <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:14px;text-align:center">
+              Calculating…
+            </div>
+
+            <!-- Message -->
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+            <textarea id="rsvp-message-text" placeholder="Add a personal note to the invite email — e.g. 'We especially need help with setup and teardown this time!'"
+              style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:14px">${escHtml(e.rsvp_message||'')}</textarea>
+
+            <button class="btn btn-primary" style="width:100%" id="rsvp-send-btn" onclick="confirmSendRsvp('${e.id}')">
+              📤 Send Invites
+            </button>
           </div>
-          <div id="event-carpools-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
-        </div>`:''}
+        </div>`
+      :`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+          <div style="font-size:40px;margin-bottom:12px">📬</div>
+          <div style="font-weight:600;font-size:16px;margin-bottom:8px">Sign-ups not enabled for this event</div>
+          <div style="font-size:13px;margin-bottom:16px">Enable "Volunteer sign-ups" in the event settings to send invite emails and track who wants to help.</div>
+          ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">✏️ Edit Event to Enable</button>`:''}
+        </div>`}
+    </div>
+
+    <!-- Hours tab -->
+    <div id="evt-panel-hours" style="display:${_eventDetailTab==='hours'?'':'none'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:14px;color:var(--text-muted)">${eventHours.length} volunteer${eventHours.length!==1?'s':''} · ${totalHours}h total</div>
+        ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openLogTimeFromEvent('${e.id}','${escHtml(e.name)}')">+ Log Time</button>`:''}
+      </div>
+      ${eventHours.length?`
+        <div class="card" style="padding:0;overflow:hidden">
+          ${eventHours.map(h=>`
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)">
+              ${avatarHTML(h.volunteer_name||'',36)}
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openProfile('${h.volunteer_id}')">${escHtml(h.volunteer_name||'Unknown')}</div>
+                ${h.role?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(h.role)}</div>`:''}
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-size:18px;font-weight:800;color:var(--teal)">${h.hours}h</div>
+                <div style="font-size:11px;color:var(--text-muted)">${formatDate(h.date)||''}</div>
+              </div>
+            </div>`).join('')}
+        </div>`
+      :`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+          <div style="font-size:40px;margin-bottom:12px">⏱</div>
+          <div style="font-weight:600;margin-bottom:6px">No hours logged yet</div>
+          <div style="font-size:13px">Hours appear here when volunteers clock in/out on the kiosk or are logged manually.</div>
+        </div>`}
+    </div>
+
+    <!-- Staff & Waivers tab -->
+    <div id="evt-panel-staff" style="display:${_eventDetailTab==='staff'?'':'none'}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        <!-- Event Staff -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px">👥 Event Staff</div>
+          ${(e.staff||[]).length ? (e.staff||[]).map(s=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+              ${avatarHTML(s.volunteer_name,32)}
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">
+                  <span style="cursor:pointer;color:var(--teal-600)" onclick="openProfile('${s.volunteer_id}')">${escHtml(s.volunteer_name)}</span>
+                  ${e.requires_background_check ? bgcBadgeHTML(s.background_check_status, true) : ''}
+                </div>
+                <div style="font-size:11px;color:var(--text-muted)">${escHtml(s.role||'Staff')}</div>
+              </div>
+              ${isAdmin?`<button onclick="removeEventStaff('${s.id}','${e.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
+            </div>`).join('')
+          : '<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No staff assigned yet</div>'}
+          ${isAdmin?`
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+            <select id="staff-vol-sel-${e.id}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">+ Add staff member…</option>
+              ${[...volunteers].filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name))
+                .filter(v=>!(e.staff||[]).find(s=>s.volunteer_id===v.id))
+                .map(v=>`<option value="${v.id}">${escHtml(v.name)}${e.requires_background_check?(v.background_check_status==='cleared'?' ✅':v.background_check_status==='pending'?' ⏳':' ⚠️'):''}</option>`).join('')}
+            </select>
+            <input type="text" id="staff-role-${e.id}" placeholder="Role (e.g. Stage Manager, Box Office, Security…)"
+              style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+            <button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="addEventStaff('${e.id}')">Add Staff</button>
+          </div>`:''}
+        </div>
+
         <!-- ELICs -->
         <div class="card" style="padding:20px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="font-size:15px;font-weight:600">🎬 Event Leads (ELICs)</div>
-          </div>
-          ${!elics.length?'<div style="color:var(--text-muted);font-size:13px">No ELICs assigned yet</div>':
-            elics.map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-              ${avatarHTML(a.volunteer_name,32)}
-              <div><div style="font-weight:500">${a.volunteer_name}</div><div style="font-size:12px;color:var(--text-muted)">${a.is_master?'Master ELIC':'Event ELIC'}</div></div>
-              ${isAdmin?`<button class="btn btn-danger btn-sm" style="margin-left:auto;padding:3px 8px;font-size:11px" onclick="removeEventElicUI('${e.id}','${a.assignment_id}');openEventDetail('${e.id}')">✕</button>`:''}
-            </div>`).join('')}
-          ${isAdmin?`<div style="margin-top:12px"><select onchange="addEventElicUI('${e.id}',this);setTimeout(()=>openEventDetail('${e.id}'),300)" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%">
-            <option value="">+ Assign ELIC</option>
-            ${allElics.filter(el=>el.active&&!elics.find(a=>a.elic_id===el.id)).map(el=>`<option value="${el.id}">${el.volunteer_name}${el.is_master?' ★':''}</option>`).join('')}
-          </select></div>`:''}
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">🎬 ELICs</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Event leads with kiosk PIN & checklist access</div>
+          ${!elics.length?'<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No ELICs assigned yet</div>':
+            elics.map(a=>{
+              const vol = volunteers.find(v=>v.id===a.volunteer_id)
+              const bgcStatus = vol?.background_check_status || 'none'
+              return `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  ${avatarHTML(a.volunteer_name,32)}
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">
+                      ${escHtml(a.volunteer_name)}
+                      ${e.requires_background_check ? bgcBadgeHTML(bgcStatus, true) : ''}
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted)">${a.is_master?'Master ELIC':'Event ELIC'}</div>
+                  </div>
+                  ${isAdmin?`<button onclick="removeEventElicUI('${e.id}','${a.assignment_id}');setTimeout(()=>renderEventDetailPage('${e.id}'),300)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
+                </div>
+                ${e.requires_background_check && bgcStatus!=='cleared'?`<div style="background:${bgcStatus==='pending'?'#fefce8':'#fef2f2'};border:1.5px solid ${bgcStatus==='pending'?'#fde047':'#fca5a5'};color:${bgcStatus==='pending'?'#854d0e':'#991b1b'};border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:4px">
+                  ${bgcStatus==='pending'?'⏳ Background check pending':'⚠️ No background check on file'}
+                </div>`:''}
+              </div>`
+            }).join('')}
+          ${isAdmin?`<select onchange="addEventElicUI('${e.id}',this);setTimeout(()=>renderEventDetailPage('${e.id}'),400)" style="width:100%;margin-top:10px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+            <option value="">+ Assign ELIC…</option>
+            ${allElics.filter(el=>el.active&&!elics.find(a=>a.elic_id===el.id)).map(el=>`<option value="${el.id}">${escHtml(el.volunteer_name)}${el.is_master?' ★':''}</option>`).join('')}
+          </select>`:''}
         </div>
         <!-- Required Waivers -->
         <div class="card" style="padding:20px">
-          <div style="font-size:15px;font-weight:600;margin-bottom:14px">📋 Required Waivers</div>
-          ${!reqWaivers.length?'<div style="color:var(--text-muted);font-size:13px">No additional waivers required</div>':
+          <div style="font-size:15px;font-weight:700;margin-bottom:14px">📋 Required Waivers</div>
+          ${!reqWaivers.length?'<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No additional waivers required</div>':
             reqWaivers.map(w=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-              <span style="font-size:14px">${w.waiver_name}</span>
-              ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="removeEventWaiverUI('${e.id}','${w.id}');setTimeout(()=>openEventDetail('${e.id}'),300)">✕</button>`:''}
+              <span style="font-size:13px;font-weight:500">${escHtml(w.waiver_name)}</span>
+              ${isAdmin?`<button onclick="removeEventWaiverUI('${e.id}','${w.id}');setTimeout(()=>renderEventDetailPage('${e.id}'),300)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>`:''}
             </div>`).join('')}
-          ${isAdmin?`<div style="margin-top:12px"><select onchange="addEventWaiverUI('${e.id}',this);setTimeout(()=>openEventDetail('${e.id}'),300)" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%">
-            <option value="">+ Add required waiver</option>
-            ${waiverTypes.filter(wt=>!reqWaivers.find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${wt.name}</option>`).join('')}
-          </select></div>`:''}
-        </div>
-        <!-- Volunteer Hours for this event -->
-        <div class="card" style="padding:20px">
-          <div style="font-size:15px;font-weight:600;margin-bottom:14px">⏱ Hours Logged</div>
-          ${(()=>{
-            const eventHours=allHours.filter(h=>h.event_id===e.id||h.event===e.name)
-            if(!eventHours.length) return '<div style="color:var(--text-muted);font-size:13px">No hours logged for this event yet</div>'
-            const total=eventHours.reduce((s,h)=>s+(h.hours||0),0)
-            return`<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">${eventHours.length} volunteer${eventHours.length!==1?'s':''} · ${total}h total</div>`+
-              eventHours.map(h=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
-                ${avatarHTML(h.volunteer_name||'',28)}
-                <span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500;flex:1">${h.volunteer_name}</span>
-                ${h.role?`<span style="color:var(--text-muted)">${h.role}</span>`:''}
-                <span style="font-weight:700;color:var(--teal-600)">${h.hours}h</span>
-              </div>`).join('')
-          })()}
+          ${isAdmin?`<select onchange="addEventWaiverUI('${e.id}',this);setTimeout(()=>renderEventDetailPage('${e.id}'),400)" style="width:100%;margin-top:10px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+            <option value="">+ Add required waiver…</option>
+            ${waiverTypes.filter(wt=>!reqWaivers.find(r=>r.waiver_type_id===wt.id)).map(wt=>`<option value="${wt.id}">${escHtml(wt.name)}</option>`).join('')}
+          </select>`:''}
         </div>
       </div>
+      <!-- Carpools (youth events) -->
+      ${(e.program_id)?`<div class="card" style="padding:20px;margin-top:20px" id="event-carpools-card-${e.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:15px;font-weight:700">🚗 Carpools</div>
+          ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openCreateCarpoolForm('${e.id}')">+ New Carpool</button>`:''}
+        </div>
+        <div id="event-carpools-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+      </div>`:''}
     </div>`
 
-  navTo('event-detail')
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
-  document.querySelectorAll('.nav-item').forEach(n=>{if(n.textContent.includes('Events')) n.classList.add('active')})
-  // Load carpools if this is a youth event
-  if(p.stage==='rising_stars' || e.program_id){
-    setTimeout(()=>loadEventCarpools(e.id), 100)
+}
+
+function switchEventTab(eid, tab){
+  _eventDetailTab = tab
+  const tabs = ['overview','signups','hours','staff']
+  tabs.forEach(t=>{
+    const panel = document.getElementById('evt-panel-'+t)
+    if(panel) panel.style.display = t===tab ? '' : 'none'
+    const btn = document.getElementById('evt-tab-'+t)
+    if(btn){
+      btn.style.borderBottomColor = t===tab ? 'var(--teal)' : 'transparent'
+      btn.style.color = t===tab ? 'var(--teal)' : 'var(--text-muted)'
+    }
+  })
+  // Load RSVPs on first open of signups tab and init preview
+  if(tab==='signups'){
+    const e = allEvents.find(e=>e.id===eid)
+    if(e?.rsvp_enabled){
+      loadEventRsvps(eid)
+      setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
+    }
   }
+}
+
+function openLogTimeFromEvent(eid, ename){
+  // Pre-fill log time modal with this event
+  openLogTimeModal(null)
+  setTimeout(()=>{
+    const sel = document.getElementById('lt-event-select')
+    if(sel) sel.value = eid
+    onEventSelect()
+  }, 50)
+}
+
+async function setEventStatus(eid, status){
+  const res = await api(`/api/events/${eid}`, 'PUT', {...allEvents.find(e=>e.id===eid), status})
+  if(res.error){ toast(res.error,'error'); return }
+  allEvents = allEvents.map(e=>e.id===eid?res:e)
+  renderEventDetailPage(eid)
+  toast(`Event ${status==='open'?'opened':'closed'}`, 'success')
 }
 
 // ── CARPOOLS (Admin) ──
@@ -9312,6 +10683,9 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-volunteers').value=''
     document.getElementById('edit-event-bgcheck').checked=false
     document.getElementById('edit-event-autolog').checked=false
+    document.getElementById('edit-event-rsvp').checked=false
+    document.getElementById('edit-event-rsvp-msg').value=''
+    document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
     setEventElicUI(null, null)  // reset ELIC
     // If opened from a program or production context, pre-fill parent and default ELIC
     if(eid===null && window._openEventParent){
@@ -9323,6 +10697,7 @@ function openEventModal(eid=null){
         if(r.elic_id) prefillEventElic(r.elic_id)
       })
       window._openEventParent=null
+      setTimeout(updateEventBgcLock, 50)
     }
   } else {
     const e=allEvents.find(e=>e.id===eid)
@@ -9347,6 +10722,10 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-notes').value=e.notes||''
     document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
     document.getElementById('edit-event-autolog').checked=!!e.auto_log_hours
+    document.getElementById('edit-event-rsvp').checked=!!e.rsvp_enabled
+    document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
+    document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
+    setTimeout(updateEventBgcLock, 50)  // after selects are populated
   }
   // Reset repeat section
   const repSel=document.getElementById('event-repeat-type')
@@ -9389,7 +10768,9 @@ async function saveEditEvent(){
     description:document.getElementById('edit-event-desc')?.value.trim()||'',
     notes:document.getElementById('edit-event-notes')?.value.trim()||'',
     requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
-      auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false
+    auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
+    rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
+    rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||''
   }
 
   // Save the base event
@@ -9464,7 +10845,13 @@ async function saveEditEvent(){
   renderEventsSettings()
   renderEventsPage()
   toast(eid?'Event updated!':'Event created!','success')
-  if(eid&&currentEventId===eid) openEventDetail(eid)
+  if(eid&&currentEventId===eid){
+    closeModal('modal-edit-event')
+    renderEventDetailPage(eid)
+  } else if(res.id){
+    closeModal('modal-edit-event')
+    openEventDetail(res.id)
+  }
   } catch(err){
     console.error('saveEditEvent error:', err)
     toast('Error saving event: '+err.message,'error')
@@ -9476,6 +10863,227 @@ function deleteFromModal(){
   if(!eid) return
   closeModal('modal-edit-event')
   deleteEventFull(eid)
+}
+
+async function addEventStaff(eid){
+  const sel  = document.getElementById('staff-vol-sel-'+eid)
+  const role = document.getElementById('staff-role-'+eid)
+  const volId = sel?.value
+  if(!volId){ toast('Please select a volunteer','error'); return }
+  const res = await api(`/api/events/${eid}/staff`,'POST',{
+    volunteer_id: volId,
+    role: role?.value.trim()||''
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  // Reload event data and re-render
+  const events = await api('/api/events')
+  if(Array.isArray(events)){ allEvents = events }
+  renderEventDetailPage(eid)
+  switchEventTab(eid, 'staff')
+  toast('Staff member added!','success')
+}
+
+async function removeEventStaff(sid, eid){
+  if(!confirm('Remove this staff member from the event?')) return
+  const res = await api(`/api/events/staff/${sid}`,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  const events = await api('/api/events')
+  if(Array.isArray(events)){ allEvents = events }
+  renderEventDetailPage(eid)
+  switchEventTab(eid, 'staff')
+  toast('Staff member removed')
+}
+
+function toggleRsvpMessage(){
+  const enabled = document.getElementById('edit-event-rsvp')?.checked
+  const wrap = document.getElementById('edit-event-rsvp-msg-wrap')
+  if(wrap) wrap.style.display = enabled ? '' : 'none'
+}
+
+function setRsvpFilter(type, eid){
+  // Style the selected option
+  ;['all','interest','event','manual'].forEach(t=>{
+    const el = document.getElementById('rsvp-opt-'+t)
+    if(el){
+      el.style.borderColor = t===type ? 'var(--teal)' : 'var(--border)'
+      el.style.background  = t===type ? 'var(--teal-50)' : ''
+      el.style.color       = t===type ? 'var(--teal-dark)' : ''
+    }
+  })
+  document.getElementById('rsvp-sub-interest').style.display = type==='interest' ? '' : 'none'
+  document.getElementById('rsvp-sub-event').style.display    = type==='event'    ? '' : 'none'
+  document.getElementById('rsvp-sub-manual').style.display   = type==='manual'   ? '' : 'none'
+  updateRsvpPreview(eid)
+}
+
+function filterRsvpManualList(query){
+  const q = query.toLowerCase().trim()
+  document.querySelectorAll('.rsvp-vol-row').forEach(row=>{
+    const name = row.dataset.name || ''
+    row.style.display = !q || name.includes(q) ? '' : 'none'
+  })
+}
+
+function onRsvpFilterChange(){ /* legacy — no-op */ }
+
+function getRsvpTargetVolunteers(){
+  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+  const active = volunteers.filter(v=>v.status==='active' && v.email)
+  if(type==='all') return active
+  if(type==='interest'){
+    const val = document.getElementById('rsvp-interest-val')?.value
+    if(!val) return active
+    return active.filter(v=>{ try{ return JSON.parse(v.interests||'[]').includes(val) }catch{ return false } })
+  }
+  if(type==='event'){
+    const evid = document.getElementById('rsvp-event-val')?.value
+    if(!evid) return active
+    // allHours is a flat array — find volunteer IDs who logged hours for this event
+    const volIdsWithHours = new Set(
+      allHours.filter(h=>h.event_id===evid).map(h=>h.volunteer_id).filter(Boolean)
+    )
+    return active.filter(v=>volIdsWithHours.has(v.id))
+  }
+  if(type==='manual'){
+    const ids = [...document.querySelectorAll('.rsvp-manual-cb:checked')].map(c=>c.value)
+    return active.filter(v=>ids.includes(v.id))
+  }
+  return active
+}
+
+function updateRsvpPreview(eid){
+  const preview = document.getElementById('rsvp-recipient-preview')
+  if(!preview) return
+  const targets = getRsvpTargetVolunteers()
+  if(!targets.length){
+    preview.innerHTML = '⚠️ No volunteers match'
+    preview.style.background = 'var(--red-50)'; preview.style.color = 'var(--red-600)'
+    return
+  }
+  preview.style.background = 'var(--teal-50)'; preview.style.color = 'var(--teal-dark)'
+  preview.innerHTML = `✉️ <strong>${targets.length}</strong> volunteer${targets.length!==1?'s':''} will receive this invite`
+}
+
+async function sendRsvpInvites(eid){
+  // Now a no-op — compose panel is inline in the sign-ups tab
+  // But keep for any legacy calls
+  switchEventTab(eid, 'signups')
+}
+
+async function confirmSendRsvp(eid){
+  const targets = getRsvpTargetVolunteers()
+  if(!targets.length){ toast('No volunteers match this filter','error'); return }
+  const btn = document.getElementById('rsvp-send-btn')
+  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
+  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
+  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {
+    volunteer_ids: targets.map(v=>v.id),
+    message
+  })
+  if(btn){ btn.disabled=false; btn.textContent='📤 Send Invites' }
+  if(res.error){ toast(res.error,'error'); return }
+  toast(`✅ Sent to ${res.sent} volunteer${res.sent!==1?'s':''}`, 'success')
+  loadEventRsvps(eid)
+}
+
+async function removeRsvp(eid, rid){
+  if(!confirm('Remove this RSVP?')) return
+  const res = await api(`/api/events/${eid}/rsvps/${rid}`, 'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('RSVP removed')
+  openEventChip(eid)
+}
+
+async function loadEventRsvps(eid){
+  const el = document.getElementById('event-rsvps-list')
+  if(!el) return
+  const [rsvps, roles] = await Promise.all([
+    api(`/api/events/${eid}/rsvps`),
+    api(`/api/events/${eid}/roles`)
+  ])
+  // Load and display roles summary
+  loadEventRoles(eid, roles)
+
+  if(!Array.isArray(rsvps)||!rsvps.length){
+    el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
+    return
+  }
+  const interested = rsvps.filter(r=>r.status==='interested')
+  el.innerHTML = `<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${interested.length} volunteer${interested.length!==1?'s':''} signed up</div>`+
+    rsvps.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
+      <div style="flex:1">
+        <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
+        ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
+      </div>
+      <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
+        ${r.status==='interested'?'✋ Signed up':'Invited'}
+      </span>
+      <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
+    </div>`).join('')
+}
+
+function loadEventRoles(eid, roles){
+  const el = document.getElementById('event-roles-list-'+eid)
+  if(!el) return
+  if(!roles||!roles.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No roles defined yet — add roles to let volunteers choose what they\'d like to help with.</div>'
+    return
+  }
+  el.innerHTML = roles.map(r=>{
+    const filled = parseInt(r.filled||0)
+    const slots  = parseInt(r.slots||1)
+    const pct    = Math.round((filled/slots)*100)
+    const color  = filled>=slots ? 'var(--red-600)' : filled>0 ? 'var(--amber-600)' : 'var(--green-600)'
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
+        ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
+      </div>
+      <div style="text-align:center;min-width:80px">
+        <div style="font-size:18px;font-weight:800;color:${color}">${filled}/${slots}</div>
+        <div style="font-size:10px;color:var(--text-hint);font-weight:600;text-transform:uppercase">${filled>=slots?'Full':slots-filled+' open'}</div>
+      </div>
+      <div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${Math.min(100,pct)}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
+      </div>
+      <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete role">×</button>
+    </div>`
+  }).join('')
+}
+
+function toggleRoleForm(eid){
+  const el = document.getElementById('role-add-form-'+eid)
+  if(!el) return
+  const open = el.style.display !== 'none'
+  el.style.display = open ? 'none' : ''
+  if(!open) setTimeout(()=>document.getElementById('new-role-name-'+eid)?.focus(), 50)
+}
+
+async function addEventRole(eid){
+  const name  = document.getElementById('new-role-name-'+eid)?.value.trim()
+  const slots = document.getElementById('new-role-slots-'+eid)?.value
+  const desc  = document.getElementById('new-role-desc-'+eid)?.value.trim()
+  if(!name){ toast('Role name is required','error'); return }
+  const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||''})
+  if(res.error){ toast(res.error,'error'); return }
+  document.getElementById('new-role-name-'+eid).value=''
+  document.getElementById('new-role-slots-'+eid).value='1'
+  document.getElementById('new-role-desc-'+eid).value=''
+  toggleRoleForm(eid)
+  // Refresh roles
+  const roles = await api(`/api/events/${eid}/roles`)
+  loadEventRoles(eid, roles)
+  toast('Role added!','success')
+}
+
+async function deleteEventRole(rid, eid){
+  if(!confirm('Delete this role? Sign-ups for this role will lose their role assignment.')) return
+  const res = await api(`/api/events/roles/${rid}`,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  const roles = await api(`/api/events/${eid}/roles`)
+  loadEventRoles(eid, roles)
+  toast('Role deleted')
 }
 
 async function deleteEventFull(eid){
@@ -10175,7 +11783,8 @@ function renderYouthProgramsPage(){
           ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
           <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px">
             ${p.start_date?`<div>📅 ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
-            ${instructor?`<div>👤 ${instructor.name}</div>`:''}
+            ${instructor?`<div>👤 ${escHtml(instructor.name)} ${bgcBadgeHTML(instructor.background_check_status, true)}</div>
+            ${bgcYouthWarning(instructor)}`:''}
           </div>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -11722,6 +13331,39 @@ function onEventParentChange(changed){
       setEventElicUI(null, null)
     }
   }
+  updateEventBgcLock()
+}
+
+function updateEventBgcLock(){
+  const prodId = document.getElementById('edit-event-production')?.value
+  const progId = document.getElementById('edit-event-program')?.value
+  const bgcEl  = document.getElementById('edit-event-bgcheck')
+  const bgcLabel = bgcEl?.closest('label')
+  if(!bgcEl) return
+
+  // Check if the selected production is Rising Stars
+  const prod = allProductions.find(p=>p.id===prodId)
+  const isYouthContext = !!progId || (prod && prod.stage==='rising_stars')
+
+  const note = document.getElementById('bgcheck-auto-note')
+  if(isYouthContext){
+    bgcEl.checked = true
+    bgcEl.disabled = true
+    if(note) note.style.display = ''
+    if(bgcLabel){
+      bgcLabel.title = 'Background check is always required for youth programs and Rising Stars'
+      bgcLabel.style.opacity = '0.7'
+      bgcLabel.style.cursor = 'not-allowed'
+    }
+  } else {
+    bgcEl.disabled = false
+    if(note) note.style.display = 'none'
+    if(bgcLabel){
+      bgcLabel.title = ''
+      bgcLabel.style.opacity = ''
+      bgcLabel.style.cursor = ''
+    }
+  }
 }
 
 
@@ -12233,7 +13875,20 @@ function renderRisingStarsPage(){
     return
   }
 
-  grid.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
+  // BGC summary warning — check all crew members across all RS productions
+  const rsMemberIds = new Set()
+  filtered.forEach(p=>{ (p.members||[]).forEach(m=>{ if(m.volunteer_id) rsMemberIds.add(m.volunteer_id) }) })
+  const unclearedRS = [...rsMemberIds].map(id=>volunteers.find(v=>v.id===id)).filter(v=>v&&v.background_check_status!=='cleared')
+  const bgcBanner = unclearedRS.length
+    ? `<div style="background:#fef2f2;border:2px solid #fca5a5;color:#991b1b;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px">⚠️</span>
+        <div>
+          <div style="font-weight:700;font-size:14px">${unclearedRS.length} crew member${unclearedRS.length!==1?'s':''} without a cleared background check</div>
+          <div style="font-size:13px;margin-top:2px">${unclearedRS.map(v=>escHtml(v.name)).join(', ')} — background checks are required for all adults working with youth in Rising Stars.</div>
+        </div>
+      </div>` : ''
+
+  grid.innerHTML = bgcBanner + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">'+
     filtered.map(p=>{
       const[bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
       const memberCount = p.members?.length||0
@@ -12615,11 +14270,9 @@ async function setYouthPassphrase(yid, current){
 // ── CALENDAR CHIP CLICK ──
 function openEventChip(eid){
   if(typeof event !== 'undefined' && event) event.stopPropagation()
-  if(currentUser?.role==='admin') openEventModal(eid)
-  else openEventDetail(eid)
+  openEventDetail(eid)
 }
 
-// ── EST TIMESTAMP FORMATTER ──
 function formatDateTime(ts){
   if(!ts) return '—'
   try{

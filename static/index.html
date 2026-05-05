@@ -3177,6 +3177,7 @@ function printVolIdCard(volId, volName){
 async function openProfile(volId){
   currentVolId=volId
   const v=await api(`/api/volunteers/${volId}`)
+  window._currentProfileData = v
   const isAdmin=canEdit('volunteers')
   const [bg,col]=avatarColors(v.name)
   const interests=JSON.parse(v.interests||'[]')
@@ -4944,8 +4945,10 @@ function openVolModal(){
   openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
-  const v=volunteers.find(v=>v.id===volId)
-  if(!v) return
+  var v = volunteers.find(function(v){ return v.id===volId })
+  // Fall back to the profile data if volunteers array not yet populated
+  if(!v && window._currentProfileData) v = window._currentProfileData
+  if(!v){ toast('Could not load volunteer data — please try again','error'); return }
   document.getElementById('vol-modal-title').textContent='Edit Volunteer'
   document.getElementById('vol-edit-id').value=v.id
   document.getElementById('vol-name').value=v.name
@@ -5251,8 +5254,8 @@ async function testEmail(){
 
 function openEmployerReminderModal(){
   var existing=document.getElementById('employer-reminder-overlay'); if(existing) existing.remove()
-  var disney=allVolunteers ? allVolunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length : '?'
-  var universal=allVolunteers ? allVolunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length : '?'
+  var disney=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length : '?'
+  var universal=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length : '?'
   var overlay=document.createElement('div'); overlay.id='employer-reminder-overlay'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;box-shadow:var(--shadow-lg);padding:28px;display:flex;flex-direction:column;gap:16px">'

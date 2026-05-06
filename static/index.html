@@ -4436,7 +4436,7 @@ function renderBoardScheduler(){
   if(!el) return
   var now=new Date(), month=now.getMonth()+1, year=now.getFullYear()
   var months=['January','February','March','April','May','June','July','August','September','October','November','December']
-  el.innerHTML='<div class="card" style="padding:20px;max-width:640px">'
+  el.innerHTML='<div class="card" style="padding:20px;max-width:860px">'
     +'<div style="font-size:15px;font-weight:700;margin-bottom:14px">📅 Find the Best Meeting Date</div>'
     +'<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">'
     +'<div class="form-group" style="margin:0"><label>Month</label><select id="sched-month" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
@@ -4448,40 +4448,120 @@ function renderBoardScheduler(){
 }
 
 async function loadScheduleRecommendations(){
-  var month=document.getElementById('sched-month').value, year=document.getElementById('sched-year').value
+  var month=parseInt(document.getElementById('sched-month').value)
+  var year=parseInt(document.getElementById('sched-year').value)
   var el=document.getElementById('sched-results')
   el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+
   var recs=await api('/api/board/recommend/'+month+'/'+year)
   var avail=await api('/api/board/availability/'+month+'/'+year)
-  if(!Array.isArray(recs)||!recs.length){el.innerHTML='<div style="color:var(--text-muted)">No data yet. Send availability requests first.</div>';return}
+  if(!Array.isArray(recs)||!recs.length){el.innerHTML='<div style="color:var(--text-muted)">No data yet — send availability requests first.</div>';return}
+
+  // Assign a distinct color to each member who responded
+  var COLORS=[
+    '#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c',
+    '#3498db','#9b59b6','#e91e8c','#00bcd4','#ff5722',
+    '#8bc34a','#ff9800','#607d8b','#795548','#673ab7'
+  ]
+  var memberColors={}
+  avail.forEach(function(a,i){ memberColors[a.member_id]={color:COLORS[i%COLORS.length],name:a.member_name,blocked:JSON.parse(a.blocked_dates||'[]'),submitted:!!a.submitted_at} })
+
+  // Build blocked-by-date map: date -> array of {name, color}
+  var blockedByDate={}
+  Object.values(memberColors).forEach(function(m){
+    m.blocked.forEach(function(d){
+      if(!blockedByDate[d]) blockedByDate[d]=[]
+      blockedByDate[d].push({name:m.name,color:m.color})
+    })
+  })
+
   var submitted=avail.filter(function(a){return a.submitted_at}).length
   var total=_boardMembers.filter(function(m){return m.status==='active'}).length
-  var html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">'+submitted+' of '+total+' members responded'+(submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some haven\u0027t responded</span>':'')+'</div>'
-  html+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked)</div>'
-  html+=recs.slice(0,10).map(function(r,i){
+  var monthNames=['January','February','March','April','May','June','July','August','September','October','November','December']
+  var daysInMonth=new Date(year,month,0).getDate()
+  var firstDay=new Date(year,month-1,1).getDay()
+
+  // Build legend
+  var legend='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">'
+  Object.values(memberColors).forEach(function(m){
+    legend+='<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;background:'+m.color+'22;border:1.5px solid '+m.color+';">'
+      +'<div style="width:10px;height:10px;border-radius:50%;background:'+m.color+';flex-shrink:0"></div>'
+      +escHtml(m.name.split(' ')[0])  // first name only to save space
+      +(m.submitted?'':'<span style="font-size:10px;opacity:0.7"> ⏳</span>')
+      +'</div>'
+  })
+  // Members who haven't responded
+  var respondedIds=new Set(avail.map(function(a){return a.member_id}))
+  _boardMembers.filter(function(m){return m.status==='active'&&!respondedIds.has(m.id)}).forEach(function(m){
+    legend+='<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#f5f5f5;border:1.5px dashed #ccc;color:#999">'
+      +'<div style="width:10px;height:10px;border-radius:50%;background:#ccc;flex-shrink:0"></div>'
+      +escHtml(m.name.split(' ')[0])
+      +' <span style="font-size:10px">⏳</span></div>'
+  })
+  legend+='</div>'
+
+  // Build calendar grid
+  var calStyle='display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:24px'
+  var cal='<div style="'+calStyle+'">'
+  var dayHeaders=['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+  dayHeaders.forEach(function(d){
+    cal+='<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:4px 0;text-transform:uppercase">'+d+'</div>'
+  })
+  // Empty cells before first day
+  for(var i=0;i<firstDay;i++) cal+='<div></div>'
+  // Day cells
+  for(var day=1;day<=daysInMonth;day++){
+    var dateStr=year+'-'+(month<10?'0':'')+month+'-'+(day<10?'0':'')+day
+    var dow=new Date(year,month-1,day).getDay()
+    var isWeekend=dow===0||dow===6
+    var blockedHere=blockedByDate[dateStr]||[]
+    var rec=recs.find(function(r){return r.date===dateStr})
+    var pct=rec?rec.pct:100
+    // Cell background based on availability
+    var cellBg=blockedHere.length===0?'#f0fdf4':pct>=80?'#fefce8':pct>=60?'#fff7ed':'#fef2f2'
+    var cellBorder=blockedHere.length===0?'#86efac':pct>=80?'#fde047':pct>=60?'#fdba74':'#fca5a5'
+    cal+='<div style="border:1.5px solid '+cellBorder+';border-radius:8px;padding:6px 4px;background:'+cellBg+';min-height:80px;position:relative;cursor:pointer" onclick="scheduleMeetingOnDate(\''+dateStr+'\')">'
+      +'<div style="font-size:12px;font-weight:700;color:'+(isWeekend?'#9ca3af':'#374151')+';margin-bottom:4px">'+day+'</div>'
+    if(blockedHere.length>0){
+      // Show color dots or names depending on how many
+      cal+='<div style="display:flex;flex-direction:column;gap:2px">'
+      blockedHere.slice(0,4).forEach(function(b){
+        cal+='<div style="display:flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:'+b.color+';line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'
+          +'<div style="width:6px;height:6px;border-radius:50%;background:'+b.color+';flex-shrink:0"></div>'
+          +escHtml(b.name.split(' ')[0])
+          +'</div>'
+      })
+      if(blockedHere.length>4){
+        cal+='<div style="font-size:10px;color:#9ca3af">+' + (blockedHere.length-4)+' more</div>'
+      }
+      cal+='</div>'
+      cal+='<div style="position:absolute;bottom:4px;right:4px;font-size:10px;font-weight:700;color:#6b7280">'+rec.available+'/'+rec.total_members+'</div>'
+    } else {
+      cal+='<div style="font-size:10px;color:#16a34a;font-weight:600">✓ All free</div>'
+    }
+    cal+='</div>'
+  }
+  cal+='</div>'
+
+  // Ranked list below calendar
+  var ranked='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Best Dates (ranked)</div>'
+  ranked+=recs.slice(0,8).map(function(r,i){
     var pct=r.pct, bc=pct>=80?'var(--green-600)':pct>=60?'var(--amber-500)':'var(--red-400)'
     var badge=i===0?'<span style="background:#fef9c3;color:#854d0e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px">BEST</span>':''
+    var whoBlocked=(blockedByDate[r.date]||[]).map(function(b){return '<span style="color:'+b.color+';font-weight:600">'+escHtml(b.name.split(' ')[0])+'</span>'}).join(', ')
     return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
       +'<div style="min-width:140px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
-      +'<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+bc+';border-radius:4px"></div></div>'
-      +'<div style="min-width:80px;text-align:right;font-size:13px;font-weight:700;color:'+bc+'">'+r.available+'/'+r.total_members+' free</div>'
-      +'<button data-date="'+ r.date +'" onclick="scheduleMeetingOnDate(this.dataset.date)" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
+      +'<div style="flex:1;font-size:12px;color:var(--text-muted)">'+(whoBlocked?'Unavailable: '+whoBlocked:'<span style="color:var(--green-600);font-weight:600">Everyone free!</span>')+'</div>'
+      +'<div style="min-width:60px;text-align:right;font-size:13px;font-weight:700;color:'+bc+'">'+r.available+'/'+r.total_members+'</div>'
+      +'<button data-date="'+r.date+'" onclick="scheduleMeetingOnDate(this.dataset.date)" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
       +'</div>'
   }).join('')
-  if(avail.length){
-    html+='<div style="margin-top:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Responses</div>'
-    html+='<div style="display:flex;flex-wrap:wrap;gap:8px">'
-    html+=avail.map(function(a){
-      var bl=JSON.parse(a.blocked_dates||'[]')
-      return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border);font-size:12px">'
-        +'<div style="font-weight:600">'+escHtml(a.member_name||'')+'</div>'
-        +'<div style="color:var(--text-muted);margin-top:2px">'+(a.submitted_at?(bl.length?bl.length+' date'+(bl.length!==1?'s':'')+' blocked':'✅ All available'):'<span style="color:var(--amber-600)">⏳ Not responded</span>')+'</div></div>'
-    }).join('')
-    var respondedIds=new Set(avail.map(function(a){return a.member_id}))
-    var missing=_boardMembers.filter(function(m){return m.status==='active'&&!respondedIds.has(m.id)})
-    html+=missing.map(function(m){return '<div style="padding:6px 12px;background:var(--bg);border-radius:8px;border:1.5px dashed var(--border);font-size:12px"><div style="font-weight:600">'+escHtml(m.name)+'</div><div style="color:var(--text-muted)">⏳ Not responded</div></div>'}).join('')
-    html+='</div>'
-  }
+
+  var html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">'+submitted+' of '+total+' members responded'+(submitted<total?' <span style="color:var(--amber-600);font-weight:600">— some haven\u0027t responded yet</span>':'')+'</div>'
+  html+='<div style="font-size:14px;font-weight:700;margin-bottom:10px">'+monthNames[month-1]+' '+year+'</div>'
+  html+=legend
+  html+=cal
+  html+=ranked
   el.innerHTML=html
 }
 

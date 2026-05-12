@@ -5790,6 +5790,19 @@ function openEmailTemplateEditor(tid){
   const footer = document.createElement('div')
   footer.style.cssText='padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0'
   const cancelB=document.createElement('button'); cancelB.className='btn btn-secondary'; cancelB.style.flex='1'; cancelB.textContent='Cancel'; cancelB.onclick=()=>overlay.remove()
+  const testB=document.createElement('button'); testB.className='btn btn-secondary'; testB.style.flex='1'; testB.textContent='📧 Send Test'
+  testB.onclick=async function(){
+    const subject=document.getElementById('ete-subject').value.trim()
+    const bodyVal=document.getElementById('ete-body').value
+    const nameVal=t.is_system?t.name:(document.getElementById('ete-name')?.value.trim()||t.name)
+    // Save first so test uses latest content
+    await api('/api/email-templates/'+tid,'PUT',{name:nameVal,subject,body:bodyVal})
+    testB.disabled=true; testB.textContent='Sending…'
+    const res=await api('/api/email-templates/'+tid+'/test','POST',{})
+    testB.disabled=false; testB.textContent='📧 Send Test'
+    if(res&&res.error){ toast(res.error,'error'); return }
+    toast('Test sent to '+res.sent_to,'success')
+  }
   const saveB=document.createElement('button'); saveB.className='btn btn-primary'; saveB.style.flex='2'; saveB.textContent='Save Template'
   saveB.onclick=async function(){
     const subject=document.getElementById('ete-subject').value.trim()
@@ -5807,7 +5820,7 @@ function openEmailTemplateEditor(tid){
     renderEmailTemplatesSettings()
     toast('Template saved!','success')
   }
-  footer.appendChild(cancelB); footer.appendChild(saveB); box.appendChild(footer)
+  footer.appendChild(cancelB); footer.appendChild(testB); footer.appendChild(saveB); box.appendChild(footer)
 
   overlay.appendChild(box)
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()})

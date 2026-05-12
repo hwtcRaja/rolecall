@@ -25,7 +25,173 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 #  DATABASE
 # ─────────────────────────────────────────────
 
-def get_db():
+def seed_system_email_templates(conn):
+    """Seed default system email templates if they don't already exist."""
+    templates = [
+        ('join_notification', 'New Volunteer Interest — {{name}}', 'new_volunteer_join',
+         'Sent to admins when someone submits the join/interest form.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">New Volunteer Interest</h2>
+  <p><strong>{{name}}</strong> has submitted an interest form.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0">
+    <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{{name}}</td></tr>
+    <tr><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{{email}}</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{{phone}}</td></tr>
+    <tr><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{{interests}}</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{{employer_program}}</td></tr>
+    <tr><td style="padding:8px;font-weight:600;color:#666">How They Heard</td><td style="padding:8px">{{how_heard}}</td></tr>
+    <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{{notes}}</td></tr>
+  </table>
+  <p><a href="{{review_link}}" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Review Application</a></p>
+</div>'''),
+
+        ('hours_submitted', 'RoleCall — Hours Submitted: {{volunteer_name}}', 'hours_submitted',
+         'Sent to admins when a volunteer submits hours for approval.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">Hours Submitted for Approval</h2>
+  <p><strong>{{volunteer_name}}</strong> has submitted <strong>{{hours}}h</strong> for <strong>{{event_name}}</strong>.</p>
+  <p style="color:#666">Date: {{date}}</p>
+  <p><a href="{{review_link}}" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Review Hours</a></p>
+</div>'''),
+
+        ('event_closed', 'Event Closed: {{event_name}}', 'event_closed',
+         'Sent to admins/recipients when an ELIC closes an event via the kiosk.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
+    <h2 style="margin:0">🔒 Event Closed: {{event_name}}</h2>
+    <p style="opacity:0.8;margin:6px 0 0">Closed by {{elic_name}} on {{date}}</p>
+  </div>
+  <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
+    <p><strong>{{volunteer_count}}</strong> volunteers logged <strong>{{total_hours}}h</strong> total.</p>
+    {{checklist_html}}
+    {{hours_html}}
+  </div>
+</div>'''),
+
+        ('event_signup', 'New Sign-up: {{event_name}}', 'event_signup',
+         'Sent to admins when someone signs up for an event via the portal.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">New Event Sign-up</h2>
+  <p><strong>{{volunteer_name}}</strong> has signed up for <strong>{{event_name}}</strong>.</p>
+  <p style="color:#666">Role: {{role}}<br>Date: {{event_date}}</p>
+</div>'''),
+
+        ('role_filled', 'Role Filled: {{role_name}} — {{event_name}}', 'role_filled',
+         'Sent to admins when a role on an event reaches full capacity.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">Role Now Full</h2>
+  <p>The role <strong>{{role_name}}</strong> on <strong>{{event_name}}</strong> has been filled.</p>
+  <p style="color:#666">Date: {{event_date}}</p>
+</div>'''),
+
+        ('volunteer_opportunity', 'Volunteer Opportunity: {{event_name}}', 'volunteer_opportunity',
+         'Sent to volunteers when they are invited to sign up for an event.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
+    <h2 style="margin:0">🎭 Volunteer Opportunity</h2>
+  </div>
+  <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
+    <p>Hi {{volunteer_name}},</p>
+    <p>You're invited to volunteer for <strong>{{event_name}}</strong>!</p>
+    <p style="color:#666">Date: {{event_date}}<br>Location: {{location}}</p>
+    <p>{{message}}</p>
+    <p><a href="{{signup_link}}" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">View &amp; Sign Up</a></p>
+  </div>
+</div>'''),
+
+        ('board_availability', 'Board Meeting Availability — {{month}} {{year}}', 'board_availability',
+         'Sent to board members requesting their availability for a month.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">Board Meeting Availability — {{month}} {{year}}</h2>
+  <p>Hi {{name}},</p>
+  <p>We\'re scheduling the board meeting for <strong>{{month}} {{year}}</strong> and need to know your availability. Please click below and mark any dates you <strong>cannot</strong> attend.</p>
+  <div style="text-align:center;margin:28px 0">
+    <a href="{{link}}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
+  </div>
+  <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
+</div>'''),
+
+        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours — Disney VoluntEARS', 'disney_reminder',
+         'Sent to Disney Cast Members who have logged hours, reminding them to submit to VoluntEARS.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
+    <div style="font-size:48px;margin-bottom:8px">🐭</div>
+    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
+  </div>
+  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+    <p>Hi {{name}},</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
+    <p>As a <strong>Disney Cast Member</strong>, you may be eligible to submit your volunteer hours through <strong>Disney VoluntEARS</strong>, which can result in a donation to our organization at no cost to you!</p>
+    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
+      <strong>To submit your hours:</strong><br/>
+      Visit <a href="https://disneyvoluntears.com" style="color:#145466;font-weight:600">Disney VoluntEARS</a> and log your hours for Horizon West Theatre Company.
+    </div>
+    <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
+    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+  </div>
+</div>'''),
+
+        ('universal_reminder', '🎬 Reminder: Submit Your Volunteer Hours — Universal Giving', 'universal_reminder',
+         'Sent to Universal Team Members who have logged hours, reminding them to submit to Universal Giving.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
+    <div style="font-size:48px;margin-bottom:8px">🎬</div>
+    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
+  </div>
+  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+    <p>Hi {{name}},</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
+    <p>As a <strong>Universal Team Member</strong>, you may be eligible to submit your volunteer hours through <strong>Universal Giving</strong>, which can result in a donation to our organization at no cost to you!</p>
+    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
+      <strong>To submit your hours:</strong><br/>
+      Visit <a href="https://universalgiving.org" style="color:#145466;font-weight:600">Universal Giving</a> and log your hours for Horizon West Theatre Company.
+    </div>
+    <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
+    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+  </div>
+</div>'''),
+
+        ('temp_password', 'Your RoleCall Temporary Password', 'temp_password',
+         'Sent to users when an admin generates a temporary password for them.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+  <h2 style="color:#145466">Your Temporary Password</h2>
+  <p>Hi {{name}},</p>
+  <p>A temporary password has been created for your RoleCall account.</p>
+  <div style="background:#f0f8fa;border-radius:8px;padding:16px 24px;margin:16px 0;text-align:center">
+    <div style="font-size:24px;font-weight:700;font-family:monospace;color:#145466;letter-spacing:2px">{{temp_password}}</div>
+  </div>
+  <p style="color:#666;font-size:13px">Please log in and change your password immediately.</p>
+</div>'''),
+
+        ('unauthorized_pickup', 'ALERT: Unauthorized Pickup Attempt', 'unauthorized_pickup',
+         'Sent to admins/guardians when an unauthorized pickup attempt is detected at the kiosk.',
+         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;border:2px solid #dc2626;border-radius:10px;overflow:hidden">
+  <div style="background:#dc2626;padding:16px 24px;color:#fff">
+    <h2 style="margin:0">⚠️ Unauthorized Pickup Attempt</h2>
+  </div>
+  <div style="padding:24px">
+    <p>An unauthorized pickup attempt was detected for <strong>{{participant_name}}</strong>.</p>
+    <p style="color:#666">Person attempting pickup: <strong>{{pickup_name}}</strong><br>Time: {{timestamp}}<br>Event: {{event_name}}</p>
+    <p>Please review immediately.</p>
+  </div>
+</div>'''),
+    ]
+
+    for key, subject, _, description, body in templates:
+        existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
+        if not existing:
+            try:
+                execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)
+                    VALUES (%s,%s,%s,%s,%s,TRUE,%s)''',
+                    (str(uuid.uuid4()), key.replace('_',' ').title(), subject, body, key, description))
+            except Exception as e:
+                app.logger.warning(f'Failed to seed template {key}: {e}')
+
+def get_system_template(conn, key):
+    """Get a system email template by key, returns None if not found."""
+    return fetchone(conn, 'SELECT * FROM email_templates WHERE template_key=%s', (key,))
+
+
     conn = psycopg2.connect(
         DATABASE_URL,
         cursor_factory=psycopg2.extras.RealDictCursor,
@@ -476,7 +642,9 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
-        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS employer_program TEXT DEFAULT ''",
+        "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
+        "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
@@ -1874,9 +2042,20 @@ def get_email_templates():
     err = require_auth()
     if err: return err
     conn = get_db()
-    templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY name')
+    templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name')
     conn.close()
     return jsonify(templates)
+
+@app.route('/api/email-templates/<tid>', methods=['PUT'])
+def update_email_template(tid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE email_templates SET name=%s, subject=%s, body=%s WHERE id=%s',
+        (d.get('name',''), d.get('subject',''), d.get('body',''), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/email-templates', methods=['POST'])
 def create_email_template():
@@ -6387,6 +6566,13 @@ def reject_profile_update(uid):
     return jsonify({'ok': True})
 
 init_db()
+try:
+    _seed_conn = get_db()
+    seed_system_email_templates(_seed_conn)
+    _seed_conn.commit()
+    _seed_conn.close()
+except Exception as _e:
+    app.logger.warning(f'Email template seed failed: {_e}')
 
 # ── Global error handlers — return JSON for all API errors ──
 @app.errorhandler(500)
@@ -7045,21 +7231,29 @@ def send_board_availability_request():
             execute(conn, '''INSERT INTO board_availability (id,member_id,month,year,token,blocked_dates)
                 VALUES (%s,%s,%s,%s,%s,'[]')''',
                 (str(uuid.uuid4()), m['id'], month, year, token))
-        link = f'{base_url}/board/availability/{token}'
-        body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
-          <h2 style="color:#145466">Board Meeting Availability — {month_name} {year}</h2>
+        conn2 = get_db()
+        tmpl = get_system_template(conn2, 'board_availability')
+        conn2.close()
+        month_name_str = ['','January','February','March','April','May','June',
+                  'July','August','September','October','November','December'][int(month)]
+        if tmpl:
+            body = tmpl['body'].replace('{{name}}', m['name'])\
+                .replace('{{month}}', month_name_str)\
+                .replace('{{year}}', str(year))\
+                .replace('{{link}}', link)
+            subj = tmpl['subject'].replace('{{month}}', month_name_str).replace('{{year}}', str(year))
+        else:
+            subj = f'Board Meeting Availability — {month_name_str} {year}'
+            body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+          <h2 style="color:#145466">Board Meeting Availability — {month_name_str} {year}</h2>
           <p>Hi {m['name']},</p>
-          <p>We're scheduling the board meeting for <strong>{month_name} {year}</strong> and need to know your availability.</p>
-          <p>Please click the link below and mark any dates you <strong>cannot</strong> attend. It only takes a minute!</p>
+          <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
           <div style="text-align:center;margin:28px 0">
-            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
-              📅 Submit My Availability
-            </a>
+            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
           </div>
-          <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
         </div>'''
         try:
-            send_email([m['email']], f'Board Meeting Availability — {month_name} {year}', body)
+            send_email([m['email']], subj, body)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
@@ -7281,45 +7475,22 @@ def send_employer_program_reminder():
     for v in volunteers:
         prog = (v.get('employer_program') or '').strip()
         is_disney = 'disney' in prog.lower()
-        icon = '🏰' if is_disney else '🎬'
-        prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-        submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-        submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
-          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
-            <div style="font-size:48px;margin-bottom:8px">{icon}</div>
-            <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
-          </div>
-          <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
-            <p style="font-size:15px;color:#374151">Hi {v['name']},</p>
-            <p style="font-size:15px;color:#374151;line-height:1.6">
-              We noticed you've been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you so much for giving your time!
-            </p>
-            <p style="font-size:15px;color:#374151;line-height:1.6">
-              As a <strong>{prog_label}</strong>, you may be eligible to submit your volunteer hours through <strong>{submit_name}</strong>,
-              which can result in a donation to our organization. It's a great way to double the impact of your volunteer work at no cost to you!
-            </p>
-            <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
-              <p style="margin:0;font-size:14px;color:#374151;line-height:1.6">
-                <strong>To submit your hours:</strong><br/>
-                Visit <a href="{submit_link}" style="color:#145466;font-weight:600">{submit_name}</a> and log your volunteer hours
-                for Horizon West Theatre Company as your chosen nonprofit.
-              </p>
-            </div>
-            <p style="font-size:15px;color:#374151;line-height:1.6">
-              If you have any questions or need help with the process, please don't hesitate to reach out — we're happy to assist!
-            </p>
-            <p style="font-size:15px;color:#374151;margin-top:24px">
-              With gratitude,<br/>
-              <strong>Horizon West Theatre Company</strong>
-            </p>
-          </div>
-          <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:12px">
-            You're receiving this because you are listed as a {prog_label} in our volunteer system.
-          </p>
-        </div>'''
+        tmpl_key = 'disney_reminder' if is_disney else 'universal_reminder'
+        conn2 = get_db()
+        tmpl = get_system_template(conn2, tmpl_key)
+        conn2.close()
+        if tmpl:
+            body = tmpl['body'].replace('{{name}}', v['name'])
+            subj = tmpl['subject']
+        else:
+            icon = '🐭' if is_disney else '🎬'
+            prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
+            submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
+            submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
+            subj = f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+            body = f'<p>Hi {v["name"]}, please submit your hours to {submit_name}: <a href="{submit_link}">{submit_link}</a></p>'
         try:
-            send_email([v['email']], f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program', body)
+            send_email([v['email']], subj, body)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Employer reminder email failed for {v["email"]}: {e}')

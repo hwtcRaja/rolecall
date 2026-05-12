@@ -3271,8 +3271,13 @@ def kiosk_elic_auth():
         WHERE e.pin=%s''', (pin,))
     if not elic:
         conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
-    # Get assigned events
+    # Get assigned events — check both assigned_events field AND event_elics table
     assigned = json.loads(elic.get('assigned_events') or '[]')
+    # Also get events assigned via the event detail page (event_elics table)
+    event_elics_rows = fetchall(conn, 'SELECT event_id FROM event_elics WHERE elic_id=%s', (elic['id'],))
+    for row in event_elics_rows:
+        if row['event_id'] not in assigned:
+            assigned.append(row['event_id'])
     if elic.get('is_master'):
         events = fetchall(conn, '''
             SELECT e.*, p.name as production_name,
@@ -5978,10 +5983,21 @@ def add_event_elic(eid):
     err = require_auth()
     if err: return err
     d = request.json or {}
+    elic_id = d.get('elic_id')
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
-        (rid, eid, d.get('elic_id')))
+        (rid, eid, elic_id))
+    # Also sync to assigned_events on the elic record
+    try:
+        elic = fetchone(conn, 'SELECT assigned_events FROM elics WHERE id=%s', (elic_id,))
+        if elic:
+            assigned = json.loads(elic.get('assigned_events') or '[]')
+            if eid not in assigned:
+                assigned.append(eid)
+                execute(conn, 'UPDATE elics SET assigned_events=%s WHERE id=%s', (json.dumps(assigned), elic_id))
+    except Exception:
+        pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5990,7 +6006,19 @@ def remove_event_elic(eid, rid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    # Get elic_id before deleting
+    row = fetchone(conn, 'SELECT elic_id FROM event_elics WHERE id=%s AND event_id=%s', (rid, eid))
     execute(conn, 'DELETE FROM event_elics WHERE id=%s AND event_id=%s', (rid, eid))
+    # Sync assigned_events
+    if row:
+        try:
+            elic = fetchone(conn, 'SELECT assigned_events FROM elics WHERE id=%s', (row['elic_id'],))
+            if elic:
+                assigned = json.loads(elic.get('assigned_events') or '[]')
+                assigned = [e for e in assigned if e != eid]
+                execute(conn, 'UPDATE elics SET assigned_events=%s WHERE id=%s', (json.dumps(assigned), row['elic_id']))
+        except Exception:
+            pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

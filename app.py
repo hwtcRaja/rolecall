@@ -3765,6 +3765,63 @@ def save_email_settings_route():
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/email-templates/<tid>/test', methods=['POST'])
+def test_template_email(tid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    tmpl = fetchone(conn, 'SELECT * FROM email_templates WHERE id=%s', (tid,))
+    user = fetchone(conn, 'SELECT email, name FROM users WHERE id=%s', (session.get('user_id',''),))
+    conn.close()
+    if not tmpl: return jsonify({'error': 'Template not found'}), 404
+    to = (d.get('to') or '').strip() or (user['email'] if user else '')
+    if not to: return jsonify({'error': 'No recipient email — add your email to your user profile.'}), 400
+    # Replace variables with sample values
+    sample = {
+        '{{name}}': user['name'] if user else 'Test User',
+        '{{email}}': to,
+        '{{volunteer_name}}': user['name'] if user else 'Test User',
+        '{{event_name}}': 'Sample Event',
+        '{{event_date}}': 'June 1, 2025',
+        '{{hours}}': '3',
+        '{{month}}': 'June',
+        '{{year}}': '2025',
+        '{{link}}': '#',
+        '{{signup_link}}': '#',
+        '{{review_link}}': '#',
+        '{{temp_password}}': 'TEMP-1234',
+        '{{role}}': 'Stage Crew',
+        '{{location}}': 'HWTC Theatre',
+        '{{message}}': 'We would love to have you join us!',
+        '{{date}}': 'June 1, 2025',
+        '{{elic_name}}': 'Test ELIC',
+        '{{volunteer_count}}': '12',
+        '{{total_hours}}': '36',
+        '{{checklist_html}}': '<p><em>(Checklist items would appear here)</em></p>',
+        '{{hours_html}}': '<p><em>(Hours breakdown would appear here)</em></p>',
+        '{{participant_name}}': 'Test Participant',
+        '{{pickup_name}}': 'Unknown Person',
+        '{{timestamp}}': 'June 1, 2025 at 3:00 PM',
+        '{{interests}}': 'Acting, Stage Crew',
+        '{{employer_program}}': 'Disney Cast Member',
+        '{{how_heard}}': 'Social Media',
+        '{{notes}}': '—',
+        '{{phone}}': '555-1234',
+    }
+    body = tmpl['body']
+    subject = '[TEST] ' + tmpl['subject']
+    for var, val in sample.items():
+        body = body.replace(var, val)
+        subject = subject.replace(var, val)
+    # Wrap with test banner
+    body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
+        <strong>⚠️ This is a test email</strong> — sent to {to}. Sample values have been substituted for real data.
+    </div>''' + body
+    ok, msg = send_email([to], subject, body)
+    if ok: return jsonify({'ok': True, 'sent_to': to})
+    return jsonify({'error': msg or 'Failed to send'}), 500
+
 @app.route('/api/email-settings/test', methods=['POST'])
 def test_email_route():
     err = require_admin()

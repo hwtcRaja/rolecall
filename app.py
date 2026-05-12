@@ -7558,11 +7558,11 @@ def send_employer_program_reminder():
     min_days = int(d.get('min_days_since_last', 30))  # don't resend within X days
     conn = get_db()
     if program_filter == 'disney':
-        condition = "LOWER(v.employer_program) LIKE '%disney%'"
+        condition = "LOWER(v.employer_program) LIKE '%%disney%%'"
     elif program_filter == 'universal':
-        condition = "LOWER(v.employer_program) LIKE '%universal%'"
+        condition = "LOWER(v.employer_program) LIKE '%%universal%%'"
     else:
-        condition = "(LOWER(v.employer_program) LIKE '%disney%' OR LOWER(v.employer_program) LIKE '%universal%')"
+        condition = "(LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')"
     volunteers = fetchall(conn, f"""
         SELECT DISTINCT v.id, v.name, v.email, v.employer_program
         FROM volunteers v

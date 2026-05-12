@@ -3265,8 +3265,10 @@ function printVolIdCard(volId, volName){
 }
 
 async function openProfile(volId){
+  try {
   currentVolId=volId
   const v=await api(`/api/volunteers/${volId}`)
+  if(!v||v.error){ toast('Could not load volunteer','error'); return }
   window._currentProfileData = v
   const isAdmin=canEdit('volunteers')
   const [bg,col]=avatarColors(v.name)
@@ -3422,6 +3424,7 @@ async function openProfile(volId){
     </div>`
   navTo('profile')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  } catch(err) { console.error('openProfile error:', err); toast('Error loading profile: '+err.message,'error') }
 }
 
 // ═══════════════════════════════════════════════════════════════

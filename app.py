@@ -191,7 +191,7 @@ def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
     return fetchone(conn, 'SELECT * FROM email_templates WHERE template_key=%s', (key,))
 
-
+def get_db():
     conn = psycopg2.connect(
         DATABASE_URL,
         cursor_factory=psycopg2.extras.RealDictCursor,

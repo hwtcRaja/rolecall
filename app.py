@@ -7569,7 +7569,7 @@ def send_employer_program_reminder():
         JOIN hours h ON h.volunteer_id=v.id
         WHERE {condition}
           AND v.status='active'
-          AND h.date >= (CURRENT_DATE - INTERVAL '90 days')
+          AND h.date::date >= (CURRENT_DATE - INTERVAL '90 days')
           AND v.email IS NOT NULL AND v.email != ''
     """)
     # Convert to plain dicts so we can add last_sent field

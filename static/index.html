@@ -528,6 +528,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div id="dash-active-programs"></div>
             </div>
           </div>
+          <!-- Employer giving -->
+          <div class="card" style="padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:15px;font-weight:700">🐭🎬 Employer Giving Program</div>
+              <button class="btn btn-secondary btn-sm" onclick="openEmployerReminderModal()">Send Reminder</button>
+            </div>
+            <div id="dash-employer-giving"><div style="font-size:13px;color:var(--text-muted)">Loading…</div></div>
+          </div>
         </div>
       </section>
 
@@ -2860,6 +2868,37 @@ async function renderDashboard(){
       }).catch(()=>{})
     })
   }
+
+  // Employer giving program summary
+  const egEl = document.getElementById('dash-employer-giving')
+  if(egEl){
+    const log = await api('/api/volunteers/employer-reminder-log')
+    const disney = volunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'})
+    const universal = volunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'})
+    const lastDisney = Array.isArray(log) ? log.find(function(r){return r.program_type==='disney'}) : null
+    const lastUniversal = Array.isArray(log) ? log.find(function(r){return r.program_type==='universal'}) : null
+    var fmtLast = function(r){
+      if(!r) return '<span style="color:var(--amber-600);font-weight:600">Never sent</span>'
+      var days = Math.round((Date.now()-new Date(r.sent_at).getTime())/86400000)
+      var when = days===0?'Today':days===1?'Yesterday':days+'d ago'
+      return '<span style="color:var(--text-muted)">'+when+' · by '+escHtml(r.sent_by||'system')+'</span>'
+    }
+    var mkCard = function(img, title, count, lastSend, vols){
+      return '<div style="background:var(--bg);border-radius:10px;padding:14px;border:1.5px solid var(--border)">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+        +'<img src="'+img+'" style="width:20px;height:20px" alt=""/>  '
+        +'<span style="font-weight:600;font-size:13px">'+title+'</span></div>'
+        +'<div style="font-size:28px;font-weight:800;color:var(--teal-dark);margin-bottom:2px">'+count+'</div>'
+        +'<div style="font-size:11px;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">members</div>'
+        +'<div style="font-size:12px;margin-bottom:6px"><strong style="color:var(--text)">Last reminder:</strong> '+lastSend+'</div>'
+        +(vols.length?'<div style="font-size:11px;color:var(--text-muted);line-height:1.6">'+vols.map(function(v){return '<span onclick="openProfile(\''+v.id+'\')" style="cursor:pointer;color:var(--teal-600);text-decoration:underline;text-underline-offset:2px">'+escHtml(v.name.split(' ')[0])+'</span>'}).join(' · ')+'</div>':'<div style="font-size:11px;color:var(--text-muted);font-style:italic">No members yet</div>')
+        +'</div>'
+    }
+    egEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+      + mkCard('/static/images/mickey.png','Disney Cast Members',disney.length,fmtLast(lastDisney),disney)
+      + mkCard('/static/images/universial.png','Universal Team Members',universal.length,fmtLast(lastUniversal),universal)
+      +'</div>'
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3065,6 +3104,40 @@ async function deleteApplication(aid){
   if(res.error){ toast(res.error,'error'); return }
   toast('Submission deleted')
   loadApplications()
+}
+
+async function loadVolComms(volId){
+  var el=document.getElementById('vol-comms-list')
+  if(!el) return
+  var rows=await api('/api/volunteers/'+volId+'/communications')
+  if(!Array.isArray(rows)||!rows.length){
+    el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No emails sent yet</div>'
+    return
+  }
+  var typeLabels={
+    volunteer_opportunity:'🎭 Volunteer Opportunity',
+    disney_reminder:'🐭 Disney VoluntEARS Reminder',
+    universal_reminder:'🎬 Universal Giving Reminder',
+    temp_password:'🔑 Temporary Password',
+    board_availability:'📅 Board Availability',
+    event_closed:'🔒 Event Closed',
+    hours_submitted:'⏱ Hours Submitted',
+    volunteer_opportunity_invite:'🎭 Event Invite',
+  }
+  el.innerHTML=rows.map(function(r){
+    var dt=new Date(r.sent_at)
+    var dateStr=dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    var timeStr=dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+    var label=typeLabels[r.email_type]||('📧 '+( r.email_type||'System Email'))
+    return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex-shrink:0;font-size:11px;color:var(--text-muted);min-width:90px;padding-top:2px;text-align:right">'+dateStr+'<br>'+timeStr+'</div>'
+      +'<div style="flex:1">'
+      +'<div style="font-size:13px;font-weight:600;margin-bottom:2px">'+escHtml(r.subject||label)+'</div>'
+      +'<div style="font-size:11px;color:var(--text-muted);display:flex;gap:8px">'
+      +'<span style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:1px 7px">'+label+'</span>'
+      +'<span>via '+escHtml(r.sent_by||'system')+'</span>'
+      +'</div></div></div>'
+  }).join('')
 }
 
 function loadApplicationsBadge(){
@@ -3309,6 +3382,7 @@ async function openProfile(volId){
             <div class="tab" onclick="switchTab(this,'tab-history')">History</div>
             <div class="tab" onclick="switchTab(this,'tab-notes')">Notes (${(v.notes||[]).length})</div>
             <div class="tab" onclick="switchTab(this,'tab-files')">Files (${(v.files||[]).length})</div>
+            <div class="tab" onclick="switchTab(this,'tab-comms');loadVolComms('${v.id}')">📧 Emails</div>
           </div>
           <div style="padding:0 0 20px">
             <div class="tab-pane active" id="tab-hours">
@@ -3338,6 +3412,9 @@ async function openProfile(volId){
                   <span style="font-size:24px">${f.type==='pdf'?'📄':'🖼'}</span>
                   <div><div class="file-name">${f.name}</div><div class="file-size">${f.size} · ${formatDate(f.date)}</div></div>
                 </div>`).join('')}
+            </div>
+            <div class="tab-pane" id="tab-comms">
+              <div id="vol-comms-list"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
             </div>
           </div>
         </div>
@@ -5391,18 +5468,33 @@ async function testEmail(){
   }
 }
 
-function openEmployerReminderModal(){
+async function openEmployerReminderModal(){
   var existing=document.getElementById('employer-reminder-overlay'); if(existing) existing.remove()
   var disney=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length : '?'
   var universal=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length : '?'
+  var log=await api('/api/volunteers/employer-reminder-log')
+  var logHtml=''
+  if(Array.isArray(log)&&log.length){
+    logHtml='<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">'
+      +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Recent sends</div>'
+      +'<div style="max-height:140px;overflow-y:auto">'
+      +log.slice(0,20).map(function(r){
+        var d=new Date(r.sent_at); var daysAgo=Math.round((Date.now()-d.getTime())/86400000)
+        var icon=r.program_type==='disney'?'🐭':'🎬'
+        return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">'
+          +'<span>'+icon+' '+escHtml(r.volunteer_name||'')+'</span>'
+          +'<span style="color:var(--text-muted)">'+daysAgo+'d ago</span></div>'
+      }).join('')
+      +'</div></div>'
+  }
   var overlay=document.createElement('div'); overlay.id='employer-reminder-overlay'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;box-shadow:var(--shadow-lg);padding:28px;display:flex;flex-direction:column;gap:16px">'
-    +'<div style="font-size:18px;font-weight:700"><img src="/static/images/mickey.png" style="width:20px;height:20px;vertical-align:middle;margin-right:4px" alt="Disney"/>🎬 Employer Giving Program Reminder</div>'
-    +'<div style="font-size:13px;color:var(--text-muted);line-height:1.6">Send a reminder email to volunteers who are Disney Cast Members or Universal Team Members and have logged hours recently, encouraging them to submit their hours to their employer\'s giving program.</div>'
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:85vh;overflow-y:auto;box-shadow:var(--shadow-lg);padding:28px;display:flex;flex-direction:column;gap:16px">'
+    +'<div style="font-size:18px;font-weight:700">🐭🎬 Employer Giving Reminder</div>'
+    +'<div style="font-size:13px;color:var(--text-muted);line-height:1.6">Send a reminder to Disney Cast Members or Universal Team Members who have logged hours recently.</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
-    +'<div style="margin-bottom:4px"><img src="/static/images/mickey.png" style="width:40px;height:40px;filter:invert(0)" alt="Disney"/></div>'
+    +'<div style="margin-bottom:4px"><img src="/static/images/mickey.png" style="width:40px;height:40px" alt="Disney"/></div>'
     +'<div style="font-weight:700;font-size:15px">'+disney+'</div>'
     +'<div style="font-size:12px;color:var(--text-muted)">Disney Cast Members</div></div>'
     +'<div style="background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1.5px solid var(--border)">'
@@ -5412,27 +5504,42 @@ function openEmployerReminderModal(){
     +'<div class="form-group" style="margin:0"><label>Send to</label>'
     +'<select id="emp-remind-filter" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
     +'<option value="">Both Disney &amp; Universal</option>'
-    +'<option value="disney"><img src="/static/images/mickey.png" style="width:16px;height:16px;vertical-align:middle;filter:invert(1)" alt="Disney"/> Disney Cast Members only</option>'
+    +'<option value="disney">🐭 Disney Cast Members only</option>'
     +'<option value="universal">🎬 Universal Team Members only</option>'
     +'</select></div>'
-    +'<div style="background:var(--amber-50);border:1px solid var(--amber-200);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber-700)">⚠️ Only volunteers who have logged hours in the last 90 days will receive this email.</div>'
-    +'<div style="display:flex;gap:10px">'
-    +'<button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'employer-reminder-overlay\').remove()">Cancel</button>'
+    +'<div class="form-group" style="margin:0"><label>Skip if already emailed within</label>'
+    +'<select id="emp-remind-days" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    +'<option value="30">30 days</option>'
+    +'<option value="60" selected>60 days</option>'
+    +'<option value="90">90 days</option>'
+    +'<option value="0">No limit — send to everyone</option>'
+    +'</select></div>'
+    +'<div style="background:var(--amber-50);border:1px solid var(--amber-200);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--amber-700)">⚠️ Only volunteers with hours in the last 90 days will receive this.</div>'
+    +logHtml
+    +'<div style="display:flex;gap:10px;margin-top:4px">'
+    +'<button class="btn btn-secondary" style="flex:1" onclick="closeEmployerReminderOverlay()">Cancel</button>'
     +'<button class="btn btn-primary" style="flex:2" id="emp-remind-btn" onclick="sendEmployerReminder()">📬 Send Reminders</button>'
     +'</div></div>'
   overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
   document.body.appendChild(overlay)
 }
 
+function closeEmployerReminderOverlay(){ var el=document.getElementById('employer-reminder-overlay'); if(el) el.remove() }
+
 async function sendEmployerReminder(){
   var btn=document.getElementById('emp-remind-btn'); btn.disabled=true; btn.textContent='Sending…'
   var filter=document.getElementById('emp-remind-filter').value
-  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null})
+  var days=parseInt(document.getElementById('emp-remind-days')?.value)||60
+  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null,min_days_since_last:days})
   btn.disabled=false; btn.textContent='📬 Send Reminders'
   if(res&&res.error){toast(res.error,'error');return}
-  document.getElementById('employer-reminder-overlay')?.remove()
-  if(res.sent===0) toast(res.message||'No qualifying volunteers found','error')
-  else toast('Sent to '+res.sent+' volunteer'+(res.sent!==1?'s':'')+'!','success')
+  closeEmployerReminderOverlay()
+  var msg='Sent to '+res.sent+' volunteer'+(res.sent!==1?'s':'')
+  if(res.skipped) msg+=', skipped '+res.skipped+' (emailed recently)'
+  if(res.errors&&res.errors.length) msg+=' — '+res.errors.length+' failed'
+  if(res.sent===0&&res.skipped>0) toast('No new emails — all qualifying volunteers were emailed recently','error')
+  else if(res.sent===0) toast(res.message||'No qualifying volunteers found','error')
+  else toast(msg,'success')
 }
 
 async function sendEventReport(eventId){

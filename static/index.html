@@ -5691,12 +5691,127 @@ async function deleteEvent(eid){
 function renderEmailTemplatesSettings(){
   const el=document.getElementById('email-templates-settings-list')
   if(!el) return
-  if(!emailTemplates.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No templates yet</div>';return}
-  el.innerHTML=emailTemplates.map(t=>`
-    <div class="setting-item">
-      <div><div class="setting-item-label">${t.name}</div><div class="setting-item-sub">${t.subject}</div></div>
-      <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEmailTemplateById('${t.id}')">✕</button>
-    </div>`).join('')
+  const systemTemplates = emailTemplates.filter(t=>t.is_system)
+  const customTemplates = emailTemplates.filter(t=>!t.is_system)
+
+  let html = ''
+
+  if(systemTemplates.length){
+    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">System Emails</div>'
+    html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">These are sent automatically by RoleCall. Edit to customize the content.</div>'
+    html += systemTemplates.map(t=>{
+      const desc = t.description||''
+      return `<div class="setting-item" style="align-items:flex-start;padding:12px 0;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;gap:8px">
+          <div style="flex:1">
+            <div class="setting-item-label">${escHtml(t.name.replace(/_/g,' '))}</div>
+            <div class="setting-item-sub" style="margin-top:2px">${escHtml(desc)}</div>
+            <div style="font-size:11px;color:var(--teal-600);margin-top:3px;font-family:monospace">Subject: ${escHtml(t.subject)}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="openEmailTemplateEditor('${t.id}')">✏️ Edit</button>
+        </div>
+      </div>`
+    }).join('')
+  }
+
+  if(customTemplates.length){
+    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:16px 0 8px">Custom Templates</div>'
+    html += customTemplates.map(t=>`
+      <div class="setting-item">
+        <div><div class="setting-item-label">${escHtml(t.name)}</div><div class="setting-item-sub">${escHtml(t.subject)}</div></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEmailTemplateEditor('${t.id}')">✏️</button>
+          <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEmailTemplateById('${t.id}')">✕</button>
+        </div>
+      </div>`).join('')
+  }
+
+  if(!html) html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No templates yet</div>'
+  el.innerHTML=html
+}
+
+function openEmailTemplateEditor(tid){
+  const t = emailTemplates.find(x=>x.id===tid)
+  if(!t) return
+  const existing = document.getElementById('email-template-editor-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id='email-template-editor-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  const box = document.createElement('div')
+  box.style.cssText='background:var(--surface);border-radius:12px;width:100%;max-width:720px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3)'
+
+  // Header
+  const hdr = document.createElement('div')
+  hdr.style.cssText='padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0'
+  hdr.innerHTML='<div style="font-size:16px;font-weight:700">✉️ Edit Email Template</div>'
+  const closeBtn = document.createElement('button')
+  closeBtn.style.cssText='background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)'
+  closeBtn.textContent='×'
+  closeBtn.onclick = ()=>overlay.remove()
+  hdr.appendChild(closeBtn)
+  box.appendChild(hdr)
+
+  // Body
+  const body = document.createElement('div')
+  body.style.cssText='padding:20px 24px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px'
+
+  if(t.description){
+    const descEl = document.createElement('div')
+    descEl.style.cssText='background:var(--bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text-muted)'
+    descEl.textContent='ℹ️ '+t.description
+    body.appendChild(descEl)
+  }
+
+  if(t.is_system){
+    const varsEl = document.createElement('div')
+    varsEl.style.cssText='background:#f0f8fa;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--teal-dark)'
+    varsEl.innerHTML='<strong>Available variables:</strong> Use <code>{{variable}}</code> syntax. Variables depend on the email type — e.g. <code>{{name}}</code>, <code>{{link}}</code>, <code>{{month}}</code>, <code>{{year}}</code>, <code>{{event_name}}</code>, <code>{{volunteer_name}}</code>, <code>{{hours}}</code>'
+    body.appendChild(varsEl)
+  }
+
+  // Name field (custom templates only)
+  if(!t.is_system){
+    const nameLbl=document.createElement('label'); nameLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted)'; nameLbl.textContent='Template Name'; body.appendChild(nameLbl)
+    const nameInp=document.createElement('input'); nameInp.id='ete-name'; nameInp.value=t.name||''; nameInp.style.cssText='width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box'; body.appendChild(nameInp)
+  }
+
+  // Subject
+  const subjLbl=document.createElement('label'); subjLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted)'; subjLbl.textContent='Subject Line'; body.appendChild(subjLbl)
+  const subjInp=document.createElement('input'); subjInp.id='ete-subject'; subjInp.value=t.subject||''; subjInp.style.cssText='width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box'; body.appendChild(subjInp)
+
+  // Body
+  const bodyLbl=document.createElement('label'); bodyLbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted)'; bodyLbl.textContent='Email Body (HTML)'; body.appendChild(bodyLbl)
+  const bodyTA=document.createElement('textarea'); bodyTA.id='ete-body'; bodyTA.value=t.body||''; bodyTA.style.cssText='width:100%;min-height:280px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;box-sizing:border-box;resize:vertical'; body.appendChild(bodyTA)
+
+  box.appendChild(body)
+
+  // Footer
+  const footer = document.createElement('div')
+  footer.style.cssText='padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;flex-shrink:0'
+  const cancelB=document.createElement('button'); cancelB.className='btn btn-secondary'; cancelB.style.flex='1'; cancelB.textContent='Cancel'; cancelB.onclick=()=>overlay.remove()
+  const saveB=document.createElement('button'); saveB.className='btn btn-primary'; saveB.style.flex='2'; saveB.textContent='Save Template'
+  saveB.onclick=async function(){
+    const subject=document.getElementById('ete-subject').value.trim()
+    const bodyVal=document.getElementById('ete-body').value
+    const nameVal=t.is_system?t.name:(document.getElementById('ete-name')?.value.trim()||t.name)
+    if(!subject){toast('Subject is required','error');return}
+    saveB.disabled=true; saveB.textContent='Saving…'
+    const res=await api('/api/email-templates/'+tid,'PUT',{name:nameVal,subject,body:bodyVal})
+    saveB.disabled=false; saveB.textContent='Save Template'
+    if(res&&res.error){toast(res.error,'error');return}
+    // Update local cache
+    const idx=emailTemplates.findIndex(x=>x.id===tid)
+    if(idx>=0){ emailTemplates[idx].subject=subject; emailTemplates[idx].body=bodyVal; if(!t.is_system) emailTemplates[idx].name=nameVal }
+    overlay.remove()
+    renderEmailTemplatesSettings()
+    toast('Template saved!','success')
+  }
+  footer.appendChild(cancelB); footer.appendChild(saveB); box.appendChild(footer)
+
+  overlay.appendChild(box)
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()})
+  document.body.appendChild(overlay)
 }
 // Youth Programs
 function populateProgramsDropdown(){

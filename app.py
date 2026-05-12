@@ -191,6 +191,16 @@ def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
     return fetchone(conn, 'SELECT * FROM email_templates WHERE template_key=%s', (key,))
 
+def log_volunteer_comm(conn, volunteer_id, subject, email_type='', sent_by='system', recipient_email=''):
+    """Log an email sent to a volunteer."""
+    try:
+        execute(conn, '''INSERT INTO volunteer_communications
+            (id, volunteer_id, subject, email_type, sent_by, recipient_email)
+            VALUES (%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), volunteer_id, subject, email_type, sent_by, recipient_email))
+    except Exception as e:
+        app.logger.warning(f'log_volunteer_comm failed: {e}')
+
 def get_db():
     conn = psycopg2.connect(
         DATABASE_URL,
@@ -689,6 +699,20 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_by TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS employer_program TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS employer_reminder_log (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            program_type TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT NOW(),
+            sent_by TEXT)""",
+        """CREATE TABLE IF NOT EXISTS volunteer_communications (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            subject TEXT NOT NULL,
+            email_type TEXT DEFAULT '',
+            sent_at TIMESTAMP DEFAULT NOW(),
+            sent_by TEXT DEFAULT 'system',
+            recipient_email TEXT DEFAULT '')""",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS updated_by TEXT",
@@ -1546,6 +1570,16 @@ def get_volunteers():
     return jsonify(vols)
 
 @app.route('/api/volunteers/<vol_id>')
+@app.route('/api/volunteers/<vol_id>/communications')
+def get_volunteer_communications(vol_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM volunteer_communications
+        WHERE volunteer_id=%s ORDER BY sent_at DESC''', (vol_id,))
+    conn.close()
+    return jsonify(rows)
+
 def get_volunteer(vol_id):
     err = require_auth()
     if err: return err
@@ -6876,6 +6910,7 @@ def send_rsvp_invite(eid):
         try:
             send_email([v['email']], f'Volunteer Opportunity: {evt["name"]}', body)
             sent += 1
+            log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
         except Exception as e:
             app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
 
@@ -7502,14 +7537,26 @@ def submit_board_availability():
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/volunteers/employer-reminder-log')
+def get_employer_reminder_log():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT erl.*, v.name as volunteer_name, v.email, v.employer_program
+        FROM employer_reminder_log erl
+        JOIN volunteers v ON erl.volunteer_id=v.id
+        ORDER BY erl.sent_at DESC LIMIT 200''')
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/volunteers/employer-program-reminder', methods=['POST'])
 def send_employer_program_reminder():
     err = require_admin()
     if err: return err
     d = request.json or {}
-    program_filter = d.get('program')  # 'disney', 'universal', or None for both
+    program_filter = d.get('program')
+    min_days = int(d.get('min_days_since_last', 30))  # don't resend within X days
     conn = get_db()
-    # Find volunteers with an employer program who have logged hours in last 90 days
     if program_filter == 'disney':
         condition = "LOWER(v.employer_program) LIKE '%disney%'"
     elif program_filter == 'universal':
@@ -7517,7 +7564,8 @@ def send_employer_program_reminder():
     else:
         condition = "(LOWER(v.employer_program) LIKE '%disney%' OR LOWER(v.employer_program) LIKE '%universal%')"
     volunteers = fetchall(conn, f'''
-        SELECT DISTINCT v.id, v.name, v.email, v.employer_program
+        SELECT DISTINCT v.id, v.name, v.email, v.employer_program,
+            (SELECT MAX(sent_at) FROM employer_reminder_log erl WHERE erl.volunteer_id=v.id) as last_sent
         FROM volunteers v
         JOIN hours h ON h.volunteer_id=v.id
         WHERE {condition}
@@ -7527,31 +7575,57 @@ def send_employer_program_reminder():
     ''')
     conn.close()
     if not volunteers:
-        return jsonify({'ok': True, 'sent': 0, 'message': 'No qualifying volunteers found with recent hours'})
+        return jsonify({'ok': True, 'sent': 0, 'skipped': 0, 'message': 'No qualifying volunteers found with recent hours'})
     sent = 0
+    skipped = 0
+    skipped_names = []
+    errors = []
     for v in volunteers:
+        # Skip if sent recently
+        if v.get('last_sent'):
+            from datetime import datetime, timezone
+            last = v['last_sent']
+            if hasattr(last, 'replace'):
+                now = datetime.now(timezone.utc)
+                if hasattr(last, 'tzinfo') and last.tzinfo:
+                    diff = (now - last).days
+                else:
+                    diff = (now.replace(tzinfo=None) - last).days
+                if diff < min_days:
+                    skipped += 1
+                    skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')
+                    continue
         prog = (v.get('employer_program') or '').strip()
         is_disney = 'disney' in prog.lower()
         tmpl_key = 'disney_reminder' if is_disney else 'universal_reminder'
         conn2 = get_db()
         tmpl = get_system_template(conn2, tmpl_key)
         conn2.close()
+        name = (v.get('name') or 'Volunteer').strip()
         if tmpl:
-            body = tmpl['body'].replace('{{name}}', v['name'])
+            body = tmpl['body'].replace('{{name}}', name)
             subj = tmpl['subject']
         else:
-            icon = '🐭' if is_disney else '🎬'
             prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-            submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-            submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-            subj = f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
-            body = f'<p>Hi {v["name"]}, please submit your hours to {submit_name}: <a href="{submit_link}">{submit_link}</a></p>'
+            subj = f'Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+            body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
         try:
             send_email([v['email']], subj, body)
             sent += 1
+            conn3 = get_db()
+            execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
+                VALUES (%s,%s,%s,%s)''',
+                (str(uuid.uuid4()), v['id'], 'disney' if is_disney else 'universal',
+                 session.get('user_name','admin')))
+            log_volunteer_comm(conn3, v['id'], subj,
+                'disney_reminder' if is_disney else 'universal_reminder',
+                session.get('user_name','admin'), v.get('email',''))
+            conn3.commit(); conn3.close()
         except Exception as e:
-            app.logger.warning(f'Employer reminder email failed for {v["email"]}: {e}')
-    return jsonify({'ok': True, 'sent': sent, 'total': len(volunteers)})
+            errors.append(f'{name}: {str(e)}')
+    return jsonify({'ok': True, 'sent': sent, 'skipped': skipped,
+                    'skipped_names': skipped_names, 'errors': errors,
+                    'total': len(volunteers)})
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

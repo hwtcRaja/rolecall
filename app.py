@@ -1569,7 +1569,6 @@ def get_volunteers():
     conn.close()
     return jsonify(vols)
 
-@app.route('/api/volunteers/<vol_id>')
 @app.route('/api/volunteers/<vol_id>/communications')
 def get_volunteer_communications(vol_id):
     err = require_auth()

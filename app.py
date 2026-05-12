@@ -7563,15 +7563,15 @@ def send_employer_program_reminder():
         condition = "LOWER(v.employer_program) LIKE '%universal%'"
     else:
         condition = "(LOWER(v.employer_program) LIKE '%disney%' OR LOWER(v.employer_program) LIKE '%universal%')"
-    volunteers = fetchall(conn, f'''
+    volunteers = fetchall(conn, f"""
         SELECT DISTINCT v.id, v.name, v.email, v.employer_program
         FROM volunteers v
         JOIN hours h ON h.volunteer_id=v.id
         WHERE {condition}
           AND v.status='active'
-          AND h.date >= (CURRENT_DATE - INTERVAL \'90 days\')
-          AND v.email IS NOT NULL AND v.email != \'\'
-    ''')
+          AND h.date >= (CURRENT_DATE - INTERVAL '90 days')
+          AND v.email IS NOT NULL AND v.email != ''
+    """)
     # Convert to plain dicts so we can add last_sent field
     volunteers = [dict(v) for v in volunteers]
     # Look up last send time for each volunteer separately (avoids DISTINCT + subquery issues)

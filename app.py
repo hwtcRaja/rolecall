@@ -7572,6 +7572,8 @@ def send_employer_program_reminder():
           AND h.date >= (CURRENT_DATE - INTERVAL \'90 days\')
           AND v.email IS NOT NULL AND v.email != \'\'
     ''')
+    # Convert to plain dicts so we can add last_sent field
+    volunteers = [dict(v) for v in volunteers]
     # Look up last send time for each volunteer separately (avoids DISTINCT + subquery issues)
     for v in volunteers:
         last = fetchone(conn, 'SELECT MAX(sent_at) as last_sent FROM employer_reminder_log WHERE volunteer_id=%s', (v['id'],))

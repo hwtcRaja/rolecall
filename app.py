@@ -7564,15 +7564,18 @@ def send_employer_program_reminder():
     else:
         condition = "(LOWER(v.employer_program) LIKE '%disney%' OR LOWER(v.employer_program) LIKE '%universal%')"
     volunteers = fetchall(conn, f'''
-        SELECT DISTINCT v.id, v.name, v.email, v.employer_program,
-            (SELECT MAX(sent_at) FROM employer_reminder_log erl WHERE erl.volunteer_id=v.id) as last_sent
+        SELECT DISTINCT v.id, v.name, v.email, v.employer_program
         FROM volunteers v
         JOIN hours h ON h.volunteer_id=v.id
         WHERE {condition}
           AND v.status='active'
-          AND h.date >= (CURRENT_DATE - INTERVAL '90 days')
-          AND v.email IS NOT NULL AND v.email != ''
+          AND h.date >= (CURRENT_DATE - INTERVAL \'90 days\')
+          AND v.email IS NOT NULL AND v.email != \'\'
     ''')
+    # Look up last send time for each volunteer separately (avoids DISTINCT + subquery issues)
+    for v in volunteers:
+        last = fetchone(conn, 'SELECT MAX(sent_at) as last_sent FROM employer_reminder_log WHERE volunteer_id=%s', (v['id'],))
+        v['last_sent'] = last['last_sent'] if last else None
     conn.close()
     if not volunteers:
         return jsonify({'ok': True, 'sent': 0, 'skipped': 0, 'message': 'No qualifying volunteers found with recent hours'})

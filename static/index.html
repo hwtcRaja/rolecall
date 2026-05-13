@@ -3641,28 +3641,58 @@ async function downloadEventReportPdf(eventId, logId){
   var res = await api('/api/event-logs/'+logId+'/report')
   if(!res||res.error){toast(res&&res.error?res.error:'Could not load report','error');return}
   var log = res
-  var checklist = (log.checklist||[]).map(function(r){
-    var val=String(r.response||'')
-    var valStr=r.item_type==='checkbox'?(val==='true'?'✅ Done':'❌ Not Done'):(val||'—')
-    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+escHtml(valStr)+'</td></tr>'
-  }).join('')
+  var mkChecklistTable = function(items, title, icon){
+    if(!items||!items.length) return '<p style="color:#888;font-size:13px;font-style:italic">No '+title.toLowerCase()+' items recorded.</p>'
+    var rows = items.map(function(r){
+      var val=String(r.response||'')
+      var isCheck = r.item_type==='checkbox'
+      var valStr = isCheck ? (val==='true'?'✅ Done':'❌ Not Done') : (val||'—')
+      var valColor = isCheck ? (val==='true'?'#16a34a':'#dc2626') : '#374151'
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td>'
+        +'<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:'+valColor+'">'+escHtml(valStr)+'</td></tr>'
+    }).join('')
+    return '<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">'+icon+' '+title+'<'+'/h3>'
+      +'<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db"><thead><tr style="background:#f0f8fa">'
+      +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item<'+'/th>'
+      +'<th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response<'+'/th>'
+      +'<'+'/tr><'+'/thead><tbody>'+rows+'<'+'/tbody><'+'/table>'
+  }
   var hours=(log.hours||[]).map(function(h){
-    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">'+h.hours+'h</td><td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td></tr>'
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(h.volunteer_name||'')+'</td>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:#145466">'+h.hours+'h</td>'
+      +'<td style="padding:8px 12px;border-bottom:1px solid #eee;color:#16a34a">'+escHtml(h.status||'Approved')+'</td></tr>'
   }).join('')
   var total=(log.hours||[]).reduce(function(s,h){return s+(parseFloat(h.hours)||0)},0)
-  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Event Report</title>'
-    +'<style>body{font-family:-apple-system,sans-serif;margin:0;padding:0}.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}.stat-num{font-size:28px;font-weight:900;color:#145466}.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}h3{color:#145466;font-size:15px;font-weight:700;margin:24px 0 10px}table{width:100%;border-collapse:collapse;border:1px solid #e0e0db}thead{background:#f0f8fa}th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}<'+'/style><'+'/head><body>'
-    +'<div class="header"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<'+'/div>'
+  var openedBy = log.open_elic_name ? ' · Opened by '+escHtml(log.open_elic_name) : ''
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Event Report<'+'/title>'
+    +'<style>body{font-family:-apple-system,sans-serif;margin:0;padding:0}'
+    +'.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;color:#fff}'
+    +'.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px}'
+    +'.stat{background:#f0f8fa;border-radius:10px;padding:16px;text-align:center}'
+    +'.stat-num{font-size:28px;font-weight:900;color:#145466}.stat-label{font-size:12px;color:#5f5e5a;margin-top:4px}'
+    +'h3{color:#145466;font-size:14px;font-weight:700;margin:24px 0 8px}'
+    +'table{width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px}'
+    +'thead{background:#f0f8fa}th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#5f5e5a;border-bottom:2px solid #e0e0db}'
+    +'.footer{text-align:center;font-size:11px;color:#9b9b94;margin-top:16px;padding:0 32px 24px}'
+    +'@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
+    +'<'+'/style><'+'/head><body>'
+    +'<div class="header">'
+    +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company<'+'/div>'
     +'<div style="font-size:22px;font-weight:800;margin-bottom:4px">🔒 '+escHtml(log.event_name||'')+'<'+'/div>'
-    +'<div style="font-size:13px;opacity:0.7">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<'+'/div><'+'/div>'
-    +'<div style="padding:28px 32px"><div class="stat-grid">'
-    +'<div class="stat"><div class="stat-num">'+( log.hours||[]).length+'<'+'/div><div class="stat-label">Volunteers<'+'/div><'+'/div>'
+    +'<div style="font-size:13px;opacity:0.75">'+(log.event_date?formatDate(log.event_date)+' &nbsp;·&nbsp; ':'')+openedBy+(openedBy?' &nbsp;·&nbsp; ':'')+'Closed by '+escHtml(log.elic_name||'ELIC')+'<'+'/div><'+'/div>'
+    +'<div style="padding:28px 32px">'
+    +'<div class="stat-grid">'
+    +'<div class="stat"><div class="stat-num">'+(log.hours||[]).length+'<'+'/div><div class="stat-label">Volunteers<'+'/div><'+'/div>'
     +'<div class="stat"><div class="stat-num">'+total.toFixed(1)+'h<'+'/div><div class="stat-label">Total Hours<'+'/div><'+'/div>'
-    +'<div class="stat"><div class="stat-num">'+( log.checklist||[]).length+'<'+'/div><div class="stat-label">Checklist Items<'+'/div><'+'/div><'+'/div>'
-    +(checklist?'<h3>✅ Closing Checklist<'+'/h3><table><thead><tr><th>Item<'+'/th><th>Response<'+'/th><'+'/tr><'+'/thead><tbody>'+checklist+'<'+'/tbody><'+'/table>':'<p><em>No checklist items.<'+'/em><'+'/p>')
-    +(hours?'<h3>⏱ Hours Logged<'+'/h3><table><thead><tr><th>Volunteer<'+'/th><th>Hours<'+'/th><th>Status<'+'/th><'+'/tr><'+'/thead><tbody>'+hours+'<'+'/tbody><'+'/table>':'<p><em>No hours recorded.<'+'/em><'+'/p>')
+    +'<div class="stat"><div class="stat-num">'+((log.opening_checklist||[]).length+(log.checklist||[]).length)+'<'+'/div><div class="stat-label">Checklist Items<'+'/div><'+'/div>'
+    +'<'+'/div>'
+    + mkChecklistTable(log.opening_checklist, 'Opening Checklist', '🟢')
+    + mkChecklistTable(log.checklist, 'Closing Checklist', '✅')
+    +(hours?'<h3>⏱ Volunteer Hours<'+'/h3><table><thead><tr><th>Volunteer<'+'/th><th>Hours<'+'/th><th>Status<'+'/th><'+'/tr><'+'/thead><tbody>'+hours+'<'+'/tbody>'
+      +'<tfoot><tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Total<'+'/td><td style="padding:8px 12px;font-weight:800;font-size:16px;color:#145466">'+total.toFixed(1)+'h<'+'/td><td><'+'/td><'+'/tr><'+'/tfoot><'+'/table>'
+      :'<p style="color:#888;font-size:13px;font-style:italic">No hours recorded.<'+'/p>')
     +'<'+'/div><div class="footer">RoleCall — Horizon West Theatre Company<'+'/div>'
-    +'<script>window.onload=function(){window.print()}<'+'/scr'+'ipt><'+'/body><'+'/html>'
+    +'<scr'+'ipt>window.onload=function(){window.print()}<'+'/scr'+'ipt><'+'/body><'+'/html>'
   var win=window.open('','_blank')
   if(win){win.document.write(html);win.document.close()}else toast('Please allow popups','error')
 }

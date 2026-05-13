@@ -3755,12 +3755,29 @@ def get_event_log_report(lid):
         WHERE el.id=%s''', (lid,))
     if not row:
         conn.close(); return jsonify({'error': 'Log not found'}), 404
+    # Closing checklist (this log)
     row['checklist'] = fetchall(conn,
         'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id', (lid,))
+    # Opening checklist (find the open log for the same event)
+    open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name
+        FROM event_logs el
+        LEFT JOIN elics eli ON el.elic_id=eli.id
+        LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+        WHERE el.event_id=%s AND el.action='open'
+        ORDER BY el.id LIMIT 1''', (row['event_id'],))
+    if open_log:
+        row['opening_checklist'] = fetchall(conn,
+            'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
+            (open_log['id'],))
+        row['open_elic_name'] = open_log.get('elic_name','')
+        row['open_timestamp'] = str(open_log.get('timestamp','') or '')
+    else:
+        row['opening_checklist'] = []
+        row['open_elic_name'] = ''
+        row['open_timestamp'] = ''
     row['hours'] = fetchall(conn, '''SELECT h.*, v.name as volunteer_name
         FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
         WHERE h.event_id=%s ORDER BY v.name''', (row['event_id'],))
-    # Also add any pending hours that were auto-approved
     conn.close()
     return jsonify(row)
 
@@ -6219,11 +6236,100 @@ def get_notifications():
 def email_check_events():
     return jsonify({'ok': True})
 
-@app.route('/api/email-settings/send-report/<rid>')
+@app.route('/api/email-settings/send-report/<rid>', methods=['GET','POST'])
 def email_send_report(rid):
     err = require_auth()
     if err: return err
-    return jsonify({'ok': True})
+    conn = get_db()
+    # rid can be event_id — find the most recent close log
+    close_log = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
+        v.name as elic_name
+        FROM event_logs el
+        LEFT JOIN events e ON el.event_id=e.id
+        LEFT JOIN elics eli ON el.elic_id=eli.id
+        LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+        WHERE el.event_id=%s AND el.action='close'
+        ORDER BY el.id DESC LIMIT 1''', (rid,))
+    if not close_log:
+        conn.close(); return jsonify({'error': 'No closed event log found'}), 404
+    # Get opening log
+    open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name
+        FROM event_logs el
+        LEFT JOIN elics eli ON el.elic_id=eli.id
+        LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+        WHERE el.event_id=%s AND el.action='open'
+        ORDER BY el.id LIMIT 1''', (rid,))
+    closing_checklist = fetchall(conn,
+        'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
+        (close_log['id'],))
+    opening_checklist = fetchall(conn,
+        'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
+        (open_log['id'],)) if open_log else []
+    hours = fetchall(conn, '''SELECT h.*, v.name as volunteer_name
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.event_id=%s ORDER BY v.name''', (rid,))
+    s = get_email_settings()
+    recipients = get_recipient_emails(s)
+    conn.close()
+    if not recipients:
+        return jsonify({'error': 'No report recipients configured in Email Settings'}), 400
+    total = sum(float(h.get('hours') or 0) for h in hours)
+    def checklist_rows(items, label, icon):
+        if not items: return f'<p style="color:#888;font-size:13px"><em>No {label.lower()} items recorded.</em></p>'
+        rows = ''.join(f'''<tr>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
+                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response','—') or '—'))}
+            </td></tr>''' for r in items)
+        return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
+        <thead><tr style="background:#f0f8fa"><th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Item</th>
+        <th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Response</th></tr></thead>
+        <tbody>{rows}</tbody></table>'''
+    hours_html = ''
+    if hours:
+        hrs_rows = ''.join(f'''<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">{h.get('volunteer_name','')}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700;color:#145466">{h.get('hours',0)}h</td></tr>''' for h in hours)
+        hours_html = f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">⏱ Volunteer Hours</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
+        <thead><tr style="background:#f0f8fa">
+        <th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Volunteer</th>
+        <th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Hours</th></tr></thead>
+        <tbody>{hrs_rows}</tbody>
+        <tfoot><tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Total</td>
+        <td style="padding:8px 12px;font-weight:800;font-size:16px;color:#145466">{total:.1f}h</td></tr></tfoot></table>'''
+    body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:620px;margin:0 auto">
+    <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0;color:#fff">
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">Event Report</div>
+        <div style="font-size:22px;font-weight:800;margin:4px 0">🔒 {close_log.get('event_name','')}</div>
+        <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name','—') if open_log else '—'} &nbsp;·&nbsp; Closed by {close_log.get('elic_name','—')}</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px">
+            <div style="background:#f0f8fa;border-radius:8px;padding:14px;text-align:center">
+                <div style="font-size:26px;font-weight:900;color:#145466">{len(hours)}</div>
+                <div style="font-size:11px;color:#888;margin-top:2px">Volunteers</div>
+            </div>
+            <div style="background:#f0f8fa;border-radius:8px;padding:14px;text-align:center">
+                <div style="font-size:26px;font-weight:900;color:#145466">{total:.1f}h</div>
+                <div style="font-size:11px;color:#888;margin-top:2px">Total Hours</div>
+            </div>
+            <div style="background:#f0f8fa;border-radius:8px;padding:14px;text-align:center">
+                <div style="font-size:26px;font-weight:900;color:#145466">{len(opening_checklist)+len(closing_checklist)}</div>
+                <div style="font-size:11px;color:#888;margin-top:2px">Checklist Items</div>
+            </div>
+        </div>
+        {checklist_rows(opening_checklist, 'Opening Checklist', '🟢')}
+        {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
+        {hours_html}
+    </div>
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall — Horizon West Theatre Company</p>
+    </div>'''
+    subject = f'Event Report: {close_log.get("event_name","")} — {close_log.get("event_date","")}'
+    ok, msg = send_email(recipients, subject, body)
+    if ok: return jsonify({'ok': True})
+    return jsonify({'error': msg or 'Send failed'}), 500
 
 # ── Event waivers ──
 @app.route('/api/events/<eid>/waivers', methods=['POST'])

@@ -10039,21 +10039,46 @@ async function loadEventLogs(){
     return
   }
   const actionColors={open:'var(--green-600)',close:'var(--teal-600)'}
-  const actionLabels={open:'🟢 Opened',close:'🔒 Closed'}
   const isAdmin = canEdit('reports')
+  // Group by event — one row per event, prefer close log for buttons
+  const byEvent = {}
+  logs.forEach(function(log){
+    const eid = log.event_id
+    if(!byEvent[eid]) byEvent[eid] = {open:null, close:null}
+    if(log.action==='open') byEvent[eid].open = log
+    if(log.action==='close') byEvent[eid].close = log
+  })
+  const rows = Object.values(byEvent).sort(function(a,b){
+    const da = (a.close||a.open||{}).event_date||''
+    const db = (b.close||b.open||{}).event_date||''
+    return db.localeCompare(da)
+  })
+  if(!rows.length){
+    el.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><p>No event logs yet</p><span>Logs appear when ELICs open or close events from the kiosk</span></div>'
+    return
+  }
   el.innerHTML='<div style="display:flex;flex-direction:column;gap:0;border:1.5px solid var(--border);border-radius:10px;overflow:hidden">'
-    +logs.map((log,i)=>`
-    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);${i>0?'border-top:1px solid var(--border)':''}">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(log.event_name||'')}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:1px">${log.event_date?formatDate(log.event_date):''} &nbsp;·&nbsp; <span style="color:${actionColors[log.action]||'var(--text-muted)'};">${actionLabels[log.action]||log.action}</span> by ${escHtml(log.elic_name||'')}</div>
-      </div>
-      <div style="font-size:11px;color:var(--text-hint);white-space:nowrap;flex-shrink:0">${formatDate((log.timestamp||'').split('T')[0])}</div>
-      ${log.action==='close'&&isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendEventReport('${log.event_id}')">📧 Email</button>
-        <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="downloadEventReportPdf('${log.event_id}','${log.log_id||log.id}')">📄 PDF</button>
-      </div>`:'<div style="width:120px"></div>'}
-    </div>`).join('')
+    +rows.map(function(pair,i){
+      const log = pair.close || pair.open
+      const isClosed = !!pair.close
+      const status = isClosed
+        ? '<span style="color:var(--teal-600);font-weight:600">🔒 Closed</span>'
+        : '<span style="color:var(--green-600);font-weight:600">🟢 Open</span>'
+      const byParts = []
+      if(pair.open) byParts.push('opened by '+escHtml(pair.open.elic_name||''))
+      if(pair.close) byParts.push('closed by '+escHtml(pair.close.elic_name||''))
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);'+(i>0?'border-top:1px solid var(--border)':'')+'">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(log.event_name||'')+'</div>'
+        +'<div style="font-size:12px;color:var(--text-muted);margin-top:1px">'+(log.event_date?formatDate(log.event_date):'')+'&nbsp;·&nbsp;'+status+'&nbsp;·&nbsp;'+byParts.join(', ')+'</div>'
+        +'</div>'
+        +'<div style="font-size:11px;color:var(--text-hint);white-space:nowrap;flex-shrink:0">'+formatDate((log.timestamp||'').split('T')[0])+'</div>'
+        +(isClosed&&isAdmin?'<div style="display:flex;gap:6px;flex-shrink:0">'
+          +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendEventReport(\''+pair.close.event_id+'\')">📧 Email</button>'
+          +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="downloadEventReportPdf(\''+pair.close.event_id+'\',\''+(pair.close.log_id||pair.close.id)+'\')">📄 PDF</button>'
+          +'</div>':'<div style="width:136px"></div>')
+        +'</div>'
+    }).join('')
     +'</div>'
 }
 

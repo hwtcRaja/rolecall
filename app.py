@@ -7547,65 +7547,25 @@ def send_single_giving_reminder(vol_id):
     prog = (v.get('employer_program') or '').strip()
     if not prog: conn.close(); return jsonify({'error': 'No employer program set for this volunteer'}), 400
     is_disney = 'disney' in prog.lower()
-    # Get their recent hours (last 365 days)
-    hours = fetchall(conn, """
-        SELECT event, date, hours, role FROM hours
-        WHERE volunteer_id=%s AND date::date >= (CURRENT_DATE - INTERVAL '365 days')
-        ORDER BY date DESC
-    """, (vol_id,))
-    conn.close()
-    if not hours:
-        return jsonify({'error': 'No hours logged in the last year — nothing to remind about'}), 400
-    name = (v.get('name') or 'Volunteer').strip()
-    total = sum(float(h.get('hours') or 0) for h in hours)
     prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
     submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
     submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
     icon = '🐭' if is_disney else '🎬'
-    # Build hours table rows
-    def row_bg(i): return 'background:#f9fafb' if i % 2 else ''
-    hours_rows = ''.join(f'''<tr style="border-bottom:1px solid #e5e7eb;{row_bg(i)}">
-        <td style="padding:7px 10px">{h.get('event') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or '—'}</td>
-        <td style="padding:7px 10px;font-weight:600;text-align:right;white-space:nowrap">{float(h.get('hours') or 0):.1f}h</td>
-    </tr>''' for i, h in enumerate(hours))
-    # Get template or use default
     conn2 = get_db()
     tmpl = get_system_template(conn2, 'disney_reminder' if is_disney else 'universal_reminder')
+    hours_section, total = build_hours_section(conn2, vol_id, submit_name, submit_link)
     conn2.close()
+    conn.close()
+    if not hours_section:
+        return jsonify({'error': 'No hours logged in the last year — nothing to remind about'}), 400
+    name = (v.get('name') or 'Volunteer').strip()
     if tmpl:
         base_body = tmpl['body'].replace('{{name}}', name)
         subj = tmpl['subject']
     else:
         base_body = f'<p>Hi {name}, please submit your hours to {submit_name}.</p>'
         subj = f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
-    # Inject personalized hours table before the closing div
-    hours_section = f'''
-<div style="margin:24px 0;font-family:-apple-system,sans-serif">
-  <div style="background:#f0f8fa;border-left:4px solid #145466;padding:14px 18px;border-radius:0 8px 8px 0;margin-bottom:16px">
-    <strong style="font-size:14px;color:#145466">Your recent volunteer hours — {total:.1f}h total</strong>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
-    <thead>
-      <tr style="background:#145466;color:#fff">
-        <th style="padding:8px 10px;text-align:left;font-weight:600">Event</th>
-        <th style="padding:8px 10px;text-align:left;font-weight:600">Date</th>
-        <th style="padding:8px 10px;text-align:left;font-weight:600">Role</th>
-        <th style="padding:8px 10px;text-align:right;font-weight:600">Hours</th>
-      </tr>
-    </thead>
-    <tbody>{hours_rows}</tbody>
-    <tfoot>
-      <tr style="background:#f0f8fa;border-top:2px solid #145466">
-        <td colspan="3" style="padding:8px 10px;font-weight:700;color:#145466">Total</td>
-        <td style="padding:8px 10px;font-weight:800;font-size:15px;color:#145466;text-align:right">{total:.1f}h</td>
-      </tr>
-    </tfoot>
-  </table>
-  <p style="font-size:12px;color:#9ca3af;margin-top:8px">Use these hours when filling out your {submit_name} submission at <a href="{submit_link}" style="color:#145466">{submit_link}</a></p>
-</div>'''
-    # Insert before the last </div> in the body
+    # Inject hours table before the last closing div
     if '</div>' in base_body:
         idx = base_body.rfind('</div>')
         body = base_body[:idx] + hours_section + base_body[idx:]
@@ -7624,7 +7584,50 @@ def send_single_giving_reminder(vol_id):
         conn3.commit()
     conn3.close()
     if not ok: return jsonify({'error': msg or 'Failed to send'}), 500
-    return jsonify({'ok': True, 'sent_to': v['email'], 'total_hours': total, 'events': len(hours)})
+    return jsonify({'ok': True, 'sent_to': v['email'], 'total_hours': total})
+
+def build_hours_section(conn, vol_id, submit_name, submit_link):
+    """Build a personalized hours table HTML section for a volunteer."""
+    hours = fetchall(conn, """
+        SELECT event, date, hours, role FROM hours
+        WHERE volunteer_id=%s AND date::date >= (CURRENT_DATE - INTERVAL '365 days')
+        ORDER BY date DESC
+    """, (vol_id,))
+    if not hours:
+        return '', 0
+    total = sum(float(h.get('hours') or 0) for h in hours)
+    def row_bg(i): return 'background:#f9fafb' if i % 2 else ''
+    rows = ''.join(f'''<tr style="border-bottom:1px solid #e5e7eb;{row_bg(i)}">
+        <td style="padding:7px 10px">{h.get('event') or '—'}</td>
+        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or '—'}</td>
+        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or '—'}</td>
+        <td style="padding:7px 10px;font-weight:600;text-align:right;white-space:nowrap">{float(h.get('hours') or 0):.1f}h</td>
+    </tr>''' for i, h in enumerate(hours))
+    section = f'''
+<div style="margin:24px 0;font-family:-apple-system,sans-serif">
+  <div style="background:#f0f8fa;border-left:4px solid #145466;padding:14px 18px;border-radius:0 8px 8px 0;margin-bottom:16px">
+    <strong style="font-size:14px;color:#145466">Your recent volunteer hours — {total:.1f}h total</strong>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb">
+    <thead>
+      <tr style="background:#145466;color:#fff">
+        <th style="padding:8px 10px;text-align:left;font-weight:600">Event</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600">Date</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600">Role</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600">Hours</th>
+      </tr>
+    </thead>
+    <tbody>{rows}</tbody>
+    <tfoot>
+      <tr style="background:#f0f8fa;border-top:2px solid #145466">
+        <td colspan="3" style="padding:8px 10px;font-weight:700;color:#145466">Total</td>
+        <td style="padding:8px 10px;font-weight:800;font-size:15px;color:#145466;text-align:right">{total:.1f}h</td>
+      </tr>
+    </tfoot>
+  </table>
+  <p style="font-size:12px;color:#9ca3af;margin-top:8px">Use these hours when submitting at <a href="{submit_link}" style="color:#145466">{submit_link}</a></p>
+</div>'''
+    return section, total
 
 @app.route('/api/volunteers/employer-reminder-log')
 def get_employer_reminder_log():
@@ -7691,18 +7694,30 @@ def send_employer_program_reminder():
                     continue
         prog = (v.get('employer_program') or '').strip()
         is_disney = 'disney' in prog.lower()
+        submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
+        submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
         tmpl_key = 'disney_reminder' if is_disney else 'universal_reminder'
         conn2 = get_db()
         tmpl = get_system_template(conn2, tmpl_key)
+        hours_section, _ = build_hours_section(conn2, v['id'], submit_name, submit_link)
         conn2.close()
         name = (v.get('name') or 'Volunteer').strip()
         if tmpl:
-            body = tmpl['body'].replace('{{name}}', name)
+            base_body = tmpl['body'].replace('{{name}}', name)
             subj = tmpl['subject']
         else:
             prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
             subj = f'Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
-            body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
+            base_body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
+        # Inject hours table before closing div
+        if hours_section:
+            if '</div>' in base_body:
+                idx = base_body.rfind('</div>')
+                body = base_body[:idx] + hours_section + base_body[idx:]
+            else:
+                body = base_body + hours_section
+        else:
+            body = base_body
         try:
             send_email([v['email']], subj, body)
             sent += 1

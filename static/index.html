@@ -5482,7 +5482,7 @@ async function sendSingleGivingReminder(volId, name, program){
   if(!confirm('Send a personalized '+label+' reminder to '+name+'?\n\nThis will include a list of all their recent volunteer hours.')){return}
   var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{})
   if(res&&res.error){ toast(res.error,'error'); return }
-  toast(icon+' Sent to '+res.sent_to+' — '+res.events+' events, '+parseFloat(res.total_hours).toFixed(1)+'h total','success')
+  toast(icon+' Sent to '+res.sent_to+' — '+parseFloat(res.total_hours).toFixed(1)+'h total','success')
 }
 
 async function openEmployerReminderModal(){

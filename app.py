@@ -7629,6 +7629,28 @@ def build_hours_section(conn, vol_id, submit_name, submit_link):
 </div>'''
     return section, total
 
+@app.route('/api/volunteers/employer-giving-stats')
+def get_employer_giving_stats():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """
+        SELECT v.id, v.name, v.email, v.employer_program,
+            COALESCE(SUM(CASE WHEN h.date::date >= CURRENT_DATE - INTERVAL '90 days' THEN h.hours ELSE 0 END), 0) as recent_hours,
+            COALESCE(SUM(h.hours), 0) as total_hours,
+            MAX(erl.sent_at) as last_reminder_sent,
+            MAX(erl.sent_by) as last_reminder_by
+        FROM volunteers v
+        LEFT JOIN hours h ON h.volunteer_id = v.id
+        LEFT JOIN employer_reminder_log erl ON erl.volunteer_id = v.id
+        WHERE v.status = 'active'
+          AND (LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')
+        GROUP BY v.id, v.name, v.email, v.employer_program
+        ORDER BY recent_hours DESC, v.name
+    """)
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/volunteers/employer-reminder-log')
 def get_employer_reminder_log():
     err = require_auth()

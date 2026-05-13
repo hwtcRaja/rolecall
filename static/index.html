@@ -3310,6 +3310,10 @@ async function openProfile(volId){
     }
     mkLink('✉️ Email', 'mailto:'+v.email)
     mkBtn('Edit', function(){ openEditVolModal(v.id) })
+    if(v.employer_program==='Disney Cast Member'||v.employer_program==='Universal Team Member'){
+      var icon = v.employer_program==='Disney Cast Member' ? '🐭' : '🎬'
+      mkBtn(icon+' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
+    }
     mkBtn('🪪 ID Card', function(){ printVolIdCard(v.id, safeName) })
     mkBtn('🔗 Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
     mkBtn('Delete', function(){ deleteVol(v.id) }, true)
@@ -5470,6 +5474,15 @@ async function testEmail(){
     toast(res.error||'Send failed — check API key and From Email in settings','error')
     if(statusEl) statusEl.innerHTML = '<span style="color:var(--red-600)">✗ '+(res.error||'Failed')+'</span>'
   }
+}
+
+async function sendSingleGivingReminder(volId, name, program){
+  var icon = program==='Disney Cast Member' ? '🐭' : '🎬'
+  var label = program==='Disney Cast Member' ? 'Disney VoluntEARS' : 'Universal Giving'
+  if(!confirm('Send a personalized '+label+' reminder to '+name+'?\n\nThis will include a list of all their recent volunteer hours.')){return}
+  var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{})
+  if(res&&res.error){ toast(res.error,'error'); return }
+  toast(icon+' Sent to '+res.sent_to+' — '+res.events+' events, '+parseFloat(res.total_hours).toFixed(1)+'h total','success')
 }
 
 async function openEmployerReminderModal(){

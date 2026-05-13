@@ -3503,7 +3503,7 @@ function populateHoursFilters(){
   const ltsel=document.getElementById('lt-event-select')
   if(ltsel){
     const cur=ltsel.value
-    ltsel.innerHTML=`<option value="">— Select an event or type custom —</option>${allEvents.map(e=>`<option value="${e.name}" data-id="${e.id}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')}<option value="__custom__">✏️ Custom event name…</option>`
+    ltsel.innerHTML=`<option value="">— Select an event or type custom —</option>${allEvents.map(e=>`<option value="${e.id}" data-id="${e.id}" data-name="${escHtml(e.name)}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')}<option value="__custom__">✏️ Custom event name…</option>`
     if(cur) ltsel.value=cur
   }
 }
@@ -3536,8 +3536,10 @@ function openLogTimeModal(volId,prefillHours=null){
 async function saveLogTime(){
   const volId=document.getElementById('lt-vol-id').value||document.getElementById('lt-vol-select')?.value
   const eventSel=document.getElementById('lt-event-select')
-  let eventName=eventSel.value==='__custom__'?document.getElementById('lt-custom-event').value.trim():eventSel.value
-  const eventId=eventSel.options[eventSel.selectedIndex]?.dataset?.id||null
+  let eventName = eventSel.value==='__custom__'
+    ? document.getElementById('lt-custom-event').value.trim()
+    : (eventSel.options[eventSel.selectedIndex]?.dataset?.name || eventSel.options[eventSel.selectedIndex]?.text || '')
+  const eventId = eventSel.value==='__custom__' ? null : (eventSel.options[eventSel.selectedIndex]?.dataset?.id || null)
   const date=document.getElementById('lt-date').value
   const hours=parseFloat(document.getElementById('lt-hours').value)
   if(!volId||!eventName||!date||!hours){toast('Please fill all required fields','error');return}
@@ -12074,7 +12076,7 @@ function psiLogAttendance(volId, volName, prodId, eventId){
   if(eventId){
     setTimeout(()=>{
       const sel=document.getElementById('lt-event-select')
-      if(sel) sel.value=allEvents.find(e=>e.id===eventId)?.name||''
+      if(sel) sel.value = eventId
     },100)
   }
 }

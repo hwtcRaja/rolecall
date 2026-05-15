@@ -8972,7 +8972,7 @@ async function saveUserPermissions(uid){
   const statusEl = document.getElementById('perm-save-status-'+uid)
   if(statusEl) statusEl.textContent = 'Saving…'
 
-  const res = await api('/api/users/'+uid+'/permissions','PUT', perms)
+  const res = await api('/api/users/'+uid+'/permissions','PUT', {permissions: perms})
 
   if(res && res.ok){
     if(_usersCache[uid]) _usersCache[uid].role_permissions = JSON.stringify(perms)

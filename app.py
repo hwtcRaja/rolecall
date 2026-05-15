@@ -4827,6 +4827,40 @@ def kiosk_log_full_event():
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
 
+@app.route('/api/kiosk/submit-independent', methods=['POST'])
+def kiosk_submit_independent():
+    d = request.json or {}
+    vol_id = d.get('volunteer_id')
+    activity = (d.get('activity') or '').strip()
+    hours = float(d.get('hours') or 0)
+    if not vol_id or not activity or hours <= 0:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT id, name FROM volunteers WHERE id=%s', (vol_id,))
+    if not vol:
+        conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
+    from datetime import date
+    today = date.today().isoformat()
+    pid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO pending_hours
+        (id, volunteer_id, event, event_id, date, hours, role, notes, status)
+        VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,'pending')""",
+        (pid, vol_id, activity, today, hours,
+         'Independent / Off-site', d.get('description','').strip()))
+    conn.commit()
+    # Notify admins
+    try:
+        s = get_email_settings()
+        recipients = get_recipient_emails(s)
+        if recipients and s.get('alert_pending_hours'):
+            send_email(recipients,
+                f'RoleCall — Independent Hours Submitted: {vol["name"]}',
+                f'<p style="font-family:sans-serif"><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="font-family:sans-serif;color:#666">Please review and approve in RoleCall → Hours.</p>')
+    except Exception:
+        pass
+    conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/kiosk/sign-in', methods=['POST'])
 def kiosk_youth_sign_in():
     d = request.json or {}

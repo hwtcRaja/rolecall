@@ -691,14 +691,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-body"><div id="event-detail-content"></div></div>
       </section>
 
-      <section class="page" id="page-hours" style="display:flex;flex-direction:column">
+      <section class="page" id="page-hours">
         <div class="page-header" style="flex-shrink:0">
           <div><div class="page-title">⏱ Time Tracking</div><div class="page-subtitle" id="hours-subtitle">Loading…</div></div>
           <div class="page-actions">
             <button class="btn btn-secondary btn-sm" onclick="exportHoursCSV()">⬇ Export CSV</button>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;padding:0 32px 32px;flex:1;min-height:0;align-items:start">
+        <div class="page-body" style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
           <!-- LEFT: tabs + table -->
           <div>
             <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
@@ -720,7 +720,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             </div>
           </div>
           <!-- RIGHT: quick-add -->
-          <div class="card admin-only" style="padding:20px;position:sticky;top:20px">
+          <div class="card admin-only" style="padding:20px">
             <div style="font-size:15px;font-weight:700;margin-bottom:14px">+ Log Time</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
               <button id="qt-type-event" onclick="setQuickType('event')" style="padding:8px;border:2px solid var(--teal);border-radius:8px;background:var(--teal-50);font-family:inherit;font-size:12px;font-weight:600;color:var(--teal-dark);cursor:pointer">🎭 Event</button>

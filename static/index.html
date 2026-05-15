@@ -691,26 +691,90 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="page-body"><div id="event-detail-content"></div></div>
       </section>
 
-      <section class="page" id="page-hours">
-        <div class="page-header">
-          <div><div class="page-title">Time Tracking</div><div class="page-subtitle">Log and manage volunteer time</div></div>
+      <section class="page" id="page-hours" style="display:flex;flex-direction:column">
+        <div class="page-header" style="flex-shrink:0">
+          <div><div class="page-title">⏱ Time Tracking</div><div class="page-subtitle" id="hours-subtitle">Loading…</div></div>
           <div class="page-actions">
             <button class="btn btn-secondary btn-sm" onclick="exportHoursCSV()">⬇ Export CSV</button>
-            <button class="btn btn-primary admin-only" onclick="openLogTimeModal()">+ Log Time</button>
           </div>
         </div>
-        <div class="page-body">
-          <div class="summary-bar">
-            <div class="summary-item"><div class="s-value" id="h-total">0</div><div class="s-label">Total Hours</div></div>
-            <div class="summary-item"><div class="s-value" id="h-events">0</div><div class="s-label">Total Events</div></div>
-            <div class="summary-item"><div class="s-value" id="h-avg">0</div><div class="s-label">Avg Hrs / Volunteer</div></div>
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;padding:0 32px 32px;flex:1;min-height:0;align-items:start">
+          <!-- LEFT: tabs + table -->
+          <div>
+            <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+              <button onclick="switchHoursTab('events')" id="htab-events" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">🎭 Event Hours</button>
+              <button onclick="switchHoursTab('independent')" id="htab-independent" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">🏠 Independent Time</button>
+            </div>
+            <div class="summary-bar" style="margin-bottom:16px">
+              <div class="summary-item"><div class="s-value" id="h-total">0</div><div class="s-label">Total Hours</div></div>
+              <div class="summary-item"><div class="s-value" id="h-events">0</div><div class="s-label">Entries</div></div>
+              <div class="summary-item"><div class="s-value" id="h-avg">0</div><div class="s-label">Avg / Volunteer</div></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+              <div class="search-input-wrap" style="flex:1;min-width:180px"><span>🔍</span><input type="text" id="hours-search" placeholder="Search volunteer or event…" oninput="renderHours()"></div>
+              <select class="filter-select" id="hours-filter-vol" onchange="renderHours()"><option value="">All Volunteers</option></select>
+              <select class="filter-select" id="hours-filter-event" onchange="renderHours()"><option value="">All Events</option></select>
+            </div>
+            <div class="card" style="padding:0;overflow:hidden">
+              <table><thead><tr><th>Volunteer</th><th>Event / Activity</th><th>Date</th><th>Hours</th><th>Role</th><th class="admin-only"></th></tr></thead><tbody id="hours-table-body"></tbody></table>
+            </div>
           </div>
-          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-            <div class="search-input-wrap" style="max-width:280px"><span>🔍</span><input type="text" id="hours-search" placeholder="Search volunteer or event…" oninput="renderHours()"></div>
-            <select class="filter-select" id="hours-filter-vol" onchange="renderHours()"><option value="">All Volunteers</option></select>
-            <select class="filter-select" id="hours-filter-event" onchange="renderHours()"><option value="">All Events</option></select>
+          <!-- RIGHT: quick-add -->
+          <div class="card admin-only" style="padding:20px;position:sticky;top:20px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:14px">+ Log Time</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+              <button id="qt-type-event" onclick="setQuickType('event')" style="padding:8px;border:2px solid var(--teal);border-radius:8px;background:var(--teal-50);font-family:inherit;font-size:12px;font-weight:600;color:var(--teal-dark);cursor:pointer">🎭 Event</button>
+              <button id="qt-type-independent" onclick="setQuickType('independent')" style="padding:8px;border:2px solid var(--border);border-radius:8px;background:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer">🏠 Independent</button>
+            </div>
+            <div class="form-group" style="margin-bottom:10px">
+              <label style="font-size:11px">Volunteer *</label>
+              <select id="qt-volunteer" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">— Select —</option></select>
+            </div>
+            <div id="qt-event-fields">
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:11px">Event *</label>
+                <select id="qt-event" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">— Select —</option></select>
+              </div>
+            </div>
+            <div id="qt-independent-fields" style="display:none">
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:11px">Activity *</label>
+                <select id="qt-activity" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+                  <option value="Remote Work">💻 Remote Work</option>
+                  <option value="Admin Work">📋 Admin Work</option>
+                  <option value="Costuming">🧵 Costuming</option>
+                  <option value="Set Building">🔨 Set Building</option>
+                  <option value="Music / Rehearsal">🎵 Music / Rehearsal</option>
+                  <option value="Marketing">📣 Marketing</option>
+                  <option value="Meetings">🤝 Meetings</option>
+                  <option value="Other">✏️ Other</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:10px">
+                <label style="font-size:11px">Description</label>
+                <input type="text" id="qt-description" placeholder="Brief description…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+              <div class="form-group" style="margin:0">
+                <label style="font-size:11px">Date *</label>
+                <input type="date" id="qt-date" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+              </div>
+              <div class="form-group" style="margin:0">
+                <label style="font-size:11px">Hours *</label>
+                <input type="number" id="qt-hours" min="0.25" max="24" step="0.25" placeholder="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label style="font-size:11px">Role / Notes</label>
+              <input type="text" id="qt-role" placeholder="e.g. Stage Crew, Usher…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="quickAddTime()">+ Log Time</button>
+            <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Recently Added</div>
+              <div id="qt-recent-list"><div style="font-size:12px;color:var(--text-muted);font-style:italic">Nothing yet this session</div></div>
+            </div>
           </div>
-          <div class="card"><table><thead><tr><th>Volunteer</th><th>Event</th><th>Date</th><th>Hours</th><th>Role</th><th>Notes</th><th class="admin-only"></th></tr></thead><tbody id="hours-table-body"></tbody></table></div>
         </div>
       </section>
 
@@ -3556,36 +3620,131 @@ async function saveLogTime(){
 // ═══════════════════════════════════════════════════════════════
 //  HOURS PAGE
 // ═══════════════════════════════════════════════════════════════
+var _hoursTab = 'events'
+var _qtType = 'event'
+var _qtRecent = []
+
+function switchHoursTab(tab){
+  _hoursTab = tab
+  ;['events','independent'].forEach(function(t){
+    var btn = document.getElementById('htab-'+t)
+    if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
+  })
+  renderHours()
+}
+
+function setQuickType(type){
+  _qtType = type
+  var isEv = type==='event'
+  document.getElementById('qt-event-fields').style.display = isEv?'':'none'
+  document.getElementById('qt-independent-fields').style.display = isEv?'none':''
+  document.getElementById('qt-type-event').style.cssText='padding:8px;border:2px solid '+(isEv?'var(--teal);background:var(--teal-50);color:var(--teal-dark)':'var(--border);background:none;color:var(--text-muted)')+';border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer'
+  document.getElementById('qt-type-independent').style.cssText='padding:8px;border:2px solid '+(isEv?'var(--border);background:none;color:var(--text-muted)':'#7c3aed;background:#ede9fe;color:#4f46e5')+';border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer'
+}
+
+function populateHoursQuickAdd(){
+  // Populate volunteer dropdown
+  var vsel = document.getElementById('qt-volunteer')
+  if(vsel){
+    var cur = vsel.value
+    vsel.innerHTML='<option value="">— Select volunteer —</option>'+volunteers.filter(function(v){return v.status==='active'}).map(function(v){return '<option value="'+v.id+'">'+escHtml(v.name)+'</option>'}).join('')
+    if(cur) vsel.value=cur
+  }
+  // Populate event dropdown
+  var esel = document.getElementById('qt-event')
+  if(esel){
+    var cur2 = esel.value
+    esel.innerHTML='<option value="">— Select event —</option>'+allEvents.map(function(e){return '<option value="'+e.id+'" data-name="'+escHtml(e.name)+'">'+escHtml(e.name)+(e.event_date?' ('+formatDate(e.event_date)+')':'')+'</option>'}).join('')
+    if(cur2) esel.value=cur2
+  }
+  // Set today's date if empty
+  var dEl = document.getElementById('qt-date')
+  if(dEl && !dEl.value) dEl.value = new Date().toISOString().split('T')[0]
+}
+
+async function quickAddTime(){
+  var volId = document.getElementById('qt-volunteer').value
+  var dateVal = document.getElementById('qt-date').value
+  var hoursVal = parseFloat(document.getElementById('qt-hours').value)
+  var role = document.getElementById('qt-role').value.trim()
+  if(!volId){ toast('Please select a volunteer','error'); return }
+  if(!dateVal){ toast('Please enter a date','error'); return }
+  if(!hoursVal||hoursVal<=0){ toast('Please enter valid hours','error'); return }
+  var eventName, eventId, notes
+  if(_qtType==='event'){
+    var esel = document.getElementById('qt-event')
+    eventId = esel.value
+    if(!eventId){ toast('Please select an event','error'); return }
+    eventName = esel.options[esel.selectedIndex]?.dataset?.name || esel.options[esel.selectedIndex]?.text || ''
+    notes = ''
+  } else {
+    var activity = document.getElementById('qt-activity').value
+    var desc = document.getElementById('qt-description').value.trim()
+    eventName = activity + (desc ? ': '+desc : '')
+    eventId = null
+    notes = desc
+  }
+  var res = await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date:dateVal,hours:hoursVal,role,notes})
+  if(res&&res.error){ toast(res.error,'error'); return }
+  // Add to recent list
+  var volName = document.getElementById('qt-volunteer').options[document.getElementById('qt-volunteer').selectedIndex]?.text||'?'
+  _qtRecent.unshift({name:volName,event:eventName,hours:hoursVal,date:dateVal})
+  if(_qtRecent.length>5) _qtRecent.pop()
+  var recentEl = document.getElementById('qt-recent-list')
+  if(recentEl) recentEl.innerHTML = _qtRecent.map(function(r){
+    return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">'
+      +'<div><div style="font-weight:600">'+escHtml(r.name)+'</div><div style="color:var(--text-muted)">'+escHtml(r.event)+'</div></div>'
+      +'<div style="font-weight:700;color:var(--teal-600)">'+r.hours+'h</div></div>'
+  }).join('')
+  // Clear hours field, keep everything else for quick repeat entry
+  document.getElementById('qt-hours').value=''
+  toast('✅ '+hoursVal+'h logged for '+volName,'success')
+  await loadAllData()
+  renderHours()
+}
+
 function renderHours(){
+  populateHoursQuickAdd()
   const search=document.getElementById('hours-search').value.toLowerCase()
   const filterVol=document.getElementById('hours-filter-vol').value
   const filterEvent=document.getElementById('hours-filter-event').value
+  const INDEPENDENT_TYPES=['Remote Work','Admin Work','Costuming','Set Building','Music / Rehearsal','Marketing','Meetings','Other']
+  const isIndependent = function(h){
+    if(!h.event_id && h.event) return true
+    return INDEPENDENT_TYPES.some(function(t){ return h.event && h.event.startsWith(t) })
+  }
   let filtered=allHours.filter(h=>{
     if(search&&!h.volunteer_name?.toLowerCase().includes(search)&&!h.event?.toLowerCase().includes(search)) return false
     if(filterVol&&h.volunteer_id!==filterVol) return false
     if(filterEvent&&h.event!==filterEvent) return false
+    if(_hoursTab==='independent') return isIndependent(h)
+    if(_hoursTab==='events') return !isIndependent(h)
     return true
   })
-  const total=filtered.reduce((s,h)=>s+(h.hours||0),0)
-  const events=new Set(filtered.map(h=>h.event)).size
+  const total=filtered.reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
   const vols=new Set(filtered.map(h=>h.volunteer_id)).size
-  document.getElementById('h-total').textContent=total
-  document.getElementById('h-events').textContent=events
-  document.getElementById('h-avg').textContent=vols>0?(total/vols).toFixed(1):0
+  document.getElementById('h-total').textContent=total.toFixed(1)
+  document.getElementById('h-events').textContent=filtered.length
+  document.getElementById('h-avg').textContent=vols>0?(total/vols).toFixed(1):'0'
+  const sub = document.getElementById('hours-subtitle')
+  if(sub) sub.textContent = total.toFixed(1)+'h across '+vols+' volunteer'+(vols!==1?'s':'')+' · '+filtered.length+' entr'+(filtered.length!==1?'ies':'y')
   const isAdmin=canEdit('hours')
   const tbody=document.getElementById('hours-table-body')
   if(!filtered.length){
-    tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">⏱</div><p>No time logged yet</p></div></td></tr>`
+    tbody.innerHTML=`<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">⏱</div><p>No ${_hoursTab==='independent'?'independent time':'event hours'} logged yet</p></div></td></tr>`
     return
   }
   tbody.innerHTML=filtered.map(h=>`<tr>
-    <td><div class="volunteer-name-cell">${avatarHTML(h.volunteer_name||'',28)}<span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500">${h.volunteer_name||'—'}</span></div></td>
-    <td style="font-weight:500">${h.event}</td>
-    <td style="color:var(--text-muted)">${formatDate(h.date)}</td>
-    <td style="font-weight:600;color:var(--teal-600)">${h.hours}h</td>
-    <td style="color:var(--text-muted)">${h.role||'—'}</td>
-    <td style="color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.notes||'—'}</td>
-    ${isAdmin?`<td><button class="btn btn-danger btn-sm" onclick="deleteHoursGlobal('${h.id}')">✕</button></td>`:'<td></td>'}
+    <td><div class="volunteer-name-cell">${avatarHTML(h.volunteer_name||'',24)}<span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500;font-size:13px">${escHtml(h.volunteer_name||'—')}</span></div></td>
+    <td style="font-weight:500;font-size:13px">${escHtml(h.event||'—')}</td>
+    <td style="color:var(--text-muted);font-size:13px">${formatDate(h.date)}</td>
+    <td><span style="font-weight:700;color:var(--teal-600);font-size:14px">${h.hours}h</span></td>
+    <td style="color:var(--text-muted);font-size:12px">${escHtml(h.role||'—')}</td>
+    ${isAdmin?`<td style="text-align:right">
+      <div style="display:flex;gap:4px;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditHoursModal('${h.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteHoursGlobal('${h.id}')">✕</button>
+      </div></td>`:'<td></td>'}
   </tr>`).join('')
 }
 

@@ -304,6 +304,11 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
       <div class="menu-label">Log Hours</div>
       <div class="menu-desc">Manually enter time for an event</div>
     </button>
+    <button class="menu-btn" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff" onclick="kioskAction(goLogIndependentTime)">
+      <div class="menu-icon" style="font-size:28px">🏠</div>
+      <div class="menu-label" style="color:#fff">Log Independent Time</div>
+      <div class="menu-desc" style="color:rgba(255,255,255,0.85)">Remote work, admin, off-site tasks</div>
+    </button>
     <button class="menu-btn g" id="waiver-menu-btn" onclick="kioskAction(()=>goWaiverCheck(true))">
       <div class="menu-icon">📋</div>
       <div class="menu-label">Sign Waivers</div>

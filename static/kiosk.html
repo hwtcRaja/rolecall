@@ -741,7 +741,7 @@ async function submitBeginVolunteering(){
       btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
       if(d.error){ alert(d.error); return }
       showConfirm('⚡','Hours Logged!',
-        (d.hours&&!isNaN(d.hours)?parseFloat(d.hours).toFixed(2):d.hours||'?')+'h submitted for "'+d.event+'".',
+        d.hours+'h submitted for "'+d.event+'".',
         'You\'ve been credited for the full event. Thanks for volunteering!',
         ()=>showScreen('screen-vol-menu'))
     } catch(err){ alert('Error: '+err.message); btn.disabled=false; btn.textContent='🟢 Begin Volunteering' }
@@ -787,9 +787,8 @@ async function goStopVolunteering(){
     const d = await r.json()
     if(d.error){ alert('Error: ' + d.error); return }
     hideActiveSessionBanner()
-    const hoursDisplay = (d.hours && !isNaN(d.hours)) ? parseFloat(d.hours).toFixed(2) : '?'
     showConfirm('✅','Thank You!',
-      hoursDisplay+'h submitted for approval.',
+      d.hours+'h submitted for approval.',
       'Your time has been recorded. Thanks for volunteering!',
       ()=>showScreen('screen-vol-menu'))
   } catch(err){ alert('Network error stopping session: ' + err.message) }

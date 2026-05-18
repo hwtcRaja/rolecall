@@ -5036,7 +5036,11 @@ async function openBulkImport(){
 }
 function biShowStep(n){;[1,2,3].forEach(function(i){var el=document.getElementById('bi-step-'+i);if(el)el.style.display=i===n?'':'none'})}
 function biDownloadTemplate(){
-  var csv=BI_COLS.join(',')+('\nJane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,None,Peanuts,yes,yes,active')
+  var csv=BI_COLS.join(',')+'\nJane,Smith,2015-06-15,Mary Smith,555-1234,mary@email.com,Mother,John Smith,555-5678,Father,Bob Jones,555-9999,Uncle,Sue Jones,555-8888,Aunt,None,Peanuts,yes,yes,active'
+  var a=document.createElement('a')
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv)
+  a.download='participant_import_template.csv'
+  a.click()
 }
 async function biHandleFile(input){
   var file=input.files[0]; if(!file) return

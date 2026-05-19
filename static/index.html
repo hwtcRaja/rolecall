@@ -4463,15 +4463,18 @@ function exportYouthCSV(programId){
 }
 
 async function openYouthProfile(yid){
+  try {
   currentYouthId=yid
   const y=await api(`/api/youth/${yid}`)
+  if(!y||y.error){ toast('Could not load participant: '+(y?.error||'Unknown error'),'error'); return }
   const isAdmin=canEdit('youth')
   const age=calcAge(y.dob)
-  const [bg,col]=avatarColors(y.first_name+y.last_name)
+  const safeName = (y.first_name||'') + ' ' + (y.last_name||'')
+  const [bg,col]=avatarColors(safeName)
 
 
   document.getElementById('youth-profile-header').innerHTML=buildProfileBanner({
-    name: y.first_name+' '+y.last_name,
+    name: safeName,
     sub: (()=>{
       const fam=allFamilies.find(f=>f.id===y.family_id)
       const famStr=fam?'\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67 '+fam.name+' · ':''
@@ -4617,6 +4620,7 @@ async function openYouthProfile(yid){
 
   navTo('youth-profile')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+  } catch(err){ console.error('openYouthProfile error:',err); toast('Error: '+err.message,'error') }
 }
 
 function toggleMinorSections(){

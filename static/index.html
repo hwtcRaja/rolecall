@@ -11578,13 +11578,36 @@ async function loadEventRsvps(eid){
   // Load and display roles summary
   loadEventRoles(eid, roles)
 
-  if(!Array.isArray(rsvps)||!rsvps.length){
-    el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
+  // Build stat cards
+  const allRsvps = Array.isArray(rsvps) ? rsvps : []
+  const signedUp = allRsvps.filter(r=>r.status==='interested').length
+  const invited  = allRsvps.length
+  const totalSlots  = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0) : 0
+  const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0) : 0
+  const pctFilled   = totalSlots > 0 ? Math.round(filledSlots/totalSlots*100) : null
+  const statColor   = pctFilled===null?'var(--text-muted)':pctFilled>=100?'var(--red-600)':pctFilled>=50?'var(--amber-600)':'var(--green-600)'
+
+  const statsHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+    <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
+      <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${invited}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Invited</div>
+    </div>
+    <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
+      <div style="font-size:26px;font-weight:800;color:var(--green-600)">${signedUp}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Signed Up</div>
+    </div>
+    <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
+      <div style="font-size:26px;font-weight:800;color:${statColor}">${pctFilled!==null?filledSlots+'/'+totalSlots:'—'}</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Slots Filled</div>
+    </div>
+  </div>`
+
+  if(!allRsvps.length){
+    el.innerHTML = statsHtml + '<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
     return
   }
-  const interested = rsvps.filter(r=>r.status==='interested')
-  el.innerHTML = `<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${interested.length} volunteer${interested.length!==1?'s':''} signed up</div>`+
-    rsvps.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+  el.innerHTML = statsHtml +
+    allRsvps.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
       ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
       <div style="flex:1">
         <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>

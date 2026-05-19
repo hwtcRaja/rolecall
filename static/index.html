@@ -1341,13 +1341,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <div class="settings-section">
               <div style="font-weight:600;font-size:15px;margin-bottom:16px">📅 Event Types</div>
               <div id="event-types-list" style="margin-bottom:16px"></div>
-              <div class="inline-input-row">
-                <input type="text" id="new-event-type-name" placeholder="e.g. Tech Rehearsal"/>
-                <select id="new-event-type-color" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
-                  <option value="teal">Teal</option><option value="blue">Blue</option><option value="amber">Amber</option>
-                  <option value="pink">Pink</option><option value="purple">Purple</option><option value="green">Green</option><option value="gray">Gray</option>
-                </select>
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Add new type</div>
+              <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                <input type="text" id="new-event-type-name" placeholder="e.g. Tech Rehearsal" style="flex:1;min-width:140px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
                 <button class="btn btn-primary btn-sm" onclick="addEventType()">Add</button>
+              </div>
+              <div style="margin-top:10px">
+                <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Color</div>
+                <div id="new-event-type-color-swatches" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+                <input type="hidden" id="new-event-type-color" value="teal"/>
               </div>
             </div>
 
@@ -10253,10 +10255,14 @@ async function loadEventLogs(){
 // ═══════════════════════════════════════════════════════════════
 
 const TYPE_COLORS = {
-  teal:['#E8F4F8','#145466'], blue:['#E6F1FB','#185FA5'],
-  amber:['#FAEEDA','#854F0B'], pink:['#FFF0F6','#BE185D'],
-  purple:['#F3EEFF','#6D28D9'], gray:['#EFEFEC','#5F5E5A'],
-  green:['#EAF3DE','#3B6D11'], red:['#FCEBEB','#A32D2D']
+  teal:   ['#E8F4F8','#145466'], blue:   ['#E6F1FB','#185FA5'],
+  amber:  ['#FAEEDA','#854F0B'], pink:   ['#FFF0F6','#BE185D'],
+  purple: ['#F3EEFF','#6D28D9'], gray:   ['#EFEFEC','#5F5E5A'],
+  green:  ['#EAF3DE','#3B6D11'], red:    ['#FCEBEB','#A32D2D'],
+  orange: ['#FFF3E8','#C2500A'], indigo: ['#EEF0FF','#4338CA'],
+  rose:   ['#FFF1F3','#BE123C'], lime:   ['#F1FDE8','#3A6B0A'],
+  cyan:   ['#E0F7FA','#006064'], violet: ['#F5F0FF','#5B21B6'],
+  slate:  ['#F1F5F9','#334155'], brown:  ['#FDF4EC','#7C3F1E'],
 }
 const STATUS_COLORS = {
   draft:['#EFF6FF','#1D4ED8','Scheduled'],
@@ -11696,25 +11702,90 @@ async function deleteEventFull(eid){
 }
 
 // Also add event types to settings
+function renderColorSwatches(containerId, hiddenInputId, selectedColor){
+  const el = document.getElementById(containerId)
+  if(!el) return
+  el.innerHTML = Object.entries(TYPE_COLORS).map(([key,[bg,col]])=>`
+    <div onclick="selectEventTypeColor('${containerId}','${hiddenInputId}','${key}')"
+      title="${key.charAt(0).toUpperCase()+key.slice(1)}"
+      style="width:26px;height:26px;border-radius:50%;background:${col};cursor:pointer;border:3px solid ${selectedColor===key?'#000':'transparent'};transition:transform .1s;box-sizing:border-box"
+      id="swatch-${containerId}-${key}"></div>`).join('')
+}
+
+function selectEventTypeColor(containerId, hiddenInputId, colorKey){
+  document.getElementById(hiddenInputId).value = colorKey
+  document.querySelectorAll(`[id^="swatch-${containerId}-"]`).forEach(s=>{
+    s.style.border = s.id.endsWith('-'+colorKey) ? '3px solid #000' : '3px solid transparent'
+  })
+}
+
 function renderEventTypesSettings(){
   const el=document.getElementById('event-types-list')
   if(!el) return
+  // Render new-type swatch picker
+  renderColorSwatches('new-event-type-color-swatches','new-event-type-color',
+    document.getElementById('new-event-type-color')?.value||'teal')
   if(!allEventTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No event types yet</div>';return}
-  el.innerHTML=allEventTypes.map(t=>`
-    <div class="setting-item">
-      <div class="setting-item-label">${tagHTML(t.name,t.color)} ${t.name}</div>
-      <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventType('${t.id}')">✕</button>
-    </div>`).join('')
+  el.innerHTML=allEventTypes.map(t=>{
+    const [bg,col]=TYPE_COLORS[t.color||'teal']||TYPE_COLORS.teal
+    return `<div class="setting-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:14px;height:14px;border-radius:50%;background:${col};flex-shrink:0"></div>
+          <span style="font-weight:600;font-size:13px">${escHtml(t.name)}</span>
+          <span style="background:${bg};color:${col};padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">${escHtml(t.name)}</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleEditEventType('${t.id}')">✏️ Edit</button>
+          <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventType('${t.id}')">✕</button>
+        </div>
+      </div>
+      <div id="edit-et-${t.id}" style="display:none;background:var(--bg);border-radius:8px;padding:12px;border:1.5px solid var(--border)">
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
+          <div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--text-muted)">Name</label>
+            <input type="text" id="et-name-${t.id}" value="${escHtml(t.name)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-top:4px"/></div>
+          <button class="btn btn-primary btn-sm" onclick="saveEventType('${t.id}')">Save</button>
+        </div>
+        <div><label style="font-size:11px;font-weight:600;color:var(--text-muted)">Color</label>
+          <div id="et-swatches-${t.id}" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+          <input type="hidden" id="et-color-${t.id}" value="${t.color||'teal'}"/>
+        </div>
+      </div>
+    </div>`
+  }).join('')
+  // Init edit swatches
+  allEventTypes.forEach(t=>{
+    renderColorSwatches('et-swatches-'+t.id,'et-color-'+t.id,t.color||'teal')
+  })
+}
+
+function toggleEditEventType(tid){
+  const el=document.getElementById('edit-et-'+tid)
+  if(el) el.style.display=el.style.display==='none'?'':'none'
+}
+
+async function saveEventType(tid){
+  const name=document.getElementById('et-name-'+tid).value.trim()
+  const color=document.getElementById('et-color-'+tid).value
+  if(!name){toast('Name required','error');return}
+  const res=await api('/api/event-types/'+tid,'PUT',{name,color})
+  if(res&&res.error){toast(res.error,'error');return}
+  const t=allEventTypes.find(x=>x.id===tid)
+  if(t){t.name=name;t.color=color}
+  document.getElementById('edit-et-'+tid).style.display='none'
+  renderEventTypesSettings()
+  toast('Event type updated!','success')
 }
 
 async function addEventType(){
   const name=document.getElementById('new-event-type-name').value.trim()
-  const color=document.getElementById('new-event-type-color').value
+  const color=document.getElementById('new-event-type-color').value||'teal'
   if(!name){toast('Name required','error');return}
   const res=await api('/api/event-types','POST',{name,color})
   if(res.error){toast(res.error,'error');return}
   allEventTypes.push(res)
   document.getElementById('new-event-type-name').value=''
+  document.getElementById('new-event-type-color').value='teal'
   renderEventTypesSettings()
   toast('Event type added!','success')
 }

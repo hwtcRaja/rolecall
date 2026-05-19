@@ -1057,7 +1057,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
             <select class="filter-select" id="youth-filter-status" onchange="renderYouth()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
             <select class="filter-select" id="youth-filter-program" onchange="renderYouth()"><option value="">All Programs</option></select>
           </div>
-          <div class="youth-grid" id="youth-grid"></div>
+          <div id="youth-grid" style="margin-top:4px"></div>
         </div>
       </section>
 
@@ -4391,32 +4391,52 @@ function renderYouth(){
 
   const grid=document.getElementById('youth-grid')
   if(!filtered.length){
-    grid.innerHTML=summaryHTML+`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-icon">🧒</div><p>No participants found</p></div></div>`
+    grid.innerHTML=summaryHTML+`<div class="empty-state"><div class="empty-icon">🧒</div><p>No participants found</p></div>`
     return
   }
-  grid.innerHTML=summaryHTML+filtered.map(y=>{
+  const isAdmin=canEdit('youth')
+  grid.innerHTML=summaryHTML+`<div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr>
+        <th>Participant</th>
+        <th>Programs</th>
+        <th>Guardian</th>
+        <th>Allergies</th>
+        <th style="text-align:center">Consents</th>
+        <th class="admin-only"></th>
+      </tr></thead>
+      <tbody>`+filtered.map(y=>{
     const age=calcAge(y.dob)
     const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]
     const [bg,col]=avatarColors(y.first_name+y.last_name)
     const enrolledPrograms=(y.enrollments||[]).map(e=>e.program_name).filter(Boolean)
-    return `<div class="youth-card" onclick="openYouthProfile('${y.id}')">
-      <div class="youth-card-header">
-        <div class="volunteer-avatar" style="width:44px;height:44px;background:${bg};color:${col};font-size:16px">${initials(y.first_name+' '+y.last_name)}</div>
-        <div>
-          <div class="youth-name">${y.first_name} ${y.last_name}</div>
-          <div class="youth-program">${enrolledPrograms.length?enrolledPrograms.join(', '):'No programs'}</div>
-          ${age?`<div style="font-size:12px;color:var(--text-muted)">Age ${age}</div>`:''}
+    const hasAllergy=y.allergies&&y.allergies.toLowerCase()!=='none'&&y.allergies.toLowerCase()!=='no'&&y.allergies.trim()!==''
+    return `<tr style="cursor:pointer" onclick="openYouthProfile('${y.id}')" class="vol-row-hover">
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="volunteer-avatar" style="width:32px;height:32px;flex-shrink:0;background:${bg};color:${col};font-size:12px">${initials(y.first_name+' '+y.last_name)}</div>
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(y.first_name)} ${escHtml(y.last_name)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${age?'Age '+age:''}${age&&y.status!=='active'?' · ':''}${y.status!=='active'?'<span style="color:var(--amber-600)">Inactive</span>':''}</div>
+          </div>
         </div>
-        <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}" style="margin-left:auto">${y.status==='active'?'● Active':'○ Inactive'}</span>
-      </div>
-      ${primary?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">👤 ${primary.name} (${primary.relationship}) · ${primary.phone}</div>`:''}
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        ${y.photo_consent?'<span class="consent-badge consent-yes">📸 Photo</span>':'<span class="consent-badge consent-no">📸 No Photo</span>'}
-        ${y.medical_consent?'<span class="consent-badge consent-yes">🏥 Medical</span>':'<span class="consent-badge consent-no">🏥 No Medical</span>'}
-        ${y.allergies&&y.allergies!=='None'?`<span class="tag tag-amber" style="font-size:11px">⚠️ ${y.allergies}</span>`:''}
-      </div>
-    </div>`
-  }).join('')
+      </td>
+      <td style="font-size:12px;color:var(--text-muted);max-width:180px">${enrolledPrograms.length?enrolledPrograms.map(p=>`<span style="background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600;margin-right:3px;display:inline-block;margin-bottom:2px">${escHtml(p)}</span>`).join(''):'<span style="color:var(--text-hint)">None</span>'}</td>
+      <td style="font-size:12px">
+        ${primary?`<div style="font-weight:500">${escHtml(primary.name)}</div><div style="color:var(--text-muted);font-size:11px">${primary.phone||''}</div>`:'<span style="color:var(--text-hint)">—</span>'}
+      </td>
+      <td style="font-size:12px;max-width:160px">
+        ${hasAllergy?`<span style="background:var(--amber-50);color:var(--amber-700);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⚠️ ${escHtml(y.allergies)}</span>`:'<span style="color:var(--text-hint)">None</span>'}
+      </td>
+      <td style="text-align:center">
+        <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+          <span style="font-size:11px;padding:1px 6px;border-radius:10px;${y.photo_consent?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-hint)'}">📸</span>
+          <span style="font-size:11px;padding:1px 6px;border-radius:10px;${y.medical_consent?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-hint)'}">🏥</span>
+        </div>
+      </td>
+      ${isAdmin?`<td onclick="event.stopPropagation()"><a href="mailto:${primary?.email||''}" class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px;${primary?.email?'':'visibility:hidden'}">✉️</a></td>`:'<td></td>'}
+    </tr>`
+  }).join('')+`</tbody></table></div>`
 }
 
 function exportYouthCSV(programId){

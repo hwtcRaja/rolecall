@@ -4014,7 +4014,7 @@ def set_youth_passphrase(yid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth SET passphrase=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s',
         (d.get('passphrase',''), yid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -5057,11 +5057,20 @@ def delete_application(aid):
 @app.route('/api/portal/instructor/content/<context_type>/<context_id>')
 def get_portal_instructor_content(context_type, context_id):
     conn = get_db()
-    rows = fetchall(conn, '''SELECT * FROM portal_files
+    files = fetchall(conn, '''SELECT * FROM portal_files
         WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
         (context_type, context_id))
+    # Load announcements for this production/program (all statuses for admin)
+    if context_type == 'production':
+        announcements = fetchall(conn, '''SELECT * FROM portal_announcements
+            WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
+    elif context_type == 'program':
+        announcements = fetchall(conn, '''SELECT * FROM portal_announcements
+            WHERE program_id=%s ORDER BY created_at DESC''', (context_id,))
+    else:
+        announcements = []
     conn.close()
-    return jsonify(rows)
+    return jsonify({'files': files, 'announcements': announcements})
 
 # ─────────────────────────────────────────────
 #  REPORTS
@@ -6496,6 +6505,19 @@ def create_portal_announcement_admin():
     row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
     conn.close()
     return jsonify(row)
+
+@app.route('/api/portal/announcements/<aid>', methods=['PUT'])
+def update_portal_announcement_admin(aid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE portal_announcements SET title=%s, body=%s, status=%s WHERE id=%s',
+        (d.get('title',''), d.get('body',''), d.get('status','published'), aid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
 
 @app.route('/api/portal/announcements/<aid>', methods=['DELETE'])
 def delete_portal_announcement_admin(aid):

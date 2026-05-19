@@ -7394,6 +7394,44 @@ def create_board_meeting():
     row['attendance'] = fetchall(conn, '''SELECT bma.*, bm.name as member_name, bm.role
         FROM board_meeting_attendance bma JOIN board_members bm ON bma.member_id=bm.id
         WHERE bma.meeting_id=%s ORDER BY bm.name''', (mid,))
+    # Email all active board members
+    try:
+        email_members = fetchall(conn, "SELECT name, email FROM board_members WHERE status='active' AND email IS NOT NULL AND email != ''")
+        if email_members:
+            from calendar import month_name as cal_month_name
+            meet_date = d['meeting_date']
+            try:
+                from datetime import datetime as _dt
+                parsed = _dt.strptime(meet_date, '%Y-%m-%d')
+                friendly_date = parsed.strftime('%A, %B %-d, %Y')
+            except Exception:
+                friendly_date = meet_date
+            time_str = d.get('meeting_time','')
+            location = d.get('location','') or 'TBD'
+            notes = d.get('notes','') or ''
+            time_line = f'<tr style="background:#f9fafb"><td style="padding:8px 12px;color:#6b7280;font-weight:600">Time</td><td style="padding:8px 12px">{time_str}</td></tr>' if time_str else ''
+            notes_line = f'<tr><td style="padding:8px 12px;color:#6b7280;font-weight:600">Notes</td><td style="padding:8px 12px">{notes}</td></tr>' if notes else ''
+            for m in email_members:
+                body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
+                  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0">
+                    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
+                    <div style="color:#fff;font-size:20px;font-weight:700">📋 Board Meeting Scheduled</div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
+                    <p style="margin:0 0 16px;font-size:15px">Hi {m['name']},</p>
+                    <p style="margin:0 0 20px;font-size:15px;line-height:1.6">A board meeting has been scheduled. Please mark your calendar!</p>
+                    <table style="width:100%;border-collapse:collapse;font-size:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:24px">
+                      <tr><td style="padding:8px 12px;color:#6b7280;font-weight:600;width:80px">Date</td><td style="padding:8px 12px;font-weight:700;color:#145466">{friendly_date}</td></tr>
+                      {time_line}
+                      <tr{'style="background:#f9fafb"' if not time_line else ''}><td style="padding:8px 12px;color:#6b7280;font-weight:600">Location</td><td style="padding:8px 12px">{location}</td></tr>
+                      {notes_line}
+                    </table>
+                    <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theatre Company.</p>
+                  </div>
+                </div>'''
+                send_email([m['email']], f'Board Meeting — {friendly_date}', body)
+    except Exception as e:
+        app.logger.warning(f'Board meeting email notification failed: {e}')
     conn.close()
     return jsonify(row)
 

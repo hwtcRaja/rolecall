@@ -4370,6 +4370,10 @@ function renderYouth(){
     if(fs&&y.status!==fs) return false
     if(fp&&!(y.enrollments||[]).find(e=>e.program_id===fp)) return false
     return true
+  }).sort((a,b)=>{
+    const la=a.last_name||'', lb=b.last_name||''
+    const fa=a.first_name||'', fb=b.first_name||''
+    return la.localeCompare(lb)||fa.localeCompare(fb)
   })
   document.getElementById('youth-count-label').textContent=`${filtered.length} of ${allYouth.length} participants`
 
@@ -4409,7 +4413,7 @@ function renderYouth(){
     const age=calcAge(y.dob)
     const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]
     const [bg,col]=avatarColors(y.first_name+y.last_name)
-    const enrolledPrograms=(y.enrollments||[]).map(e=>e.program_name).filter(Boolean)
+    const enrolledPrograms=(y.enrollments||[]).filter(e=>!e.program_status||e.program_status==='active').map(e=>e.program_name).filter(Boolean)
     const hasAllergy=y.allergies&&y.allergies.toLowerCase()!=='none'&&y.allergies.toLowerCase()!=='no'&&y.allergies.trim()!==''
     return `<tr style="cursor:pointer" onclick="openYouthProfile('${y.id}')" class="vol-row-hover">
       <td>

@@ -13385,9 +13385,12 @@ async function loadProductionPortalContent(pid){
     api(`/api/portal/instructor/content/production/${pid}`),
     api(`/api/portal/folders?production_id=${pid}`)
   ])
+  // content is now {files:[], announcements:[]}
+  const files = Array.isArray(content) ? content : (content.files||[])
+  const announcements = Array.isArray(content) ? [] : (content.announcements||[])
   renderPortalFolderPills('prod', pid, folders)
-  renderProductionAnnouncements(pid, content.announcements||[])
-  renderProductionFiles(pid, content.files||[], folders)
+  renderProductionAnnouncements(pid, announcements)
+  renderProductionFiles(pid, files, folders)
 }
 
 function renderProductionAnnouncements(pid, anns){
@@ -13827,9 +13830,11 @@ async function loadProgramPortalContent(pid){
     api(`/api/portal/folders?program_id=${pid}`),
     api(`/api/portal/program/${pid}/waiver-status`)
   ])
+  const files = Array.isArray(data) ? data : (data.files||[])
+  const announcements = Array.isArray(data) ? [] : (data.announcements||[])
   renderPortalFolderPills('prog', pid, folders)
-  renderProgramAnnouncements(pid, data.announcements||[])
-  renderProgramFiles(pid, data.files||[], folders)
+  renderProgramAnnouncements(pid, announcements)
+  renderProgramFiles(pid, files, folders)
   renderWaiverStatus(pid, waiverStatus)
 }
 

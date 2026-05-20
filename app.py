@@ -650,6 +650,7 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",

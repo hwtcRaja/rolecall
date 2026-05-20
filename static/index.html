@@ -13836,6 +13836,7 @@ async function loadProgramPortalContent(pid){
   ])
   const files = Array.isArray(data) ? data : (data.files||[])
   const announcements = Array.isArray(data) ? [] : (data.announcements||[])
+  console.log('loadProgramPortalContent pid='+pid, 'announcements:', announcements, 'raw data:', data)
   renderPortalFolderPills('prog', pid, folders)
   renderProgramAnnouncements(pid, announcements)
   renderProgramFiles(pid, files, folders)
@@ -13943,8 +13944,10 @@ async function postProgramAnnouncement(pid){
   const title = document.getElementById(`prog-ann-title-${pid}`)?.value.trim()
   const body = document.getElementById(`prog-ann-body-${pid}`)?.value.trim()
   if(!title||!body){toast('Title and message required','error');return}
+  console.log('Posting announcement for program:', pid, {title, body})
   const res = await api('/api/portal/announcements','POST',{program_id:pid, title, body})
-  if(res.error){toast(res.error,'error');return}
+  console.log('POST result:', res)
+  if(!res||res.error){toast('Error: '+(res?.error||'No response'),'error');return}
   document.getElementById(`prog-ann-title-${pid}`).value=''
   document.getElementById(`prog-ann-body-${pid}`).value=''
   await loadProgramPortalContent(pid)

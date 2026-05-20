@@ -650,7 +650,8 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
-        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
@@ -5057,18 +5058,23 @@ def delete_application(aid):
 
 @app.route('/api/portal/instructor/content/<context_type>/<context_id>')
 def get_portal_instructor_content(context_type, context_id):
+    err = require_auth()
+    if err: return err
     conn = get_db()
     files = fetchall(conn, '''SELECT * FROM portal_files
         WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
         (context_type, context_id))
-    # Load announcements for this production/program (all statuses for admin)
-    if context_type == 'production':
-        announcements = fetchall(conn, '''SELECT * FROM portal_announcements
-            WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
-    elif context_type == 'program':
-        announcements = fetchall(conn, '''SELECT * FROM portal_announcements
-            WHERE program_id=%s ORDER BY created_at DESC''', (context_id,))
-    else:
+    try:
+        if context_type == 'production':
+            announcements = fetchall(conn, '''SELECT * FROM portal_announcements
+                WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
+        elif context_type == 'program':
+            announcements = fetchall(conn, '''SELECT * FROM portal_announcements
+                WHERE program_id=%s ORDER BY created_at DESC''', (context_id,))
+        else:
+            announcements = []
+    except Exception as e:
+        app.logger.warning(f'announcements fetch failed: {e}')
         announcements = []
     conn.close()
     return jsonify({'files': files, 'announcements': announcements})

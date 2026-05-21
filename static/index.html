@@ -13380,9 +13380,10 @@ async function openProgramDetail(programId){
           <div class="card" style="padding:20px;margin-bottom:16px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
               <div><div style="font-size:15px;font-weight:700">📢 Announcements</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Visible to families in the participant portal</div></div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Save as draft then publish & email the roster</div></div>
             </div>
             <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
+              <input type="hidden" id="prog-ann-edit-id-${p.id}"/>
               <div class="form-group" style="margin-bottom:10px">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
                 <input type="text" id="prog-ann-title-${p.id}" placeholder="e.g. Rehearsal reminder for Tuesday" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
@@ -13391,7 +13392,11 @@ async function openProgramDetail(programId){
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
                 <textarea id="prog-ann-body-${p.id}" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="postProgramAnnouncement('${p.id}')">📢 Post</button>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft('${p.id}')">💾 Save Draft</button>
+                <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft('${p.id}',true)">📨 Save & Publish</button>
+                <button id="prog-ann-cancel-${p.id}" class="btn btn-secondary btn-sm" style="display:none" onclick="cancelEditProgramAnnouncement('${p.id}')">Cancel</button>
+              </div>
             </div>
             <div id="prog-ann-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
@@ -14391,103 +14396,123 @@ function renderPortalFolderPills(prefix, pid, folders){
 }
 
 function renderProgramAnnouncements(pid, announcements){
-  const el = document.getElementById(`prog-ann-list-${pid}`)
+  const el = document.getElementById('prog-ann-list-'+pid)
   if(!el) return
-  el.innerHTML = !announcements.length
-    ? '<div style="font-size:13px;color:var(--text-muted)">No announcements yet.</div>'
-    : announcements.map(a=>`
-    <div style="border-left:3px solid var(--teal-mid);padding:10px 14px;margin-bottom:10px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0;position:relative">
-      <button onclick="deleteProgramAnnouncement('${pid}','${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
-      <div style="font-size:13px;font-weight:700;margin-bottom:4px;padding-right:20px">${a.title}</div>
-      <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">${a.body}</div>
-      <div style="font-size:11px;color:var(--text-hint);margin-top:6px">${formatDateTime(a.created_at)}</div>
-    </div>`).join('')
-}
-
-function renderProgramFiles(pid, files, folders){
-  const el = document.getElementById(`prog-file-list-${pid}`)
-  if(!el) return
-  if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
-  // Group by folder column (or fallback to __folder__ in description for legacy)
-  const grouped = {}
-  files.forEach(f=>{
-    let folder = f.folder||'General'
-    if(!folder||folder==='null') folder='General'
-    if(!grouped[folder]) grouped[folder]=[]
-    grouped[folder].push(f)
-  })
-  el.innerHTML = Object.entries(grouped).map(([folder,fls])=>`
-    <div style="margin-bottom:14px">
-      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px">📂 ${folder}</div>
-      ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="font-size:18px;flex-shrink:0">📄</div>
-        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${f.title}</div>${f.description&&!f.description.startsWith('__folder__')?`<div style="font-size:11px;color:var(--text-muted)">${f.description}</div>`:''}</div>
-        <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
-        <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">✕</button>
-      </div>`).join('')}
-    </div>`).join('')
-}
-
-function renderWaiverStatus(pid, data){
-  const el = document.getElementById(`prog-waiver-status-${pid}`)
-  if(!el) return
-  if(!data?.required_waivers?.length){
-    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No waivers required for this program\'s events.</div>'; return
+  if(!announcements.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No announcements yet. Save a draft above to get started.</div>'
+    return
   }
-  const missing = (data.participants||[]).filter(p=>p.missing_waivers?.length)
-  const ok = (data.participants||[]).filter(p=>!p.missing_waivers?.length)
-  el.innerHTML = `
-    ${missing.length?`
-    <div style="background:var(--red-light);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:var(--red-600);margin-bottom:8px">⚠️ ${missing.length} participant${missing.length!==1?'s':''} missing waivers</div>
-      ${missing.map(p=>`<div style="font-size:13px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05)">
-        <span style="font-weight:600">${p.first_name} ${p.last_name}</span>
-        <span style="font-size:12px;color:var(--red-600);margin-left:8px">Missing: ${p.missing_waivers.map(w=>w.name).join(', ')}</span>
-        <a href="#" onclick="openYouthProfile('${p.id}');return false" style="font-size:11px;color:var(--teal-600);margin-left:8px">View Profile →</a>
-      </div>`).join('')}
-    </div>`:''}
-    ${ok.length?`<div style="font-size:12px;color:var(--green);font-weight:600">✓ ${ok.length} participant${ok.length!==1?'s':''} have all required waivers</div>`:''}
-    <div style="font-size:11px;color:var(--text-hint);margin-top:8px">Required waivers: ${data.required_waivers.map(w=>w.name).join(', ')}</div>`
+  const drafts = announcements.filter(a=>(a.status||'draft')==='draft')
+  const published = announcements.filter(a=>(a.status||'draft')==='published')
+  let html = ''
+  if(drafts.length){
+    html += '<div style="margin-bottom:20px">'
+    html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:8px">Drafts</div>'
+    html += drafts.map(a=>renderProgAnnRow(a,pid,true)).join('')
+    html += '</div>'
+  }
+  if(published.length){
+    if(drafts.length) html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:8px">Published</div>'
+    html += published.map(a=>renderProgAnnRow(a,pid,false)).join('')
+  }
+  el.innerHTML = html
 }
 
-async function addPortalFolder(contextType, pid){
-  const name = prompt('Folder name (e.g. Scripts, Costumes, Parents):')
-  if(!name?.trim()) return
-  const payload = {name:name.trim()}
-  if(contextType==='program') payload.program_id = pid
-  else payload.production_id = pid
-  const res = await api('/api/portal/folders','POST', payload)
-  if(res.error){toast(res.error,'error');return}
-  if(contextType==='program') await loadProgramPortalContent(pid)
-  else await loadProductionPortalContent(pid)
-  toast(`Folder "${name}" created!`)
+function renderProgAnnRow(a, pid, isDraft){
+  const statusBadge = isDraft
+    ? '<span style="background:#fef9c3;color:#854d0e;border:1px solid #fde047;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">DRAFT</span>'
+    : '<span style="background:var(--green-light);color:var(--green);border:1px solid #86efac;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">PUBLISHED</span>'
+  const pushInfo = a.pushed_at
+    ? '<div style="font-size:11px;color:var(--green);margin-top:4px">Emailed '+formatDateTime(a.pushed_at)+(a.push_count>1?' ('+a.push_count+'x)':'')+'</div>'
+    : ''
+  const editEnc = '\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\''
+  return '<div style="border:1.5px solid '+(isDraft?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;background:'+(isDraft?'#fefce8':'var(--surface)')+'">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
+    +'<div style="flex:1">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+statusBadge
+    +'<span style="font-size:13px;font-weight:700">'+escHtml(a.title)+'</span></div>'
+    +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">'+escHtml(a.body)+'</div>'
+    +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>'
+    +pushInfo+'</div>'
+    +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
+    +(isDraft
+      ?'<button onclick="publishAndEmailProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Publish & Email</button>'
+      :'<button onclick="repushProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Resend Email</button>')
+    +'<button onclick="editProgAnn('+editEnc+')" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Edit</button>'
+    +'<button onclick="deleteProgramAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">x</button>'
+    +'</div></div></div>'
 }
 
-async function deletePortalFolder(contextType, pid, fid){
-  if(!confirm('Delete this folder? Files in it will move to General.')) return
-  await api(`/api/portal/folders/${fid}`,'DELETE')
-  if(contextType==='program') await loadProgramPortalContent(pid)
-  else await loadProductionPortalContent(pid)
-  toast('Folder deleted')
+async function saveProgramAnnouncementDraft(pid, publishNow){
+  publishNow = publishNow || false
+  const title = document.getElementById('prog-ann-title-'+pid) ? document.getElementById('prog-ann-title-'+pid).value.trim() : ''
+  const body  = document.getElementById('prog-ann-body-'+pid)  ? document.getElementById('prog-ann-body-'+pid).value.trim()  : ''
+  const editId = document.getElementById('prog-ann-edit-id-'+pid) ? document.getElementById('prog-ann-edit-id-'+pid).value : ''
+  if(!title||!body){toast('Title and message required','error');return}
+  const status = publishNow ? 'published' : 'draft'
+  let res
+  if(editId){
+    res = await api('/api/portal/announcements/'+editId,'PUT',{title, body, status})
+  } else {
+    res = await api('/api/portal/announcements','POST',{program_id:pid, title, body, status})
+  }
+  if(!res||res.error){toast('Error: '+(res ? res.error : 'Failed'),'error');return}
+  const aid = res.id || editId
+  if(publishNow && aid){
+    const pushRes = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST')
+    const sent = pushRes && pushRes.sent_to ? pushRes.sent_to : 0
+    const warn = pushRes && pushRes.warning ? pushRes.warning : ''
+    toast(sent>0 ? 'Published & emailed '+sent+' recipient'+(sent!==1?'s':'')+'!' : (warn || 'Published! (No email addresses on file)'))
+  } else {
+    toast('Draft saved!')
+  }
+  cancelEditProgramAnnouncement(pid)
+  await loadProgramPortalContent(pid)
+}
+
+async function publishAndEmailProgramAnn(pid, aid){
+  const res = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST')
+  if(res && res.error){toast(res.error,'error');return}
+  const sent = res && res.sent_to ? res.sent_to : 0
+  toast(sent>0 ? 'Published & emailed '+sent+' recipient'+(sent!==1?'s':'')+'!' : 'Published! (No email addresses on file)')
+  await loadProgramPortalContent(pid)
+}
+
+async function repushProgramAnn(pid, aid){
+  if(!confirm('Resend this announcement email to all current roster members?')) return
+  const res = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST')
+  if(res && res.error){toast(res.error,'error');return}
+  const sent = res && res.sent_to ? res.sent_to : 0
+  toast(sent>0 ? 'Resent to '+sent+' recipient'+(sent!==1?'s':'')+'!' : 'No email addresses on file')
+  await loadProgramPortalContent(pid)
+}
+
+function editProgAnn(pid, aid, titleEnc, bodyEnc){
+  document.getElementById('prog-ann-edit-id-'+pid).value = aid
+  document.getElementById('prog-ann-title-'+pid).value = decodeURIComponent(titleEnc)
+  document.getElementById('prog-ann-body-'+pid).value = decodeURIComponent(bodyEnc)
+  var cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  if(cancelBtn) cancelBtn.style.display=''
+  document.getElementById('prog-ann-title-'+pid).focus()
+}
+
+function cancelEditProgramAnnouncement(pid){
+  var editId = document.getElementById('prog-ann-edit-id-'+pid)
+  if(editId) editId.value=''
+  var title = document.getElementById('prog-ann-title-'+pid)
+  var body = document.getElementById('prog-ann-body-'+pid)
+  if(title) title.value=''; if(body) body.value=''
+  var cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  if(cancelBtn) cancelBtn.style.display='none'
 }
 
 async function postProgramAnnouncement(pid){
-  const title = document.getElementById(`prog-ann-title-${pid}`)?.value.trim()
-  const body = document.getElementById(`prog-ann-body-${pid}`)?.value.trim()
-  if(!title||!body){toast('Title and message required','error');return}
-  console.log('Posting announcement for program:', pid, {title, body})
-  const res = await api('/api/portal/announcements','POST',{program_id:pid, title, body})
-  console.log('POST result:', res)
-  if(!res||res.error){toast('Error: '+(res?.error||'No response'),'error');return}
-  document.getElementById(`prog-ann-title-${pid}`).value=''
-  document.getElementById(`prog-ann-body-${pid}`).value=''
-  await loadProgramPortalContent(pid)
-  toast('Announcement posted!')
+  await saveProgramAnnouncementDraft(pid, true)
 }
 
 async function deleteProgramAnnouncement(pid, aid){
   if(!confirm('Delete announcement?')) return
-  await api(`/api/portal/announcements/${aid}`,'DELETE')
+  await api('/api/portal/announcements/'+aid,'DELETE')
   await loadProgramPortalContent(pid)
   toast('Deleted')
 }

@@ -4065,11 +4065,18 @@ def portal_auth():
 def get_portal_announcements():
     conn = get_db()
     prod_id = request.args.get('production_id')
-    if prod_id:
-        rows = fetchall(conn, '''SELECT * FROM portal_announcements
-            WHERE production_id=%s AND status='published' ORDER BY created_at DESC''', (prod_id,))
-    else:
-        rows = fetchall(conn, "SELECT * FROM portal_announcements WHERE status='published' ORDER BY created_at DESC")
+    prog_id = request.args.get('program_id')
+    try:
+        if prod_id:
+            rows = fetchall(conn, '''SELECT * FROM portal_announcements
+                WHERE production_id=%s AND status='published' ORDER BY created_at DESC''', (prod_id,))
+        elif prog_id:
+            rows = fetchall(conn, '''SELECT * FROM portal_announcements
+                WHERE program_id=%s AND status='published' ORDER BY created_at DESC''', (prog_id,))
+        else:
+            rows = fetchall(conn, "SELECT * FROM portal_announcements WHERE status='published' ORDER BY created_at DESC")
+    except Exception as e:
+        rows = []
     conn.close()
     return jsonify(rows)
 
@@ -4114,15 +4121,22 @@ def portal_get_participant(yid):
     except Exception as e:
         productions = []; errors.append(f'productions: {e}')
 
-    # Announcements
+    # Announcements — from both productions and programs
     prod_ids = [p['id'] for p in productions]
+    prog_ids = [e['program_id'] for e in enrollments if e.get('program_id')]
     try:
         announcements = []
         if prod_ids:
             placeholders = ','.join(['%s']*len(prod_ids))
-            announcements = fetchall(conn, f'''SELECT * FROM portal_announcements
+            announcements += fetchall(conn, f'''SELECT * FROM portal_announcements
                 WHERE production_id IN ({placeholders}) AND status='published'
                 ORDER BY created_at DESC''', tuple(prod_ids))
+        if prog_ids:
+            placeholders = ','.join(['%s']*len(prog_ids))
+            announcements += fetchall(conn, f'''SELECT * FROM portal_announcements
+                WHERE program_id IN ({placeholders}) AND status='published'
+                ORDER BY created_at DESC''', tuple(prog_ids))
+        announcements.sort(key=lambda a: a.get('created_at',''), reverse=True)
     except Exception as e:
         announcements = []; errors.append(f'announcements: {e}')
 
@@ -4156,9 +4170,11 @@ def portal_youth_profile(yid):
         FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
         WHERE y.id=%s''', (yid,))
     if not youth: conn.close(); return jsonify({'error': 'Not found'}), 404
-    authorized = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
+    youth['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
+    youth['emergency'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
+    youth['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
+    youth['waivers'] = fetchall(conn, 'SELECT * FROM youth_waivers WHERE youth_id=%s ORDER BY signed_date DESC', (yid,))
     conn.close()
-    youth['authorized_pickups'] = authorized
     return jsonify(youth)
 
 @app.route('/api/portal/youth/<yid>/request-update', methods=['POST'])

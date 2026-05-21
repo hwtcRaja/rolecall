@@ -568,7 +568,7 @@ let eysDropOffTarget=null
 let eysAuthPickups=[]
 let eysAuthAction='dropoff'
 let allYouthKiosk=[], selEvent=null, curHours=0
-let waiverIssues=[], signingWaiver=null
+let waiverIssues=[], signingWaiver=null, waiverFromMenu=false
 let elicData=null, elicEventList=[], closingEvent=null, openingChecklistItems=[], openingClResponses={}
 let checklistItems=[], clResponses={}
 let allInterestTypes=[]
@@ -897,6 +897,7 @@ async function selectVol(vol){
 }
 
 async function goWaiverCheck(fromMenu=false){
+  waiverFromMenu=fromMenu
   showScreen('screen-waiver-check')
   document.getElementById('wc-title').textContent='Checking Waivers…'
   document.getElementById('wc-sub').textContent=''
@@ -918,8 +919,16 @@ function renderWaiverCheck(fromMenu,allClear){
   if(allClear){
     updateWaiverMenuBtn(0)
     if(!fromMenu){
-      // Skip all-clear screen entirely — go straight to volunteer menu
-      goVolMenu()
+      // Not from menu — show all-clear with Continue to Log Hours button
+      document.getElementById('wc-title').textContent='Waivers Complete ✅'
+      document.getElementById('wc-sub').textContent='You\'re all set to volunteer'
+      content.innerHTML=`<div class="all-clear">
+        <div style="font-size:44px;margin-bottom:10px">✅</div>
+        <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">All Waivers Signed</div>
+        <div style="font-size:14px;color:var(--muted);margin-bottom:20px">You can now log your hours</div>
+        <button onclick="goEventSelect()" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 32px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:620px;margin-bottom:10px">📋 Log Hours →</button>
+        <button onclick="goVolMenu()" style="background:none;border:none;color:var(--muted);font-family:inherit;font-size:13px;cursor:pointer;text-decoration:underline">Go to Menu</button>
+      </div>`
     } else {
       document.getElementById('wc-title').textContent='Your Waivers'
       document.getElementById('wc-sub').textContent='All waivers are current'
@@ -981,8 +990,22 @@ async function submitSign(){
   const d=await r.json()
   btn.textContent='✍️ Sign Waiver'
   if(d.error){btn.disabled=false;alert(d.error);return}
+  // Remove this waiver from the list
   waiverIssues=waiverIssues.filter(w=>w.waiver_type_id!==signingWaiver.waiver_type_id)
-  showConfirm('📋','Waiver Signed!',`${signingWaiver.name} signed successfully.`,'',()=>showScreen('screen-waiver-check'))
+  const remaining=waiverIssues.length
+  if(remaining>0){
+    // More waivers to sign — show brief success then go back to waiver check
+    showConfirm('📋','Waiver Signed!',`${signingWaiver.name} signed.`,`${remaining} waiver${remaining>1?'s':''} remaining.`,()=>{
+      renderWaiverCheck(waiverFromMenu, false)
+      showScreen('screen-waiver-check')
+    })
+  } else {
+    // All waivers done — go straight to vol menu with success message
+    updateWaiverMenuBtn(0)
+    showConfirm('✅','All Waivers Signed!','You\'re all set.',waiverFromMenu?'':'You can now log your hours.',()=>{
+      goVolMenu()
+    })
+  }
 }
 
 function goVolMenu(){

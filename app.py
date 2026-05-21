@@ -647,7 +647,7 @@ def init_db():
             html_content TEXT DEFAULT '',
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
-        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
+        "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
@@ -1623,6 +1623,11 @@ def get_volunteer(vol_id):
         WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC NULLS LAST''', (vol_id,))
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    # Board membership
+    vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
+        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attended=TRUE) as meetings_attended,
+        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id) as meetings_total
+        FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
     return jsonify(vol)
 
@@ -7393,7 +7398,11 @@ def get_board_members():
     err = require_auth()
     if err: return err
     conn = get_db()
-    members = fetchall(conn, 'SELECT * FROM board_members ORDER BY name')
+    members = fetchall(conn, '''SELECT bm.*, v.id as vol_id, v.name as vol_name, v.phone as vol_phone,
+        v.status as vol_status, v.background_check_status
+        FROM board_members bm
+        LEFT JOIN volunteers v ON bm.volunteer_id=v.id
+        ORDER BY bm.name''')
     for m in members:
         total    = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
         attended = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attended=TRUE', (m['id'],))
@@ -7401,7 +7410,6 @@ def get_board_members():
         m['meetings_attended'] = attended['c'] if attended else 0
         m['nominations'] = fetchall(conn,
             'SELECT * FROM board_nominations WHERE member_id=%s ORDER BY nomination_date ASC', (m['id'],))
-        # Include most recent availability token so admin can share link manually
         latest_avail = fetchone(conn,
             'SELECT token, month, year FROM board_availability WHERE member_id=%s ORDER BY year DESC, month DESC LIMIT 1',
             (m['id'],))
@@ -7467,11 +7475,12 @@ def create_board_member():
     mid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes,volunteer_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
             (mid, d['name'].strip(), d['email'].strip().lower(),
              d.get('role','').strip(), d.get('status','active'),
-             d.get('join_date') or None, d.get('notes','').strip()))
+             d.get('join_date') or None, d.get('notes','').strip(),
+             d.get('volunteer_id') or None))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM board_members WHERE id=%s', (mid,))
         conn.close()
@@ -7486,11 +7495,12 @@ def update_board_member(mid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s
+    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s,volunteer_id=%s
         WHERE id=%s''',
         (d.get('name','').strip(), d.get('email','').strip().lower(),
          d.get('role','').strip(), d.get('status','active'),
-         d.get('join_date') or None, d.get('notes','').strip(), mid))
+         d.get('join_date') or None, d.get('notes','').strip(),
+         d.get('volunteer_id') or None, mid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

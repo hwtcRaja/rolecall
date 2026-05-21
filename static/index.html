@@ -11628,18 +11628,32 @@ async function loadEventRsvps(eid){
     el.innerHTML = statsHtml + '<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
     return
   }
-  el.innerHTML = statsHtml +
-    allRsvps.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-      ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
-      <div style="flex:1">
-        <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
-        ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
-      </div>
-      <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
-        ${r.status==='interested'?'✋ Signed up':'Invited'}
-      </span>
-      <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
-    </div>`).join('')
+
+  const signedUpList = allRsvps.filter(r=>r.status==='interested')
+  const invitedList  = allRsvps.filter(r=>r.status!=='interested')
+
+  const rsvpRow = (r) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+    ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
+    <div style="flex:1">
+      <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
+      ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
+    </div>
+    <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
+      ${r.status==='interested'?'✋ Signed up':'Invited'}
+    </span>
+    <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
+  </div>`
+
+  let html = statsHtml
+  if(signedUpList.length){
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px">✋ Signed Up (${signedUpList.length})</div>`
+    html += signedUpList.map(r=>rsvpRow(r)).join('')
+  }
+  if(invitedList.length){
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${signedUpList.length?'14':'4'}px;margin-bottom:4px">📬 Invited — Pending (${invitedList.length})</div>`
+    html += invitedList.map(r=>rsvpRow(r)).join('')
+  }
+  el.innerHTML = html
 }
 
 function loadEventRoles(eid, roles){

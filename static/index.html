@@ -4683,7 +4683,6 @@ async function openYouthProfile(yid){
       <div class="card" style="padding:0;overflow:hidden">
         <!-- Tab strip -->
         <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50);scrollbar-width:none">
-        <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50)">
           <button class="ytab-btn active" data-tab="ytab-programs" onclick="switchYTab(this)" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
             🎓 Programs <span style="background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.enrollments||[]).length}</span>
           </button>
@@ -4708,6 +4707,7 @@ async function openYouthProfile(yid){
           <button class="ytab-btn" data-tab="ytab-history" onclick="switchYTab(this);loadYouthHistory('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
             🕐 History
           </button>
+        </div>
 
         <!-- Tab panes -->
         <div style="padding:20px">

@@ -2106,6 +2106,69 @@ def update_youth_program(pid):
     conn.close()
     return jsonify(row)
 
+@app.route('/api/youth-programs/<pid>/announcements/<aid>/push', methods=['POST'])
+def push_program_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Mark as published
+    execute(conn, '''UPDATE portal_announcements
+        SET status='published', pushed_at=NOW(), push_count=COALESCE(push_count,0)+1
+        WHERE id=%s AND program_id=%s''', (aid, pid))
+    conn.commit()
+    ann = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not ann or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    # Gather recipient emails
+    recipients = set()
+    enrolled = fetchall(conn, '''SELECT y.id FROM youth_participants y
+        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+        WHERE ype.program_id=%s AND y.status='active' ''', (pid,))
+    for y in enrolled:
+        guardians = fetchall(conn, "SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email!=''", (y['id'],))
+        for g in guardians:
+            if g['email']: recipients.add(g['email'].strip().lower())
+    # Instructor
+    if prog.get('instructor_id'):
+        vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog['instructor_id'],))
+        if vol and vol.get('email'): recipients.add(vol['email'].strip().lower())
+    conn.close()
+    if not recipients:
+        return jsonify({'ok': True, 'sent_to': 0, 'warning': 'No email addresses on file'})
+    prog_name = prog.get('name','Program')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:24px;border-radius:8px 8px 0 0">
+        <div style="color:rgba(255,255,255,0.8);font-size:13px;margin-bottom:4px">New Announcement</div>
+        <h2 style="color:white;margin:0;font-size:22px">{prog_name}</h2>
+      </div>
+      <div style="background:#f8fafc;padding:28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+        <h3 style="color:#1e293b;margin:0 0 12px 0;font-size:18px">{ann['title']}</h3>
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.8;color:#334155">{ann['body']}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+        <p style="font-size:12px;color:#94a3b8;margin:0">
+          Posted by Horizon West Theater Company for <strong>{prog_name}</strong>.
+          Log in to the family portal to view and respond to announcements.
+        </p>
+      </div>
+    </div>'''
+    try:
+        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body)
+        return jsonify({'ok': True, 'sent_to': len(recipients)})
+    except Exception as e:
+        app.logger.error(f'push_program_announcement email error: {e}')
+        return jsonify({'ok': True, 'sent_to': 0, 'warning': str(e)})
+
+@app.route('/api/youth-programs/<pid>/announcements/<aid>/unpublish', methods=['POST'])
+def unpublish_program_announcement(pid, aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE portal_announcements SET status='draft' WHERE id=%s AND program_id=%s", (aid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/youth-programs/<pid>', methods=['DELETE'])
 def delete_youth_program(pid):
     err = require_admin()
@@ -6854,7 +6917,7 @@ def create_portal_announcement_admin():
             VALUES (%s,%s,%s,%s,%s,%s,%s)''',
             (aid, d.get('production_id'), d.get('program_id'),
              d.get('title',''), d.get('body',''),
-             d.get('status','published'), session.get('user_id','')))
+             d.get('status','draft'), session.get('user_id','')))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
         conn.close()

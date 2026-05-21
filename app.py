@@ -1416,7 +1416,8 @@ def get_events():
         e['required_waivers'] = fetchall(conn,
             'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (e['id'],))
         e['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
-            el.is_master, v.name as volunteer_name, v.id as volunteer_id
+            el.is_master, v.name as volunteer_name, v.id as volunteer_id,
+            COALESCE(v.background_check_status,'none') as background_check_status
             FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
             JOIN volunteers v ON el.volunteer_id=v.id
             WHERE ee.event_id=%s""", (e['id'],))
@@ -1454,6 +1455,23 @@ def create_event():
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False)))
     conn.commit()
+    # Auto-assign program instructor/default ELIC when event belongs to a program
+    program_id = d.get('program_id') or None
+    if program_id:
+        try:
+            prog = fetchone(conn, 'SELECT default_elic_id, instructor_id FROM youth_programs WHERE id=%s', (program_id,))
+            if prog:
+                elic_vol_id = prog.get('default_elic_id') or prog.get('instructor_id')
+                if elic_vol_id:
+                    elic = fetchone(conn, 'SELECT id FROM elics WHERE volunteer_id=%s', (elic_vol_id,))
+                    if elic:
+                        existing = fetchone(conn, 'SELECT id FROM event_elics WHERE event_id=%s AND elic_id=%s', (eid, elic['id']))
+                        if not existing:
+                            execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s)',
+                                (str(uuid.uuid4()), eid, elic['id']))
+                            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Auto-ELIC assignment failed: {e}')
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
@@ -1500,8 +1518,10 @@ def update_event(eid):
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
-        el.is_master, v.name as volunteer_name FROM event_elics ee
-        JOIN elics el ON ee.elic_id=el.id JOIN volunteers v ON el.volunteer_id=v.id
+        el.is_master, v.name as volunteer_name, v.id as volunteer_id,
+        COALESCE(v.background_check_status,'none') as background_check_status
+        FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
+        JOIN volunteers v ON el.volunteer_id=v.id
         WHERE ee.event_id=%s""", (eid,))
     conn.close()
     return jsonify(row)
@@ -6453,10 +6473,16 @@ def add_event_elic(eid):
                 execute(conn, 'UPDATE elics SET assigned_events=%s WHERE id=%s', (json.dumps(assigned), elic_id))
     except Exception:
         pass
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/events/<eid>/elics/<rid>', methods=['DELETE'])
+    conn.commit()
+    # Return the full assignment record so frontend can push it properly
+    row = fetchone(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
+        el.is_master, v.name as volunteer_name, v.id as volunteer_id,
+        COALESCE(v.background_check_status,'none') as background_check_status
+        FROM event_elics ee JOIN elics el ON ee.elic_id=el.id
+        JOIN volunteers v ON el.volunteer_id=v.id
+        WHERE ee.event_id=%s AND ee.elic_id=%s""", (eid, elic_id))
+    conn.close()
+    return jsonify(row or {'ok': True})
 def remove_event_elic(eid, rid):
     err = require_auth()
     if err: return err
@@ -6490,8 +6516,19 @@ def get_default_elic():
         if p and p.get('default_elic_id'):
             elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name FROM elics e
                 JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (p['default_elic_id'],))
+    elif prog_id:
+        p = fetchone(conn, 'SELECT default_elic_id, instructor_id FROM youth_programs WHERE id=%s', (prog_id,))
+        if p:
+            elic_id = p.get('default_elic_id')
+            # Fall back to instructor's elic record if no default_elic_id set
+            if not elic_id and p.get('instructor_id'):
+                er = fetchone(conn, 'SELECT id FROM elics WHERE volunteer_id=%s', (p['instructor_id'],))
+                if er: elic_id = er['id']
+            if elic_id:
+                elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name FROM elics e
+                    JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (elic_id,))
     conn.close()
-    return jsonify({'elic': elic})
+    return jsonify({'elic': elic, 'elic_id': elic['id'] if elic else None})
 
 # ── Families ──
 @app.route('/api/families/<fid>', methods=['DELETE'])

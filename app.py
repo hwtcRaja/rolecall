@@ -652,6 +652,8 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS author_id TEXT",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
@@ -6502,16 +6504,21 @@ def create_portal_announcement_admin():
     d = request.json or {}
     aid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO portal_announcements
-        (id,production_id,program_id,title,body,status,author_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (aid, d.get('production_id'), d.get('program_id'),
-         d.get('title',''), d.get('body',''),
-         d.get('status','published'), session.get('user_id','')))
-    conn.commit()
-    row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
-    conn.close()
-    return jsonify(row)
+    try:
+        execute(conn, '''INSERT INTO portal_announcements
+            (id,production_id,program_id,title,body,status,author_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (aid, d.get('production_id'), d.get('program_id'),
+             d.get('title',''), d.get('body',''),
+             d.get('status','published'), session.get('user_id','')))
+        conn.commit()
+        row = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'create_portal_announcement_admin error: {e}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/portal/announcements/<aid>', methods=['PUT'])
 def update_portal_announcement_admin(aid):

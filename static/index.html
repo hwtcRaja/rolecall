@@ -1880,6 +1880,103 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- YOUTH NOTE MODAL -->
+<div class="modal-overlay" id="modal-youth-note">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-youth-note')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="yn-youth-id"/>
+      <div class="form-group">
+        <label>Type</label>
+        <select id="yn-type">
+          <option value="general">General</option>
+          <option value="behavioral">Behavioral</option>
+          <option value="medical">Medical</option>
+          <option value="parent_communication">Parent Communication</option>
+          <option value="performance">Performance</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Note *</label><textarea id="yn-content" style="min-height:100px" placeholder="Add your note here…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-youth-note')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYouthNote()">Save Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- YOUTH INCIDENT MODAL -->
+<div class="modal-overlay" id="modal-youth-incident">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header"><div class="modal-title" id="yi-modal-title">Report Incident</div><button class="modal-close" onclick="closeModal('modal-youth-incident')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="yi-id"/>
+      <input type="hidden" id="yi-youth-id"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="grid-column:1/-1"><label>Title *</label><input type="text" id="yi-title" placeholder="Brief description of the incident"/></div>
+        <div class="form-group"><label>Date *</label><input type="date" id="yi-date"/></div>
+        <div class="form-group">
+          <label>Severity</label>
+          <select id="yi-severity">
+            <option value="minor">Minor</option>
+            <option value="moderate">Moderate</option>
+            <option value="serious">Serious</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="yi-description" style="min-height:80px" placeholder="Detailed description of what happened…"></textarea></div>
+      <div class="form-group"><label>Follow-up / Resolution Notes</label><textarea id="yi-followup" style="min-height:60px" placeholder="Steps taken, parent notified, etc.…"></textarea></div>
+      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="yi-resolved" style="accent-color:var(--teal-400)"/> Mark as resolved</label></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-youth-incident')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYouthIncident()">Save Incident</button>
+    </div>
+  </div>
+</div>
+
+<!-- GUARDIAN MODAL -->
+<div class="modal-overlay" id="modal-guardian">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header"><div class="modal-title" id="guardian-modal-title">Add Guardian</div><button class="modal-close" onclick="closeModal('modal-guardian')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="gm-id"/>
+      <input type="hidden" id="gm-youth-id"/>
+      <div class="form-group"><label>Name *</label><input type="text" id="gm-name" placeholder="Full name"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Relationship</label><input type="text" id="gm-relationship" placeholder="Mother, Father, Guardian…"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="gm-phone" placeholder="(555) 000-0000"/></div>
+      </div>
+      <div class="form-group"><label>Email</label><input type="email" id="gm-email" placeholder="parent@email.com"/></div>
+      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="gm-primary" style="accent-color:var(--teal-400)"/> Primary guardian</label></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-guardian')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGuardian()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- EMERGENCY CONTACT MODAL -->
+<div class="modal-overlay" id="modal-emergency-contact">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header"><div class="modal-title" id="ec-modal-title">Add Emergency Contact</div><button class="modal-close" onclick="closeModal('modal-emergency-contact')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="ecm-id"/>
+      <input type="hidden" id="ecm-youth-id"/>
+      <div class="form-group"><label>Name *</label><input type="text" id="ecm-name" placeholder="Full name"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Relationship</label><input type="text" id="ecm-relationship" placeholder="Father, Grandmother…"/></div>
+        <div class="form-group"><label>Phone *</label><input type="tel" id="ecm-phone" placeholder="(555) 000-0000"/></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-emergency-contact')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEmergencyContact()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- BOARD NOMINATION MODAL -->
 <div class="modal-overlay" id="modal-board-nomination">
   <div class="modal" style="max-width:420px">
@@ -4577,7 +4674,15 @@ async function openYouthProfile(yid){
           <button class="ytab-btn" data-tab="ytab-signin" onclick="switchYTab(this);loadYouthSignInTab('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
             📝 Sign-In History
           </button>
-        </div>
+          <button class="ytab-btn" data-tab="ytab-notes" onclick="switchYTab(this);loadYouthNotes('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            🗒️ Notes${(y.notes||[]).length?` <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:3px">${(y.notes||[]).length}</span>`:''}
+          </button>
+          <button class="ytab-btn" data-tab="ytab-incidents" onclick="switchYTab(this);loadYouthIncidents('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            🚨 Incidents${(y.incidents||[]).filter(i=>!i.resolved).length?` <span style="background:var(--red-50);color:var(--red-600);padding:1px 6px;border-radius:10px;font-size:11px;font-weight:700;margin-left:3px">${(y.incidents||[]).filter(i=>!i.resolved).length}</span>`:''}
+          </button>
+          <button class="ytab-btn" data-tab="ytab-history" onclick="switchYTab(this);loadYouthHistory('${y.id}')" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
+            🕐 History
+          </button>
 
         <!-- Tab panes -->
         <div style="padding:20px">
@@ -4598,33 +4703,46 @@ async function openYouthProfile(yid){
           </div>
 
           <div class="ytab-pane" id="ytab-guardians" style="display:none">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+              ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openGuardianModal('${y.id}',null)">+ Add Guardian</button>`:''}
+            </div>
             ${!(y.guardians||[]).length?'<div style="color:var(--text-muted);font-size:13px">No guardians on file</div>':
               (y.guardians||[]).map(g=>`
               <div class="guardian-item">
-                <div style="display:flex;align-items:center;justify-content:space-between">
-                  <div>
-                    <div style="font-weight:500;font-size:14px">${g.name} ${g.is_primary?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:10px">Primary</span>':''}</div>
-                    <div style="font-size:12px;color:var(--text-muted)">${g.relationship}</div>
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                  <div style="flex:1">
+                    <div style="font-weight:600;font-size:14px">${escHtml(g.name)} ${g.is_primary?'<span style="font-size:11px;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:10px;font-weight:600">Primary</span>':''}</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(g.relationship||'')}</div>
+                    <div style="font-size:13px;margin-top:6px;display:flex;gap:16px;flex-wrap:wrap">
+                      ${g.phone?`<span>📞 ${escHtml(g.phone)}</span>`:''}
+                      ${g.email?`<span>📧 <a href="mailto:${g.email}" style="color:var(--teal-600)">${escHtml(g.email)}</a></span>`:''}
+                    </div>
                   </div>
-                  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteGuardian('${g.id}','${y.id}')">✕</button>`:''}
-                </div>
-                <div style="font-size:13px;margin-top:6px;display:flex;gap:16px">
-                  ${g.phone?`<span>📞 ${g.phone}</span>`:''}
-                  ${g.email?`<span>📧 <a href="mailto:${g.email}" style="color:var(--teal-600)">${g.email}</a></span>`:''}
+                  ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
+                    <button class="btn btn-secondary btn-sm" onclick="openGuardianModal('${y.id}','${g.id}')">✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteGuardianUI('${g.id}','${y.id}')">✕</button>
+                  </div>`:''}
                 </div>
               </div>`).join('')}
           </div>
 
           <div class="ytab-pane" id="ytab-emergency" style="display:none">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+              ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEmergencyContactModal('${y.id}',null)">+ Add Contact</button>`:''}
+            </div>
             ${!(y.emergency_contacts||[]).length?'<div style="color:var(--text-muted);font-size:13px">No emergency contacts on file</div>':
               (y.emergency_contacts||[]).map(e=>`
               <div class="guardian-item">
-                <div style="display:flex;align-items:center;justify-content:space-between">
-                  <div>
-                    <div style="font-weight:500;font-size:14px">${e.name}</div>
-                    <div style="font-size:12px;color:var(--text-muted)">${e.relationship||''}</div>
-                    <div style="font-size:13px;margin-top:4px">📞 <strong>${e.phone}</strong></div>
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+                  <div style="flex:1">
+                    <div style="font-weight:600;font-size:14px">${escHtml(e.name)}</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${escHtml(e.relationship||'')}</div>
+                    <div style="font-size:13px;margin-top:6px">📞 <strong>${escHtml(e.phone||'')}</strong></div>
                   </div>
+                  ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
+                    <button class="btn btn-secondary btn-sm" onclick="openEmergencyContactModal('${y.id}','${e.id}')">✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteEmergencyContactUI('${e.id}','${y.id}')">✕</button>
+                  </div>`:''}
                 </div>
               </div>`).join('')}
           </div>
@@ -4636,6 +4754,18 @@ async function openYouthProfile(yid){
           <div class="ytab-pane" id="ytab-signin" style="display:none">
             <div id="youth-signin-list-${y.id}"><div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading…</div></div>
           </div>
+
+          <div class="ytab-pane" id="ytab-notes" style="display:none">
+            <div id="ytab-notes-content-${y.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+          </div>
+
+          <div class="ytab-pane" id="ytab-incidents" style="display:none">
+            <div id="ytab-incidents-content-${y.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+          </div>
+
+          <div class="ytab-pane" id="ytab-history" style="display:none">
+            <div id="ytab-history-content-${y.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+          </div>
         </div>
       </div>
     </div>`
@@ -4643,6 +4773,241 @@ async function openYouthProfile(yid){
   navTo('youth-profile')
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   } catch(err){ console.error('openYouthProfile error:',err); toast('Error: '+err.message,'error') }
+}
+
+// ── YOUTH NOTES ──
+async function loadYouthNotes(yid){
+  const el = document.getElementById(`ytab-notes-content-${yid}`)
+  if(!el) return
+  const notes = await api(`/api/youth/${yid}/notes`)
+  const isAdmin = canEdit('youth')
+  const NOTE_COLORS = {general:'var(--bg)',behavioral:'#fef9c3',medical:'#fef2f2',parent_communication:'#f0fdf4',performance:'#f0f9ff'}
+  const NOTE_LABELS = {general:'General',behavioral:'Behavioral',medical:'Medical',parent_communication:'Parent Comm.',performance:'Performance'}
+  el.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openYouthNoteModal('${yid}')">+ Add Note</button>`:''}
+  </div>`
+  + (!notes.length ? '<div style="color:var(--text-muted);font-size:13px">No notes on file</div>'
+    : notes.map(n=>`<div style="background:${NOTE_COLORS[n.note_type]||'var(--bg)'};border:1.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">${NOTE_LABELS[n.note_type]||n.note_type}</span>
+            <span style="font-size:11px;color:var(--text-hint)">· ${formatDateTimeShort(n.created_at)} by ${escHtml(n.author||'Staff')}</span>
+          </div>
+          ${isAdmin?`<button onclick="deleteYouthNote('${n.id}','${yid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0;flex-shrink:0">×</button>`:''}
+        </div>
+        <div style="font-size:13px;line-height:1.6;white-space:pre-wrap">${escHtml(n.content)}</div>
+      </div>`).join(''))
+}
+
+function openYouthNoteModal(yid){
+  document.getElementById('yn-youth-id').value = yid
+  document.getElementById('yn-content').value = ''
+  document.getElementById('yn-type').value = 'general'
+  openModal('modal-youth-note')
+}
+
+async function saveYouthNote(){
+  const yid = document.getElementById('yn-youth-id').value
+  const content = document.getElementById('yn-content').value.trim()
+  if(!content){toast('Note content required','error');return}
+  const res = await api(`/api/youth/${yid}/notes`,'POST',{
+    content, note_type: document.getElementById('yn-type').value
+  })
+  if(res?.error){toast(res.error,'error');return}
+  closeModal('modal-youth-note')
+  toast('Note added!')
+  loadYouthNotes(yid)
+}
+
+async function deleteYouthNote(nid, yid){
+  if(!confirm('Delete this note?')) return
+  await api(`/api/youth/notes/${nid}`,'DELETE')
+  toast('Note deleted')
+  loadYouthNotes(yid)
+}
+
+// ── YOUTH INCIDENTS ──
+const SEVERITY_STYLE = {
+  minor:    {bg:'var(--bg)',border:'var(--border)',color:'var(--text-muted)',label:'Minor'},
+  moderate: {bg:'#fefce8',border:'#fde047',color:'#854d0e',label:'Moderate'},
+  serious:  {bg:'#fef2f2',border:'#fca5a5',color:'#dc2626',label:'Serious'}
+}
+
+async function loadYouthIncidents(yid){
+  const el = document.getElementById(`ytab-incidents-content-${yid}`)
+  if(!el) return
+  const incidents = await api(`/api/youth/${yid}/incidents`)
+  const isAdmin = canEdit('youth')
+  el.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openYouthIncidentModal('${yid}',null)">+ Report Incident</button>`:''}
+  </div>`
+  + (!incidents.length ? '<div style="color:var(--text-muted);font-size:13px">No incidents on file</div>'
+    : incidents.map(inc=>{
+        const s = SEVERITY_STYLE[inc.severity]||SEVERITY_STYLE.minor
+        return `<div style="border:1.5px solid ${s.border};border-radius:8px;padding:14px;margin-bottom:12px;background:${s.bg}">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-weight:700;font-size:14px">${escHtml(inc.title)}</span>
+                <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${s.border};color:${s.color}">${s.label}</span>
+                ${inc.resolved?'<span style="font-size:11px;background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:10px;font-weight:600">✅ Resolved</span>':''}
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${formatDate(inc.incident_date)} · Reported by ${escHtml(inc.reported_by||'Staff')}</div>
+            </div>
+            ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
+              <button class="btn btn-secondary btn-sm" onclick="openYouthIncidentModal('${yid}','${inc.id}')">✏️</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteYouthIncident('${inc.id}','${yid}')">✕</button>
+            </div>`:''}
+          </div>
+          ${inc.description?`<div style="font-size:13px;line-height:1.6;margin-bottom:${inc.follow_up?'8':'0'}px;white-space:pre-wrap">${escHtml(inc.description)}</div>`:''}
+          ${inc.follow_up?`<div style="background:rgba(255,255,255,0.6);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text-muted)">
+            <span style="font-weight:700;color:var(--text)">Follow-up: </span>${escHtml(inc.follow_up)}
+          </div>`:''}
+        </div>`
+      }).join(''))
+}
+
+async function openYouthIncidentModal(yid, iid){
+  let inc = null
+  if(iid){
+    const incidents = await api(`/api/youth/${yid}/incidents`)
+    inc = incidents.find(i=>i.id===iid)
+  }
+  document.getElementById('yi-modal-title').textContent = inc ? 'Edit Incident' : 'Report Incident'
+  document.getElementById('yi-id').value = iid||''
+  document.getElementById('yi-youth-id').value = yid
+  document.getElementById('yi-title').value = inc?.title||''
+  document.getElementById('yi-date').value = inc?.incident_date||new Date().toISOString().split('T')[0]
+  document.getElementById('yi-severity').value = inc?.severity||'minor'
+  document.getElementById('yi-description').value = inc?.description||''
+  document.getElementById('yi-followup').value = inc?.follow_up||''
+  document.getElementById('yi-resolved').checked = inc ? !!inc.resolved : false
+  openModal('modal-youth-incident')
+}
+
+async function saveYouthIncident(){
+  const yid = document.getElementById('yi-youth-id').value
+  const iid = document.getElementById('yi-id').value
+  const title = document.getElementById('yi-title').value.trim()
+  const date = document.getElementById('yi-date').value
+  if(!title||!date){toast('Title and date required','error');return}
+  const data = {title, incident_date:date,
+    severity: document.getElementById('yi-severity').value,
+    description: document.getElementById('yi-description').value.trim(),
+    follow_up: document.getElementById('yi-followup').value.trim(),
+    resolved: document.getElementById('yi-resolved').checked}
+  const res = iid
+    ? await api(`/api/youth/incidents/${iid}`,'PUT',data)
+    : await api(`/api/youth/${yid}/incidents`,'POST',data)
+  if(res?.error){toast(res.error,'error');return}
+  closeModal('modal-youth-incident')
+  toast(iid?'Incident updated!':'Incident reported!')
+  loadYouthIncidents(yid)
+}
+
+async function deleteYouthIncident(iid, yid){
+  if(!confirm('Delete this incident report?')) return
+  await api(`/api/youth/incidents/${iid}`,'DELETE')
+  toast('Incident deleted')
+  loadYouthIncidents(yid)
+}
+
+// ── YOUTH HISTORY ──
+async function loadYouthHistory(yid){
+  const el = document.getElementById(`ytab-history-content-${yid}`)
+  if(!el) return
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+  const history = await api(`/api/youth/${yid}/history`)
+  if(!history.length){
+    el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No attendance history yet</div>'
+    return
+  }
+  el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table>'
+    + '<thead><tr><th>Event</th><th>Program</th><th>Date</th><th>Signed In</th><th>Signed Out</th></tr></thead>'
+    + '<tbody>'
+    + history.map(h=>`<tr>
+        <td style="font-size:13px;font-weight:500">${escHtml(h.event_name||'Unknown Event')}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${h.program_name?`<span style="background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600">${escHtml(h.program_name)}</span>`:'—'}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${h.event_date?formatDate(h.event_date):'—'}</td>
+        <td style="font-size:12px">${h.sign_in_time?formatDateTimeShort(h.sign_in_time):'—'}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${h.sign_out_time?formatDateTimeShort(h.sign_out_time):'<span style="color:var(--amber-600)">Not signed out</span>'}</td>
+      </tr>`).join('')
+    + '</tbody></table></div>'
+}
+
+async function openGuardianModal(yid, gid){
+  const y = await api(`/api/youth/${yid}`)
+  const g = gid ? (y?.guardians||[]).find(g=>g.id===gid) : null
+  document.getElementById('guardian-modal-title').textContent = g ? 'Edit Guardian' : 'Add Guardian'
+  document.getElementById('gm-id').value = gid||''
+  document.getElementById('gm-youth-id').value = yid
+  document.getElementById('gm-name').value = g?.name||''
+  document.getElementById('gm-relationship').value = g?.relationship||''
+  document.getElementById('gm-phone').value = g?.phone||''
+  document.getElementById('gm-email').value = g?.email||''
+  document.getElementById('gm-primary').checked = g ? !!g.is_primary : false
+  openModal('modal-guardian')
+}
+
+async function saveGuardian(){
+  const yid = document.getElementById('gm-youth-id').value
+  const gid = document.getElementById('gm-id').value
+  const name = document.getElementById('gm-name').value.trim()
+  if(!name){toast('Name is required','error');return}
+  const data = {name, relationship:document.getElementById('gm-relationship').value.trim(),
+    phone:document.getElementById('gm-phone').value.trim(), email:document.getElementById('gm-email').value.trim(),
+    is_primary:document.getElementById('gm-primary').checked}
+  const res = gid
+    ? await api(`/api/youth/guardians/${gid}`,'PUT',data)
+    : await api(`/api/youth/${yid}/guardians`,'POST',data)
+  if(res?.error){toast(res.error,'error');return}
+  closeModal('modal-guardian')
+  toast(gid?'Guardian updated!':'Guardian added!')
+  await openYouthProfile(yid)
+}
+
+async function deleteGuardianUI(gid, yid){
+  if(!confirm('Remove this guardian?')) return
+  const res = await api(`/api/youth/guardians/${gid}`,'DELETE')
+  if(res?.error){toast(res.error,'error');return}
+  toast('Guardian removed')
+  await openYouthProfile(yid)
+}
+
+async function openEmergencyContactModal(yid, ecid){
+  const y = await api(`/api/youth/${yid}`)
+  const ec = ecid ? (y?.emergency_contacts||[]).find(e=>e.id===ecid) : null
+  document.getElementById('ec-modal-title').textContent = ec ? 'Edit Emergency Contact' : 'Add Emergency Contact'
+  document.getElementById('ecm-id').value = ecid||''
+  document.getElementById('ecm-youth-id').value = yid
+  document.getElementById('ecm-name').value = ec?.name||''
+  document.getElementById('ecm-relationship').value = ec?.relationship||''
+  document.getElementById('ecm-phone').value = ec?.phone||''
+  openModal('modal-emergency-contact')
+}
+
+async function saveEmergencyContact(){
+  const yid = document.getElementById('ecm-youth-id').value
+  const ecid = document.getElementById('ecm-id').value
+  const name = document.getElementById('ecm-name').value.trim()
+  const phone = document.getElementById('ecm-phone').value.trim()
+  if(!name||!phone){toast('Name and phone are required','error');return}
+  const data = {name, relationship:document.getElementById('ecm-relationship').value.trim(), phone}
+  const res = ecid
+    ? await api(`/api/youth/emergency-contacts/${ecid}`,'PUT',data)
+    : await api(`/api/youth/${yid}/emergency-contacts`,'POST',data)
+  if(res?.error){toast(res.error,'error');return}
+  closeModal('modal-emergency-contact')
+  toast(ecid?'Contact updated!':'Contact added!')
+  await openYouthProfile(yid)
+}
+
+async function deleteEmergencyContactUI(ecid, yid){
+  if(!confirm('Remove this emergency contact?')) return
+  const res = await api(`/api/youth/emergency-contacts/${ecid}`,'DELETE')
+  if(res?.error){toast(res.error,'error');return}
+  toast('Contact removed')
+  await openYouthProfile(yid)
 }
 
 function toggleMinorSections(){
@@ -5314,12 +5679,6 @@ async function deleteYouth(yid){
   renderYouth()
 }
 
-async function deleteGuardian(gid,yid){
-  if(!confirm('Remove this guardian?')) return
-  await api(`/api/youth/guardians/${gid}`,'DELETE')
-  toast('Guardian removed')
-  openYouthProfile(yid)
-}
 
 function openYouthWaiverModal(yid){
   document.getElementById('yw-youth-id').value=yid

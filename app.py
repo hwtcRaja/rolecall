@@ -599,6 +599,26 @@ def init_db():
             name TEXT NOT NULL,
             passphrase TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS youth_notes (
+            id TEXT PRIMARY KEY,
+            youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+            author TEXT NOT NULL,
+            author_id TEXT REFERENCES users(id),
+            content TEXT NOT NULL,
+            note_type TEXT DEFAULT 'general',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS youth_incidents (
+            id TEXT PRIMARY KEY,
+            youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+            incident_date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            severity TEXT DEFAULT 'minor',
+            reported_by TEXT,
+            reported_by_id TEXT REFERENCES users(id),
+            follow_up TEXT DEFAULT '',
+            resolved BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS portal_announcements (
             id TEXT PRIMARY KEY,
             program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -2239,7 +2259,12 @@ def get_youth_participant(yid):
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
     y['enrollments'] = fetchall(conn,
-        'SELECT e.*, p.name as program_name FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (yid,))
+        'SELECT e.*, p.name as program_name, p.status as program_status FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (yid,))
+    try:
+        y['notes'] = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,))
+        y['incidents'] = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC', (yid,))
+    except Exception:
+        y['notes'] = []; y['incidents'] = []
     conn.close()
     return jsonify(y)
 
@@ -2306,12 +2331,48 @@ def add_guardian(yid):
     conn.close()
     return jsonify(row)
 
+@app.route('/api/youth/guardians/<gid>', methods=['PUT'])
+def update_guardian(gid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_guardians SET name=%s,relationship=%s,phone=%s,email=%s,is_primary=%s WHERE id=%s',
+            (d.get('name',''), d.get('relationship',''), d.get('phone',''), d.get('email',''),
+             1 if d.get('is_primary') else 0, gid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_guardians WHERE id=%s', (gid,))
+    conn.close()
+    return jsonify(row)
+
 @app.route('/api/youth/guardians/<gid>', methods=['DELETE'])
 def delete_guardian(gid):
     err = require_admin()
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_guardians WHERE id=%s', (gid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/emergency-contacts/<ecid>', methods=['PUT'])
+def update_emergency_contact(ecid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_emergency_contacts SET name=%s,relationship=%s,phone=%s WHERE id=%s',
+            (d.get('name',''), d.get('relationship',''), d.get('phone',''), ecid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_emergency_contacts WHERE id=%s', (ecid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/emergency-contacts/<ecid>', methods=['DELETE'])
+def delete_emergency_contact(ecid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_emergency_contacts WHERE id=%s', (ecid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -2328,6 +2389,112 @@ def add_emergency_contact(yid):
     row = fetchone(conn, 'SELECT * FROM youth_emergency_contacts WHERE id=%s', (eid,))
     conn.close()
     return jsonify(row)
+
+@app.route('/api/youth/<yid>/notes', methods=['GET'])
+def get_youth_notes(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    notes = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,))
+    conn.close()
+    return jsonify(notes)
+
+@app.route('/api/youth/<yid>/notes', methods=['POST'])
+def add_youth_note(yid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not d.get('content','').strip():
+        return jsonify({'error': 'Note content required'}), 400
+    nid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO youth_notes (id,youth_id,author,author_id,content,note_type)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (nid, yid, session.get('user_name','Staff'), session.get('user_id'),
+         d['content'].strip(), d.get('note_type','general')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_notes WHERE id=%s', (nid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/notes/<nid>', methods=['DELETE'])
+def delete_youth_note(nid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_notes WHERE id=%s', (nid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/<yid>/incidents', methods=['GET'])
+def get_youth_incidents(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    incidents = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC, created_at DESC', (yid,))
+    conn.close()
+    return jsonify(incidents)
+
+@app.route('/api/youth/<yid>/incidents', methods=['POST'])
+def add_youth_incident(yid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not d.get('title','').strip() or not d.get('incident_date','').strip():
+        return jsonify({'error': 'Title and date required'}), 400
+    iid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO youth_incidents
+        (id,youth_id,incident_date,title,description,severity,reported_by,reported_by_id,follow_up,resolved)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (iid, yid, d['incident_date'], d['title'].strip(),
+         d.get('description','').strip(), d.get('severity','minor'),
+         session.get('user_name','Staff'), session.get('user_id'),
+         d.get('follow_up','').strip(), False))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_incidents WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/incidents/<iid>', methods=['PUT'])
+def update_youth_incident(iid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE youth_incidents SET title=%s,description=%s,severity=%s,
+        incident_date=%s,follow_up=%s,resolved=%s WHERE id=%s''',
+        (d.get('title',''), d.get('description',''), d.get('severity','minor'),
+         d.get('incident_date',''), d.get('follow_up',''),
+         bool(d.get('resolved',False)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_incidents WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/incidents/<iid>', methods=['DELETE'])
+def delete_youth_incident(iid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_incidents WHERE id=%s', (iid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth/<yid>/history', methods=['GET'])
+def get_youth_history(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Sign-in history with event names
+    signins = fetchall(conn, '''SELECT ys.*, e.name as event_name, e.event_date,
+        e.start_time, yp.name as program_name
+        FROM youth_sign_ins ys
+        LEFT JOIN events e ON ys.event_id=e.id
+        LEFT JOIN youth_programs yp ON e.program_id=yp.id
+        WHERE ys.youth_id=%s ORDER BY ys.sign_in_time DESC''', (yid,))
+    conn.close()
+    return jsonify(signins)
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):

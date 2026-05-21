@@ -511,6 +511,7 @@ async function loadPortalProfile(){
   el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
   try{
     const data = await fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json())
+    console.log('[Portal] profile data:', data)
     window._portalProfileData = {y:data, yid:activeChildId}
     window._portalYid = activeChildId
     window._portalY = data

@@ -2417,6 +2417,19 @@ def add_authorized_pickup(yid):
     conn.close()
     return jsonify(row)
 
+@app.route('/api/youth/authorized-pickups/<pid>', methods=['PUT'])
+def update_authorized_pickup(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_authorized_pickups SET name=%s,relationship=%s,phone=%s WHERE id=%s',
+            (d.get('name','').strip(), d.get('relationship','').strip(), d.get('phone','').strip(), pid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_authorized_pickups WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
 @app.route('/api/youth/authorized-pickups/<pid>', methods=['DELETE'])
 def delete_authorized_pickup(pid):
     err = require_admin()

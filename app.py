@@ -4163,7 +4163,7 @@ def portal_get_participant(yid):
         '_errors': errors if errors else None,
     })
 
-@app.route('/api/portal/youth/<yid>')
+@app.route('/api/portal/youth/<yid>/profile')
 def portal_youth_profile(yid):
     conn = get_db()
     youth = fetchone(conn, '''SELECT y.*, f.name as family_name

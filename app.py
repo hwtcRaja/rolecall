@@ -2390,6 +2390,42 @@ def add_emergency_contact(yid):
     conn.close()
     return jsonify(row)
 
+@app.route('/api/youth/<yid>/authorized-pickups', methods=['GET'])
+def get_authorized_pickups(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    pickups = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
+    conn.close()
+    return jsonify(pickups)
+
+@app.route('/api/youth/<yid>/authorized-pickups', methods=['POST'])
+def add_authorized_pickup(yid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    if not d.get('name','').strip():
+        return jsonify({'error': 'Name required'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    max_p = fetchone(conn, 'SELECT COALESCE(MAX(priority),0) as m FROM youth_authorized_pickups WHERE youth_id=%s', (yid,))
+    priority = (max_p['m'] or 0) + 1
+    execute(conn, 'INSERT INTO youth_authorized_pickups (id,youth_id,name,relationship,phone,priority) VALUES (%s,%s,%s,%s,%s,%s)',
+            (pid, yid, d['name'].strip(), d.get('relationship','').strip(), d.get('phone','').strip(), priority))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM youth_authorized_pickups WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth/authorized-pickups/<pid>', methods=['DELETE'])
+def delete_authorized_pickup(pid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM youth_authorized_pickups WHERE id=%s', (pid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/youth/<yid>/notes', methods=['GET'])
 def get_youth_notes(yid):
     err = require_auth()

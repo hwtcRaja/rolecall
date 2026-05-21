@@ -4619,43 +4619,55 @@ async function openYouthProfile(yid){
 
   document.getElementById('youth-profile-content').innerHTML=`
 
-    <!-- Two-column layout: info sidebar + tabs -->
-    <div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start">
+    <!-- Info bar + tabs stacked vertically -->
+    <div style="display:flex;flex-direction:column;gap:16px">
 
-      <!-- Left info panel -->
-      <div style="display:flex;flex-direction:column;gap:12px">
+      <!-- Info bar: horizontal strip of key info -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
         <!-- Quick info -->
-        <div class="card" style="padding:16px">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Info</div>
-          <div style="font-size:13px;display:flex;flex-direction:column;gap:6px;color:var(--text-muted)">
+        <div class="card" style="padding:14px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Info</div>
+          <div style="font-size:13px;display:flex;flex-direction:column;gap:5px;color:var(--text-muted)">
             ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
             ${y.program?`<div>🎭 ${y.program}</div>`:''}
+            ${!y.dob&&!y.program?'<div style="color:var(--text-hint)">No info on file</div>':''}
           </div>
         </div>
         <!-- Medical -->
-        ${y.allergies&&y.allergies!=='None'||y.medical_notes?`
-        <div class="card" style="padding:16px;border-left:3px solid var(--amber-200)">
-          ${y.allergies&&y.allergies!=='None'?`<div style="font-size:11px;font-weight:700;color:var(--amber-600);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠️ Allergies</div>
-          <div style="font-size:13px;font-weight:600;color:var(--amber-600);margin-bottom:${y.medical_notes?'10px':'0'}">${y.allergies}</div>`:''}
-          ${y.medical_notes?`<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
-          <div style="font-size:13px;color:var(--text-muted)">${y.medical_notes}</div>`:''}
-        </div>`:''}
-        ${y.linked_volunteer_id?`<div class="card" style="padding:12px 16px;border:1.5px solid var(--teal-light);margin-bottom:8px"><div style="display:flex;align-items:center;justify-content:space-between"><div style="font-size:12px;font-weight:700;color:var(--teal-dark)">🔗 Also a Volunteer</div><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openProfile('${y.linked_volunteer_id}')">View Profile →</button></div></div>`:''}
-        <!-- Portal Passphrase -->
-        ${isAdmin?`<div class="card" style="padding:16px;border:1.5px solid var(--teal-light)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Passphrase</div><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️ Edit</button></div>${(()=>{ const fam=allFamilies.find(f=>f.id===y.family_id); return fam?'<div style="font-size:12px;font-weight:600;color:var(--teal-dark);margin-bottom:6px">👨‍👩‍👧 '+fam.name+'</div><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Family passphrase: <span style=\\"font-family:monospace;font-weight:700\\">'+fam.passphrase+'</span></div>':y.passphrase?'':'<div style=\\"font-size:11px;color:var(--text-hint);margin-bottom:4px\\">Not linked to a family</div>' })()}${y.passphrase?'<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px">'+y.passphrase+'</div>':''}</div>`:''}
-        <div class="card" style="padding:16px">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Waivers</div>
-          ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No waivers on file</div>':
-            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:6px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
-              <div style="font-weight:500">${w.type_name}</div>
-              <div style="color:var(--text-muted)">${formatDate(w.signed_date)}</div>
-              ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
-            </div>`).join('')}
-          ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openYouthWaiverModal('${y.id}')">+ Add Waiver</button>`:''}
+        <div class="card" style="padding:14px;${y.allergies&&y.allergies!=='None'||y.medical_notes?'border-left:3px solid var(--amber-200)':''}">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Medical</div>
+          ${y.allergies&&y.allergies!=='None'?`<div style="font-size:12px;font-weight:700;color:var(--amber-600);margin-bottom:4px">⚠️ ${escHtml(y.allergies)}</div>`:''}
+          ${y.medical_notes?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(y.medical_notes)}</div>`:''}
+          ${!y.allergies||y.allergies==='None'&&!y.medical_notes?'<div style="font-size:12px;color:var(--text-hint)">No medical notes</div>':''}
         </div>
+        <!-- Waivers -->
+        <div class="card" style="padding:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Waivers</div>
+            ${isAdmin?`<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" onclick="openYouthWaiverModal('${y.id}')">+ Add</button>`:''}
+          </div>
+          ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-hint)">No waivers on file</div>':
+            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+              <span style="font-weight:500">${escHtml(w.type_name||'Waiver')}</span>
+              <span style="color:var(--text-muted);margin-left:6px">${formatDate(w.signed_date)}</span>
+              ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);margin-left:4px">📄</a>`:''}
+            </div>`).join('')}
+        </div>
+        <!-- Portal passphrase -->
+        ${isAdmin?`<div class="card" style="padding:14px;border:1.5px solid var(--teal-light)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Access</div>
+            <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️</button>
+          </div>
+          ${y.passphrase?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:6px 10px;border-radius:6px">${escHtml(y.passphrase)}</div>`:'<div style="font-size:12px;color:var(--text-hint)">No passphrase set</div>'}
+        </div>`:''}
+        ${y.linked_volunteer_id?`<div class="card" style="padding:14px;border:1.5px solid var(--teal-light)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">🔗 Volunteer Profile</div>
+          <button class="btn btn-secondary btn-sm" style="font-size:11px;width:100%" onclick="openProfile('${y.linked_volunteer_id}')">View Profile →</button>
+        </div>`:''}
       </div>
 
-      <!-- Right: full-width tabs -->
+      <!-- Full-width tabs -->
       <div class="card" style="padding:0;overflow:hidden">
         <!-- Tab strip -->
         <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50)">
@@ -14815,7 +14827,7 @@ async function saveAuthorizedPickup(yid){
 
 async function deleteAuthorizedPickup(yid, pid){
   if(!confirm('Remove this authorized person?')) return
-  await api('/api/youth/'+yid+'/authorized-pickups/'+pid,'DELETE')
+  await api('/api/youth/authorized-pickups/'+pid,'DELETE')
   toast('Removed')
   loadAuthorizedPickups(yid)
 }

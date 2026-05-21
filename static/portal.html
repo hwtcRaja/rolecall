@@ -1204,10 +1204,14 @@ async function selectInstructorContext(type, id, name, el){
   el?.classList.add('active')
   document.getElementById('instructor-main').innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
 
-  const [content, events] = await Promise.all([
+  const [rawContent, events] = await Promise.all([
     fetch(`/api/portal/instructor/content/${type}/${id}`).then(r=>r.json()).catch(()=>({announcements:[],files:[]})),
     fetch(type==='program'?`/api/portal/program/${id}/events`:`/api/portal/production/${id}/events`).then(r=>r.json()).catch(()=>[])
   ])
+  // Handle both old array response and new {files,announcements} object
+  const content = Array.isArray(rawContent)
+    ? {files: rawContent, announcements: []}
+    : {files: rawContent.files||[], announcements: rawContent.announcements||[]}
 
   const today = new Date().toISOString().split('T')[0]
   const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))

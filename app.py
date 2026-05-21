@@ -2093,6 +2093,66 @@ def delete_youth_program(pid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/youth-programs/<pid>/send-email', methods=['POST'])
+def send_program_email(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    subject = d.get('subject', '').strip()
+    body = d.get('body', '').strip()
+    include_guardians = d.get('include_guardians', True)
+    include_instructors = d.get('include_instructors', True)
+    if not subject or not body:
+        return jsonify({'error': 'Subject and body are required'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    recipients = set()
+
+    # Guardian emails for all enrolled youth
+    if include_guardians:
+        enrolled = fetchall(conn, '''SELECT y.id FROM youth_participants y
+            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+            WHERE ype.program_id=%s AND y.status='active' ''', (pid,))
+        for y in enrolled:
+            guardians = fetchall(conn, 'SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != \'\'', (y['id'],))
+            for g in guardians:
+                if g['email']:
+                    recipients.add(g['email'].strip().lower())
+
+    # Instructor email
+    if include_instructors and prog.get('instructor_id'):
+        vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog['instructor_id'],))
+        if vol and vol.get('email'):
+            recipients.add(vol['email'].strip().lower())
+
+    conn.close()
+
+    if not recipients:
+        return jsonify({'error': 'No email addresses found for this program'}), 400
+
+    prog_name = prog.get('name', 'Program')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:20px;border-radius:8px 8px 0 0">
+        <h2 style="color:white;margin:0">📚 {prog_name}</h2>
+      </div>
+      <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.7;color:#1e293b">{body}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+        <p style="font-size:12px;color:#94a3b8">This message was sent by Horizon West Theater Company regarding the <strong>{prog_name}</strong> program.</p>
+      </div>
+    </div>'''
+
+    try:
+        send_email(list(recipients), subject, html_body)
+        return jsonify({'ok': True, 'sent_to': len(recipients), 'recipients': list(recipients)})
+    except Exception as e:
+        app.logger.error(f'send_program_email error: {e}')
+        return jsonify({'error': str(e)}), 500
+
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────

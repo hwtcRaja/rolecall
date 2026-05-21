@@ -4618,58 +4618,71 @@ async function openYouthProfile(yid){
   })
 
   document.getElementById('youth-profile-content').innerHTML=`
+    <div class="profile-layout">
 
-    <!-- Info bar + tabs stacked vertically -->
-    <div style="display:flex;flex-direction:column;gap:16px">
+      <!-- LEFT SIDEBAR -->
+      <div class="profile-card">
+        <div class="profile-avatar-large" style="background:${bg};color:${col}">${initials(safeName)}</div>
+        <div class="profile-name">${safeName}</div>
+        <div style="text-align:center;margin-bottom:12px">
+          <span class="status-badge ${y.status==='active'?'status-active':'status-inactive'}">${y.status==='active'?'● Active':'○ Inactive'}</span>
+        </div>
+        <hr class="divider"/>
+        <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+          ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
+          ${y.program?`<div>🎭 ${escHtml(y.program)}</div>`:''}
+        </div>
 
-      <!-- Info bar: horizontal strip of key info -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
-        <!-- Quick info -->
-        <div class="card" style="padding:14px">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Info</div>
-          <div style="font-size:13px;display:flex;flex-direction:column;gap:5px;color:var(--text-muted)">
-            ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
-            ${y.program?`<div>🎭 ${y.program}</div>`:''}
-            ${!y.dob&&!y.program?'<div style="color:var(--text-hint)">No info on file</div>':''}
-          </div>
-        </div>
-        <!-- Medical -->
-        <div class="card" style="padding:14px;${y.allergies&&y.allergies!=='None'||y.medical_notes?'border-left:3px solid var(--amber-200)':''}">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Medical</div>
-          ${y.allergies&&y.allergies!=='None'?`<div style="font-size:12px;font-weight:700;color:var(--amber-600);margin-bottom:4px">⚠️ ${escHtml(y.allergies)}</div>`:''}
-          ${y.medical_notes?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(y.medical_notes)}</div>`:''}
-          ${!y.allergies||y.allergies==='None'&&!y.medical_notes?'<div style="font-size:12px;color:var(--text-hint)">No medical notes</div>':''}
-        </div>
-        <!-- Waivers -->
-        <div class="card" style="padding:14px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Waivers</div>
-            ${isAdmin?`<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" onclick="openYouthWaiverModal('${y.id}')">+ Add</button>`:''}
-          </div>
+        ${y.allergies&&y.allergies.toLowerCase()!=='none'&&y.allergies.trim()?`
+        <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--red-600);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">⚠️ Allergies</div>
+          <div style="font-size:13px;font-weight:600;color:var(--red-600)">${escHtml(y.allergies)}</div>
+        </div>`:''}
+
+        ${y.medical_notes?`
+        <div style="background:var(--gray-50);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Medical Notes</div>
+          <div style="font-size:13px;color:var(--text-muted)">${escHtml(y.medical_notes)}</div>
+        </div>`:''}
+
+        <hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Waivers</div>
           ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-hint)">No waivers on file</div>':
-            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
-              <span style="font-weight:500">${escHtml(w.type_name||'Waiver')}</span>
-              <span style="color:var(--text-muted);margin-left:6px">${formatDate(w.signed_date)}</span>
-              ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);margin-left:4px">📄</a>`:''}
+            (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:5px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
+              <div style="font-weight:500">${escHtml(w.type_name||'Waiver')}</div>
+              <div style="color:var(--text-muted)">${formatDate(w.signed_date)}</div>
+              ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
             </div>`).join('')}
+          ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openYouthWaiverModal('${y.id}')">+ Add Waiver</button>`:''}
         </div>
-        <!-- Portal passphrase -->
-        ${isAdmin?`<div class="card" style="padding:14px;border:1.5px solid var(--teal-light)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+
+        ${isAdmin?`<hr class="divider"/>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Access</div>
             <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️</button>
           </div>
-          ${y.passphrase?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:6px 10px;border-radius:6px">${escHtml(y.passphrase)}</div>`:'<div style="font-size:12px;color:var(--text-hint)">No passphrase set</div>'}
+          ${y.passphrase?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px">${escHtml(y.passphrase)}</div>`:'<div style="font-size:12px;color:var(--text-hint)">No passphrase set</div>'}
         </div>`:''}
-        ${y.linked_volunteer_id?`<div class="card" style="padding:14px;border:1.5px solid var(--teal-light)">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">🔗 Volunteer Profile</div>
-          <button class="btn btn-secondary btn-sm" style="font-size:11px;width:100%" onclick="openProfile('${y.linked_volunteer_id}')">View Profile →</button>
+
+        ${y.linked_volunteer_id?`<hr class="divider"/>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:12px;font-weight:700;color:var(--teal-dark)">🔗 Also a Volunteer</div>
+          <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openProfile('${y.linked_volunteer_id}')">View →</button>
+        </div>`:''}
+
+        ${(y.incidents||[]).filter(i=>!i.resolved).length?`<hr class="divider"/>
+        <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px 12px">
+          <div style="font-size:12px;font-weight:700;color:var(--red-600)">🚨 ${(y.incidents||[]).filter(i=>!i.resolved).length} Open Incident${(y.incidents||[]).filter(i=>!i.resolved).length>1?'s':''}</div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:11px;width:100%" onclick="document.querySelector('[data-tab=ytab-incidents]').click()">View →</button>
         </div>`:''}
       </div>
 
-      <!-- Full-width tabs -->
+      <!-- RIGHT TABS -->
       <div class="card" style="padding:0;overflow:hidden">
         <!-- Tab strip -->
+        <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50);scrollbar-width:none">
         <div style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50)">
           <button class="ytab-btn active" data-tab="ytab-programs" onclick="switchYTab(this)" style="padding:14px 20px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
             🎓 Programs <span style="background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.enrollments||[]).length}</span>
@@ -14778,50 +14791,54 @@ async function loadAuthorizedPickups(yid){
   const pickups=await api('/api/youth/'+yid+'/authorized-pickups')
   const isAdmin=canEdit('youth')
   container.innerHTML=
-    (isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}')">+ Add Authorized Person</button></div>`:'')+
+    (isAdmin?`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddPickupModal('${yid}',null)">+ Add Authorized Person</button></div>`:'')+
     (!pickups.length?'<div style="color:var(--text-muted);font-size:13px">No authorized pickups on file</div>':
       pickups.map((p,i)=>`<div class="guardian-item" style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
         <div>
-          <div style="font-weight:600;font-size:14px">${p.name} <span style="font-size:11px;background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:8px">${i===0?'Primary':i===1?'Secondary':'#'+(i+1)}</span></div>
-          ${p.relationship?`<div style="font-size:12px;color:var(--text-muted)">${p.relationship}</div>`:''}
-          ${p.phone?`<div style="font-size:13px;margin-top:4px">📞 ${p.phone}</div>`:''}
+          <div style="font-weight:600;font-size:14px">${escHtml(p.name)} <span style="font-size:11px;background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:8px">${i===0?'Primary':i===1?'Secondary':'#'+(i+1)}</span></div>
+          ${p.relationship?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(p.relationship)}</div>`:''}
+          ${p.phone?`<div style="font-size:13px;margin-top:4px">📞 ${escHtml(p.phone)}</div>`:''}
         </div>
-        ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">✕</button>`:''}
+        ${isAdmin?`<div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openAddPickupModal('${yid}','${p.id}',${JSON.stringify(p).replace(/</g,'\\u003c')})">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">✕</button>
+        </div>`:''}
       </div>`).join(''))
 }
 
-function openAddPickupModal(yid){
+function openAddPickupModal(yid, pid, existing){
+  const isEdit = !!pid
   const modal=document.createElement('div')
   modal.className='modal-overlay open'
   modal.id='modal-add-pickup'
+  modal.onclick=function(e){if(e.target===modal) modal.remove()}
   modal.innerHTML=`<div class="modal">
-    <div class="modal-header"><div class="modal-title">Add Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">✕</button></div>
+    <div class="modal-header"><div class="modal-title">${isEdit?'Edit':'Add'} Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">✕</button></div>
     <div class="modal-body">
-      <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+      <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" value="${isEdit?escHtml(existing.name||''):''}" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
       <div class="form-row">
-        <div class="form-group"><label>Relationship</label><input type="text" id="pickup-rel" placeholder="e.g. Parent, Grandparent" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
-        <div class="form-group"><label>Phone</label><input type="tel" id="pickup-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+        <div class="form-group"><label>Relationship</label><input type="text" id="pickup-rel" value="${isEdit?escHtml(existing.relationship||''):''}" placeholder="e.g. Parent, Grandparent" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="pickup-phone" value="${isEdit?escHtml(existing.phone||''):''}" placeholder="(555) 000-0000" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="document.getElementById('modal-add-pickup').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveAuthorizedPickup('${yid}')">Add</button>
+      <button class="btn btn-primary" onclick="saveAuthorizedPickup('${yid}','${pid||''}')">Save</button>
     </div>
   </div>`
   document.body.appendChild(modal)
 }
 
-async function saveAuthorizedPickup(yid){
+async function saveAuthorizedPickup(yid, pid){
   const name=document.getElementById('pickup-name')?.value.trim()
   if(!name){toast('Name is required','error');return}
-  const res=await api('/api/youth/'+yid+'/authorized-pickups','POST',{
-    name,
-    relationship:document.getElementById('pickup-rel')?.value.trim(),
-    phone:document.getElementById('pickup-phone')?.value.trim()
-  })
-  if(res.error){toast(res.error,'error');return}
+  const data={name, relationship:document.getElementById('pickup-rel')?.value.trim(), phone:document.getElementById('pickup-phone')?.value.trim()}
+  const res = pid
+    ? await api('/api/youth/authorized-pickups/'+pid,'PUT',data)
+    : await api('/api/youth/'+yid+'/authorized-pickups','POST',data)
+  if(res?.error){toast(res.error,'error');return}
   document.getElementById('modal-add-pickup')?.remove()
-  toast('Added!','success')
+  toast(pid?'Updated!':'Added!')
   loadAuthorizedPickups(yid)
 }
 

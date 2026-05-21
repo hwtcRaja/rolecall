@@ -646,7 +646,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="font-size:18px;font-weight:700;letter-spacing:-0.3px" id="cal-month-label"></div>
               <button class="btn btn-secondary btn-sm" onclick="calNav(1)">Next →</button>
             </div>
-            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:2px">
+            <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;margin-bottom:2px">
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sun</div>
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Mon</div>
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Tue</div>
@@ -655,7 +655,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Fri</div>
               <div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);padding:8px 0;text-transform:uppercase;letter-spacing:0.5px">Sat</div>
             </div>
-            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
+            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px"></div>
             <!-- Calendar legend -->
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
               <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Legend:</span>
@@ -10483,32 +10483,17 @@ function renderCalendar(events){
     const isToday=dateStr===today
     const dayEvents=byDate[dateStr]||[]
     const isAdminGrid=canEdit('events')
-    cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:8px;cursor:${isAdminGrid?'pointer':'default'}" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
-      <div style="font-size:13px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
+  cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:6px;cursor:${isAdminGrid?'pointer':'default'};overflow:hidden;min-width:0" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
+      <div style="font-size:12px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
       ${dayEvents.slice(0,3).map(e=>{
         const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
         const isAdminCal=canEdit('events')
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
-        const calElicStr=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
-        // Context label: what this event belongs to
-        let ctxLabel='', ctxStyle=''
-        if(e.production_stage==='rising_stars'){
-          ctxLabel='RS: '+(e.production_name||'Rising Stars')
-          ctxStyle='background:rgba(124,58,237,0.12);color:#5b21b6'
-        } else if(e.production_name){
-          ctxLabel='Prod: '+e.production_name
-          ctxStyle='background:rgba(190,24,93,0.1);color:#9d174d'
-        } else if(e.program_name){
-          ctxLabel='Class: '+e.program_name
-          ctxStyle='background:rgba(21,128,61,0.1);color:#166534'
-        }
-        return`<div onclick="openEventChip('${e.id}')" title="${e.name}${calTimeStr}${e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''}" style="background:${bg};color:${col};border-radius:4px;padding:3px 6px;font-size:11px;font-weight:600;margin-bottom:3px;cursor:pointer;line-height:1.4">
-          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}<span style="opacity:0.75;font-weight:400">${calTimeStr}</span></div>
-          ${ctxLabel?`<div style="font-size:9px;font-weight:700;margin-top:2px;padding:1px 4px;border-radius:3px;display:inline-block;${ctxStyle};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${ctxLabel}</div>`:''}
-          ${!ctxLabel&&calElicStr?`<div style="font-size:10px;font-weight:400;opacity:0.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ELIC: ${calElicStr}</div>`:''}
+        return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0">
+          ${escHtml(e.name)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
         </div>`
       }).join('')}
-      ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:2px 4px">+${dayEvents.length-3} more</div>`:''}
+      ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:1px 3px">+${dayEvents.length-3} more</div>`:''}
     </div>`
   }
 
@@ -12545,6 +12530,68 @@ function openEditProgramModal(pid){
   openModal('modal-program')
 }
 
+function openProgramEmailModal(pid){
+  const p=allPrograms.find(p=>p.id===pid)
+  if(!p) return
+  let existing=document.getElementById('modal-program-email')
+  if(existing) existing.remove()
+  const m=document.createElement('div')
+  m.id='modal-program-email'
+  m.className='modal-overlay'
+  m.innerHTML=`<div class="modal" style="max-width:560px;width:100%">
+    <div class="modal-header">
+      <div class="modal-title">✉️ Email — ${escHtml(p.name)}</div>
+      <button class="modal-close" onclick="document.getElementById('modal-program-email').remove()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Send To</label>
+        <div style="display:flex;gap:16px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="prog-email-guardians" checked> Guardian emails (enrolled families)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="prog-email-instructors" checked> Instructor
+          </label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Subject</label>
+        <input type="text" id="prog-email-subject" value="${escHtml(p.name)} — " style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
+        <textarea id="prog-email-body" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:160px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+      <div id="prog-email-result" style="margin-top:10px;font-size:13px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-program-email').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="sendProgramEmail('${pid}')">📤 Send Email</button>
+    </div>
+  </div>`
+  document.body.appendChild(m)
+}
+
+async function sendProgramEmail(pid){
+  const subject=document.getElementById('prog-email-subject')?.value.trim()
+  const body=document.getElementById('prog-email-body')?.value.trim()
+  const include_guardians=document.getElementById('prog-email-guardians')?.checked
+  const include_instructors=document.getElementById('prog-email-instructors')?.checked
+  const result=document.getElementById('prog-email-result')
+  if(!subject||!body){toast('Subject and message required','error');return}
+  if(!include_guardians&&!include_instructors){toast('Select at least one recipient group','error');return}
+  if(result) result.innerHTML='<span style="color:var(--text-muted)">Sending…</span>'
+  const res=await api(`/api/youth-programs/${pid}/send-email`,'POST',{subject,body,include_guardians,include_instructors})
+  if(res.error){
+    if(result) result.innerHTML=`<span style="color:var(--red-600)">⚠️ ${escHtml(res.error)}</span>`
+    return
+  }
+  if(result) result.innerHTML=`<span style="color:var(--green-600)">✅ Sent to ${res.sent_to} recipient${res.sent_to===1?'':'s'}</span>`
+  setTimeout(()=>{ const m=document.getElementById('modal-program-email'); if(m) m.remove() },2000)
+  toast(`Email sent to ${res.sent_to} recipient${res.sent_to===1?'':'s'}!`)
+}
+
 async function saveYouthProgram(){
   const eid=document.getElementById('program-edit-id').value
   const name=document.getElementById('program-name').value.trim()
@@ -12703,6 +12750,7 @@ async function openProgramDetail(programId){
     badges:[],
     actions: isAdmin ? [
       {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"},
+      {label:'✉️ Email Roster', onclick:"openProgramEmailModal('"+programId+"')"},
       {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"}
     ] : []
   })

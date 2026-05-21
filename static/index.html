@@ -1845,20 +1845,38 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <!-- BOARD MEMBER MODAL -->
 <div class="modal-overlay" id="modal-board-member">
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:560px">
     <div class="modal-header"><div class="modal-title" id="board-member-modal-title">Add Board Member</div><button class="modal-close" onclick="closeModal('modal-board-member')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="bm-id"/>
-      <div class="form-group"><label>Name *</label><input type="text" id="bm-name"/></div>
-      <div class="form-group"><label>Email *</label><input type="email" id="bm-email"/></div>
-      <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer…"/></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="grid-column:1/-1"><label>Name *</label><input type="text" id="bm-name"/></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Email *</label><input type="email" id="bm-email"/></div>
+        <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer…"/></div>
         <div class="form-group"><label>Status</label><select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select></div>
         <div class="form-group"><label>Join Date</label><input type="date" id="bm-join-date"/></div>
+        <div class="form-group">
+          <label>Linked Volunteer Profile</label>
+          <select id="bm-volunteer-id" style="width:100%">
+            <option value="">— Not linked —</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Links this board member to their volunteer record</div>
+        </div>
       </div>
       <div class="form-group"><label>Notes</label><textarea id="bm-notes" style="min-height:60px"></textarea></div>
+      <!-- Election history inline when editing -->
+      <div id="bm-nominations-section" style="display:none;margin-top:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Election History</div>
+          <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 10px" onclick="openNominationFromModal()">+ Add</button>
+        </div>
+        <div id="bm-nominations-list"></div>
+      </div>
     </div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button><button class="btn btn-primary" onclick="saveBoardMember()">Save</button></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBoardMember()">Save</button>
+    </div>
   </div>
 </div>
 
@@ -3366,6 +3384,7 @@ async function openProfile(volId){
     bg, col, backFn: "navTo('volunteers')",
     badges: [
       v.status==='active'?{label:'● Active',bg:'rgba(255,255,255,0.25)'}:{label:'○ Inactive',bg:'rgba(255,255,255,0.12)'},
+      v.board_member?{label:'🏛️ '+(v.board_member.role||'Board Member'),bg:'rgba(30,64,175,0.4)'}:null,
       v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:'🔗 Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
       v.background_check_status==='cleared'?{label:'✅ BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
       v.background_check_status==='pending'?{label:'⏳ BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
@@ -3395,6 +3414,9 @@ async function openProfile(volId){
     }
     mkLink('✉️ Email', 'mailto:'+v.email)
     mkBtn('Edit', function(){ openEditVolModal(v.id) })
+    if(v.board_member){
+      mkBtn('🏛️ Board Profile', function(){ navTo('board'); setTimeout(function(){ editBoardMember(v.board_member.id) },400) })
+    }
     if(v.employer_program==='Disney Cast Member'||v.employer_program==='Universal Team Member'){
       var icon = v.employer_program==='Disney Cast Member' ? '🐭' : '🎬'
       mkBtn(icon+' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
@@ -4666,67 +4688,68 @@ function renderBoardMembers(){
   var el=document.getElementById('btab-panel-members')
   if(!el) return
   if(!_boardMembers.length){ el.innerHTML='<div class="empty-state"><div class="icon">🏛️</div><p>No board members yet</p></div>'; return }
-  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px">'
-    + _boardMembers.map(function(m){
-      var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
-      var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
-      var sb=m.status==='active'
-        ?'<span style="background:var(--green-50);color:var(--green-600);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">● Active</span>'
-        :'<span style="background:var(--bg);color:var(--text-muted);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">○ '+m.status+'</span>'
-      var noms=m.nominations||[]
-      var latestNom=noms.length?noms[noms.length-1]:null
-      var dueWarn=''
-      if(latestNom){
-        var ny=parseInt((latestNom.nomination_date||'').split('-')[0])
-        var ty=parseInt(latestNom.term_years||3)
-        if(!isNaN(ny)){
-          var dy=ny+ty, now=new Date(), mu=(dy-now.getFullYear())*12-now.getMonth()
-          if(mu<=0) dueWarn='<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⚠️ Renomination overdue — due '+dy+'</div>'
-          else if(mu<=6) dueWarn='<div style="background:#fefce8;border:1.5px solid #fde047;color:#854d0e;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;margin-top:6px">⏳ Renomination due '+dy+' ('+mu+' months)</div>'
-        }
-      }
-      var nomH=noms.length
-        ?'<table style="width:100%;border-collapse:collapse;margin-top:2px;font-size:13px">'
-          +noms.map(function(n,i){
-            var tl={election:'🗳️ Initial Election',renomination:'🔄 Renomination',appointment:'📋 Appointment'}[n.nomination_type]||n.nomination_type
-            var startYear=parseInt((n.nomination_date||'').split('-')[0])
-            var termYrs=parseInt(n.term_years||3)
-            var endYear=startYear+termYrs
-            return '<tr style="border-top:'+(i>0?'1px solid var(--border)':'none')+'">'
-              +'<td style="padding:7px 0;font-weight:600;white-space:nowrap">'+tl+'</td>'
-              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+formatDate(n.nomination_date)+'</td>'
-              +'<td style="padding:7px 8px;color:var(--text-muted);white-space:nowrap">'+termYrs+'yr term</td>'
-              +'<td style="padding:7px 0;color:var(--text-muted);white-space:nowrap">until '+endYear+'</td>'
-              +'<td style="padding:7px 0;padding-left:8px;text-align:right">'
-              +'<button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" '
-              +'style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0;line-height:1">×</button></td>'
-              +'</tr>'
-          }).join('')+'</table>'
-        :'<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No elections recorded yet</div>'
-      return '<div class="card" style="padding:16px">'
-        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">'
-        +'<div style="display:flex;align-items:center;gap:10px">'+avatarHTML(m.name,36)
-        +'<div><div style="font-weight:700;font-size:14px">'+escHtml(m.name)+'</div>'
-        +'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div>'
-        +'<div style="display:flex;gap:6px;align-items:center">'+sb
-        +'<button data-id="'+m.id+'" onclick="editBoardMember(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px">✏️</button></div></div>'
-        +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">📧 '+escHtml(m.email)+'</div>'
-        +(m.latest_availability_token
-          ? '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px">'
-            + '<div style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-            + '🔗 Availability link ('+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.latest_availability_month-1]+' '+m.latest_availability_year+')</div>'
-            + '<button data-token="'+m.latest_availability_token+'" onclick="copyAvailLink(this.dataset.token)" class="btn btn-secondary btn-sm" style="flex-shrink:0;padding:2px 8px;font-size:11px">📋 Copy</button>'
-            + '</div>'
-          : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic">No availability link yet — use Request Availability to generate one</div>')
-        +'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:10px">'
-        +'<div style="font-size:12px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+' meetings attended</div>'
-        +(rate!==null?'<div style="font-size:18px;font-weight:900;color:'+rc+'">'+rate+'%</div>':'<div style="font-size:12px;color:var(--text-muted)">—</div>')
-        +'</div>'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-        +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Election History</div>'
-        +'<button data-mid="'+m.id+'" onclick="openNominationModal(this.dataset.mid)" class="btn btn-secondary btn-sm" style="padding:2px 10px;font-size:11px">+ Add</button></div>'
-        +nomH+dueWarn+'</div>'
-    }).join('')+'</div>'
+
+  var active=_boardMembers.filter(function(m){return m.status==='active'})
+  var inactive=_boardMembers.filter(function(m){return m.status!=='active'})
+
+  function nomStatus(m){
+    var noms=m.nominations||[]
+    if(!noms.length) return {label:'No record',color:'var(--text-muted)',warn:false,upcoming:false}
+    var lat=noms[noms.length-1]
+    var nd=new Date(lat.nomination_date)
+    var ty=parseInt(lat.term_years||3)
+    var endDate=new Date(nd)
+    endDate.setFullYear(endDate.getFullYear()+ty)
+    var now=new Date()
+    var msLeft=endDate-now
+    var daysLeft=Math.ceil(msLeft/(1000*60*60*24))
+    var monthsLeft=Math.ceil(msLeft/(1000*60*60*24*30.5))
+    if(daysLeft<0) return {label:'Overdue since '+endDate.getFullYear(),color:'var(--red-600)',bg:'var(--red-50)',warn:true,upcoming:false}
+    if(daysLeft<=180) return {label:'Due '+endDate.toLocaleDateString('en-US',{month:'short',year:'numeric'})+' ('+monthsLeft+'mo)',color:'var(--amber-700)',bg:'#fefce8',warn:false,upcoming:true}
+    return {label:'Until '+endDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),color:'var(--green-600)',bg:'var(--green-50)',warn:false,upcoming:false}
+  }
+
+  function memberRow(m){
+    var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
+    var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
+    var ns=nomStatus(m)
+    var latestNom=(m.nominations||[]).slice(-1)[0]
+    var latestType=latestNom?({election:'🗳️ Election',renomination:'🔄 Renomination',appointment:'📋 Appt'}[latestNom.nomination_type]||latestNom.nomination_type):''
+    var volLink=m.volunteer_id
+      ?'<span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;cursor:pointer" onclick="openProfile(\''+m.volunteer_id+'\')" title="View volunteer profile">👤 Vol</span>'
+      :'<span style="font-size:10px;color:var(--text-hint)">—</span>'
+    return '<tr style="cursor:pointer" onclick="editBoardMember(\''+m.id+'\')" class="vol-row-hover">'
+      +'<td><div style="display:flex;align-items:center;gap:8px">'+avatarHTML(m.name,30)
+      +'<div><div style="font-weight:600;font-size:13px">'+escHtml(m.name)+'</div>'
+      +'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div></td>'
+      +'<td>'+volLink+'</td>'
+      +'<td style="font-size:12px;color:var(--text-muted)">'+escHtml(m.email)+'</td>'
+      +'<td style="font-size:12px">'+(m.join_date?formatDate(m.join_date):'<span style="color:var(--text-hint)">—</span>')+'</td>'
+      +'<td style="font-size:12px">'+(latestType?'<span>'+latestType+'</span>':'<span style="color:var(--text-hint)">None</span>')+'</td>'
+      +'<td><span style="font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;background:'+(ns.bg||'var(--bg)')+';color:'+ns.color+'">'
+      +(ns.warn?'⚠️ ':ns.upcoming?'⏳ ':'')+escHtml(ns.label)+'</span></td>'
+      +'<td style="text-align:center"><span style="font-size:13px;font-weight:700;color:'+rc+'">'+(rate!==null?rate+'%':'—')+'</span>'
+      +'<div style="font-size:10px;color:var(--text-muted)">'+m.meetings_attended+'/'+m.meetings_total+'</div></td>'
+      +'</tr>'
+  }
+
+  function memberTable(list){
+    if(!list.length) return ''
+    return '<div class="card" style="padding:0;overflow:hidden"><table>'
+      +'<thead><tr><th>Member</th><th>Volunteer</th><th>Email</th><th>Since</th><th>Last Election</th><th>Term Status</th><th style="text-align:center">Attendance</th></tr></thead>'
+      +'<tbody>'+list.map(memberRow).join('')+'</tbody></table></div>'
+  }
+
+  var html=''
+  if(active.length){
+    html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Active Members ('+active.length+')</div>'
+    html+=memberTable(active)
+  }
+  if(inactive.length){
+    html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:20px;margin-bottom:8px">Inactive / Emeritus</div>'
+    html+=memberTable(inactive)
+  }
+  el.innerHTML=html
 }
 
 function renderBoardMeetings(){
@@ -4906,32 +4929,71 @@ function copyAvailLink(token){
   })
 }
 
+function populateBoardVolunteerDropdown(selectedId){
+  var sel=document.getElementById('bm-volunteer-id')
+  if(!sel) return
+  sel.innerHTML='<option value="">— Not linked —</option>'
+    +(volunteers||[]).sort(function(a,b){return a.name.localeCompare(b.name)}).map(function(v){
+      return '<option value="'+v.id+'"'+(v.id===selectedId?' selected':'')+'>'+escHtml(v.name)+'</option>'
+    }).join('')
+}
+
 function openBoardMemberModal(){
   document.getElementById('board-member-modal-title').textContent='Add Board Member'
   ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){document.getElementById(id).value=''})
   document.getElementById('bm-status').value='active'
+  document.getElementById('bm-nominations-section').style.display='none'
+  populateBoardVolunteerDropdown(null)
   openModal('modal-board-member')
 }
 
 function editBoardMember(id){
   var m=_boardMembers.find(function(m){return m.id===id})
   if(!m) return
-  document.getElementById('board-member-modal-title').textContent='Edit Board Member'
+  document.getElementById('board-member-modal-title').textContent='Edit — '+m.name
   document.getElementById('bm-id').value=m.id; document.getElementById('bm-name').value=m.name
   document.getElementById('bm-email').value=m.email; document.getElementById('bm-role').value=m.role||''
   document.getElementById('bm-status').value=m.status; document.getElementById('bm-join-date').value=m.join_date||''
   document.getElementById('bm-notes').value=m.notes||''
+  populateBoardVolunteerDropdown(m.volunteer_id||null)
+  // Show nominations
+  var ns=document.getElementById('bm-nominations-section')
+  var nl=document.getElementById('bm-nominations-list')
+  ns.style.display=''
+  var noms=m.nominations||[]
+  nl.innerHTML=noms.length
+    ?'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      +noms.map(function(n,i){
+        var tl={election:'🗳️ Election',renomination:'🔄 Renomination',appointment:'📋 Appointment'}[n.nomination_type]||n.nomination_type
+        var nd=new Date(n.nomination_date), ty=parseInt(n.term_years||3)
+        var ed=new Date(nd); ed.setFullYear(ed.getFullYear()+ty)
+        return '<tr style="border-top:'+(i?'1px solid var(--border)':'none')+'">'
+          +'<td style="padding:6px 0;font-weight:600">'+tl+'</td>'
+          +'<td style="padding:6px 8px;color:var(--text-muted)">'+formatDate(n.nomination_date)+'</td>'
+          +'<td style="padding:6px 8px;color:var(--text-muted)">'+ty+' yr term</td>'
+          +'<td style="padding:6px 0;color:var(--text-muted)">until '+ed.toLocaleDateString('en-US',{month:'short',year:'numeric'})+'</td>'
+          +'<td style="text-align:right;padding:6px 0"><button data-nid="'+n.id+'" data-mid="'+m.id+'" onclick="var b=this;deleteBoardNomination(b.dataset.nid,b.dataset.mid)" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0">×</button></td>'
+          +'</tr>'
+      }).join('')+'</table>'
+    :'<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No elections recorded yet</div>'
   openModal('modal-board-member')
+}
+
+function openNominationFromModal(){
+  var mid=document.getElementById('bm-id').value
+  if(!mid){toast('Save the member first','error');return}
+  closeModal('modal-board-member')
+  openNominationModal(mid)
 }
 
 async function saveBoardMember(){
   var name=document.getElementById('bm-name').value.trim(), email=document.getElementById('bm-email').value.trim()
   if(!name||!email){toast('Name and email required','error');return}
   var id=document.getElementById('bm-id').value
-  var data={name,email,role:document.getElementById('bm-role').value.trim(),status:document.getElementById('bm-status').value,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim()}
+  var data={name,email,role:document.getElementById('bm-role').value.trim(),status:document.getElementById('bm-status').value,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim(),volunteer_id:document.getElementById('bm-volunteer-id').value||null}
   var res=id?await api('/api/board/members/'+id,'PUT',data):await api('/api/board/members','POST',data)
   if(res&&res.error){toast(res.error,'error');return}
-  closeModal('modal-board-member'); toast(id?'Member updated!':'Member added!','success')
+  closeModal('modal-board-member'); toast(id?'Member updated!':'Member added!')
   await loadBoardPage()
 }
 

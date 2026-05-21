@@ -38,8 +38,23 @@ print("\n── JavaScript ──")
 for fname in ['static/index.html','static/kiosk.html','static/portal.html','static/pickup.html']:
     content=open(fname).read()
     tag='<script>\n'
-    start=content.rfind(tag,0,content.rfind('</body>')-3000 if '</body>' in content else len(content))
-    end=content.find('\n</script>',start)
+    # Find the main inline script (not external src= scripts)
+    body_end = content.rfind('</body>') if '</body>' in content else len(content)
+    # Search forward from start to find the large script block (the main one)
+    pos = 0
+    start = -1
+    while True:
+        found = content.find(tag, pos, body_end)
+        if found < 0: break
+        end_candidate = content.find('\n</script>', found)
+        if end_candidate > 0 and (end_candidate - found) > 10000:  # main script is large
+            start = found
+            end = end_candidate
+            break
+        pos = found + 1
+    if start < 0:
+        start = content.rfind(tag, 0, body_end-500)
+        end = content.find('\n</script>', start)
     if start<0: continue
     js=content[start+len(tag):end]
     with tempfile.NamedTemporaryFile(suffix='.mjs',mode='w',delete=False) as f2:

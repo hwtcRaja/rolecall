@@ -654,6 +654,8 @@ def init_db():
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS author_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS created_by TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS context_type TEXT DEFAULT 'production'",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS context_id TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
@@ -5063,9 +5065,17 @@ def get_portal_instructor_content(context_type, context_id):
     err = require_auth()
     if err: return err
     conn = get_db()
-    files = fetchall(conn, '''SELECT * FROM portal_files
-        WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
-        (context_type, context_id))
+    try:
+        files = fetchall(conn, '''SELECT * FROM portal_files
+            WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
+            (context_type, context_id))
+    except Exception:
+        # context_type column may not exist yet on older DBs
+        if context_type == 'production':
+            files = fetchall(conn, '''SELECT * FROM portal_files
+                WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
+        else:
+            files = []
     try:
         if context_type == 'production':
             announcements = fetchall(conn, '''SELECT * FROM portal_announcements

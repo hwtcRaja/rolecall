@@ -10885,7 +10885,7 @@ function renderEventDetailPage(eid){
           ${!elics.length?'<div style="color:var(--text-muted);font-size:13px;margin-bottom:12px">No ELICs assigned yet</div>':
             elics.map(a=>{
               const vol = volunteers.find(v=>v.id===a.volunteer_id)
-              const bgcStatus = vol?.background_check_status || 'none'
+              const bgcStatus = a.background_check_status || vol?.background_check_status || 'none'
               return `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
                 <div style="display:flex;align-items:center;gap:10px">
                   ${avatarHTML(a.volunteer_name,32)}
@@ -11299,11 +11299,14 @@ function openEventModal(eid=null){
     if(eid===null && window._openEventParent){
       const{productionId,programId}=window._openEventParent
       if(productionId) document.getElementById('edit-event-production').value=productionId
+      if(programId) document.getElementById('edit-event-program').value=programId
       // Fetch default ELIC async
       const param=productionId?`production_id=${productionId}`:`program_id=${programId}`
-      api(`/api/events/default-elic?${param}`).then(r=>{
-        if(r.elic_id) prefillEventElic(r.elic_id)
-      })
+      if(productionId||programId){
+        api(`/api/events/default-elic?${param}`).then(r=>{
+          if(r&&r.elic_id) prefillEventElic(r.elic_id)
+        })
+      }
       window._openEventParent=null
       setTimeout(updateEventBgcLock, 50)
     }

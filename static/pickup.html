@@ -233,6 +233,7 @@ body{
 // ── State ──
 let prevSignedIn = new Set()
 let prevSignedOutIds = null  // null on first load — no announcements until we have a baseline
+let prevWaitingCarpoolIds = new Set()
 let announceQueue = []
 let isAnnouncing = false
 let announceTimeout = null
@@ -316,6 +317,7 @@ async function clearQueue(){
   if(!confirm('Sign out everyone still waiting? This will clear the entire pickup queue.')) return
   await fetch('/api/pickup/clear',{method:'POST',headers:{'Content-Type':'application/json'}})
   prevSignedOutIds = null  // reset baseline so no false announcements
+  prevWaitingCarpoolIds = new Set()
   await poll()
 }
 
@@ -459,34 +461,41 @@ function render(data){
   const waiting  = individuals.filter(r => !r.signed_out_at)
   const pickedUp = individuals.filter(r => !!r.signed_out_at)
 
-  // Track signed-OUT IDs to detect new pickups
-  // We announce when a sign-out ID appears that wasn't there last poll
+  // Track signed-in carpool IDs (by carpool_id) — announce when a carpool LEAVES (all signed out)
+  // and individual sign-out IDs
   const currentSignedOutIds = new Set()
   individuals.forEach(r=>{ if(r.signed_out_at) currentSignedOutIds.add(r.id) })
-  carpools.forEach(cp=>(cp.kids||[]).forEach(k=>{ if(k.signed_out_at) currentSignedOutIds.add('cp-'+k.youth_id) }))
+  // For carpools: track which carpool_ids are in the WAITING list (have unsigned-out kids)
+  const currentWaitingCarpoolIds = new Set()
+  carpools.forEach(cp=>{
+    const anyWaiting = (cp.kids||[]).some(k=>!k.signed_out_at)
+    if(anyWaiting) currentWaitingCarpoolIds.add(cp.carpool_id)
+  })
+  // For completed carpools: track which just moved OUT of waiting (all signed out)
+  const currentCompletedCarpoolIds = new Set()
+  carpools.forEach(cp=>{
+    const allOut = (cp.kids||[]).length > 0 && (cp.kids||[]).every(k=>k.signed_out_at)
+    if(allOut) currentCompletedCarpoolIds.add(cp.carpool_id)
+  })
 
   if(prevSignedOutIds !== null){
-    // Individual pickups
+    // Individual pickups — announce when sign_in id appears in signed-out set
     individuals.forEach(r=>{
       if(r.signed_out_at && !prevSignedOutIds.has(r.id)){
         queueAnnouncement(r.first_name, 'individual')
       }
     })
-    // Carpool pickups — announce once per carpool when any kid is newly signed out
-    carpools.forEach(cp=>{
-      const newlyOut = (cp.kids||[]).filter(k=>k.signed_out_at && !prevSignedOutIds.has('cp-'+k.youth_id))
-      if(newlyOut.length > 0){
-        queueAnnouncement(`${cp.carpool_name} — ${cp.driver_name}`, 'carpool')
+    // Carpools — announce when a carpool transitions from waiting → all signed out
+    currentCompletedCarpoolIds.forEach(cpId=>{
+      if(prevWaitingCarpoolIds.has(cpId)){
+        const cp = carpools.find(c=>c.carpool_id===cpId)
+        if(cp) queueAnnouncement(`${cp.carpool_name} — ${cp.driver_name}`, 'carpool')
       }
     })
   }
 
   prevSignedOutIds = currentSignedOutIds
-
-  // Also track signed-in for the waiting list rendering
-  const currentSignedIn = new Set(waiting.map(r=>r.id))
-  carpools.forEach(cp=>(cp.kids||[]).filter(k=>!k.signed_out_at).forEach(k=>currentSignedIn.add('cp-'+k.youth_id)))
-  prevSignedIn = currentSignedIn
+  prevWaitingCarpoolIds = currentWaitingCarpoolIds
 
   renderWaiting(waiting, carpools)
   renderPickedUp(pickedUp, carpools)
@@ -494,9 +503,11 @@ function render(data){
 
 function renderWaiting(waiting, carpools){
   const el = document.getElementById('waiting-list')
+  // Only show carpools that still have kids waiting (not completed)
+  const waitingCarpools = carpools.filter(cp=>!(cp.completed) && (cp.kids||[]).some(k=>!k.signed_out_at))
 
   const totalWaiting = waiting.filter(r=>!r.signed_out_at).length +
-    carpools.reduce((sum,cp)=> sum + (cp.kids||[]).filter(k=>!k.signed_out_at).length, 0)
+    waitingCarpools.reduce((sum,cp)=> sum + (cp.kids||[]).filter(k=>!k.signed_out_at).length, 0)
 
   if(!totalWaiting){
     el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Everyone has been picked up!</div></div>'
@@ -506,9 +517,9 @@ function renderWaiting(waiting, carpools){
   let html = ''
 
   // Carpool cards first — they're the priority at pickup time
-  if(carpools.length){
+  if(waitingCarpools.length){
     html += `<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.4);margin-bottom:10px;padding:0 4px">🚗 Carpools</div>`
-    html += carpools.map(cp=>{
+    html += waitingCarpools.map(cp=>{
       const present = (cp.kids||[]).filter(k=>!k.signed_out_at)
       const gone    = (cp.kids||[]).filter(k=>!!k.signed_out_at)
       if(!present.length) return ''

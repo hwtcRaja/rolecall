@@ -11445,22 +11445,10 @@ function openLogTimeFromEvent(eid, ename){
 }
 
 async function setEventStatus(eid, status){
-  const e = allEvents.find(e=>e.id===eid)
-  if(!e){ toast('Event not found','error'); return }
-  // Send only scalar fields — avoid spreading nested arrays (required_waivers, elics) that confuse the backend
-  const payload = {
-    name:e.name, event_date:e.event_date||null, end_date:e.end_date||null,
-    start_time:e.start_time||null, end_time:e.end_time||null,
-    event_type_id:e.event_type_id||null, location:e.location||'', room:e.room||'',
-    production_id:e.production_id||null, program_id:e.program_id||null,
-    expected_volunteers:e.expected_volunteers||null, description:e.description||'',
-    notes:e.notes||'', requires_background_check:e.requires_background_check||false,
-    auto_log_hours:e.auto_log_hours||false, rsvp_enabled:e.rsvp_enabled||false,
-    rsvp_message:e.rsvp_message||'', status
-  }
-  const res = await api(`/api/events/${eid}`, 'PUT', payload)
+  const res = await api(`/api/events/${eid}/status`, 'POST', {status})
   if(res.error){ toast(res.error,'error'); return }
-  allEvents = allEvents.map(e=>e.id===eid?{...e,...res}:e)
+  // Patch allEvents in place so elics/waivers etc are preserved
+  allEvents = allEvents.map(e=>e.id===eid ? {...e, status:res.status} : e)
   renderEventDetailPage(eid)
   const labels = {open:'opened',closed:'closed',draft:'restored',cancelled:'cancelled'}
   toast(`Event ${labels[status]||status}`)

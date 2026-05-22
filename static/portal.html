@@ -277,9 +277,54 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <!-- Profile tab -->
       <div id="portal-main-carpools" style="display:none">
         <div style="max-width:600px;margin:0 auto;padding:16px 0">
-          <div style="font-size:20px;font-weight:800;margin-bottom:6px">🚗 Carpools</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="font-size:20px;font-weight:800">🚗 Carpools</div>
+            <button onclick="openCreateCarpoolForm()" class="btn btn-primary btn-sm">+ Create Carpool</button>
+          </div>
           <div style="font-size:14px;color:var(--text-muted);margin-bottom:20px">
-            See available carpools for today's events. Tap one to add your child.
+            Join an existing carpool or create one for an upcoming event.
+          </div>
+          <!-- Create form (hidden by default) -->
+          <div id="create-carpool-form" style="display:none;background:var(--surface);border:1.5px solid var(--teal-light);border-radius:12px;padding:20px;margin-bottom:20px">
+            <div style="font-size:16px;font-weight:700;margin-bottom:14px">Create a Carpool</div>
+            <div class="form-group" style="margin-bottom:12px">
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Event *</label>
+              <select id="cp-event-id" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                <option value="">Loading events…</option>
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div class="form-group">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Driver Name *</label>
+                <input type="text" id="cp-driver-name" placeholder="Your name" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+              </div>
+              <div class="form-group">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Driver Phone</label>
+                <input type="tel" id="cp-driver-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div class="form-group">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Carpool Name</label>
+                <input type="text" id="cp-name" placeholder="e.g. Smith Family Carpool" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+              </div>
+              <div class="form-group">
+                <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Available Seats</label>
+                <select id="cp-seats" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="2">2</option><option value="3">3</option><option value="4" selected>4</option>
+                  <option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Notes (optional)</label>
+              <input type="text" id="cp-notes" placeholder="e.g. Pickup at 5:45pm from community center" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+            </div>
+            <div id="cp-create-result" style="font-size:13px;margin-bottom:10px"></div>
+            <div style="display:flex;gap:8px">
+              <button onclick="submitCreateCarpool()" class="btn btn-primary" style="flex:1">Create Carpool</button>
+              <button onclick="closeCreateCarpoolForm()" class="btn btn-secondary">Cancel</button>
+            </div>
           </div>
           <div id="portal-carpools-loading" style="text-align:center;padding:32px;color:var(--text-muted)">
             <div class="spinner"></div>
@@ -1505,8 +1550,9 @@ function renderPortalCarpoolList(carpools, kids){
   if(!carpools.length){
     el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">
       <div style="font-size:36px;margin-bottom:12px">🚗</div>
-      <div style="font-weight:600;margin-bottom:6px">No carpools available today</div>
-      <div style="font-size:13px">Check back closer to event time, or ask HWTC staff to set one up.</div>
+      <div style="font-weight:600;margin-bottom:6px">No carpools yet for upcoming events</div>
+      <div style="font-size:13px;margin-bottom:16px">Be the first to offer a ride!</div>
+      <button onclick="openCreateCarpoolForm()" class="btn btn-primary btn-sm">+ Create a Carpool</button>
     </div>`
     return
   }
@@ -1532,6 +1578,7 @@ function renderPortalCarpoolList(carpools, kids){
           </div>
           ${cp.event_name?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:6px">📅 ${cp.event_name}</div>`:''}
           ${spots!==null?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:8px">${spots > 0 ? spots+' spot'+(spots!==1?'s':'')+' remaining' : 'Full'}</div>`:''}
+          ${cp.code&&alreadyJoined?`<div style="font-size:12px;font-weight:700;color:var(--teal-600);margin-bottom:8px">Share code: <span style="font-family:monospace;background:var(--teal-50);padding:2px 8px;border-radius:6px">${cp.code}</span></div>`:''}
           ${allMembers.length ? `
             <div style="margin-top:4px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px">Kids in this carpool</div>
@@ -1582,15 +1629,80 @@ async function portalLeaveCarpool(carpoolId){
   if(!confirm('Remove your child from this carpool?')) return
   const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
   const youthIds = kids.map(k=>k.id)
-  const carpools = await fetch('/api/portal/carpools').then(r=>r.json()).catch(()=>[])
-  const cp = (Array.isArray(carpools)?carpools:[]).find(c=>c.id===carpoolId)
-  if(!cp) return
-  for(const m of (cp.members||[]).filter(m=>youthIds.includes(m.youth_id||m.id))){
-    await fetch(`/api/carpools/${carpoolId}/members/${m.id}`,{method:'DELETE'})
-  }
+  const res = await fetch('/api/portal/carpools/leave',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({carpool_id: carpoolId, youth_ids: youthIds})
+  }).then(r=>r.json()).catch(()=>({error:'Network error'}))
+  if(res.error){ toast(res.error,'error'); return }
   toast('Left carpool')
   await loadPortalCarpools()
 }
+
+async function openCreateCarpoolForm(){
+  const form = document.getElementById('create-carpool-form')
+  if(!form) return
+  form.style.display = ''
+  // Load upcoming events into dropdown
+  const sel = document.getElementById('cp-event-id')
+  sel.innerHTML = '<option value="">Loading…</option>'
+  const events = await fetch('/api/portal/events-for-carpools').then(r=>r.json()).catch(()=>[])
+  if(!events.length){
+    sel.innerHTML = '<option value="">No upcoming events found</option>'
+    return
+  }
+  sel.innerHTML = '<option value="">— Select an event —</option>'
+    + events.map(e=>`<option value="${e.id}">${escHtml(e.name)}${e.event_date?' · '+fmtDate(e.event_date):''}</option>`).join('')
+  // Pre-fill driver name from session
+  const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
+  const driverInput = document.getElementById('cp-driver-name')
+  if(driverInput && !driverInput.value && kids.length){
+    const primary = kids[0]
+    const guardians = activeChildData?.guardians || []
+    if(guardians.length) driverInput.value = guardians[0].name || ''
+  }
+  form.scrollIntoView({behavior:'smooth', block:'start'})
+}
+
+function closeCreateCarpoolForm(){
+  const form = document.getElementById('create-carpool-form')
+  if(form) form.style.display = 'none'
+  const result = document.getElementById('cp-create-result')
+  if(result) result.innerHTML = ''
+}
+
+async function submitCreateCarpool(){
+  const event_id = document.getElementById('cp-event-id')?.value
+  const driver_name = document.getElementById('cp-driver-name')?.value.trim()
+  const driver_phone = document.getElementById('cp-driver-phone')?.value.trim()
+  const name = document.getElementById('cp-name')?.value.trim()
+  const max_seats = parseInt(document.getElementById('cp-seats')?.value || '4')
+  const notes = document.getElementById('cp-notes')?.value.trim()
+  const result = document.getElementById('cp-create-result')
+
+  if(!event_id){ if(result) result.innerHTML='<span style="color:#dc2626">Please select an event.</span>'; return }
+  if(!driver_name){ if(result) result.innerHTML='<span style="color:#dc2626">Driver name is required.</span>'; return }
+
+  if(result) result.innerHTML='<span style="color:var(--text-muted)">Creating…</span>'
+
+  const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant] : [])
+  let youth_ids = kids.map(k=>k.id)
+  if(kids.length > 1){
+    youth_ids = await showKidPicker(kids)
+    if(!youth_ids || !youth_ids.length){ if(result) result.innerHTML=''; return }
+  }
+
+  const res = await fetch('/api/portal/carpools/create',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({event_id, driver_name, driver_phone, name, max_seats, notes, youth_ids})
+  }).then(r=>r.json()).catch(()=>({error:'Network error'}))
+
+  if(res.error){ if(result) result.innerHTML=`<span style="color:#dc2626">${escHtml(res.error)}</span>`; return }
+
+  closeCreateCarpoolForm()
+  toast(`Carpool created! Code: ${res.code}`)
+  await loadPortalCarpools()
+}
+
 
 function showKidPicker(kids){
   return new Promise(resolve=>{

@@ -14390,6 +14390,49 @@ async function loadProgramPortalContent(pid){
   renderProgramRequiredWaivers(pid, requiredWaivers||[])
 }
 
+function renderWaiverStatus(pid, data){
+  const el = document.getElementById(`prog-waiver-status-${pid}`)
+  if(!el) return
+  if(!data||!data.required_waivers||!data.required_waivers.length){
+    el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No required waivers set for this program.</div>'; return
+  }
+  const missing = (data.participants||[]).filter(p=>p.missing_waivers&&p.missing_waivers.length)
+  const ok = (data.participants||[]).filter(p=>!p.missing_waivers||!p.missing_waivers.length)
+  el.innerHTML = `
+    ${missing.length?`
+    <div style="background:var(--red-light);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:var(--red-600);margin-bottom:8px">⚠️ ${missing.length} participant${missing.length!==1?'s':''} missing waivers</div>
+      ${missing.map(p=>`<div style="font-size:13px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05)">
+        <span style="font-weight:600">${escHtml(p.first_name)} ${escHtml(p.last_name)}</span>
+        <span style="font-size:12px;color:var(--red-600);margin-left:8px">Missing: ${p.missing_waivers.map(w=>escHtml(w.name)).join(', ')}</span>
+        <a href="#" onclick="openYouthProfile('${p.id}');return false" style="font-size:11px;color:var(--teal-600);margin-left:8px">View →</a>
+      </div>`).join('')}
+    </div>`:''}
+    ${ok.length?`<div style="font-size:12px;color:var(--green);font-weight:600">✓ ${ok.length} participant${ok.length!==1?'s':''} have all required waivers</div>`:''}
+    <div style="font-size:11px;color:var(--text-hint);margin-top:8px">Required: ${data.required_waivers.map(w=>escHtml(w.name)).join(', ')}</div>`
+}
+
+async function addPortalFolder(contextType, pid){
+  const name = prompt('Folder name (e.g. Scripts, Costumes, Parents):')
+  if(!name?.trim()) return
+  const payload = {name:name.trim()}
+  if(contextType==='program') payload.program_id = pid
+  else payload.production_id = pid
+  const res = await api('/api/portal/folders','POST', payload)
+  if(res.error){toast(res.error,'error');return}
+  if(contextType==='program') await loadProgramPortalContent(pid)
+  else await loadProductionPortalContent(pid)
+  toast(`Folder "${name}" created!`)
+}
+
+async function deletePortalFolder(contextType, pid, fid){
+  if(!confirm('Delete this folder? Files in it will move to General.')) return
+  await api(`/api/portal/folders/${fid}`,'DELETE')
+  if(contextType==='program') await loadProgramPortalContent(pid)
+  else await loadProductionPortalContent(pid)
+  toast('Folder deleted')
+}
+
 function renderProgramRequiredWaivers(pid, waivers){
   const el = document.getElementById('prog-required-waivers-'+pid)
   if(!el) return

@@ -822,6 +822,26 @@ function buildProfileTab(y, yid){
     +field('Date of Birth','dob',y.dob?fmtDate(y.dob):'')
     +field('Allergies','allergies',y.allergies||'')
     +field('Medical Notes','medical_notes',y.medical_notes||'')
+    +'<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">'
+    +'<div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">T-Shirt Size</div>'
+    +'<div style="font-size:14px;margin-top:2px" id="portal-shirt-display">'+(y.shirt_size||'<span style="color:var(--text-hint)">Not set</span>')+'</div></div>'
+    +'<div style="display:flex;align-items:center;gap:8px">'
+    +'<select id="portal-shirt-select" onchange="savePortalShirtSize(\''+yid+'\')" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;cursor:pointer">'
+    +'<option value="">— Select —</option>'
+    +'<option value="YXS"'+(y.shirt_size==='YXS'?' selected':'')+'>Youth XS</option>'
+    +'<option value="YS"'+(y.shirt_size==='YS'?' selected':'')+'>Youth S</option>'
+    +'<option value="YM"'+(y.shirt_size==='YM'?' selected':'')+'>Youth M</option>'
+    +'<option value="YL"'+(y.shirt_size==='YL'?' selected':'')+'>Youth L</option>'
+    +'<option value="YXL"'+(y.shirt_size==='YXL'?' selected':'')+'>Youth XL</option>'
+    +'<option value="AS"'+(y.shirt_size==='AS'?' selected':'')+'>Adult S</option>'
+    +'<option value="AM"'+(y.shirt_size==='AM'?' selected':'')+'>Adult M</option>'
+    +'<option value="AL"'+(y.shirt_size==='AL'?' selected':'')+'>Adult L</option>'
+    +'<option value="AXL"'+(y.shirt_size==='AXL'?' selected':'')+'>Adult XL</option>'
+    +'<option value="A2XL"'+(y.shirt_size==='A2XL'?' selected':'')+'>Adult 2XL</option>'
+    +'</select>'
+    +'<span id="portal-shirt-saved" style="font-size:12px;color:var(--green);display:none">✓ Saved</span>'
+    +'</div>'
+    +'</div>'
     +'</div>'
 
   html += '<div style="margin-bottom:20px">'
@@ -926,6 +946,26 @@ async function submitPortalWaiver(yid, waiverId){
     if(typeof switchPortalMainTab === 'function') switchPortalMainTab('profile', document.getElementById('portal-tab-btn-profile'))
   } catch(e) {
     if(result) result.innerHTML='<span style="color:#dc2626">Error signing waiver. Please try again.</span>'
+  }
+}
+
+async function savePortalShirtSize(yid){
+  const sel = document.getElementById('portal-shirt-select')
+  const display = document.getElementById('portal-shirt-display')
+  const saved = document.getElementById('portal-shirt-saved')
+  if(!sel) return
+  const size = sel.value
+  try {
+    const r = await fetch('/api/portal/youth/'+yid+'/shirt-size', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({shirt_size: size})
+    })
+    const d = await r.json()
+    if(d.error){ toast(d.error,'error'); return }
+    if(display) display.innerHTML = size || '<span style="color:var(--text-hint)">Not set</span>'
+    if(saved){ saved.style.display=''; setTimeout(()=>{ saved.style.display='none' }, 2000) }
+  } catch(e) {
+    toast('Could not save shirt size','error')
   }
 }
 
@@ -1647,7 +1687,9 @@ async function openCreateCarpoolForm(){
   sel.innerHTML = '<option value="">Loading…</option>'
   const events = await fetch('/api/portal/events-for-carpools').then(r=>r.json()).catch(()=>[])
   if(!events.length){
-    sel.innerHTML = '<option value="">No upcoming events found</option>'
+    sel.innerHTML = '<option value="">No events with carpools enabled</option>'
+    const result = document.getElementById('cp-create-result')
+    if(result) result.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-top:8px">No upcoming events have carpools enabled yet. Contact HWTC staff to set one up.</div>'
     return
   }
   sel.innerHTML = '<option value="">— Select an event —</option>'

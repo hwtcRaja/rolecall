@@ -2251,6 +2251,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:8px">
           <textarea id="edit-event-rsvp-msg" placeholder="Optional personal message to include in the invite email…" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
         </div>
+        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-carpools" style="accent-color:var(--teal-400)"/> 🚗 Enable family carpools — parents can create and join carpools for this event in the portal</label>
       </div>
     </div>
 
@@ -11137,6 +11138,7 @@ function renderEventDetailPage(eid){
               ${e.requires_background_check?`<div style="background:var(--amber-50);color:var(--amber-600);padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">🔍 Background check required</div>`:''}
               ${e.auto_log_hours?`<div style="background:var(--teal-50);color:var(--teal-dark);padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">⚡ Auto-log full event hours</div>`:''}
               ${e.rsvp_enabled?`<div style="background:#eff6ff;color:#1d4ed8;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">📬 Volunteer sign-ups enabled</div>`:''}
+              ${e.carpools_enabled?`<div style="background:#f0fdf4;color:#166534;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600">🚗 Family carpools enabled</div>`:''}
             </div>
           </div>
           <!-- Quick stats -->
@@ -11800,6 +11802,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-rsvp').checked=false
     document.getElementById('edit-event-rsvp-msg').value=''
     document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
+    if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=false
     setEventElicUI(null, null)  // reset ELIC
     // If opened from a program or production context, pre-fill parent and default ELIC
     if(eid===null && window._openEventParent){
@@ -11842,6 +11845,7 @@ function openEventModal(eid=null){
     document.getElementById('edit-event-rsvp').checked=!!e.rsvp_enabled
     document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
     document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
+    if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=!!e.carpools_enabled
     setTimeout(updateEventBgcLock, 50)  // after selects are populated
   }
   // Reset repeat section
@@ -11887,7 +11891,8 @@ async function saveEditEvent(){
     requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
     auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
     rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
-    rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||''
+    rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
+    carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false
   }
 
   // Save the base event

@@ -621,7 +621,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               <option value="program">📚 Programs/Classes</option>
               <option value="standalone">📅 Standalone</option>
             </select>
-            <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option></select>
+            <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option><option value="cancelled">Cancelled</option></select>
             <button class="btn btn-primary admin-only" onclick="openEventModal()">+ New Event</button>
           </div>
         </div>
@@ -6466,8 +6466,8 @@ function renderEventsSettings(){
     const timeStr=e.start_time&&e.end_time?` · ${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:(e.start_time?` · from ${fmtTime(e.start_time)}`:' · All day')
     const reqWaivers=(e.required_waivers||[])
     const assignedElics=(e.elics||[])
-    const statusColors={draft:'#1D4ED8',open:'var(--green-600)',closed:'var(--text-hint)'}
-    const statusLabels={draft:'Scheduled',open:'🟢 In Progress',closed:'✓ Completed'}
+    const statusColors={draft:'#1D4ED8',open:'var(--green-600)',closed:'var(--text-hint)',cancelled:'#dc2626'}
+    const statusLabels={draft:'Scheduled',open:'🟢 In Progress',closed:'✓ Completed',cancelled:'🚫 Cancelled'}
     return `<div style="background:var(--gray-50);border-radius:10px;padding:12px 14px;margin-bottom:8px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
@@ -10765,7 +10765,8 @@ const TYPE_COLORS = {
 const STATUS_COLORS = {
   draft:['#EFF6FF','#1D4ED8','Scheduled'],
   open:['#EAF6F1','#2D9E6B','🟢 In Progress'],
-  closed:['#F4F4F4','#9B9B94','✓ Completed']
+  closed:['#F4F4F4','#9B9B94','✓ Completed'],
+  cancelled:['#FEF2F2','#DC2626','🚫 Cancelled']
 }
 
 let calDayDate = new Date().toISOString().split('T')[0]
@@ -11074,9 +11075,12 @@ function renderEventDetailPage(eid){
 
   // Status action buttons
   const statusActions = isAdmin ? {
-    draft:   `<button class="btn btn-primary btn-sm" onclick="setEventStatus('${e.id}','open')">📂 Open Event</button>`,
-    open:    `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')">🔒 Close Event</button>`,
-    closed:  `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')">↩ Re-open</button>`,
+    draft:     `<button class="btn btn-primary btn-sm" onclick="setEventStatus('${e.id}','open')">📂 Open Event</button>
+                <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">🚫 Cancel</button>`,
+    open:      `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')">🔒 Close Event</button>
+                <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">🚫 Cancel</button>`,
+    closed:    `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')">↩ Re-open</button>`,
+    cancelled: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','draft')">↩ Restore</button>`,
   }[e.status||'draft'] || '' : ''
 
   document.getElementById('event-detail-header').innerHTML=`
@@ -11164,6 +11168,14 @@ function renderEventDetailPage(eid){
 
     <!-- Sign-ups tab -->
     <div id="evt-panel-signups" style="display:${_eventDetailTab==='signups'?'':'none'}">
+      ${e.status==='cancelled'?`
+        <div style="background:#fef2f2;border:2px solid #fca5a5;border-radius:10px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px">
+          <div style="font-size:28px">🚫</div>
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#dc2626">This Event Has Been Cancelled</div>
+            <div style="font-size:13px;color:#7f1d1d;margin-top:2px">Sign-ups are closed. Volunteers who signed up have not been automatically notified — use the Email Signed-Up button to let them know.</div>
+          </div>
+        </div>`:''}
       ${e.rsvp_enabled?`
         <div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
 
@@ -11205,6 +11217,13 @@ function renderEventDetailPage(eid){
 
           <!-- Right: compose & send -->
           <div class="card" style="padding:20px;position:sticky;top:16px">
+            ${e.status==='cancelled'?`
+              <div style="text-align:center;padding:20px 0;color:var(--text-muted)">
+                <div style="font-size:28px;margin-bottom:8px">🚫</div>
+                <div style="font-size:13px;font-weight:600">Event Cancelled</div>
+                <div style="font-size:12px;margin-top:4px">Invites are disabled for cancelled events.</div>
+              </div>
+            `:`
             <div style="font-size:15px;font-weight:700;margin-bottom:4px">📤 Send Invite</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
 
@@ -11264,6 +11283,7 @@ function renderEventDetailPage(eid){
             <button class="btn btn-primary" style="width:100%" id="rsvp-send-btn" onclick="confirmSendRsvp('${e.id}')">
               📤 Send Invites
             </button>
+            `}
           </div>
         </div>`
       :`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
@@ -11429,7 +11449,35 @@ async function setEventStatus(eid, status){
   if(res.error){ toast(res.error,'error'); return }
   allEvents = allEvents.map(e=>e.id===eid?res:e)
   renderEventDetailPage(eid)
-  toast(`Event ${status==='open'?'opened':'closed'}`, 'success')
+  const labels = {open:'opened',closed:'closed',draft:'restored',cancelled:'cancelled'}
+  toast(`Event ${labels[status]||status}`)
+}
+
+async function cancelEvent(eid){
+  const e = allEvents.find(ev=>ev.id===eid)
+  if(!confirm(`Cancel "${e?.name}"? This cannot be undone from the button — you'd need to use Restore.`)) return
+  // Check if there are signed-up volunteers to notify
+  const rsvps = await api(`/api/events/${eid}/rsvps`)
+  const signedUp = (Array.isArray(rsvps)?rsvps:[]).filter(r=>r.status==='interested')
+  // Cancel the event first
+  const res = await api(`/api/events/${eid}`, 'PUT', {...e, status:'cancelled'})
+  if(res.error){ toast(res.error,'error'); return }
+  allEvents = allEvents.map(ev=>ev.id===eid?res:ev)
+  renderEventDetailPage(eid)
+  toast('Event cancelled')
+  // If there are signed-up volunteers, prompt to email them
+  if(signedUp.length > 0){
+    setTimeout(()=>{
+      openEmailSignedUpModal(eid, e?.name||'Event')
+      // Pre-fill the subject and body
+      setTimeout(()=>{
+        const subj = document.getElementById('signup-email-subject')
+        const body = document.getElementById('signup-email-body')
+        if(subj) subj.value = `CANCELLED: ${e?.name||'Event'}`
+        if(body) body.value = `We're sorry to inform you that the upcoming event "${e?.name||'Event'}"${e?.event_date?' on '+formatDate(e.event_date):''} has been cancelled.\n\nWe apologize for any inconvenience. If you have any questions, please reach out to the HWTC team.`
+      }, 50)
+    }, 300)
+  }
 }
 
 // ── CARPOOLS (Admin) ──

@@ -671,6 +671,7 @@ def init_db():
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
@@ -1538,7 +1539,7 @@ def update_event(eid):
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s,status=%s WHERE id=%s''',
+        rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -1546,7 +1547,8 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), d.get('status','draft'), eid))
+         d.get('rsvp_message',''), d.get('status','draft'),
+         d.get('carpools_enabled', False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -4586,6 +4588,18 @@ def portal_youth_profile(yid):
     conn.close()
     return jsonify(youth)
 
+@app.route('/api/portal/youth/<yid>/shirt-size', methods=['POST'])
+def portal_set_shirt_size(yid):
+    d = request.json or {}
+    size = d.get('shirt_size','').strip()
+    valid = ['','YXS','YS','YM','YL','YXL','AS','AM','AL','AXL','A2XL']
+    if size not in valid:
+        return jsonify({'error': 'Invalid size'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET shirt_size=%s WHERE id=%s', (size or None, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'shirt_size': size})
+
 @app.route('/api/portal/youth/<yid>/sign-waiver', methods=['POST'])
 def portal_sign_youth_waiver(yid):
     d = request.json or {}
@@ -6596,13 +6610,18 @@ def portal_leave_carpool():
 
 @app.route('/api/portal/events-for-carpools')
 def portal_events_for_carpools():
-    """Return upcoming events that parents can create carpools for."""
+    """Return upcoming events that have carpools enabled."""
     conn = get_db()
-    events = fetchall(conn, """SELECT e.id, e.name, e.event_date, e.start_time
-        FROM events e
-        WHERE e.event_date >= CURRENT_DATE::text
-        AND e.status IN ('draft','open')
-        ORDER BY e.event_date, e.start_time LIMIT 30""")
+    try:
+        events = fetchall(conn, """SELECT e.id, e.name, e.event_date, e.start_time
+            FROM events e
+            WHERE e.event_date >= CURRENT_DATE::text
+            AND e.status IN ('draft','open')
+            AND e.carpools_enabled = TRUE
+            ORDER BY e.event_date, e.start_time LIMIT 30""")
+    except Exception:
+        # carpools_enabled column may not exist yet on live DB — fall back gracefully
+        events = []
     conn.close()
     return jsonify(events)
 

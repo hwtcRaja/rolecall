@@ -14375,19 +14375,25 @@ function switchProgramDetailTab(tab){
 
 async function loadProgramPortalContent(pid){
   if(!pid) return
-  const [data, folders, waiverStatus, requiredWaivers] = await Promise.all([
-    api(`/api/portal/instructor/content/program/${pid}`).catch(()=>({files:[],announcements:[]})),
-    api(`/api/portal/folders?program_id=${pid}`).catch(()=>[]),
-    api(`/api/portal/program/${pid}/waiver-status`).catch(()=>({required_waivers:[],participants:[]})),
-    api(`/api/youth-programs/${pid}/required-waivers`).catch(()=>[])
-  ])
-  const files = Array.isArray(data) ? data : (data.files||[])
-  const announcements = Array.isArray(data) ? [] : (data.announcements||[])
-  renderPortalFolderPills('prog', pid, folders)
-  renderProgramAnnouncements(pid, announcements)
-  renderProgramFiles(pid, files, folders)
-  renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:waiverStatus)
-  renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[]))
+  try {
+    const [data, folders, waiverStatus, requiredWaivers] = await Promise.all([
+      api(`/api/portal/instructor/content/program/${pid}`),
+      api(`/api/portal/folders?program_id=${pid}`),
+      api(`/api/portal/program/${pid}/waiver-status`),
+      api(`/api/youth-programs/${pid}/required-waivers`)
+    ])
+    const files = Array.isArray(data) ? data : (data.files||[])
+    const announcements = Array.isArray(data) ? [] : (data.announcements||[])
+    renderPortalFolderPills('prog', pid, folders)
+    renderProgramAnnouncements(pid, announcements)
+    renderProgramFiles(pid, files, folders)
+    try { renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:(waiverStatus||{})) }
+    catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
+    try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }
+    catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
+  } catch(e) {
+    console.error('loadProgramPortalContent error:', e)
+  }
 }
 
 function renderWaiverStatus(pid, data){

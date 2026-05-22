@@ -2244,14 +2244,49 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div class="form-group"><label>Description</label><textarea id="edit-event-desc" placeholder="What's happening at this event?"></textarea></div>
       <div class="form-group"><label>Internal Notes</label><textarea id="edit-event-notes" placeholder="Notes for staff/admins only…"></textarea></div>
-      <div style="display:flex;gap:16px;padding:8px 0">
-        <label class="form-check"><input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400)"/> 🔍 Background check required for this event <span id="bgcheck-auto-note" style="font-size:11px;color:var(--amber-600);font-weight:600;display:none"> — required for youth programs & Rising Stars</span></label>
-        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-autolog" style="accent-color:var(--teal-400)"/> ⚡ Auto-log full event hours — volunteers get credited for the entire event duration without clocking in/out</label>
-        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400)"/> 📬 Enable volunteer sign-ups — send RSVP invites so volunteers can express interest in this event</label>
-        <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:8px">
-          <textarea id="edit-event-rsvp-msg" placeholder="Optional personal message to include in the invite email…" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+
+      <!-- Event Options -->
+      <div style="margin-top:4px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Event Options</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <input type="checkbox" id="edit-event-bgcheck" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
+            <div>
+              <div style="font-size:13px;font-weight:600">🔍 Background Check Required</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Volunteers must have a cleared background check<span id="bgcheck-auto-note" style="color:var(--amber-600);font-weight:600;display:none"> — auto-set for youth events</span></div>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <input type="checkbox" id="edit-event-autolog" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
+            <div>
+              <div style="font-size:13px;font-weight:600">⚡ Auto-Log Hours</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Volunteers get credited for full event duration without clocking in/out</div>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
+            <div>
+              <div style="font-size:13px;font-weight:600">📬 Volunteer Sign-Ups</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Send RSVP invites so volunteers can express interest in this event</div>
+            </div>
+          </label>
+
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+            <input type="checkbox" id="edit-event-carpools" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
+            <div>
+              <div style="font-size:13px;font-weight:600">🚗 Family Carpools</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Parents can create and join carpools for this event in the portal</div>
+            </div>
+          </label>
+
         </div>
-        <label class="form-check" style="margin-top:8px"><input type="checkbox" id="edit-event-carpools" style="accent-color:var(--teal-400)"/> 🚗 Enable family carpools — parents can create and join carpools for this event in the portal</label>
+        <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:10px">
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for RSVP invites (optional)</label>
+          <textarea id="edit-event-rsvp-msg" placeholder="e.g. 'We especially need help with setup and teardown this time!'" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
       </div>
     </div>
 

@@ -11445,9 +11445,22 @@ function openLogTimeFromEvent(eid, ename){
 }
 
 async function setEventStatus(eid, status){
-  const res = await api(`/api/events/${eid}`, 'PUT', {...allEvents.find(e=>e.id===eid), status})
+  const e = allEvents.find(e=>e.id===eid)
+  if(!e){ toast('Event not found','error'); return }
+  // Send only scalar fields — avoid spreading nested arrays (required_waivers, elics) that confuse the backend
+  const payload = {
+    name:e.name, event_date:e.event_date||null, end_date:e.end_date||null,
+    start_time:e.start_time||null, end_time:e.end_time||null,
+    event_type_id:e.event_type_id||null, location:e.location||'', room:e.room||'',
+    production_id:e.production_id||null, program_id:e.program_id||null,
+    expected_volunteers:e.expected_volunteers||null, description:e.description||'',
+    notes:e.notes||'', requires_background_check:e.requires_background_check||false,
+    auto_log_hours:e.auto_log_hours||false, rsvp_enabled:e.rsvp_enabled||false,
+    rsvp_message:e.rsvp_message||'', status
+  }
+  const res = await api(`/api/events/${eid}`, 'PUT', payload)
   if(res.error){ toast(res.error,'error'); return }
-  allEvents = allEvents.map(e=>e.id===eid?res:e)
+  allEvents = allEvents.map(e=>e.id===eid?{...e,...res}:e)
   renderEventDetailPage(eid)
   const labels = {open:'opened',closed:'closed',draft:'restored',cancelled:'cancelled'}
   toast(`Event ${labels[status]||status}`)
@@ -11455,28 +11468,23 @@ async function setEventStatus(eid, status){
 
 async function cancelEvent(eid){
   const e = allEvents.find(ev=>ev.id===eid)
-  if(!confirm(`Cancel "${e?.name}"? This cannot be undone from the button — you'd need to use Restore.`)) return
+  if(!confirm(`Cancel "${e?.name}"? You can restore it later using the Restore button.`)) return
   // Check if there are signed-up volunteers to notify
   const rsvps = await api(`/api/events/${eid}/rsvps`)
   const signedUp = (Array.isArray(rsvps)?rsvps:[]).filter(r=>r.status==='interested')
-  // Cancel the event first
-  const res = await api(`/api/events/${eid}`, 'PUT', {...e, status:'cancelled'})
-  if(res.error){ toast(res.error,'error'); return }
-  allEvents = allEvents.map(ev=>ev.id===eid?res:ev)
-  renderEventDetailPage(eid)
-  toast('Event cancelled')
+  // Use setEventStatus which correctly handles allEvents update + re-render
+  await setEventStatus(eid, 'cancelled')
   // If there are signed-up volunteers, prompt to email them
   if(signedUp.length > 0){
     setTimeout(()=>{
       openEmailSignedUpModal(eid, e?.name||'Event')
-      // Pre-fill the subject and body
       setTimeout(()=>{
         const subj = document.getElementById('signup-email-subject')
         const body = document.getElementById('signup-email-body')
         if(subj) subj.value = `CANCELLED: ${e?.name||'Event'}`
         if(body) body.value = `We're sorry to inform you that the upcoming event "${e?.name||'Event'}"${e?.event_date?' on '+formatDate(e.event_date):''} has been cancelled.\n\nWe apologize for any inconvenience. If you have any questions, please reach out to the HWTC team.`
       }, 50)
-    }, 300)
+    }, 400)
   }
 }
 

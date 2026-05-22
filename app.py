@@ -7681,6 +7681,8 @@ def send_rsvp_invite(eid):
     conn = get_db()
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
+    if evt.get('status') == 'cancelled':
+        conn.close(); return jsonify({'error': 'Cannot send invites for a cancelled event'}), 400
 
     # Get roles for this event
     roles = fetchall(conn, '''
@@ -7766,11 +7768,24 @@ def send_rsvp_invite(eid):
 @app.route('/rsvp/<token>')
 def rsvp_page(token):
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time, e.location, e.description, e.id as event_id
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
+        e.location, e.description, e.id as event_id, e.status as event_status
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+
+    # Event cancelled
+    if rsvp.get('event_status') == 'cancelled':
+        conn.close()
+        return f'''<html><head><title>Event Cancelled</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
+          <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
+          <p style="color:#6b7280">Thank you for your interest — please check back for future events from Horizon West Theater Company.</p>
+        </body></html>'''
 
     # Already signed up
     if rsvp.get('status') == 'interested':
@@ -7856,11 +7871,20 @@ def rsvp_submit(token):
     from flask import request as req
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id, e.status as event_status
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found.</h2></body></html>', 404
+    if rsvp.get('event_status') == 'cancelled':
+        conn.close()
+        return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
+          <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
+          <p style="color:#6b7280">Thank you for your interest — please check back for future events.</p>
+        </body></html>'''
 
     role_name = ''
     if role_id:

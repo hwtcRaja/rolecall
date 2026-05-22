@@ -668,6 +668,8 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
+        "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
@@ -859,6 +861,11 @@ def init_db():
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
             waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
             UNIQUE(production_id, waiver_type_id))""",
+        """CREATE TABLE IF NOT EXISTS program_required_waivers (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
+            UNIQUE(program_id, waiver_type_id))""",
         # meet the team — standalone public-facing entries (no volunteer required)
         """CREATE TABLE IF NOT EXISTS production_team_bios (
             id TEXT PRIMARY KEY,
@@ -4537,9 +4544,61 @@ def portal_youth_profile(yid):
     youth['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
     youth['emergency'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
     youth['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
-    youth['waivers'] = fetchall(conn, 'SELECT * FROM youth_waivers WHERE youth_id=%s ORDER BY signed_date DESC', (yid,))
+    youth['waivers'] = fetchall(conn, '''SELECT yw.*, wt.name as type_name, wt.template_body, wt.can_sign_online
+        FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
+        WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
+    # Get signable waivers not yet signed — includes program-required ones
+    signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
+    all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
+    # Also include program-required waivers even if not marked can_sign_online (show as required)
+    prog_ids = [e['program_id'] for e in fetchall(conn,
+        'SELECT program_id FROM youth_program_enrollments WHERE youth_id=%s', (yid,))]
+    prog_required = []
+    if prog_ids:
+        placeholders = ','.join(['%s']*len(prog_ids))
+        prog_required = fetchall(conn, f'''SELECT wt.* FROM program_required_waivers prw
+            JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.program_id IN ({placeholders})''', tuple(prog_ids))
+    # Merge: signable + program-required not yet signed, deduplicated
+    all_needed = {w['id']: w for w in all_signable}
+    for w in prog_required:
+        if w['id'] not in all_needed:
+            w = dict(w); w['required_by_program'] = True
+            all_needed[w['id']] = w
+    youth['signable_waivers'] = [w for wid2, w in all_needed.items() if wid2 not in signed_ids]
     conn.close()
     return jsonify(youth)
+
+@app.route('/api/portal/youth/<yid>/sign-waiver', methods=['POST'])
+def portal_sign_youth_waiver(yid):
+    d = request.json or {}
+    waiver_type_id = d.get('waiver_type_id','').strip()
+    signed_name = d.get('signed_name','').strip()
+    if not waiver_type_id or not signed_name:
+        return jsonify({'error': 'Waiver type and signature required'}), 400
+    conn = get_db()
+    # Verify waiver type exists and can be signed online
+    wt = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s AND can_sign_online=TRUE', (waiver_type_id,))
+    if not wt:
+        conn.close()
+        return jsonify({'error': 'This waiver cannot be signed online'}), 400
+    # Check not already signed
+    existing = fetchone(conn, 'SELECT id FROM youth_waivers WHERE youth_id=%s AND waiver_type_id=%s', (yid, waiver_type_id))
+    if existing:
+        conn.close()
+        return jsonify({'error': 'Waiver already signed'}), 400
+    wid = str(uuid.uuid4())
+    from datetime import date
+    execute(conn, '''INSERT INTO youth_waivers
+        (id, youth_id, waiver_type_id, signed_date, signed_name, signed_via)
+        VALUES (%s, %s, %s, %s, %s, %s)''',
+        (wid, yid, waiver_type_id, date.today().isoformat(), signed_name, 'portal'))
+    conn.commit()
+    row = fetchone(conn, '''SELECT yw.*, wt.name as type_name
+        FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
+        WHERE yw.id=%s''', (wid,))
+    conn.close()
+    return jsonify(row)
 
 @app.route('/api/portal/youth/<yid>/request-update', methods=['POST'])
 def portal_youth_request_update(yid):
@@ -4873,6 +4932,47 @@ def push_announcement(pid, aid):
     if err: return err
     conn = get_db()
     execute(conn, "UPDATE portal_announcements SET status='published' WHERE id=%s AND production_id=%s", (aid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth-programs/<pid>/required-waivers', methods=['GET'])
+def get_program_required_waivers(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        FROM program_required_waivers prw
+        JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+        WHERE prw.program_id=%s ORDER BY wt.name''', (pid,))
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/youth-programs/<pid>/required-waivers', methods=['POST'])
+def add_program_required_waiver(pid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO program_required_waivers (id,program_id,waiver_type_id) VALUES (%s,%s,%s)',
+                (rid, pid, d.get('waiver_type_id')))
+        conn.commit()
+        row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+            FROM program_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.id=%s''', (rid,))
+        conn.close()
+        return jsonify(row)
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/youth-programs/<pid>/required-waivers/<wid>', methods=['DELETE'])
+def remove_program_required_waiver(pid, wid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_required_waivers WHERE program_id=%s AND waiver_type_id=%s', (pid, wid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -7080,13 +7180,28 @@ def portal_production_conflicts(pid):
 
 @app.route('/api/portal/program/<pid>/waiver-status')
 def portal_program_waiver_status(pid):
-    yid = request.args.get('youth_id')
+    err = require_auth()
+    if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT wt.name, yw.signed_date, yw.expiry_date
-        FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
-        WHERE yw.youth_id=%s''', (yid,)) if yid else []
+    # Get required waivers for this program
+    required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name FROM program_required_waivers prw
+        JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+        WHERE prw.program_id=%s''', (pid,))
+    if not required:
+        conn.close()
+        return jsonify({'required_waivers': [], 'participants': []})
+    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+        FROM youth_participants y
+        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+        WHERE ype.program_id=%s AND y.status='active' ORDER BY y.last_name, y.first_name''', (pid,))
+    participants = []
+    for y in enrolled:
+        signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
+        signed_ids = {s['waiver_type_id'] for s in signed}
+        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        participants.append({**y, 'missing_waivers': missing, 'all_signed': len(missing)==0})
     conn.close()
-    return jsonify(rows)
+    return jsonify({'required_waivers': required, 'participants': participants})
 
 # ── Youth programs enrollment ──
 @app.route('/api/youth-programs/<pid>/enrolled')

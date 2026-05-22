@@ -647,6 +647,9 @@ async function goBeginVolunteering(){
   try {
     const r = await fetch('/api/kiosk/events')
     const events = await r.json()
+    // Cache events by ID so onclick doesn't need inline JSON
+    window._bvEventCache = {}
+    events.forEach(e=>{ window._bvEventCache[e.id]=e })
     if(!events.length){
       grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No events scheduled for today</div>'
     } else {
@@ -656,18 +659,17 @@ async function goBeginVolunteering(){
         const badge = autoLog && isOpen ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">⚡ Auto-Log Full Hours</div>' : ''
         const statusBadge = !isOpen ? `<div style="font-size:10px;font-weight:700;background:var(--bg);color:var(--muted);padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">🔒 Not open yet</div>` : ''
         if(!isOpen){
-          // Show but greyed out and non-clickable
           return `<div id="bv-evt-${e.id}" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--bg);font-family:inherit;font-size:13px;font-weight:600;text-align:left;opacity:0.5;cursor:not-allowed">
             <div style="color:var(--muted)">${e.name}</div>
             ${e.event_date?`<div style="font-size:11px;color:var(--hint);margin-top:2px">${fmtDate(e.event_date)}</div>`:''}
             ${statusBadge}
           </div>`
         }
-        return '<button id="bv-evt-'+e.id+'" onclick="bvSelectEvent('+JSON.stringify(e).replace(/"/g,'&quot;')+')" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left">'
-          +'<div>'+e.name+'</div>'
-          +(e.event_date?'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtDate(e.event_date)+'</div>':'')
-          +badge
-          +'</button>'
+        return `<button id="bv-evt-${e.id}" data-eid="${e.id}" onclick="bvSelectEvent(window._bvEventCache[this.dataset.eid])" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-align:left">
+          <div>${e.name}</div>
+          ${e.event_date?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${fmtDate(e.event_date)}</div>`:''}
+          ${badge}
+        </button>`
       }).join('')
     }
   } catch(err){ grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">Could not load events</div>' }
@@ -723,8 +725,8 @@ function bvSelectEvent(evt){
     const btn = document.getElementById('bv-evt-'+evt.id)
     if(btn){ btn.style.background='var(--teal-light)'; btn.style.borderColor='var(--teal)' }
   }
-  document.getElementById('bv-no-event').style.background = 'transparent'
-  document.getElementById('bv-no-event').style.borderColor = 'var(--border)'
+  const noEvtBtn = document.getElementById('bv-no-event')
+  if(noEvtBtn){ noEvtBtn.style.background='transparent'; noEvtBtn.style.borderColor='var(--border)' }
   bvUpdateBeginBtn()
 }
 
@@ -1026,8 +1028,11 @@ async function goEventSelect(){
   const noEvt=document.getElementById('no-events')
   if(!events.length){grid.innerHTML='';grid.style.display='none';noEvt.classList.remove('hidden');return}
   noEvt.classList.add('hidden');grid.style.display='grid'
+  // Cache events by ID to avoid inline JSON in onclick
+  window._kioskEventCache = {}
+  events.forEach(e=>{ window._kioskEventCache[e.id]=e })
   grid.innerHTML=events.map(e=>`
-    <button class="event-btn" onclick='selectEvent(${JSON.stringify(e)})'>
+    <button class="event-btn" data-eid="${e.id}" onclick="selectEvent(window._kioskEventCache[this.dataset.eid])">
       <div class="event-name">${e.name}</div>
       ${e.event_date?`<div class="event-date">📅 ${fmtDate(e.event_date)}</div>`:'<div class="event-date" style="color:var(--teal)">● Ongoing</div>'}
       <div style="font-size:11px;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">● Open</div>

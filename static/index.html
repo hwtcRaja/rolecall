@@ -2371,8 +2371,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply.</div></div>
       </div>
       <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>T-Shirt Size</label><select id="youth-shirt-size">
+          <option value="">— Not set —</option>
+          <option value="YXS">Youth XS</option><option value="YS">Youth S</option>
+          <option value="YM">Youth M</option><option value="YL">Youth L</option>
+          <option value="YXL">Youth XL</option><option value="AS">Adult S</option>
+          <option value="AM">Adult M</option><option value="AL">Adult L</option>
+          <option value="AXL">Adult XL</option><option value="A2XL">Adult 2XL</option>
+        </select></div>
+        <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
+      </div>
       <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
-      <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
       <div style="display:flex;gap:16px;margin-bottom:16px">
         <label class="form-check"><input type="checkbox" id="youth-photo-consent"/> Photo / Media Release</label>
         <label class="form-check"><input type="checkbox" id="youth-medical-consent"/> Emergency Medical Treatment Consent</label>
@@ -4631,6 +4641,7 @@ async function openYouthProfile(yid){
         <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
           ${y.dob?`<div>🎂 ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
           ${y.program?`<div>🎭 ${escHtml(y.program)}</div>`:''}
+          ${y.shirt_size?`<div>👕 ${escHtml(y.shirt_size)}</div>`:''}
         </div>
 
         ${y.allergies&&y.allergies.toLowerCase()!=='none'&&y.allergies.trim()?`
@@ -5626,6 +5637,7 @@ async function openEditYouthModal(yid){
   document.getElementById('youth-status').value=y.status||'active'
   document.getElementById('youth-medical').value=y.medical_notes||''
   document.getElementById('youth-allergies').value=y.allergies||''
+  document.getElementById('youth-shirt-size').value=y.shirt_size||''
   document.getElementById('youth-photo-consent').checked=!!y.photo_consent
   document.getElementById('youth-medical-consent').checked=!!y.medical_consent
   // Determine minor based on DOB or presence of guardians
@@ -5666,6 +5678,7 @@ async function saveYouth(){
     status:document.getElementById('youth-status').value,
     medical_notes:document.getElementById('youth-medical').value.trim(),
     allergies:document.getElementById('youth-allergies').value.trim()||'None',
+    shirt_size:document.getElementById('youth-shirt-size').value||'',
     photo_consent:document.getElementById('youth-photo-consent').checked,
     medical_consent:document.getElementById('youth-medical-consent').checked,
     guardians:[{name:guardianName,relationship:document.getElementById('youth-guardian-rel').value.trim(),phone:guardianPhone,email:document.getElementById('youth-guardian-email').value.trim(),is_primary:true}],
@@ -11156,7 +11169,10 @@ function renderEventDetailPage(eid){
 
           <!-- Left: who's signed up -->
           <div>
-            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:12px">Sign-ups</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign-ups</div>
+              ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">✉️ Email Signed-Up</button>`:''}
+            </div>
             <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 
             <!-- Role Slots Manager -->
@@ -12037,6 +12053,55 @@ async function confirmSendRsvp(eid){
   if(res.error){ toast(res.error,'error'); return }
   toast(`✅ Sent to ${res.sent} volunteer${res.sent!==1?'s':''}`, 'success')
   loadEventRsvps(eid)
+}
+
+function openEmailSignedUpModal(eid, eventName){
+  let m = document.getElementById('modal-email-signups')
+  if(m) m.remove()
+  m = document.createElement('div')
+  m.id = 'modal-email-signups'
+  m.className = 'modal-overlay'
+  m.onclick = e=>{ if(e.target===m) m.remove() }
+  m.innerHTML = `<div class="modal" style="max-width:520px;width:100%">
+    <div class="modal-header">
+      <div class="modal-title">✉️ Email Signed-Up Volunteers</div>
+      <button class="modal-close" onclick="document.getElementById('modal-email-signups').remove()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Sends to all volunteers who have signed up (status: <strong>Signed Up</strong>) for this event.</div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Subject</label>
+        <input type="text" id="signup-email-subject" value="Update: ${escHtml(eventName)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label>Message</label>
+        <textarea id="signup-email-body" placeholder="Write your update here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:140px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+      <div id="signup-email-result" style="margin-top:8px;font-size:13px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('modal-email-signups').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="sendEmailToSignups('${eid}')">📤 Send to Signed-Up Volunteers</button>
+    </div>
+  </div>`
+  document.body.appendChild(m)
+  requestAnimationFrame(()=>m.classList.add('open'))
+}
+
+async function sendEmailToSignups(eid){
+  const subject = document.getElementById('signup-email-subject')?.value.trim()
+  const body = document.getElementById('signup-email-body')?.value.trim()
+  const result = document.getElementById('signup-email-result')
+  if(!subject||!body){ toast('Subject and message required','error'); return }
+  if(result) result.innerHTML='<span style="color:var(--text-muted)">Sending…</span>'
+  const res = await api(`/api/events/${eid}/email-signups`,'POST',{subject,body})
+  if(res?.error){
+    if(result) result.innerHTML=`<span style="color:var(--red-600)">⚠️ ${escHtml(res.error)}</span>`
+    return
+  }
+  if(result) result.innerHTML=`<span style="color:var(--green-600)">✅ Sent to ${res.sent_to} volunteer${res.sent_to===1?'':'s'}</span>`
+  setTimeout(()=>document.getElementById('modal-email-signups')?.remove(), 2000)
+  toast(`Email sent to ${res.sent_to} signed-up volunteer${res.sent_to===1?'':'s'}!`)
 }
 
 async function removeRsvp(eid, rid){

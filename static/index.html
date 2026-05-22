@@ -4651,7 +4651,7 @@ async function openYouthProfile(yid){
           ${(y.waivers||[]).length===0?'<div style="font-size:12px;color:var(--text-hint)">No waivers on file</div>':
             (y.waivers||[]).map(w=>`<div style="font-size:12px;padding:5px 8px;background:var(--gray-50);border-radius:6px;margin-bottom:4px">
               <div style="font-weight:500">${escHtml(w.type_name||'Waiver')}</div>
-              <div style="color:var(--text-muted)">${formatDate(w.signed_date)}</div>
+              <div style="color:var(--text-muted)">${formatDate(w.signed_date)}${w.signed_via==='portal'?' · <span style="color:var(--teal-600);font-weight:600">Online</span>':w.signed_name?' · '+escHtml(w.signed_name):''}</div>
               ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none">📄 Download</a>`:''}
             </div>`).join('')}
           ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openYouthWaiverModal('${y.id}')">+ Add Waiver</button>`:''}
@@ -13433,10 +13433,20 @@ async function openProgramDetail(programId){
             <div id="prog-file-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
+          <!-- Required Waivers card -->
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-size:15px;font-weight:700">📋 Required Waivers</div>
+              ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="addProgramRequiredWaiver('${p.id}')">+ Add</button>`:''}
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Waivers all enrolled participants must sign</div>
+            <div id="prog-required-waivers-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+          </div>
+
           <!-- Waiver status card -->
           <div class="card" style="padding:20px">
-            <div style="font-size:15px;font-weight:700;margin-bottom:4px">📋 Waiver Status</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Participants with missing required waivers for this program's events</div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:4px">🚦 Waiver Status</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Which participants still need to sign required waivers</div>
             <div id="prog-waiver-status-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
         </div>
@@ -14365,18 +14375,85 @@ function switchProgramDetailTab(tab){
 
 async function loadProgramPortalContent(pid){
   if(!pid) return
-  const [data, folders, waiverStatus] = await Promise.all([
+  const [data, folders, waiverStatus, requiredWaivers] = await Promise.all([
     api(`/api/portal/instructor/content/program/${pid}`),
     api(`/api/portal/folders?program_id=${pid}`),
-    api(`/api/portal/program/${pid}/waiver-status`)
+    api(`/api/portal/program/${pid}/waiver-status`),
+    api(`/api/youth-programs/${pid}/required-waivers`)
   ])
   const files = Array.isArray(data) ? data : (data.files||[])
   const announcements = Array.isArray(data) ? [] : (data.announcements||[])
-  console.log('loadProgramPortalContent pid='+pid, 'announcements:', announcements, 'raw data:', data)
   renderPortalFolderPills('prog', pid, folders)
   renderProgramAnnouncements(pid, announcements)
   renderProgramFiles(pid, files, folders)
   renderWaiverStatus(pid, waiverStatus)
+  renderProgramRequiredWaivers(pid, requiredWaivers||[])
+}
+
+function renderProgramRequiredWaivers(pid, waivers){
+  const el = document.getElementById('prog-required-waivers-'+pid)
+  if(!el) return
+  const isAdmin = canEdit('youth')
+  if(!waivers.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No required waivers set. Add waivers that all enrolled participants must sign.</div>'
+    return
+  }
+  el.innerHTML = waivers.map(w=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:600">${escHtml(w.waiver_name)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${w.can_sign_online?'✅ Can sign online':'📄 Must be uploaded'}</div>
+      </div>
+      ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeProgramRequiredWaiver('${pid}','${w.waiver_type_id}')">✕</button>`:''}
+    </div>`).join('')
+}
+
+async function addProgramRequiredWaiver(pid){
+  // Get all waiver types
+  const types = await api('/api/waiver-types')
+  if(!types||!types.length){toast('No waiver types defined. Add them in Settings first.','error');return}
+  // Get currently required
+  const current = await api('/api/youth-programs/'+pid+'/required-waivers')
+  const currentIds = (current||[]).map(w=>w.waiver_type_id)
+  const available = types.filter(t=>!currentIds.includes(t.id))
+  if(!available.length){toast('All waiver types are already required for this program.','error');return}
+  // Simple select prompt using a modal
+  const opts = available.map(t=>`<option value="${t.id}">${escHtml(t.name)}${t.can_sign_online?' (online signing)':''}</option>`).join('')
+  const m = document.createElement('div')
+  m.className='modal-overlay open'
+  m.onclick=function(e){if(e.target===m)m.remove()}
+  m.innerHTML=`<div class="modal" style="max-width:400px">
+    <div class="modal-header"><div class="modal-title">Add Required Waiver</div><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Waiver Type</label>
+        <select id="prog-waiver-select" style="width:100%;padding:10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">${opts}</select>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">All currently enrolled participants will need to sign this waiver. They can sign online from the family portal if the waiver type allows it.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProgramRequiredWaiver('${pid}')">Add Requirement</button>
+    </div>
+  </div>`
+  document.body.appendChild(m)
+}
+
+async function saveProgramRequiredWaiver(pid){
+  const wid = document.getElementById('prog-waiver-select')?.value
+  if(!wid) return
+  const res = await api('/api/youth-programs/'+pid+'/required-waivers','POST',{waiver_type_id:wid})
+  document.getElementById('prog-waiver-select')?.closest('.modal-overlay')?.remove()
+  if(res?.error){toast(res.error,'error');return}
+  toast('Waiver requirement added!')
+  await loadProgramPortalContent(pid)
+}
+
+async function removeProgramRequiredWaiver(pid, wid){
+  if(!confirm('Remove this waiver requirement?')) return
+  await api('/api/youth-programs/'+pid+'/required-waivers/'+wid,'DELETE')
+  toast('Removed')
+  await loadProgramPortalContent(pid)
 }
 
 function renderPortalFolderPills(prefix, pid, folders){

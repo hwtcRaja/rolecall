@@ -4940,10 +4940,13 @@ def get_program_required_waivers(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
-        FROM program_required_waivers prw
-        JOIN waiver_types wt ON prw.waiver_type_id=wt.id
-        WHERE prw.program_id=%s ORDER BY wt.name''', (pid,))
+    try:
+        rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+            FROM program_required_waivers prw
+            JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.program_id=%s ORDER BY wt.name''', (pid,))
+    except Exception:
+        rows = []
     conn.close()
     return jsonify(rows)
 
@@ -7183,10 +7186,13 @@ def portal_program_waiver_status(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    # Get required waivers for this program
-    required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name FROM program_required_waivers prw
-        JOIN waiver_types wt ON prw.waiver_type_id=wt.id
-        WHERE prw.program_id=%s''', (pid,))
+    try:
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name FROM program_required_waivers prw
+            JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.program_id=%s''', (pid,))
+    except Exception:
+        conn.close()
+        return jsonify({'required_waivers': [], 'participants': []})
     if not required:
         conn.close()
         return jsonify({'required_waivers': [], 'participants': []})

@@ -641,6 +641,19 @@ async function goBeginVolunteering(){
   const indBtn = document.getElementById('bv-independent-btn')
   if(indBtn){ indBtn.style.background='transparent'; indBtn.style.borderColor='#7c3aed' }
   bvUpdateBeginBtn()
+
+  // Check if volunteer already has an active session
+  try {
+    const sr = await fetch('/api/kiosk/session/active/'+selVol.id)
+    const sd = await sr.json()
+    if(sd.active){
+      // Already volunteering — go to menu and show the stop banner
+      _bvSessionStart = safeDate(sd.started_at)
+      goVolMenu()
+      return
+    }
+  } catch(e){}
+
   // Load open events
   const grid = document.getElementById('bv-event-grid')
   grid.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading events…</div>'
@@ -1006,7 +1019,7 @@ async function submitSign(){
   }
 }
 
-function goVolMenu(){
+async function goVolMenu(){
   const[bg,col]=avc(selVol.name)
   document.getElementById('vm-av').style.background=bg
   document.getElementById('vm-av').style.color=col
@@ -1015,7 +1028,7 @@ function goVolMenu(){
   updateWaiverMenuBtn(waiverIssues.length)
   hideActiveSessionBanner()
   showScreen('screen-vol-menu')
-  checkActiveSession()
+  await checkActiveSession()
 }
 
 async function goEventSelect(){

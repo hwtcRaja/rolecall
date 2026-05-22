@@ -1514,6 +1514,21 @@ def create_event():
     conn.close()
     return jsonify(row)
 
+@app.route('/api/events/<eid>/status', methods=['POST'])
+def set_event_status(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    status = d.get('status','').strip()
+    if status not in ('draft','open','closed','cancelled'):
+        return jsonify({'error': f'Invalid status: {status}'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE events SET status=%s WHERE id=%s', (status, eid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    conn.close()
+    return jsonify({'ok': True, 'status': row['status'], 'id': eid})
+
 @app.route('/api/events/<eid>', methods=['PUT'])
 def update_event(eid):
     err = require_admin()
@@ -1523,7 +1538,7 @@ def update_event(eid):
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s WHERE id=%s''',
+        rsvp_enabled=%s,rsvp_message=%s,status=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -1531,7 +1546,7 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), eid))
+         d.get('rsvp_message',''), d.get('status','draft'), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,

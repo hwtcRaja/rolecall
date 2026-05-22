@@ -670,6 +670,7 @@ def init_db():
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
@@ -2370,9 +2371,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, yid))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
+         d.get('shirt_size',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -6973,6 +6975,50 @@ def email_send_report(rid):
     return jsonify({'error': msg or 'Send failed'}), 500
 
 # ── Event waivers ──
+@app.route('/api/events/<eid>/email-signups', methods=['POST'])
+def email_event_signups(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    subject = d.get('subject','').strip()
+    body = d.get('body','').strip()
+    if not subject or not body:
+        return jsonify({'error': 'Subject and message required'}), 400
+    conn = get_db()
+    event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    if not event:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    # Get emails of all signed-up volunteers (status='interested')
+    signups = fetchall(conn, '''SELECT v.email, v.name FROM event_rsvps er
+        JOIN volunteers v ON er.volunteer_id=v.id
+        WHERE er.event_id=%s AND er.status='interested'
+        AND v.email IS NOT NULL AND v.email!=''
+        ''', (eid,))
+    conn.close()
+    if not signups:
+        return jsonify({'error': 'No signed-up volunteers with email addresses'}), 400
+    recipients = list({s['email'].strip().lower() for s in signups if s['email']})
+    event_name = event.get('name', 'Event')
+    event_date = event.get('event_date', '')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:20px;border-radius:8px 8px 0 0">
+        <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-bottom:4px">Event Update</div>
+        <h2 style="color:white;margin:0">{event_name}</h2>
+        {f'<div style="color:rgba(255,255,255,0.8);font-size:13px;margin-top:4px">{event_date}</div>' if event_date else ''}
+      </div>
+      <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.7;color:#1e293b">{body}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+        <p style="font-size:12px;color:#94a3b8;margin:0">This message was sent to volunteers signed up for <strong>{event_name}</strong> by Horizon West Theater Company.</p>
+      </div>
+    </div>'''
+    try:
+        send_email(recipients, subject, html_body)
+        return jsonify({'ok': True, 'sent_to': len(recipients)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/events/<eid>/waivers', methods=['POST'])
 def add_event_waiver(eid):
     err = require_auth()

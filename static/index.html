@@ -11927,7 +11927,9 @@ async function saveEditEvent(){
     auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
     rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
     rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
-    carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false
+    carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false,
+    // Preserve existing status — never reset it via the edit modal
+    status: eid ? (allEvents.find(e=>e.id===eid)?.status||'draft') : 'draft'
   }
 
   // Save the base event

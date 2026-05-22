@@ -14376,18 +14376,18 @@ function switchProgramDetailTab(tab){
 async function loadProgramPortalContent(pid){
   if(!pid) return
   const [data, folders, waiverStatus, requiredWaivers] = await Promise.all([
-    api(`/api/portal/instructor/content/program/${pid}`),
-    api(`/api/portal/folders?program_id=${pid}`),
-    api(`/api/portal/program/${pid}/waiver-status`),
-    api(`/api/youth-programs/${pid}/required-waivers`)
+    api(`/api/portal/instructor/content/program/${pid}`).catch(()=>({files:[],announcements:[]})),
+    api(`/api/portal/folders?program_id=${pid}`).catch(()=>[]),
+    api(`/api/portal/program/${pid}/waiver-status`).catch(()=>({required_waivers:[],participants:[]})),
+    api(`/api/youth-programs/${pid}/required-waivers`).catch(()=>[])
   ])
   const files = Array.isArray(data) ? data : (data.files||[])
   const announcements = Array.isArray(data) ? [] : (data.announcements||[])
   renderPortalFolderPills('prog', pid, folders)
   renderProgramAnnouncements(pid, announcements)
   renderProgramFiles(pid, files, folders)
-  renderWaiverStatus(pid, waiverStatus)
-  renderProgramRequiredWaivers(pid, requiredWaivers||[])
+  renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:waiverStatus)
+  renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[]))
 }
 
 function renderWaiverStatus(pid, data){

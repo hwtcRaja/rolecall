@@ -646,9 +646,9 @@ async function goBeginVolunteering(){
   try {
     const sr = await fetch('/api/kiosk/session/active/'+selVol.id)
     const sd = await sr.json()
-    if(sd.active){
+    if(sd.active && sd.session){
       // Already volunteering — go to menu and show the stop banner
-      _bvSessionStart = safeDate(sd.started_at)
+      _bvSessionStart = safeDate(sd.session.started_at)
       goVolMenu()
       return
     }
@@ -824,7 +824,7 @@ function showActiveSessionBanner(role){
   const info   = document.getElementById('active-session-info')
   const beginBtn = document.getElementById('begin-vol-btn')
   if(!banner) return
-  const evtName = _bvSelectedEvent ? _bvSelectedEvent.name : 'General volunteering'
+  const evtName = _bvSelectedEvent ? _bvSelectedEvent.name : 'Currently volunteering'
   info.textContent = evtName + (role ? ' · ' + role : '')
   banner.style.display = 'block'
   if(beginBtn){ beginBtn.style.display='none' }
@@ -855,9 +855,10 @@ async function checkActiveSession(){
   try {
     const r = await fetch('/api/kiosk/session/active/'+selVol.id)
     const d = await r.json()
-    if(d.active){
-      _bvSessionStart = safeDate(d.started_at)
-      showActiveSessionBanner('')
+    if(d.active && d.session){
+      _bvSelectedEvent = null  // we don't know which event from here, that's OK
+      _bvSessionStart = safeDate(d.session.started_at)
+      showActiveSessionBanner(d.session.role||'')
     }
   } catch(err){}
 }

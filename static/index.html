@@ -10795,13 +10795,14 @@ function renderTodayView(){
   const upcomingEvts = allEvents.filter(e=>e.event_date>today&&e.event_date<=in14).sort((a,b)=>a.event_date.localeCompare(b.event_date)||(a.start_time||'').localeCompare(b.start_time||''))
 
   const evCard = e=>{
+    const isCancelled = e.status==='cancelled'
     const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
     const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
     const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
-    return`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer" onclick="openEventChip('${e.id}')">
-      <div style="width:3px;align-self:stretch;background:${tcol};border-radius:2px;flex-shrink:0"></div>
+    return`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;${isCancelled?'opacity:0.65':''}" onclick="openEventChip('${e.id}')">
+      <div style="width:3px;align-self:stretch;background:${isCancelled?'#DC2626':tcol};border-radius:2px;flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:600">${e.name}</div>
+        <div style="font-size:14px;font-weight:600;${isCancelled?'text-decoration:line-through;color:var(--text-muted)':''}">${isCancelled?'🚫 ':''}${e.name}</div>
         <div style="font-size:12px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
           <span>⏰ ${timeStr}</span>
           ${e.location?`<span>📍 ${e.location}</span>`:''}
@@ -10848,18 +10849,19 @@ function renderDayView(){
   }
   content.innerHTML=`<div class="card" style="padding:20px">
     ${dayEvts.map(e=>{
+      const isCancelled = e.status==='cancelled'
       const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
       const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
       const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
       const elicName=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
-      return`<div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openEventChip('${e.id}')">
+      return`<div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border);cursor:pointer;${isCancelled?'opacity:0.65;background:#FEF2F2;margin:0 -20px;padding-left:20px;padding-right:20px':''}" onclick="openEventChip('${e.id}')">
         <div style="width:80px;text-align:center;flex-shrink:0">
-          <div style="font-size:13px;font-weight:700;color:var(--teal-dark)">${e.start_time?fmtTime(e.start_time):'TBD'}</div>
+          <div style="font-size:13px;font-weight:700;color:${isCancelled?'#DC2626':'var(--teal-dark)'}">${e.start_time?fmtTime(e.start_time):'TBD'}</div>
           ${e.end_time?`<div style="font-size:11px;color:var(--text-hint)">${fmtTime(e.end_time)}</div>`:''}
         </div>
-        <div style="width:4px;background:${tcol};border-radius:2px;flex-shrink:0;align-self:stretch"></div>
+        <div style="width:4px;background:${isCancelled?'#DC2626':tcol};border-radius:2px;flex-shrink:0;align-self:stretch"></div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:15px;font-weight:700;margin-bottom:4px">${e.name}</div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px;${isCancelled?'text-decoration:line-through;color:var(--text-muted)':''}">${isCancelled?'🚫 ':''}${e.name}</div>
           <div style="font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:10px">
             ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}
             ${e.program_name?`<span>📚 ${e.program_name}</span>`:''}
@@ -10957,11 +10959,12 @@ function renderCalendar(events){
   cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:6px;cursor:${isAdminGrid?'pointer':'default'};overflow:hidden;min-width:0" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
       <div style="font-size:12px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
       ${dayEvents.slice(0,3).map(e=>{
-        const[bg,col]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+        const isCancelled = e.status==='cancelled'
+        const[bg,col]=isCancelled ? ['#FEE2E2','#DC2626'] : (TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue)
         const isAdminCal=canEdit('events')
         const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
-        return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0">
-          ${escHtml(e.name)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
+        return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
+          ${isCancelled?'🚫 ':''}${escHtml(e.name)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
         </div>`
       }).join('')}
       ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:1px 3px">+${dayEvents.length-3} more</div>`:''}
@@ -11020,13 +11023,14 @@ function eventListRow(e,isAdmin){
   const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
   const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
   const timeStr=e.start_time?fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):''):'All day'
-  return`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow 0.15s" onclick="openEventDetail('${e.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
-    <div style="width:4px;align-self:stretch;background:${tcol};border-radius:2px;flex-shrink:0"></div>
+  const isCancelled = e.status==='cancelled'
+  return`<div style="background:${isCancelled?'#FEF2F2':'var(--surface)'};border:1px solid ${isCancelled?'#FECACA':'var(--border)'};border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow 0.15s;${isCancelled?'opacity:0.75':''}" onclick="openEventDetail('${e.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
+    <div style="width:4px;align-self:stretch;background:${isCancelled?'#DC2626':tcol};border-radius:2px;flex-shrink:0"></div>
     <div style="width:52px;text-align:center;flex-shrink:0">
-      ${e.event_date?`<div style="font-size:20px;font-weight:800;color:var(--teal-dark);line-height:1">${parseInt(e.event_date.split('-')[2])}</div><div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase">${new Date(e.event_date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>`:'<div style="font-size:11px;color:var(--text-hint)">TBD</div>'}
+      ${e.event_date?`<div style="font-size:20px;font-weight:800;color:${isCancelled?'#DC2626':'var(--teal-dark)'};line-height:1">${parseInt(e.event_date.split('-')[2])}</div><div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase">${new Date(e.event_date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>`:'<div style="font-size:11px;color:var(--text-hint)">TBD</div>'}
     </div>
     <div style="flex:1;min-width:0">
-      <div style="font-size:15px;font-weight:600;margin-bottom:3px">${e.name}</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:3px;${isCancelled?'text-decoration:line-through;color:var(--text-muted)':''}">${isCancelled?'🚫 ':''}${e.name}</div>
       <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">
         <span>⏰ ${timeStr}</span>
         ${e.location?`<span>📍 ${e.location}${e.room?' · '+e.room:''}</span>`:''}

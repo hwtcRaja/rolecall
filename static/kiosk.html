@@ -617,7 +617,27 @@ function tapStart(){
   selVol=null;selEvent=null;curHours=0;pinVal='';elicData=null
   showScreen('screen-role')
 }
-function goIdle(){clearTimeout(resetTmt);showScreen('screen-idle');clearTimeout(idleTmt)}
+function goIdle(){
+  clearTimeout(resetTmt)
+  // Clear volunteer and session state so next person starts fresh
+  selVol = null
+  waiverIssues = []
+  waiverFromMenu = false
+  _bvSelectedEvent = null
+  _bvOverrideReason = ''
+  if(_bvTimerInterval){ clearInterval(_bvTimerInterval); _bvTimerInterval=null }
+  _bvSessionStart = null
+  hideActiveSessionBanner()
+  // Clear search field
+  const sq = document.getElementById('search-q')
+  if(sq) sq.value = ''
+  const list = document.getElementById('vol-list')
+  if(list) list.innerHTML = ''
+  const hint = document.getElementById('search-hint')
+  if(hint) hint.textContent = 'Type at least 2 characters to search'
+  showScreen('screen-idle')
+  clearTimeout(idleTmt)
+}
 
 // ── BEGIN / STOP VOLUNTEERING ──
 let _bvSelectedEvent  = null
@@ -894,9 +914,11 @@ function searchVols(){
     const list=document.getElementById('vol-list')
     if(!vols.length){document.getElementById('search-hint').textContent='No volunteers found';list.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted)">No one found. Please see a staff member.</div>';return}
     document.getElementById('search-hint').textContent=`${vols.length} found — tap your name`
+    window._volCache = {}
+    vols.forEach(v=>{ window._volCache[v.id]=v })
     list.innerHTML=vols.map(v=>{
       const[bg,col]=avc(v.name)
-      return`<div class="vol-card" onclick='selectVol(${JSON.stringify(v)})'>
+      return`<div class="vol-card" data-vid="${v.id}" onclick="selectVol(window._volCache[this.dataset.vid])">
         <div class="vol-av" style="background:${bg};color:${col}">${ini(v.name)}</div>
         <div><div class="vol-name">${v.name}</div>${v.email?`<div class="vol-email">${v.email}</div>`:''}</div>
         <div style="margin-left:auto;font-size:20px;color:var(--hint)">→</div>

@@ -6523,6 +6523,72 @@ def portal_get_carpools():
         app.logger.error(f'portal_get_carpools error: {e}')
         return jsonify([])
 
+@app.route('/api/portal/carpools/create', methods=['POST'])
+def portal_create_carpool():
+    d = request.json or {}
+    event_id    = (d.get('event_id') or '').strip()
+    name        = (d.get('name') or '').strip()
+    driver_name = (d.get('driver_name') or '').strip()
+    driver_phone= (d.get('driver_phone') or '').strip()
+    max_seats   = int(d.get('max_seats') or 6)
+    notes       = (d.get('notes') or '').strip()
+    youth_ids   = d.get('youth_ids', [])
+    if not event_id or not driver_name:
+        return jsonify({'error': 'Event and driver name are required'}), 400
+    conn = get_db()
+    event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not event:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    import random, string
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    cid = str(uuid.uuid4())
+    carpool_name = name or f"{driver_name}'s Carpool"
+    execute(conn, '''INSERT INTO carpools (id,event_id,name,driver_name,driver_phone,code,max_seats,notes,status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+        (cid, event_id, carpool_name, driver_name, driver_phone, code, max_seats, notes))
+    # Auto-add creator's kids
+    for yid in youth_ids:
+        mid = str(uuid.uuid4())
+        try:
+            execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'portal')",
+                (mid, cid, yid, driver_name))
+        except Exception: pass
+    conn.commit()
+    carpool = fetchone(conn, '''SELECT c.*, e.name as event_name, e.event_date
+        FROM carpools c JOIN events e ON c.event_id=e.id WHERE c.id=%s''', (cid,))
+    carpool['members'] = fetchall(conn,
+        'SELECT cm.id, cm.youth_id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
+        (cid,))
+    conn.close()
+    return jsonify({'ok': True, 'carpool': carpool, 'code': code})
+
+@app.route('/api/portal/carpools/leave', methods=['POST'])
+def portal_leave_carpool():
+    d = request.json or {}
+    carpool_id = d.get('carpool_id','').strip()
+    youth_ids  = d.get('youth_ids', [])
+    if not carpool_id or not youth_ids:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    for yid in youth_ids:
+        execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s AND youth_id=%s', (carpool_id, yid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/events-for-carpools')
+def portal_events_for_carpools():
+    """Return upcoming events that parents can create carpools for."""
+    conn = get_db()
+    events = fetchall(conn, """SELECT e.id, e.name, e.event_date, e.start_time
+        FROM events e
+        WHERE e.event_date >= CURRENT_DATE::text
+        AND e.status IN ('draft','open')
+        ORDER BY e.event_date, e.start_time LIMIT 30""")
+    conn.close()
+    return jsonify(events)
+
 @app.route('/api/portal/carpools/join', methods=['POST'])
 def portal_join_carpool():
     d = request.json or {}

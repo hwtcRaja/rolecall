@@ -919,16 +919,9 @@ function renderWaiverCheck(fromMenu,allClear){
   if(allClear){
     updateWaiverMenuBtn(0)
     if(!fromMenu){
-      // Not from menu — show all-clear with Continue to Log Hours button
-      document.getElementById('wc-title').textContent='Waivers Complete ✅'
-      document.getElementById('wc-sub').textContent='You\'re all set to volunteer'
-      content.innerHTML=`<div class="all-clear">
-        <div style="font-size:44px;margin-bottom:10px">✅</div>
-        <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">All Waivers Signed</div>
-        <div style="font-size:14px;color:var(--muted);margin-bottom:20px">You can now log your hours</div>
-        <button onclick="goEventSelect()" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 32px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:620px;margin-bottom:10px">📋 Log Hours →</button>
-        <button onclick="goVolMenu()" style="background:none;border:none;color:var(--muted);font-family:inherit;font-size:13px;cursor:pointer;text-decoration:underline">Go to Menu</button>
-      </div>`
+      // Not from menu — go straight to Begin Volunteering, no intermediate screen needed
+      goBeginVolunteering()
+      return
     } else {
       document.getElementById('wc-title').textContent='Your Waivers'
       document.getElementById('wc-sub').textContent='All waivers are current'
@@ -1000,11 +993,14 @@ async function submitSign(){
       showScreen('screen-waiver-check')
     })
   } else {
-    // All waivers done — go straight to vol menu with success message
+    // All waivers done
     updateWaiverMenuBtn(0)
-    showConfirm('✅','All Waivers Signed!','You\'re all set.',waiverFromMenu?'':'You can now log your hours.',()=>{
-      goVolMenu()
-    })
+    if(waiverFromMenu){
+      showConfirm('✅','All Waivers Signed!','You\'re all set.','',()=>{ goVolMenu() })
+    } else {
+      // Came from sign-in — go straight to Begin Volunteering
+      goBeginVolunteering()
+    }
   }
 }
 

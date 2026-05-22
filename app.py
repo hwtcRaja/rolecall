@@ -6669,17 +6669,14 @@ def pickup_queue():
     try:
         carpools_rows = fetchall(conn, """
             SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
-                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
-                   COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) as signed_in_count,
-                   COUNT(DISTINCT cm.id) as total_members
+                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name
             FROM carpools cp
             JOIN events e ON cp.event_id=e.id
-            LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
-            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
-                AND ysi.event_id=cp.event_id
+            JOIN carpool_members cm ON cm.carpool_id=cp.id
+            JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
             WHERE e.status = 'open'
+            AND ysi.signed_out_at IS NULL
             GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
-            HAVING COUNT(DISTINCT cm.id) > 0
             ORDER BY cp.name
         """)
         for cp in carpools_rows:
@@ -6693,6 +6690,38 @@ def pickup_queue():
                 WHERE cm.carpool_id=%s
                 ORDER BY y.last_name, y.first_name
             """, (cp['event_id'], cp['carpool_id']))
+        # Also include recently completed carpools (all signed out in last 2 hours) for picked-up column
+        completed_carpools = fetchall(conn, """
+            SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
+                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name
+            FROM carpools cp
+            JOIN events e ON cp.event_id=e.id
+            WHERE e.status = 'open'
+            AND EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
+                WHERE cm.carpool_id=cp.id AND ysi.signed_out_at IS NOT NULL
+                AND ysi.signed_out_at >= NOW() - INTERVAL '2 hours'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
+                WHERE cm.carpool_id=cp.id AND ysi.signed_out_at IS NULL
+            )
+            GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
+        """)
+        for cp in completed_carpools:
+            cp['kids'] = fetchall(conn, """
+                SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
+                       y.first_name, y.last_name, cm.id as member_id
+                FROM carpool_members cm
+                JOIN youth_participants y ON cm.youth_id=y.id
+                LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=%s
+                WHERE cm.carpool_id=%s
+                ORDER BY y.last_name, y.first_name
+            """, (cp['event_id'], cp['carpool_id']))
+            cp['completed'] = True
+        carpools_rows = carpools_rows + completed_carpools
     except Exception as e:
         app.logger.error(f'pickup_queue carpools error: {e}')
         carpools_rows = []

@@ -3901,7 +3901,8 @@ function renderHours(){
     tbody.innerHTML=`<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">⏱</div><p>No ${_hoursTab==='independent'?'independent time':'event hours'} logged yet</p></div></td></tr>`
     return
   }
-  tbody.innerHTML=filtered.map(h=>`<tr>
+  tbody.innerHTML=filtered.map(h=>{
+  const row=`<tr>
     <td><div class="volunteer-name-cell">${avatarHTML(h.volunteer_name||'',24)}<span onclick="openProfile('${h.volunteer_id}')" style="cursor:pointer;font-weight:500;font-size:13px">${escHtml(h.volunteer_name||'—')}</span></div></td>
     <td style="font-weight:500;font-size:13px">${escHtml(h.event||'—')}</td>
     <td style="color:var(--text-muted);font-size:13px">${formatDate(h.date)}</td>
@@ -3909,10 +3910,13 @@ function renderHours(){
     <td style="color:var(--text-muted);font-size:12px">${escHtml(h.role||'—')}</td>
     ${isAdmin?`<td style="text-align:right">
       <div style="display:flex;gap:4px;justify-content:flex-end">
-        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditHoursModal('${h.id}')">✏️</button>
+        <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" data-hid="${h.id}" onclick="openEditHoursModal(this.dataset.hid)">✏️</button>
         <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteHoursGlobal('${h.id}')">✕</button>
       </div></td>`:'<td></td>'}
-  </tr>`).join('')
+  </tr>`
+  if(isAdmin) _hoursEditData[h.id]={hours:h.hours,event:h.event||'',date:h.date||'',volId:h.volunteer_id,isGlobal:true}
+  return row
+}).join('')
 }
 
 var _hoursEditData = {}
@@ -3940,29 +3944,51 @@ function openEditHoursModal(hoursId) {
   if (old2) old2.remove()
   var overlay = document.createElement('div')
   overlay.id = 'edit-hours-modal'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var box = document.createElement('div')
-  box.style.cssText = 'background:var(--surface);border-radius:12px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:16px'
-  var title = document.createElement('div'); title.style.cssText='font-size:16px;font-weight:700'; title.textContent='✏️ Edit Hours'; box.appendChild(title)
-  var lbl = document.createElement('label'); lbl.style.cssText='font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px'; lbl.textContent='Hours worked'; box.appendChild(lbl)
-  var inp = document.createElement('input'); inp.type='number'; inp.min='0.25'; inp.step='0.25'; inp.value=parseFloat(data.hours)||0
-  inp.style.cssText='width:100%;padding:12px;border:2px solid var(--teal);border-radius:8px;font-size:24px;font-weight:700;box-sizing:border-box;font-family:inherit;color:var(--teal-dark)'; box.appendChild(inp)
-  var hint = document.createElement('div'); hint.style.cssText='font-size:12px;color:var(--text-muted);margin-top:-8px'; hint.textContent='e.g. 2.5 for 2 hours 30 minutes'; box.appendChild(hint)
-  var btnRow = document.createElement('div'); btnRow.style.cssText='display:flex;gap:10px;margin-top:4px'
-  var cancelBtn = document.createElement('button'); cancelBtn.className='btn btn-secondary'; cancelBtn.style.flex='1'; cancelBtn.textContent='Cancel'; cancelBtn.onclick=function(){overlay.remove()}
-  var saveBtn = document.createElement('button'); saveBtn.className='btn btn-primary'; saveBtn.style.flex='2'; saveBtn.textContent='Save Hours'
-  saveBtn.onclick = async function(){
-    var hours = parseFloat(inp.value)
-    if(!hours||hours<=0){toast('Please enter valid hours','error');return}
-    saveBtn.disabled=true; saveBtn.textContent='Saving…'
-    var res = await api('/api/hours/'+hoursId,'PUT',{hours:hours})
-    if(res&&res.error){toast(res.error,'error');saveBtn.disabled=false;saveBtn.textContent='Save Hours';return}
-    overlay.remove(); toast('Updated to '+hours+'h','success')
-    await loadAllData(); openProfile(data.volId)
-  }
-  btnRow.appendChild(cancelBtn); btnRow.appendChild(saveBtn); box.appendChild(btnRow)
-  overlay.appendChild(box); overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()}); document.body.appendChild(overlay)
-  setTimeout(function(){inp.focus();inp.select()},50)
+  overlay.className = 'modal-overlay'
+  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove() }
+  overlay.innerHTML = `<div class="modal" style="max-width:420px">
+    <div class="modal-header"><div class="modal-title">✏️ Edit Time Entry</div><button class="modal-close" onclick="document.getElementById('edit-hours-modal').remove()">✕</button></div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <div class="form-group">
+        <label>Event / Description</label>
+        <input type="text" id="eh-event" value="${escHtml(data.event||'')}" placeholder="Event name" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="eh-date" value="${data.date||''}" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+        </div>
+        <div class="form-group">
+          <label>Hours</label>
+          <input type="number" id="eh-hours" min="0.25" step="0.25" value="${parseFloat(data.hours)||0}" style="width:100%;padding:10px 12px;border:1.5px solid var(--teal);border-radius:var(--radius);font-family:inherit;font-size:20px;font-weight:700;color:var(--teal-dark);outline:none;box-sizing:border-box"/>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="document.getElementById('edit-hours-modal').remove()">Cancel</button>
+      <button class="btn btn-primary" id="eh-save-btn" onclick="saveEditHours('${hoursId}')">Save Changes</button>
+    </div>
+  </div>`
+  document.body.appendChild(overlay)
+  requestAnimationFrame(()=>overlay.classList.add('open'))
+  setTimeout(()=>{ document.getElementById('eh-hours')?.focus() }, 50)
+}
+
+async function saveEditHours(hoursId){
+  var hours = parseFloat(document.getElementById('eh-hours')?.value)
+  var event = document.getElementById('eh-event')?.value.trim()
+  var date  = document.getElementById('eh-date')?.value
+  if(!hours||hours<=0){toast('Please enter valid hours','error');return}
+  var btn = document.getElementById('eh-save-btn')
+  if(btn){btn.disabled=true;btn.textContent='Saving…'}
+  var res = await api('/api/hours/'+hoursId,'PUT',{hours,event,date})
+  if(res&&res.error){toast(res.error,'error');if(btn){btn.disabled=false;btn.textContent='Save Changes'}return}
+  document.getElementById('edit-hours-modal')?.remove()
+  toast('Time entry updated!')
+  var data = _hoursEditData[hoursId]
+  await loadAllData()
+  if(data?.isGlobal) renderHours()
+  else if(data?.volId) openProfile(data.volId)
 }
 
 async function downloadEventReportPdf(eventId, logId){
@@ -4016,6 +4042,7 @@ async function downloadEventReportPdf(eventId, logId){
     +'<'+'/div>'
     + mkChecklistTable(log.opening_checklist, 'Opening Checklist', '🟢')
     + mkChecklistTable(log.checklist, 'Closing Checklist', '✅')
+    +(log.notes && log.notes !== 'Event closed via kiosk' ? '<h3>📝 Notes</h3><div style="background:#f8fafc;border:1px solid #e0e0db;border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.6;color:#374151;white-space:pre-wrap">'+escHtml(log.notes)+'</div>' : '')
     +(hours?'<h3>⏱ Volunteer Hours<'+'/h3><table><thead><tr><th>Volunteer<'+'/th><th>Hours<'+'/th><th>Status<'+'/th><'+'/tr><'+'/thead><tbody>'+hours+'<'+'/tbody>'
       +'<tfoot><tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Total<'+'/td><td style="padding:8px 12px;font-weight:800;font-size:16px;color:#145466">'+total.toFixed(1)+'h<'+'/td><td><'+'/td><'+'/tr><'+'/tfoot><'+'/table>'
       :'<p style="color:#888;font-size:13px;font-style:italic">No hours recorded.<'+'/p>')

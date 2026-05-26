@@ -4045,9 +4045,13 @@ def update_approved_hours(hid):
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours value'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE hours SET hours=%s WHERE id=%s', (hours, hid))
+    row = fetchone(conn, 'SELECT * FROM hours WHERE id=%s', (hid,))
+    if not row: conn.close(); return jsonify({'error': 'Record not found'}), 404
+    event = d.get('event', row.get('event','')).strip() or row.get('event','')
+    date  = d.get('date',  row.get('date',''))  or row.get('date','')
+    execute(conn, 'UPDATE hours SET hours=%s, event=%s, date=%s WHERE id=%s', (hours, event, date, hid))
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'hours': hours})
+    return jsonify({'ok': True, 'hours': hours, 'event': event, 'date': date})
 
 @app.route('/api/pending-hours/<hid>/approve', methods=['POST'])
 def approve_pending_hours(hid):
@@ -6263,13 +6267,29 @@ def kiosk_close_event():
                 evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
                 evt_name = evt['name'] if evt else event_id
                 now_str = __import__('datetime').datetime.now().strftime('%I:%M %p')
-                # Build checklist summary
+                # Get opening checklist from the open log
+                open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
+                    LEFT JOIN elics eli ON el.elic_id=eli.id
+                    LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+                    WHERE el.event_id=%s AND el.action='open' ORDER BY el.id LIMIT 1''', (event_id,))
+                open_responses = []
+                open_elic_name = ''
+                if open_log:
+                    open_responses = fetchall(conn,
+                        'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
+                        (open_log['id'],))
+                    open_elic_name = open_log.get('elic_name','')
+                # Build opening checklist rows
+                ol_rows = ''
+                for r in open_responses:
+                    val = str(r.get('response',''))
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
+                # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    if val == 'true': val_str = '✅ Done'
-                    elif val == 'false': val_str = '❌ Not Done'
-                    else: val_str = val or '—'
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -6279,17 +6299,25 @@ def kiosk_close_event():
                         vname = vol['name'] if vol else 'Unknown'
                         hrs_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{vname}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{ph["hours"]}h</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#16a34a">Auto-approved</td></tr>'
                 body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-                    <h2 style="color:#145466">🔒 Event Closed: {evt_name}</h2>
-                    <p>Closed at <strong>{now_str}</strong> via ELIC kiosk.</p>
-                    {f"""<h3 style="margin-top:24px">✅ Closing Checklist</h3>
-                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
-                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Item</th><th style="padding:8px 12px;text-align:left">Response</th></tr></thead>
-                    <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No checklist items recorded.</em></p>"}
-                    {f"""<h3 style="margin-top:24px">⏱ Hours Auto-Approved ({len(pending)} volunteer{'s' if len(pending)!=1 else ''})</h3>
-                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
-                    <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left">Volunteer</th><th style="padding:8px 12px;text-align:left">Hours</th><th style="padding:8px 12px;text-align:left">Status</th></tr></thead>
+                    <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:8px 8px 0 0">
+                      <div style="color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Event Closed</div>
+                      <h2 style="color:#fff;margin:0;font-size:20px">🔒 {evt_name}</h2>
+                      <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
+                    </div>
+                    <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+                    {f"""<h3 style="color:#145466;margin-top:0">🟢 Opening Checklist</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
+                    <tbody>{ol_rows}</tbody></table>""" if ol_rows else ""}
+                    {f"""<h3 style="color:#145466">✅ Closing Checklist</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
+                    <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No closing checklist items recorded.</em></p>"}
+                    {f"""<h3 style="color:#145466">⏱ Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
-                </div>'''
+                    </div></div>'''
                 send_email(recipients, f'Event Closed: {evt_name}', body)
         except Exception as e:
             app.logger.error(f'close-event email error: {e}')

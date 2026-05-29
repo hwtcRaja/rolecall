@@ -11292,6 +11292,18 @@ function renderEventDetailPage(eid){
                 <div style="font-size:12px;margin-top:4px">Invites are disabled for cancelled events.</div>
               </div>
             `:`
+            <!-- Manual add -->
+            <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1.5px solid var(--border)">
+              <div style="font-size:14px;font-weight:700;margin-bottom:4px">➕ Mark as Coming</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Add someone who told you directly — no email needed</div>
+              <div style="display:flex;gap:8px">
+                <select id="manual-rsvp-vol-${e.id}" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <option value="">— Select volunteer —</option>
+                  ${(volunteers||[]).filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`<option value="${v.id}">${escHtml(v.name)}</option>`).join('')}
+                </select>
+                <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addManualRsvp('${e.id}')">✓ Add</button>
+              </div>
+            </div>
             <div style="font-size:15px;font-weight:700;margin-bottom:4px">📤 Send Invite</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
 
@@ -12221,6 +12233,24 @@ async function sendEmailToSignups(eid){
   toast(`Email sent to ${res.sent_to} signed-up volunteer${res.sent_to===1?'':'s'}!`)
 }
 
+async function markRsvpConfirmed(eid, rid, confirm){
+  const status = confirm ? 'confirmed' : 'invited'
+  const res = await api(`/api/events/${eid}/rsvps/${rid}/status`,'POST',{status})
+  if(res?.error){toast(res.error,'error');return}
+  loadEventRsvps(eid)
+}
+
+async function addManualRsvp(eid){
+  const sel = document.getElementById(`manual-rsvp-vol-${eid}`)
+  const volId = sel?.value
+  if(!volId){toast('Please select a volunteer','error');return}
+  const res = await api(`/api/events/${eid}/rsvps/manual`,'POST',{volunteer_id:volId})
+  if(res?.error){toast(res.error,'error');return}
+  if(sel) sel.value = ''
+  toast('Marked as coming!')
+  loadEventRsvps(eid)
+}
+
 async function removeRsvp(eid, rid){
   if(!confirm('Remove this RSVP?')) return
   const res = await api(`/api/events/${eid}/rsvps/${rid}`, 'DELETE')
@@ -12239,9 +12269,9 @@ async function loadEventRsvps(eid){
   // Load and display roles summary
   loadEventRoles(eid, roles)
 
-  // Build stat cards
+  // Build stat cards — confirmed + interested both count as "signed up"
   const allRsvps = Array.isArray(rsvps) ? rsvps : []
-  const signedUp = allRsvps.filter(r=>r.status==='interested').length
+  const signedUp = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed').length
   const invited  = allRsvps.length
   const totalSlots  = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0) : 0
   const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0) : 0
@@ -12255,7 +12285,7 @@ async function loadEventRsvps(eid){
     </div>
     <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
       <div style="font-size:26px;font-weight:800;color:var(--green-600)">${signedUp}</div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Signed Up</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Confirmed</div>
     </div>
     <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
       <div style="font-size:26px;font-weight:800;color:${statColor}">${pctFilled!==null?filledSlots+'/'+totalSlots:'—'}</div>
@@ -12264,12 +12294,24 @@ async function loadEventRsvps(eid){
   </div>`
 
   if(!allRsvps.length){
-    el.innerHTML = statsHtml + '<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails to get volunteers to sign up.</div>'
+    el.innerHTML = statsHtml + '<div style="color:var(--text-muted);font-size:13px">No sign-ups yet. Send invite emails or manually mark volunteers as attending below.</div>'
     return
   }
 
-  const signedUpList = allRsvps.filter(r=>r.status==='interested')
-  const invitedList  = allRsvps.filter(r=>r.status!=='interested')
+  const isAdmin = canEdit('events')
+  const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
+  const invitedList   = allRsvps.filter(r=>r.status==='invited')
+
+  const statusStyle = {
+    interested: 'background:var(--green-50);color:var(--green-600)',
+    confirmed:  'background:#dcfce7;color:#166534',
+    invited:    'background:var(--bg);color:var(--text-muted)'
+  }
+  const statusLabel = {
+    interested: '✋ Via Email',
+    confirmed:  '✅ Confirmed',
+    invited:    '📬 Invited'
+  }
 
   const rsvpRow = (r) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
     ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
@@ -12277,19 +12319,21 @@ async function loadEventRsvps(eid){
       <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
       ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
     </div>
-    <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${r.status==='interested'?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)'}">
-      ${r.status==='interested'?'✋ Signed up':'Invited'}
+    <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${statusStyle[r.status]||statusStyle.invited}">
+      ${statusLabel[r.status]||r.status}
     </span>
+    ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Mark Coming</button>`:''}
+    ${isAdmin&&(r.status==='confirmed')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
     <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
   </div>`
 
   let html = statsHtml
-  if(signedUpList.length){
-    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px">✋ Signed Up (${signedUpList.length})</div>`
-    html += signedUpList.map(r=>rsvpRow(r)).join('')
+  if(confirmedList.length){
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px">✅ Coming (${confirmedList.length})</div>`
+    html += confirmedList.map(r=>rsvpRow(r)).join('')
   }
   if(invitedList.length){
-    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${signedUpList.length?'14':'4'}px;margin-bottom:4px">📬 Invited — Pending (${invitedList.length})</div>`
+    html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px">📬 Invited — Pending (${invitedList.length})</div>`
     html += invitedList.map(r=>rsvpRow(r)).join('')
   }
   el.innerHTML = html

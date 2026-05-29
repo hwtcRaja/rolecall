@@ -7054,7 +7054,7 @@ def email_event_signups(eid):
     # Get emails of all signed-up volunteers (status='interested')
     signups = fetchall(conn, '''SELECT v.email, v.name FROM event_rsvps er
         JOIN volunteers v ON er.volunteer_id=v.id
-        WHERE er.event_id=%s AND er.status='interested'
+        WHERE er.event_id=%s AND er.status IN ('interested','confirmed')
         AND v.email IS NOT NULL AND v.email!=''
         ''', (eid,))
     conn.close()
@@ -7723,6 +7723,52 @@ def delete_event_role(rid):
     return jsonify({'ok': True})
 
 # ── Event RSVPs ──────────────────────────────────────────────────
+
+@app.route('/api/events/<eid>/rsvps/manual', methods=['POST'])
+def add_manual_rsvp(eid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    vol_id = d.get('volunteer_id','').strip()
+    if not vol_id:
+        return jsonify({'error': 'volunteer_id required'}), 400
+    conn = get_db()
+    # Check not already in the list
+    existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, vol_id))
+    if existing:
+        # Already exists — just mark them as confirmed
+        execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (existing['id'],))
+        conn.commit()
+        row = fetchone(conn, '''SELECT er.*, v.name as vol_name, v.email as volunteer_email
+            FROM event_rsvps er LEFT JOIN volunteers v ON er.volunteer_id=v.id
+            WHERE er.id=%s''', (existing['id'],))
+        conn.close()
+        return jsonify(row)
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
+    if not vol:
+        conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,status)
+        VALUES (%s,%s,%s,%s,%s,'confirmed')''',
+        (rid, eid, vol_id, vol['name'], vol.get('email','')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT er.*, v.name as vol_name FROM event_rsvps er
+        LEFT JOIN volunteers v ON er.volunteer_id=v.id WHERE er.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/<eid>/rsvps/<rid>/status', methods=['POST'])
+def set_rsvp_status(eid, rid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    status = d.get('status','').strip()
+    if status not in ('interested','confirmed','invited'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE event_rsvps SET status=%s WHERE id=%s AND event_id=%s', (status, rid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'status': status})
 
 @app.route('/api/events/<eid>/rsvps')
 def get_event_rsvps(eid):

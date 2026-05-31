@@ -671,6 +671,7 @@ def init_db():
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS last_invited_at TIMESTAMP",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
@@ -7775,7 +7776,8 @@ def get_event_rsvps(eid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email
+    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email,
+        r.last_invited_at
         FROM event_rsvps r LEFT JOIN volunteers v ON r.volunteer_id=v.id
         WHERE r.event_id=%s ORDER BY r.created_at ASC''', (eid,))
     conn.close()
@@ -7806,31 +7808,53 @@ def send_rsvp_invite(eid):
         vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
 
     sent = 0
+    skipped = 0
+    skipped_names = []
     custom_msg = (d.get('message') or '').strip()
+    force_resend = bool(d.get('force_resend', False))
     base_url = request.host_url.rstrip('/')
 
     # Build roles table HTML for email
     roles_html = ''
     if roles:
-        roles_html = '<h3 style="color:#145466;margin-top:24px">Available Roles</h3>'
-        roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0">'
-        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Role</th><th style="padding:8px 12px;text-align:left">Slots</th><th style="padding:8px 12px;text-align:left">Notes</th></tr></thead><tbody>'
+        roles_html = '<h3 style="color:#145466;margin-top:24px;font-size:15px">Available Roles</h3>'
+        roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;border:1px solid #e2e8f0">'
+        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Role</th><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Open Slots</th></tr></thead><tbody>'
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
-            roles_html += f'<tr style="border-bottom:1px solid #eee"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
-            roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"}">{available} of {r["slots"]} open</td>'
-            roles_html += f'<td style="padding:8px 12px;color:#666">{r.get("description","")}</td></tr>'
+            roles_html += f'<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
+            roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{available} of {r["slots"]} open</td></tr>'
         roles_html += '</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred role when you sign up.</p>'
 
     for v in vols:
         if not v.get('email'): continue
-        existing = fetchone(conn, 'SELECT token FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+        existing = fetchone(conn, 'SELECT id, token, status, last_invited_at FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+
+        # Skip if already signed up (interested/confirmed)
+        if existing and existing.get('status') in ('interested', 'confirmed'):
+            skipped += 1
+            skipped_names.append(v['name'])
+            continue
+
+        # Skip if invited recently (within 24h) unless force_resend
+        if existing and existing.get('last_invited_at') and not force_resend:
+            from datetime import datetime as _dt2, timezone as _tz
+            last_sent = existing['last_invited_at']
+            if hasattr(last_sent, 'replace'):
+                last_sent = last_sent.replace(tzinfo=None)
+            diff = (_dt2.utcnow() - last_sent).total_seconds()
+            if diff < 86400:  # 24 hours
+                skipped += 1
+                skipped_names.append(v['name'])
+                continue
+
         if existing:
             token = existing['token']
+            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW() WHERE id=%s', (existing['id'],))
         else:
             token = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status)
-                VALUES (%s,%s,%s,%s,%s,%s,'invited')''',
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status,last_invited_at)
+                VALUES (%s,%s,%s,%s,%s,%s,'invited',NOW())''',
                 (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token))
 
         rsvp_url = f"{base_url}/rsvp/{token}"
@@ -7843,35 +7867,50 @@ def send_rsvp_invite(eid):
                 time_str = t.strftime('%I:%M %p').lstrip('0')
             except Exception:
                 pass
-        body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
-          <h2 style="color:#145466">You're Invited: {evt['name']}</h2>
-          <p>Hi {v['name']},</p>
-          <p>We're looking for volunteers for an upcoming event and would love to have you join us!</p>
-          <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">
-            <tr><td style="padding:8px;font-weight:600;color:#666;width:120px">Event</td><td style="padding:8px">{evt['name']}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Date</td><td style="padding:8px">{date_str}</td></tr>
-            {f'<tr><td style="padding:8px;font-weight:600;color:#666">Time</td><td style="padding:8px">{time_str}</td></tr>' if time_str else ''}
-            {f'<tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Location</td><td style="padding:8px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
-          </table>
-          {f'<p>{custom_msg}</p>' if custom_msg else ''}
-          {f'<p style="color:#555">{evt["description"]}</p>' if evt.get('description') else ''}
-          {roles_html}
-          <div style="text-align:center;margin:28px 0">
-            <a href="{rsvp_url}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
-              ✋ {"Pick a role & sign up!" if roles else "Yes, I can help!"}
-            </a>
+
+        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
+          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
+            <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
+            <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">🎭 Volunteer Opportunity</h2>
+            <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{evt['name']}</div>
           </div>
-          <p style="font-size:13px;color:#888">If you're unable to make it, no action needed — we only want to hear from those who can volunteer. This link is unique to you: {rsvp_url}</p>
+          <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+            <p style="margin-top:0;color:#374151">Hi {v['name']},</p>
+            <p style="color:#374151">We're looking for volunteers for an upcoming event and would love to have you join us!</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+              <tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>
+              {f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''}
+              {f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
+            </table>
+            {f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''}
+            {f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''}
+            {roles_html}
+            <div style="text-align:center;margin:28px 0">
+              <a href="{rsvp_url}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
+                {"✋ Sign Up & Choose a Role" if roles else "✋ Yes, I Can Help!"}
+              </a>
+            </div>
+            <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+            <p style="font-size:12px;color:#9ca3af;margin:0">
+              If you're unable to attend, no action is needed — we only want to hear from those who can volunteer.<br>
+              This invitation was sent to {v['email']} by Horizon West Theater Company.
+            </p>
+          </div>
         </div>'''
+
         try:
-            send_email([v['email']], f'Volunteer Opportunity: {evt["name"]}', body)
+            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
+            # Small delay between emails to avoid rate limiting
+            import time as _time
+            if sent % 10 == 0:
+                _time.sleep(1)
         except Exception as e:
             app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
 
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'sent': sent})
+    return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 @app.route('/rsvp/<token>')
 def rsvp_page(token):

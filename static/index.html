@@ -12356,6 +12356,9 @@ async function loadEventRsvps(eid){
       <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
       ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
       ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
+      ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
+      ${r.status==='confirmed'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Confirmed ${formatDateTimeShort(r.created_at)}</div>`:''}
+      ${r.status==='interested'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Responded ${formatDateTimeShort(r.created_at)}</div>`:''}
     </div>
     <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${statusStyle[r.status]||statusStyle.invited}">
       ${statusLabel[r.status]||r.status}

@@ -670,6 +670,9 @@ def init_db():
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS last_invited_at TIMESTAMP",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
@@ -1140,6 +1143,23 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
+def require_permission(section, level='edit'):
+    """Allow admin OR a user with edit/view permission for the given section."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    try:
+        perms = json.loads(session.get('permissions') or '{}')
+    except Exception:
+        perms = {}
+    user_level = perms.get(section, 'none')
+    if level == 'view' and user_level in ('view', 'edit'):
+        return None
+    if level == 'edit' and user_level == 'edit':
+        return None
+    return jsonify({'error': f'Permission denied — {level} access required for {section}'}), 403
+
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
 # ─────────────────────────────────────────────
@@ -1462,7 +1482,7 @@ def get_events():
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip():
@@ -1513,16 +1533,31 @@ def create_event():
     conn.close()
     return jsonify(row)
 
+@app.route('/api/events/<eid>/status', methods=['POST'])
+def set_event_status(eid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    status = d.get('status','').strip()
+    if status not in ('draft','open','closed','cancelled'):
+        return jsonify({'error': f'Invalid status: {status}'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE events SET status=%s WHERE id=%s', (status, eid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    conn.close()
+    return jsonify({'ok': True, 'status': row['status'], 'id': eid})
+
 @app.route('/api/events/<eid>', methods=['PUT'])
 def update_event(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s WHERE id=%s''',
+        rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -1530,7 +1565,8 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), eid))
+         d.get('rsvp_message',''), d.get('status','draft'),
+         d.get('carpools_enabled', False), eid))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -1555,7 +1591,7 @@ def update_event(eid):
 
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     conn = get_db()
     cur = conn.cursor()
@@ -1660,7 +1696,7 @@ def get_volunteer(vol_id):
 
 @app.route('/api/volunteers', methods=['POST'])
 def create_volunteer():
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     vid = str(uuid.uuid4())
@@ -1675,7 +1711,7 @@ def create_volunteer():
 
 @app.route('/api/volunteers/<vol_id>', methods=['PUT'])
 def update_volunteer(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -1702,7 +1738,7 @@ def update_volunteer(vol_id):
 
 @app.route('/api/volunteers/<vol_id>', methods=['DELETE'])
 def delete_volunteer(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     conn = get_db()
     waivers = fetchall(conn, 'SELECT filename FROM volunteer_waivers WHERE volunteer_id=%s', (vol_id,))
@@ -1730,7 +1766,7 @@ def get_hours():
 
 @app.route('/api/hours', methods=['POST'])
 def create_hours():
-    err = require_admin()
+    err = require_permission('hours')
     if err: return err
     d = request.json or {}
     hid = str(uuid.uuid4())
@@ -1744,7 +1780,7 @@ def create_hours():
 
 @app.route('/api/hours/<hid>', methods=['DELETE'])
 def delete_hours(hid):
-    err = require_admin()
+    err = require_permission('hours')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM hours WHERE id=%s', (hid,))
@@ -1757,7 +1793,7 @@ def delete_hours(hid):
 
 @app.route('/api/volunteers/<vol_id>/notes', methods=['POST'])
 def create_note(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     nid = str(uuid.uuid4())
@@ -1775,7 +1811,7 @@ def create_note(vol_id):
 
 @app.route('/api/volunteers/<vol_id>/history', methods=['POST'])
 def create_history(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     hid = str(uuid.uuid4())
@@ -1793,7 +1829,7 @@ def create_history(vol_id):
 
 @app.route('/api/volunteers/<vol_id>/files', methods=['POST'])
 def create_file(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     fid = str(uuid.uuid4())
@@ -1877,7 +1913,7 @@ def get_waiver_type_public(tid):
 
 @app.route('/api/volunteers/<vol_id>/waivers', methods=['POST'])
 def upload_waiver(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     waiver_type_id = request.form.get('waiver_type_id')
     signed_date    = request.form.get('signed_date')
@@ -1944,7 +1980,7 @@ def download_waiver(wid):
 
 @app.route('/api/waivers/<wid>', methods=['DELETE'])
 def delete_waiver_record(wid):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     conn = get_db()
     w = fetchone(conn, 'SELECT * FROM volunteer_waivers WHERE id=%s', (wid,))
@@ -1981,7 +2017,7 @@ def check_youth_duplicates():
 
 @app.route('/api/youth-participants/bulk-import', methods=['POST'])
 def bulk_import_youth():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     rows = d.get('rows', [])
@@ -2076,7 +2112,7 @@ def get_youth_programs():
 
 @app.route('/api/youth-programs', methods=['POST'])
 def create_youth_program():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -2098,7 +2134,7 @@ def create_youth_program():
 
 @app.route('/api/youth-programs/<pid>', methods=['PUT'])
 def update_youth_program(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -2178,7 +2214,7 @@ def unpublish_program_announcement(pid, aid):
 
 @app.route('/api/youth-programs/<pid>', methods=['DELETE'])
 def delete_youth_program(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     # Clear any FK references that don't cascade
@@ -2340,7 +2376,7 @@ def get_youth_participant(yid):
 
 @app.route('/api/youth', methods=['POST'])
 def create_youth():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     yid = str(uuid.uuid4())
@@ -2365,14 +2401,15 @@ def create_youth():
 
 @app.route('/api/youth/<yid>', methods=['PUT'])
 def update_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, yid))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
+         d.get('shirt_size',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -2380,7 +2417,7 @@ def update_youth(yid):
 
 @app.route('/api/youth/<yid>', methods=['DELETE'])
 def delete_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_participants WHERE id=%s', (yid,))
@@ -2389,7 +2426,7 @@ def delete_youth(yid):
 
 @app.route('/api/youth/<yid>/guardians', methods=['POST'])
 def add_guardian(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     gid = str(uuid.uuid4())
@@ -2403,7 +2440,7 @@ def add_guardian(yid):
 
 @app.route('/api/youth/guardians/<gid>', methods=['PUT'])
 def update_guardian(gid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2417,7 +2454,7 @@ def update_guardian(gid):
 
 @app.route('/api/youth/guardians/<gid>', methods=['DELETE'])
 def delete_guardian(gid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_guardians WHERE id=%s', (gid,))
@@ -2426,7 +2463,7 @@ def delete_guardian(gid):
 
 @app.route('/api/youth/emergency-contacts/<ecid>', methods=['PUT'])
 def update_emergency_contact(ecid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2439,7 +2476,7 @@ def update_emergency_contact(ecid):
 
 @app.route('/api/youth/emergency-contacts/<ecid>', methods=['DELETE'])
 def delete_emergency_contact(ecid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_emergency_contacts WHERE id=%s', (ecid,))
@@ -2448,7 +2485,7 @@ def delete_emergency_contact(ecid):
 
 @app.route('/api/youth/<yid>/emergency-contacts', methods=['POST'])
 def add_emergency_contact(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     eid = str(uuid.uuid4())
@@ -2471,7 +2508,7 @@ def get_authorized_pickups(yid):
 
 @app.route('/api/youth/<yid>/authorized-pickups', methods=['POST'])
 def add_authorized_pickup(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not d.get('name','').strip():
@@ -2489,7 +2526,7 @@ def add_authorized_pickup(yid):
 
 @app.route('/api/youth/authorized-pickups/<pid>', methods=['PUT'])
 def update_authorized_pickup(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2502,7 +2539,7 @@ def update_authorized_pickup(pid):
 
 @app.route('/api/youth/authorized-pickups/<pid>', methods=['DELETE'])
 def delete_authorized_pickup(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_authorized_pickups WHERE id=%s', (pid,))
@@ -2617,7 +2654,7 @@ def get_youth_history(yid):
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     waiver_type_id = request.form.get('waiver_type_id')
     signed_date    = request.form.get('signed_date')
@@ -2746,7 +2783,7 @@ def get_productions():
 
 @app.route('/api/productions', methods=['POST'])
 def create_production():
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     pid = str(uuid.uuid4())
@@ -2764,7 +2801,7 @@ def create_production():
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2785,7 +2822,7 @@ def update_production(pid):
 
 @app.route('/api/productions/<pid>', methods=['DELETE'])
 def delete_production(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM productions WHERE id=%s', (pid,))
@@ -2794,7 +2831,7 @@ def delete_production(pid):
 
 @app.route('/api/productions/<pid>/members', methods=['POST'])
 def add_production_member(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     mid = str(uuid.uuid4())
@@ -2832,7 +2869,7 @@ def update_production_member(mid, pid=None):
 
 @app.route('/api/productions/members/<mid>', methods=['DELETE'])
 def remove_production_member(mid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_members WHERE id=%s', (mid,))
@@ -2845,7 +2882,7 @@ def remove_production_member(mid):
 
 @app.route('/api/youth/<yid>/enrollments', methods=['POST'])
 def enroll_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     eid = str(uuid.uuid4())
@@ -2864,7 +2901,7 @@ def enroll_youth(yid):
 
 @app.route('/api/youth/enrollments/<eid>', methods=['DELETE'])
 def unenroll_youth(eid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
@@ -4017,7 +4054,7 @@ def update_pending_hours(hid):
 
 @app.route('/api/hours/<hid>', methods=['PUT'])
 def update_approved_hours(hid):
-    err = require_auth()
+    err = require_permission('hours')
     if err: return err
     d = request.json or {}
     try:
@@ -4026,9 +4063,13 @@ def update_approved_hours(hid):
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours value'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE hours SET hours=%s WHERE id=%s', (hours, hid))
+    row = fetchone(conn, 'SELECT * FROM hours WHERE id=%s', (hid,))
+    if not row: conn.close(); return jsonify({'error': 'Record not found'}), 404
+    event = d.get('event', row.get('event','')).strip() or row.get('event','')
+    date  = d.get('date',  row.get('date',''))  or row.get('date','')
+    execute(conn, 'UPDATE hours SET hours=%s, event=%s, date=%s WHERE id=%s', (hours, event, date, hid))
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'hours': hours})
+    return jsonify({'ok': True, 'hours': hours, 'event': event, 'date': date})
 
 @app.route('/api/pending-hours/<hid>/approve', methods=['POST'])
 def approve_pending_hours(hid):
@@ -4569,6 +4610,18 @@ def portal_youth_profile(yid):
     conn.close()
     return jsonify(youth)
 
+@app.route('/api/portal/youth/<yid>/shirt-size', methods=['POST'])
+def portal_set_shirt_size(yid):
+    d = request.json or {}
+    size = d.get('shirt_size','').strip()
+    valid = ['','YXS','YS','YM','YL','YXL','AS','AM','AL','AXL','A2XL']
+    if size not in valid:
+        return jsonify({'error': 'Invalid size'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET shirt_size=%s WHERE id=%s', (size or None, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'shirt_size': size})
+
 @app.route('/api/portal/youth/<yid>/sign-waiver', methods=['POST'])
 def portal_sign_youth_waiver(yid):
     d = request.json or {}
@@ -4952,7 +5005,7 @@ def get_program_required_waivers(pid):
 
 @app.route('/api/youth-programs/<pid>/required-waivers', methods=['POST'])
 def add_program_required_waiver(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
@@ -4972,7 +5025,7 @@ def add_program_required_waiver(pid):
 
 @app.route('/api/youth-programs/<pid>/required-waivers/<wid>', methods=['DELETE'])
 def remove_program_required_waiver(pid, wid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_required_waivers WHERE program_id=%s AND waiver_type_id=%s', (pid, wid))
@@ -6232,13 +6285,29 @@ def kiosk_close_event():
                 evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
                 evt_name = evt['name'] if evt else event_id
                 now_str = __import__('datetime').datetime.now().strftime('%I:%M %p')
-                # Build checklist summary
+                # Get opening checklist from the open log
+                open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
+                    LEFT JOIN elics eli ON el.elic_id=eli.id
+                    LEFT JOIN volunteers v ON eli.volunteer_id=v.id
+                    WHERE el.event_id=%s AND el.action='open' ORDER BY el.id LIMIT 1''', (event_id,))
+                open_responses = []
+                open_elic_name = ''
+                if open_log:
+                    open_responses = fetchall(conn,
+                        'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
+                        (open_log['id'],))
+                    open_elic_name = open_log.get('elic_name','')
+                # Build opening checklist rows
+                ol_rows = ''
+                for r in open_responses:
+                    val = str(r.get('response',''))
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
+                # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    if val == 'true': val_str = '✅ Done'
-                    elif val == 'false': val_str = '❌ Not Done'
-                    else: val_str = val or '—'
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -6248,17 +6317,25 @@ def kiosk_close_event():
                         vname = vol['name'] if vol else 'Unknown'
                         hrs_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{vname}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{ph["hours"]}h</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#16a34a">Auto-approved</td></tr>'
                 body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-                    <h2 style="color:#145466">🔒 Event Closed: {evt_name}</h2>
-                    <p>Closed at <strong>{now_str}</strong> via ELIC kiosk.</p>
-                    {f"""<h3 style="margin-top:24px">✅ Closing Checklist</h3>
-                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
-                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Item</th><th style="padding:8px 12px;text-align:left">Response</th></tr></thead>
-                    <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No checklist items recorded.</em></p>"}
-                    {f"""<h3 style="margin-top:24px">⏱ Hours Auto-Approved ({len(pending)} volunteer{'s' if len(pending)!=1 else ''})</h3>
-                    <table style="width:100%;border-collapse:collapse;border:1px solid #eee;border-radius:8px;overflow:hidden">
-                    <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left">Volunteer</th><th style="padding:8px 12px;text-align:left">Hours</th><th style="padding:8px 12px;text-align:left">Status</th></tr></thead>
+                    <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:8px 8px 0 0">
+                      <div style="color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Event Closed</div>
+                      <h2 style="color:#fff;margin:0;font-size:20px">🔒 {evt_name}</h2>
+                      <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
+                    </div>
+                    <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+                    {f"""<h3 style="color:#145466;margin-top:0">🟢 Opening Checklist</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
+                    <tbody>{ol_rows}</tbody></table>""" if ol_rows else ""}
+                    {f"""<h3 style="color:#145466">✅ Closing Checklist</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
+                    <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No closing checklist items recorded.</em></p>"}
+                    {f"""<h3 style="color:#145466">⏱ Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
+                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
-                </div>'''
+                    </div></div>'''
                 send_email(recipients, f'Event Closed: {evt_name}', body)
         except Exception as e:
             app.logger.error(f'close-event email error: {e}')
@@ -6523,6 +6600,77 @@ def portal_get_carpools():
         app.logger.error(f'portal_get_carpools error: {e}')
         return jsonify([])
 
+@app.route('/api/portal/carpools/create', methods=['POST'])
+def portal_create_carpool():
+    d = request.json or {}
+    event_id    = (d.get('event_id') or '').strip()
+    name        = (d.get('name') or '').strip()
+    driver_name = (d.get('driver_name') or '').strip()
+    driver_phone= (d.get('driver_phone') or '').strip()
+    max_seats   = int(d.get('max_seats') or 6)
+    notes       = (d.get('notes') or '').strip()
+    youth_ids   = d.get('youth_ids', [])
+    if not event_id or not driver_name:
+        return jsonify({'error': 'Event and driver name are required'}), 400
+    conn = get_db()
+    event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not event:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    import random, string
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    cid = str(uuid.uuid4())
+    carpool_name = name or f"{driver_name}'s Carpool"
+    execute(conn, '''INSERT INTO carpools (id,event_id,name,driver_name,driver_phone,code,max_seats,notes,status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+        (cid, event_id, carpool_name, driver_name, driver_phone, code, max_seats, notes))
+    # Auto-add creator's kids
+    for yid in youth_ids:
+        mid = str(uuid.uuid4())
+        try:
+            execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'portal')",
+                (mid, cid, yid, driver_name))
+        except Exception: pass
+    conn.commit()
+    carpool = fetchone(conn, '''SELECT c.*, e.name as event_name, e.event_date
+        FROM carpools c JOIN events e ON c.event_id=e.id WHERE c.id=%s''', (cid,))
+    carpool['members'] = fetchall(conn,
+        'SELECT cm.id, cm.youth_id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
+        (cid,))
+    conn.close()
+    return jsonify({'ok': True, 'carpool': carpool, 'code': code})
+
+@app.route('/api/portal/carpools/leave', methods=['POST'])
+def portal_leave_carpool():
+    d = request.json or {}
+    carpool_id = d.get('carpool_id','').strip()
+    youth_ids  = d.get('youth_ids', [])
+    if not carpool_id or not youth_ids:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    for yid in youth_ids:
+        execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s AND youth_id=%s', (carpool_id, yid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/portal/events-for-carpools')
+def portal_events_for_carpools():
+    """Return upcoming events that have carpools enabled."""
+    conn = get_db()
+    try:
+        events = fetchall(conn, """SELECT e.id, e.name, e.event_date, e.start_time
+            FROM events e
+            WHERE e.event_date >= CURRENT_DATE::text
+            AND e.status IN ('draft','open')
+            AND e.carpools_enabled = TRUE
+            ORDER BY e.event_date, e.start_time LIMIT 30""")
+    except Exception:
+        # carpools_enabled column may not exist yet on live DB — fall back gracefully
+        events = []
+    conn.close()
+    return jsonify(events)
+
 @app.route('/api/portal/carpools/join', methods=['POST'])
 def portal_join_carpool():
     d = request.json or {}
@@ -6603,17 +6751,14 @@ def pickup_queue():
     try:
         carpools_rows = fetchall(conn, """
             SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
-                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name,
-                   COUNT(DISTINCT CASE WHEN ysi.signed_out_at IS NULL THEN ysi.id END) as signed_in_count,
-                   COUNT(DISTINCT cm.id) as total_members
+                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name
             FROM carpools cp
             JOIN events e ON cp.event_id=e.id
-            LEFT JOIN carpool_members cm ON cm.carpool_id=cp.id
-            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id
-                AND ysi.event_id=cp.event_id
+            JOIN carpool_members cm ON cm.carpool_id=cp.id
+            JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
             WHERE e.status = 'open'
+            AND ysi.signed_out_at IS NULL
             GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
-            HAVING COUNT(DISTINCT cm.id) > 0
             ORDER BY cp.name
         """)
         for cp in carpools_rows:
@@ -6627,6 +6772,38 @@ def pickup_queue():
                 WHERE cm.carpool_id=%s
                 ORDER BY y.last_name, y.first_name
             """, (cp['event_id'], cp['carpool_id']))
+        # Also include recently completed carpools (all signed out in last 2 hours) for picked-up column
+        completed_carpools = fetchall(conn, """
+            SELECT cp.id as carpool_id, cp.name as carpool_name, cp.code as carpool_code,
+                   cp.driver_name, cp.driver_phone, cp.event_id, e.name as event_name
+            FROM carpools cp
+            JOIN events e ON cp.event_id=e.id
+            WHERE e.status = 'open'
+            AND EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
+                WHERE cm.carpool_id=cp.id AND ysi.signed_out_at IS NOT NULL
+                AND ysi.signed_out_at >= NOW() - INTERVAL '2 hours'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM carpool_members cm
+                JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=cp.event_id
+                WHERE cm.carpool_id=cp.id AND ysi.signed_out_at IS NULL
+            )
+            GROUP BY cp.id, cp.name, cp.code, cp.driver_name, cp.driver_phone, cp.event_id, e.name
+        """)
+        for cp in completed_carpools:
+            cp['kids'] = fetchall(conn, """
+                SELECT ysi.id as sign_in_id, ysi.youth_id, ysi.signed_out_at,
+                       y.first_name, y.last_name, cm.id as member_id
+                FROM carpool_members cm
+                JOIN youth_participants y ON cm.youth_id=y.id
+                LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=cm.youth_id AND ysi.event_id=%s
+                WHERE cm.carpool_id=%s
+                ORDER BY y.last_name, y.first_name
+            """, (cp['event_id'], cp['carpool_id']))
+            cp['completed'] = True
+        carpools_rows = carpools_rows + completed_carpools
     except Exception as e:
         app.logger.error(f'pickup_queue carpools error: {e}')
         carpools_rows = []
@@ -6878,6 +7055,50 @@ def email_send_report(rid):
     return jsonify({'error': msg or 'Send failed'}), 500
 
 # ── Event waivers ──
+@app.route('/api/events/<eid>/email-signups', methods=['POST'])
+def email_event_signups(eid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    subject = d.get('subject','').strip()
+    body = d.get('body','').strip()
+    if not subject or not body:
+        return jsonify({'error': 'Subject and message required'}), 400
+    conn = get_db()
+    event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
+    if not event:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    # Get emails of all signed-up volunteers (status='interested')
+    signups = fetchall(conn, '''SELECT v.email, v.name FROM event_rsvps er
+        JOIN volunteers v ON er.volunteer_id=v.id
+        WHERE er.event_id=%s AND er.status IN ('interested','confirmed')
+        AND v.email IS NOT NULL AND v.email!=''
+        ''', (eid,))
+    conn.close()
+    if not signups:
+        return jsonify({'error': 'No signed-up volunteers with email addresses'}), 400
+    recipients = list({s['email'].strip().lower() for s in signups if s['email']})
+    event_name = event.get('name', 'Event')
+    event_date = event.get('event_date', '')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:20px;border-radius:8px 8px 0 0">
+        <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-bottom:4px">Event Update</div>
+        <h2 style="color:white;margin:0">{event_name}</h2>
+        {f'<div style="color:rgba(255,255,255,0.8);font-size:13px;margin-top:4px">{event_date}</div>' if event_date else ''}
+      </div>
+      <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.7;color:#1e293b">{body}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+        <p style="font-size:12px;color:#94a3b8;margin:0">This message was sent to volunteers signed up for <strong>{event_name}</strong> by Horizon West Theater Company.</p>
+      </div>
+    </div>'''
+    try:
+        send_email(recipients, subject, html_body)
+        return jsonify({'ok': True, 'sent_to': len(recipients)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/events/<eid>/waivers', methods=['POST'])
 def add_event_waiver(eid):
     err = require_auth()
@@ -7521,12 +7742,59 @@ def delete_event_role(rid):
 
 # ── Event RSVPs ──────────────────────────────────────────────────
 
+@app.route('/api/events/<eid>/rsvps/manual', methods=['POST'])
+def add_manual_rsvp(eid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    vol_id = d.get('volunteer_id','').strip()
+    if not vol_id:
+        return jsonify({'error': 'volunteer_id required'}), 400
+    conn = get_db()
+    # Check not already in the list
+    existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, vol_id))
+    if existing:
+        # Already exists — just mark them as confirmed
+        execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (existing['id'],))
+        conn.commit()
+        row = fetchone(conn, '''SELECT er.*, v.name as vol_name, v.email as volunteer_email
+            FROM event_rsvps er LEFT JOIN volunteers v ON er.volunteer_id=v.id
+            WHERE er.id=%s''', (existing['id'],))
+        conn.close()
+        return jsonify(row)
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
+    if not vol:
+        conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,status)
+        VALUES (%s,%s,%s,%s,%s,'confirmed')''',
+        (rid, eid, vol_id, vol['name'], vol.get('email','')))
+    conn.commit()
+    row = fetchone(conn, '''SELECT er.*, v.name as vol_name FROM event_rsvps er
+        LEFT JOIN volunteers v ON er.volunteer_id=v.id WHERE er.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/events/<eid>/rsvps/<rid>/status', methods=['POST'])
+def set_rsvp_status(eid, rid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    status = d.get('status','').strip()
+    if status not in ('interested','confirmed','invited'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE event_rsvps SET status=%s WHERE id=%s AND event_id=%s', (status, rid, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'status': status})
+
 @app.route('/api/events/<eid>/rsvps')
 def get_event_rsvps(eid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email
+    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email,
+        r.last_invited_at
         FROM event_rsvps r LEFT JOIN volunteers v ON r.volunteer_id=v.id
         WHERE r.event_id=%s ORDER BY r.created_at ASC''', (eid,))
     conn.close()
@@ -7534,12 +7802,14 @@ def get_event_rsvps(eid):
 
 @app.route('/api/events/<eid>/rsvp-invite', methods=['POST'])
 def send_rsvp_invite(eid):
-    err = require_auth()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     conn = get_db()
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
+    if evt.get('status') == 'cancelled':
+        conn.close(); return jsonify({'error': 'Cannot send invites for a cancelled event'}), 400
 
     # Get roles for this event
     roles = fetchall(conn, '''
@@ -7555,31 +7825,53 @@ def send_rsvp_invite(eid):
         vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
 
     sent = 0
+    skipped = 0
+    skipped_names = []
     custom_msg = (d.get('message') or '').strip()
+    force_resend = bool(d.get('force_resend', False))
     base_url = request.host_url.rstrip('/')
 
     # Build roles table HTML for email
     roles_html = ''
     if roles:
-        roles_html = '<h3 style="color:#145466;margin-top:24px">Available Roles</h3>'
-        roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0">'
-        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left">Role</th><th style="padding:8px 12px;text-align:left">Slots</th><th style="padding:8px 12px;text-align:left">Notes</th></tr></thead><tbody>'
+        roles_html = '<h3 style="color:#145466;margin-top:24px;font-size:15px">Available Roles</h3>'
+        roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;border:1px solid #e2e8f0">'
+        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Role</th><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Open Slots</th></tr></thead><tbody>'
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
-            roles_html += f'<tr style="border-bottom:1px solid #eee"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
-            roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"}">{available} of {r["slots"]} open</td>'
-            roles_html += f'<td style="padding:8px 12px;color:#666">{r.get("description","")}</td></tr>'
+            roles_html += f'<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
+            roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{available} of {r["slots"]} open</td></tr>'
         roles_html += '</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred role when you sign up.</p>'
 
     for v in vols:
         if not v.get('email'): continue
-        existing = fetchone(conn, 'SELECT token FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+        existing = fetchone(conn, 'SELECT id, token, status, last_invited_at FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+
+        # Skip if already signed up (interested/confirmed)
+        if existing and existing.get('status') in ('interested', 'confirmed'):
+            skipped += 1
+            skipped_names.append(v['name'])
+            continue
+
+        # Skip if invited recently (within 24h) unless force_resend
+        if existing and existing.get('last_invited_at') and not force_resend:
+            from datetime import datetime as _dt2, timezone as _tz
+            last_sent = existing['last_invited_at']
+            if hasattr(last_sent, 'replace'):
+                last_sent = last_sent.replace(tzinfo=None)
+            diff = (_dt2.utcnow() - last_sent).total_seconds()
+            if diff < 86400:  # 24 hours
+                skipped += 1
+                skipped_names.append(v['name'])
+                continue
+
         if existing:
             token = existing['token']
+            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW() WHERE id=%s', (existing['id'],))
         else:
             token = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status)
-                VALUES (%s,%s,%s,%s,%s,%s,'invited')''',
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status,last_invited_at)
+                VALUES (%s,%s,%s,%s,%s,%s,'invited',NOW())''',
                 (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token))
 
         rsvp_url = f"{base_url}/rsvp/{token}"
@@ -7592,44 +7884,72 @@ def send_rsvp_invite(eid):
                 time_str = t.strftime('%I:%M %p').lstrip('0')
             except Exception:
                 pass
-        body = f'''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
-          <h2 style="color:#145466">You're Invited: {evt['name']}</h2>
-          <p>Hi {v['name']},</p>
-          <p>We're looking for volunteers for an upcoming event and would love to have you join us!</p>
-          <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">
-            <tr><td style="padding:8px;font-weight:600;color:#666;width:120px">Event</td><td style="padding:8px">{evt['name']}</td></tr>
-            <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Date</td><td style="padding:8px">{date_str}</td></tr>
-            {f'<tr><td style="padding:8px;font-weight:600;color:#666">Time</td><td style="padding:8px">{time_str}</td></tr>' if time_str else ''}
-            {f'<tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Location</td><td style="padding:8px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
-          </table>
-          {f'<p>{custom_msg}</p>' if custom_msg else ''}
-          {f'<p style="color:#555">{evt["description"]}</p>' if evt.get('description') else ''}
-          {roles_html}
-          <div style="text-align:center;margin:28px 0">
-            <a href="{rsvp_url}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">
-              ✋ {"Pick a role & sign up!" if roles else "Yes, I can help!"}
-            </a>
+
+        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
+          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
+            <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
+            <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">🎭 Volunteer Opportunity</h2>
+            <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{evt['name']}</div>
           </div>
-          <p style="font-size:13px;color:#888">If you're unable to make it, no action needed — we only want to hear from those who can volunteer. This link is unique to you: {rsvp_url}</p>
+          <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+            <p style="margin-top:0;color:#374151">Hi {v['name']},</p>
+            <p style="color:#374151">We're looking for volunteers for an upcoming event and would love to have you join us!</p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+              <tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>
+              {f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''}
+              {f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
+            </table>
+            {f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''}
+            {f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''}
+            {roles_html}
+            <div style="text-align:center;margin:28px 0">
+              <a href="{rsvp_url}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
+                {"✋ Sign Up & Choose a Role" if roles else "✋ Yes, I Can Help!"}
+              </a>
+            </div>
+            <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+            <p style="font-size:12px;color:#9ca3af;margin:0">
+              If you're unable to attend, no action is needed — we only want to hear from those who can volunteer.<br>
+              This invitation was sent to {v['email']} by Horizon West Theater Company.
+            </p>
+          </div>
         </div>'''
+
         try:
-            send_email([v['email']], f'Volunteer Opportunity: {evt["name"]}', body)
+            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
+            # Small delay between emails to avoid rate limiting
+            import time as _time
+            if sent % 10 == 0:
+                _time.sleep(1)
         except Exception as e:
             app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
 
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'sent': sent})
+    return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 @app.route('/rsvp/<token>')
 def rsvp_page(token):
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time, e.location, e.description, e.id as event_id
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
+        e.location, e.description, e.id as event_id, e.status as event_status
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+
+    # Event cancelled
+    if rsvp.get('event_status') == 'cancelled':
+        conn.close()
+        return f'''<html><head><title>Event Cancelled</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
+          <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
+          <p style="color:#6b7280">Thank you for your interest — please check back for future events from Horizon West Theater Company.</p>
+        </body></html>'''
 
     # Already signed up
     if rsvp.get('status') == 'interested':
@@ -7715,11 +8035,20 @@ def rsvp_submit(token):
     from flask import request as req
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id, e.status as event_status
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found.</h2></body></html>', 404
+    if rsvp.get('event_status') == 'cancelled':
+        conn.close()
+        return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
+          <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
+          <p style="color:#6b7280">Thank you for your interest — please check back for future events.</p>
+        </body></html>'''
 
     role_name = ''
     if role_id:

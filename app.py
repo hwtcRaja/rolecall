@@ -1143,6 +1143,34 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
+def require_permission(section, level='edit'):
+    """Allow admin OR a user with edit/view permission for the given section."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    # Always read fresh from DB for non-admin users to pick up permission changes
+    try:
+        conn = get_db()
+        u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session['user_id'],))
+        conn.close()
+        if not u:
+            return jsonify({'error': 'Unauthorized'}), 401
+        if u.get('role') == 'admin':
+            session['role'] = 'admin'
+            return None
+        perms = json.loads(u.get('role_permissions') or '{}')
+        # Update session so future checks are faster
+        session['permissions'] = u.get('role_permissions') or '{}'
+    except Exception:
+        perms = {}
+    user_level = perms.get(section, 'none')
+    if level == 'view' and user_level in ('view', 'edit'):
+        return None
+    if level == 'edit' and user_level == 'edit':
+        return None
+    return jsonify({'error': f'Permission denied: need {level} access for {section}. Contact an admin to update your permissions.'}), 403
+
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
 # ─────────────────────────────────────────────
@@ -1465,7 +1493,7 @@ def get_events():
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip():
@@ -1518,7 +1546,7 @@ def create_event():
 
 @app.route('/api/events/<eid>/status', methods=['POST'])
 def set_event_status(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     status = d.get('status','').strip()
@@ -1533,7 +1561,7 @@ def set_event_status(eid):
 
 @app.route('/api/events/<eid>', methods=['PUT'])
 def update_event(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -1574,7 +1602,7 @@ def update_event(eid):
 
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     conn = get_db()
     cur = conn.cursor()
@@ -1679,7 +1707,7 @@ def get_volunteer(vol_id):
 
 @app.route('/api/volunteers', methods=['POST'])
 def create_volunteer():
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     vid = str(uuid.uuid4())
@@ -1694,7 +1722,7 @@ def create_volunteer():
 
 @app.route('/api/volunteers/<vol_id>', methods=['PUT'])
 def update_volunteer(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -1721,7 +1749,7 @@ def update_volunteer(vol_id):
 
 @app.route('/api/volunteers/<vol_id>', methods=['DELETE'])
 def delete_volunteer(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     conn = get_db()
     waivers = fetchall(conn, 'SELECT filename FROM volunteer_waivers WHERE volunteer_id=%s', (vol_id,))
@@ -1749,7 +1777,7 @@ def get_hours():
 
 @app.route('/api/hours', methods=['POST'])
 def create_hours():
-    err = require_admin()
+    err = require_permission('hours')
     if err: return err
     d = request.json or {}
     hid = str(uuid.uuid4())
@@ -1763,7 +1791,7 @@ def create_hours():
 
 @app.route('/api/hours/<hid>', methods=['DELETE'])
 def delete_hours(hid):
-    err = require_admin()
+    err = require_permission('hours')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM hours WHERE id=%s', (hid,))
@@ -1776,7 +1804,7 @@ def delete_hours(hid):
 
 @app.route('/api/volunteers/<vol_id>/notes', methods=['POST'])
 def create_note(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     nid = str(uuid.uuid4())
@@ -1794,7 +1822,7 @@ def create_note(vol_id):
 
 @app.route('/api/volunteers/<vol_id>/history', methods=['POST'])
 def create_history(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     hid = str(uuid.uuid4())
@@ -1812,7 +1840,7 @@ def create_history(vol_id):
 
 @app.route('/api/volunteers/<vol_id>/files', methods=['POST'])
 def create_file(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     d = request.json or {}
     fid = str(uuid.uuid4())
@@ -1896,7 +1924,7 @@ def get_waiver_type_public(tid):
 
 @app.route('/api/volunteers/<vol_id>/waivers', methods=['POST'])
 def upload_waiver(vol_id):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     waiver_type_id = request.form.get('waiver_type_id')
     signed_date    = request.form.get('signed_date')
@@ -1963,7 +1991,7 @@ def download_waiver(wid):
 
 @app.route('/api/waivers/<wid>', methods=['DELETE'])
 def delete_waiver_record(wid):
-    err = require_admin()
+    err = require_permission('volunteers')
     if err: return err
     conn = get_db()
     w = fetchone(conn, 'SELECT * FROM volunteer_waivers WHERE id=%s', (wid,))
@@ -2000,7 +2028,7 @@ def check_youth_duplicates():
 
 @app.route('/api/youth-participants/bulk-import', methods=['POST'])
 def bulk_import_youth():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     rows = d.get('rows', [])
@@ -2095,7 +2123,7 @@ def get_youth_programs():
 
 @app.route('/api/youth-programs', methods=['POST'])
 def create_youth_program():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -2117,7 +2145,7 @@ def create_youth_program():
 
 @app.route('/api/youth-programs/<pid>', methods=['PUT'])
 def update_youth_program(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -2197,7 +2225,7 @@ def unpublish_program_announcement(pid, aid):
 
 @app.route('/api/youth-programs/<pid>', methods=['DELETE'])
 def delete_youth_program(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     # Clear any FK references that don't cascade
@@ -2359,7 +2387,7 @@ def get_youth_participant(yid):
 
 @app.route('/api/youth', methods=['POST'])
 def create_youth():
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     yid = str(uuid.uuid4())
@@ -2384,7 +2412,7 @@ def create_youth():
 
 @app.route('/api/youth/<yid>', methods=['PUT'])
 def update_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2400,7 +2428,7 @@ def update_youth(yid):
 
 @app.route('/api/youth/<yid>', methods=['DELETE'])
 def delete_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_participants WHERE id=%s', (yid,))
@@ -2409,7 +2437,7 @@ def delete_youth(yid):
 
 @app.route('/api/youth/<yid>/guardians', methods=['POST'])
 def add_guardian(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     gid = str(uuid.uuid4())
@@ -2423,7 +2451,7 @@ def add_guardian(yid):
 
 @app.route('/api/youth/guardians/<gid>', methods=['PUT'])
 def update_guardian(gid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2437,7 +2465,7 @@ def update_guardian(gid):
 
 @app.route('/api/youth/guardians/<gid>', methods=['DELETE'])
 def delete_guardian(gid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_guardians WHERE id=%s', (gid,))
@@ -2446,7 +2474,7 @@ def delete_guardian(gid):
 
 @app.route('/api/youth/emergency-contacts/<ecid>', methods=['PUT'])
 def update_emergency_contact(ecid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2459,7 +2487,7 @@ def update_emergency_contact(ecid):
 
 @app.route('/api/youth/emergency-contacts/<ecid>', methods=['DELETE'])
 def delete_emergency_contact(ecid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_emergency_contacts WHERE id=%s', (ecid,))
@@ -2468,7 +2496,7 @@ def delete_emergency_contact(ecid):
 
 @app.route('/api/youth/<yid>/emergency-contacts', methods=['POST'])
 def add_emergency_contact(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     eid = str(uuid.uuid4())
@@ -2491,7 +2519,7 @@ def get_authorized_pickups(yid):
 
 @app.route('/api/youth/<yid>/authorized-pickups', methods=['POST'])
 def add_authorized_pickup(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     if not d.get('name','').strip():
@@ -2509,7 +2537,7 @@ def add_authorized_pickup(yid):
 
 @app.route('/api/youth/authorized-pickups/<pid>', methods=['PUT'])
 def update_authorized_pickup(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2522,7 +2550,7 @@ def update_authorized_pickup(pid):
 
 @app.route('/api/youth/authorized-pickups/<pid>', methods=['DELETE'])
 def delete_authorized_pickup(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_authorized_pickups WHERE id=%s', (pid,))
@@ -2637,7 +2665,7 @@ def get_youth_history(yid):
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     waiver_type_id = request.form.get('waiver_type_id')
     signed_date    = request.form.get('signed_date')
@@ -2766,7 +2794,7 @@ def get_productions():
 
 @app.route('/api/productions', methods=['POST'])
 def create_production():
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     pid = str(uuid.uuid4())
@@ -2784,7 +2812,7 @@ def create_production():
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2805,7 +2833,7 @@ def update_production(pid):
 
 @app.route('/api/productions/<pid>', methods=['DELETE'])
 def delete_production(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM productions WHERE id=%s', (pid,))
@@ -2814,7 +2842,7 @@ def delete_production(pid):
 
 @app.route('/api/productions/<pid>/members', methods=['POST'])
 def add_production_member(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     mid = str(uuid.uuid4())
@@ -2852,7 +2880,7 @@ def update_production_member(mid, pid=None):
 
 @app.route('/api/productions/members/<mid>', methods=['DELETE'])
 def remove_production_member(mid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_members WHERE id=%s', (mid,))
@@ -2865,7 +2893,7 @@ def remove_production_member(mid):
 
 @app.route('/api/youth/<yid>/enrollments', methods=['POST'])
 def enroll_youth(yid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     eid = str(uuid.uuid4())
@@ -2884,7 +2912,7 @@ def enroll_youth(yid):
 
 @app.route('/api/youth/enrollments/<eid>', methods=['DELETE'])
 def unenroll_youth(eid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM youth_program_enrollments WHERE id=%s', (eid,))
@@ -4037,7 +4065,7 @@ def update_pending_hours(hid):
 
 @app.route('/api/hours/<hid>', methods=['PUT'])
 def update_approved_hours(hid):
-    err = require_auth()
+    err = require_permission('hours')
     if err: return err
     d = request.json or {}
     try:
@@ -4988,7 +5016,7 @@ def get_program_required_waivers(pid):
 
 @app.route('/api/youth-programs/<pid>/required-waivers', methods=['POST'])
 def add_program_required_waiver(pid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
@@ -5008,7 +5036,7 @@ def add_program_required_waiver(pid):
 
 @app.route('/api/youth-programs/<pid>/required-waivers/<wid>', methods=['DELETE'])
 def remove_program_required_waiver(pid, wid):
-    err = require_admin()
+    err = require_permission('youth')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_required_waivers WHERE program_id=%s AND waiver_type_id=%s', (pid, wid))
@@ -7040,7 +7068,7 @@ def email_send_report(rid):
 # ── Event waivers ──
 @app.route('/api/events/<eid>/email-signups', methods=['POST'])
 def email_event_signups(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     subject = d.get('subject','').strip()
@@ -7727,7 +7755,7 @@ def delete_event_role(rid):
 
 @app.route('/api/events/<eid>/rsvps/manual', methods=['POST'])
 def add_manual_rsvp(eid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     vol_id = d.get('volunteer_id','').strip()
@@ -7760,7 +7788,7 @@ def add_manual_rsvp(eid):
 
 @app.route('/api/events/<eid>/rsvps/<rid>/status', methods=['POST'])
 def set_rsvp_status(eid, rid):
-    err = require_admin()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     status = d.get('status','').strip()
@@ -7785,7 +7813,7 @@ def get_event_rsvps(eid):
 
 @app.route('/api/events/<eid>/rsvp-invite', methods=['POST'])
 def send_rsvp_invite(eid):
-    err = require_auth()
+    err = require_permission('events')
     if err: return err
     d = request.json or {}
     conn = get_db()

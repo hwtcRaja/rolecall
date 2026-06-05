@@ -926,20 +926,14 @@ function buildProfileTab(y, yid){
     +'<div style="font-size:15px;font-weight:700;margin-bottom:4px">🔑 Change Passphrase</div>'
     +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Update the passphrases used to log into this portal.</div>'
 
-  // If in a family, show both options as tabs
-  var inFamily = window.portalSession && window.portalSession.type === 'family'
+  var inFamily = portalSession && portalSession.type === 'family'
   if(inFamily){
     html += '<div style="display:flex;gap:8px;margin-bottom:16px">'
-      +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Family Passphrase</button>'
-      +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Individual Passphrase</button>'
+      +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">👨‍👩‍👧 Family Passphrase</button>'
+      +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">👤 Individual Passphrase</button>'
       +'</div>'
-      +'<div id="pp-panel-family">'
-      +'<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">The family passphrase logs in all children in your family at once.</div>'
-      +'</div>'
-      +'<div id="pp-panel-individual" style="display:none">'
-      +'<div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">The individual passphrase logs in just this child.</div>'
-      +'</div>'
-      +'<div id="pp-active-panel">'
+      +'<div id="pp-panel-family" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>all children</strong> in your family at once.</div>'
+      +'<div id="pp-panel-individual" style="display:none;font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>just this child</strong>.</div>'
   }
 
   html += '<div style="display:flex;flex-direction:column;gap:10px;max-width:400px">'
@@ -953,8 +947,7 @@ function buildProfileTab(y, yid){
     +'<button onclick="changePortalPassphrase()" style="background:var(--teal);color:white;border:none;border-radius:8px;padding:11px 20px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;width:fit-content">Update Passphrase</button>'
     +'</div>'
 
-  if(inFamily) html += '</div></div>'
-  html += '</div>'
+  html += '</div>'  // close change passphrase section
 
   return html
 }
@@ -996,7 +989,7 @@ async function changePortalPassphrase(){
   }
   // If family mode and logged in as family, change family passphrase
   // If individual mode, change just this child's passphrase
-  var inFamily = window.portalSession && window.portalSession.type === 'family'
+  var inFamily = portalSession && portalSession.type === 'family'
   var changeFamily = inFamily && _ppTabMode === 'family'
   if(result) result.innerHTML='<span style="color:var(--text-muted)">Updating…</span>'
   try {
@@ -1013,7 +1006,7 @@ async function changePortalPassphrase(){
     if(d.error){
       if(result) result.innerHTML='<span style="color:#dc2626">'+escHtml(d.error)+'</span>'; return
     }
-    if(window.portalSession) window.portalSession.passphrase = newPP
+    if(portalSession) portalSession.passphrase = newPP
     ;['pp-current','pp-new','pp-confirm'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='' })
     if(result) result.innerHTML='<span style="color:#16a34a;font-weight:600">✓ Passphrase updated successfully!</span>'
     toast('Passphrase updated!')

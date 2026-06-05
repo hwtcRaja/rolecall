@@ -4740,14 +4740,39 @@ async function openYouthProfile(yid){
 
         ${isAdmin?`<hr class="divider"/>
         <div style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">🏠 Portal Access</div>
-            <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️</button>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">🏠 Portal Access</div>
+
+          ${y.family?`
+          <div style="margin-bottom:10px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">Family: <strong>${escHtml(y.family.name)}</strong></div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="font-family:monospace;font-size:13px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:5px 10px;border-radius:6px;flex:1">👨‍👩‍👧 ${escHtml(y.family.passphrase)}</div>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 6px" onclick="navTo('portal-families');setTimeout(()=>editFamily('${y.family.id}'),300)">✏️</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Family passphrase — logs in all linked children</div>
+          </div>`:''}
+
+          <div style="margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">Individual passphrase</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="font-family:monospace;font-size:13px;font-weight:700;background:var(--bg);color:var(--teal-dark);padding:5px 10px;border-radius:6px;border:1px solid var(--border);flex:1">${y.passphrase?escHtml(y.passphrase):'<span style="color:var(--text-hint);font-weight:400">Not set</span>'}</div>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 6px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">✏️</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Logs in this child only</div>
           </div>
-          ${y.passphrase?`<div style="font-family:monospace;font-size:14px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:8px 12px;border-radius:8px;margin-bottom:6px">${escHtml(y.passphrase)}</div>`:'<div style="font-size:12px;color:var(--text-hint);margin-bottom:6px">No passphrase set</div>'}
-          <div style="font-size:12px;color:var(--text-muted)">${y.portal_last_login
+
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${y.portal_last_login
             ? `Last login: <strong>${formatDateTimeShort(y.portal_last_login)}</strong>`
             : '<span style="color:var(--amber-600);font-weight:600">⚠️ Never logged in</span>'}</div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Link to Family</div>
+          <div style="display:flex;gap:6px">
+            <select id="family-link-sel-${y.id}" style="flex:1;padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none">
+              <option value="">— No family —</option>
+              ${allFamilies.map(f=>`<option value="${f.id}"${y.family_id===f.id?' selected':''}>${escHtml(f.name)}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 10px" onclick="linkYouthToFamily('${y.id}')">Save</button>
+          </div>
         </div>`:''}
 
         ${y.linked_volunteer_id?`<hr class="divider"/>
@@ -15956,6 +15981,16 @@ function setEventElicUI(elicId, parentId){
   }
 }
 
+
+async function linkYouthToFamily(yid){
+  const sel = document.getElementById(`family-link-sel-${yid}`)
+  if(!sel) return
+  const fid = sel.value || null
+  const res = await api(`/api/youth/${yid}/family`,'PUT',{family_id: fid})
+  if(res?.error){toast(res.error,'error');return}
+  toast(fid ? 'Linked to family!' : 'Removed from family')
+  await openYouthProfile(yid)
+}
 
 async function setYouthPassphrase(yid, current){
   const p = prompt('Set portal passphrase for this participant:\n(This is used by their family to log into the portal)', current||'')

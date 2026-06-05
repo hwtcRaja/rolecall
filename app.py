@@ -2064,8 +2064,9 @@ def bulk_import_youth():
                 results['updated'] += 1
             else:
                 yid = str(uuid.uuid4())
-                execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,dob,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                    (yid, first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent))
+                pp = default_passphrase(first, last)
+                execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,dob,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (yid, first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent, pp))
                 results['created'] += 1
             # Guardian
             gname = (row.get('guardian_name') or '').strip()
@@ -2386,17 +2387,38 @@ def get_youth_participant(yid):
     conn.close()
     return jsonify(y)
 
+def default_passphrase(first_name, last_name):
+    """Generate default portal passphrase: firstname_lastname_hwtc (lowercase)"""
+    first = (first_name or '').strip().lower().replace(' ', '')
+    last  = (last_name  or '').strip().lower().replace(' ', '')
+    return f"{first}_{last}_hwtc"
+
+@app.route('/api/youth/backfill-passphrases', methods=['POST'])
+def backfill_passphrases():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    students = fetchall(conn, "SELECT id, first_name, last_name FROM youth_participants WHERE passphrase IS NULL OR passphrase = ''")
+    count = 0
+    for s in students:
+        pp = default_passphrase(s['first_name'], s['last_name'])
+        execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (pp, s['id']))
+        count += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': count})
+
 @app.route('/api/youth', methods=['POST'])
 def create_youth():
     err = require_permission('youth')
     if err: return err
     d = request.json or {}
     yid = str(uuid.uuid4())
+    pp = default_passphrase(d.get('first_name',''), d.get('last_name',''))
     conn = get_db()
     execute(conn,
-        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
         (yid, d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp))
     for g in d.get('guardians', []):
         execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                 (str(uuid.uuid4()), yid, g['name'], g.get('relationship',''), g.get('phone',''), g.get('email',''), 1 if g.get('is_primary') else 0))

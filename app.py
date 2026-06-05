@@ -2386,8 +2386,24 @@ def get_youth_participant(yid):
         y['incidents'] = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC', (yid,))
     except Exception:
         y['notes'] = []; y['incidents'] = []
+    # Include family data if linked
+    if y.get('family_id'):
+        y['family'] = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+    else:
+        y['family'] = None
     conn.close()
     return jsonify(y)
+
+@app.route('/api/youth/<yid>/family', methods=['PUT'])
+def set_youth_family(yid):
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    family_id = d.get('family_id') or None
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (family_id, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'family_id': family_id})
 
 def default_passphrase(first_name, last_name):
     """Generate default portal passphrase: firstname_lastname_hwtc (lowercase)"""
@@ -4507,33 +4523,40 @@ def portal_auth():
 @app.route('/api/portal/change-passphrase', methods=['POST'])
 def portal_change_passphrase():
     d = request.json or {}
-    current = (d.get('current_passphrase') or '').strip().lower()
-    new_pp   = (d.get('new_passphrase') or '').strip()
+    current      = (d.get('current_passphrase') or '').strip().lower()
+    new_pp       = (d.get('new_passphrase') or '').strip()
+    change_type  = d.get('change_type', 'auto')  # 'family', 'individual', or 'auto'
+    youth_id     = d.get('youth_id')
     if not current or not new_pp:
         return jsonify({'error': 'Current and new passphrase required'}), 400
     if len(new_pp) < 4:
         return jsonify({'error': 'New passphrase must be at least 4 characters'}), 400
     conn = get_db()
-    # Find by current passphrase — could be youth or family
+    # Try family passphrase
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
+    if family:
+        if change_type == 'individual' and youth_id:
+            # Change just this child's passphrase
+            taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth_id))
+            if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth_id))
+        else:
+            # Change family passphrase
+            taken = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), family['id']))
+            if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+            execute(conn, 'UPDATE families SET passphrase=%s WHERE id=%s', (new_pp, family['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    # Try individual youth passphrase
     youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (current,))
     if youth:
-        # Check new passphrase isn't already taken
         taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth['id']))
-        if taken:
-            conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
-        # Update all family members if they share this passphrase
-        if youth.get('family_id'):
+        if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        if youth.get('family_id') and change_type != 'individual':
+            # Update all family members too
             execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE family_id=%s', (new_pp, youth['family_id']))
         else:
             execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth['id']))
-        conn.commit(); conn.close()
-        return jsonify({'ok': True})
-    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
-    if family:
-        taken = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), family['id']))
-        if taken:
-            conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
-        execute(conn, 'UPDATE families SET passphrase=%s WHERE id=%s', (new_pp, family['id']))
         conn.commit(); conn.close()
         return jsonify({'ok': True})
     conn.close()

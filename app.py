@@ -592,6 +592,7 @@ def init_db():
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS portal_last_login TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS portal_passphrase TEXT",
         # portal content tables
         """CREATE TABLE IF NOT EXISTS families (
@@ -4460,29 +4461,59 @@ def portal_auth():
     family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
     if family:
         members = fetchall(conn, 'SELECT * FROM youth_participants WHERE family_id=%s ORDER BY first_name', (family['id'],))
+        # Stamp last login for all members
+        for m in members:
+            execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (m['id'],))
+        conn.commit()
         conn.close()
-        return jsonify({
-            'type': 'family',
-            'family': family,
-            'members': members,
-            'passphrase': passphrase,
-        })
+        return jsonify({'type':'family','family':family,'members':members,'passphrase':passphrase})
 
     # Try individual youth passphrase
     youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
     if youth:
+        execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (youth['id'],))
+        conn.commit()
         family_row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (youth.get('family_id'),)) if youth.get('family_id') else None
         conn.close()
-        return jsonify({
-            'type': 'participant',
-            'participant': youth,
-            'family': family_row,
-            'members': [youth],
-            'passphrase': passphrase,
-        })
+        return jsonify({'type':'participant','participant':youth,'family':family_row,'members':[youth],'passphrase':passphrase})
 
     conn.close()
     return jsonify({'error': 'Passphrase not found. Please check with HWTC staff.'}), 401
+
+@app.route('/api/portal/change-passphrase', methods=['POST'])
+def portal_change_passphrase():
+    d = request.json or {}
+    current = (d.get('current_passphrase') or '').strip().lower()
+    new_pp   = (d.get('new_passphrase') or '').strip()
+    if not current or not new_pp:
+        return jsonify({'error': 'Current and new passphrase required'}), 400
+    if len(new_pp) < 4:
+        return jsonify({'error': 'New passphrase must be at least 4 characters'}), 400
+    conn = get_db()
+    # Find by current passphrase — could be youth or family
+    youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (current,))
+    if youth:
+        # Check new passphrase isn't already taken
+        taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth['id']))
+        if taken:
+            conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        # Update all family members if they share this passphrase
+        if youth.get('family_id'):
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE family_id=%s', (new_pp, youth['family_id']))
+        else:
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
+    if family:
+        taken = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), family['id']))
+        if taken:
+            conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        execute(conn, 'UPDATE families SET passphrase=%s WHERE id=%s', (new_pp, family['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    conn.close()
+    return jsonify({'error': 'Current passphrase incorrect'}), 401
 
 @app.route('/api/portal/announcements')
 def get_portal_announcements():

@@ -1049,7 +1049,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <section class="page" id="page-youth">
         <div class="page-header">
           <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
-          <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+          <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">🔑 Set Default Passphrases</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
         </div>
         <div class="page-body">
           <div class="search-bar">
@@ -5680,6 +5680,15 @@ async function biRunImport(){
   if(res.errors&&res.errors.length){var e=document.getElementById('bi-result-errors');e.style.display='';e.innerHTML='<strong style="color:#dc2626">Errors:</strong><ul style="margin:4px 0 0 16px">'+res.errors.map(function(e){return'<li>'+escHtml(e)+'</li>'}).join('')+'</ul>'}
 }
 async function biDone(){closeModal('modal-bulk-import');await loadAllData();if(typeof renderYouth==='function')renderYouth();toast('Participants updated!','success')}
+
+async function backfillPassphrases(){
+  if(!confirm('Set default passphrase (firstname_lastname_hwtc) for all participants who don\'t have one yet?\n\nThis will NOT change anyone who already has a passphrase.')) return
+  const res = await api('/api/youth/backfill-passphrases','POST')
+  if(res?.error){toast(res.error,'error');return}
+  toast(`✓ Set passphrases for ${res.updated} participant${res.updated!==1?'s':''}`)
+  await loadAllData()
+  renderYouth()
+}
 
 function openYouthModal(){
   document.getElementById('youth-modal-title').textContent='Add Participant'

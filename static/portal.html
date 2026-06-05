@@ -921,7 +921,59 @@ function buildProfileTab(y, yid){
 
   html += '</div>'
 
+  // Change passphrase section
+  html += '<div style="margin-top:28px;padding-top:20px;border-top:2px solid var(--border)">'
+    +'<div style="font-size:15px;font-weight:700;margin-bottom:4px">🔑 Change Passphrase</div>'
+    +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Update the passphrase used to log into this portal.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px;max-width:400px">'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Current Passphrase</label>'
+    +'<input type="password" id="pp-current" placeholder="Your current passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">New Passphrase</label>'
+    +'<input type="password" id="pp-new" placeholder="Choose a new passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Confirm New Passphrase</label>'
+    +'<input type="password" id="pp-confirm" placeholder="Confirm new passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+    +'<div id="pp-result" style="font-size:13px"></div>'
+    +'<button onclick="changePortalPassphrase()" style="background:var(--teal);color:white;border:none;border-radius:8px;padding:11px 20px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;width:fit-content">Update Passphrase</button>'
+    +'</div></div>'
+
   return html
+}
+
+async function changePortalPassphrase(){
+  var current = document.getElementById('pp-current')?.value.trim()
+  var newPP    = document.getElementById('pp-new')?.value.trim()
+  var confirm  = document.getElementById('pp-confirm')?.value.trim()
+  var result   = document.getElementById('pp-result')
+  if(!current||!newPP||!confirm){
+    if(result) result.innerHTML='<span style="color:#dc2626">Please fill in all three fields.</span>'; return
+  }
+  if(newPP !== confirm){
+    if(result) result.innerHTML='<span style="color:#dc2626">New passphrases do not match.</span>'; return
+  }
+  if(newPP.length < 4){
+    if(result) result.innerHTML='<span style="color:#dc2626">New passphrase must be at least 4 characters.</span>'; return
+  }
+  if(result) result.innerHTML='<span style="color:var(--text-muted)">Updating…</span>'
+  try {
+    var r = await fetch('/api/portal/change-passphrase',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({current_passphrase: current, new_passphrase: newPP})
+    })
+    var d = await r.json()
+    if(d.error){
+      if(result) result.innerHTML='<span style="color:#dc2626">'+escHtml(d.error)+'</span>'; return
+    }
+    // Update session passphrase so they don't get logged out
+    if(window.portalSession) window.portalSession.passphrase = newPP
+    document.getElementById('pp-current').value=''
+    document.getElementById('pp-new').value=''
+    document.getElementById('pp-confirm').value=''
+    if(result) result.innerHTML='<span style="color:#16a34a;font-weight:600">✓ Passphrase updated successfully!</span>'
+    toast('Passphrase updated!')
+    setTimeout(()=>{ if(result) result.innerHTML='' }, 4000)
+  } catch(e){
+    if(result) result.innerHTML='<span style="color:#dc2626">Error updating passphrase. Please try again.</span>'
+  }
 }
 
 async function submitPortalWaiver(yid, waiverId){

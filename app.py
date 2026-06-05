@@ -593,6 +593,8 @@ def init_db():
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS portal_last_login TIMESTAMP",
+        "ALTER TABLE families ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''",
+        "ALTER TABLE families ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS portal_passphrase TEXT",
         # portal content tables
         """CREATE TABLE IF NOT EXISTS families (

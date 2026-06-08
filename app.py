@@ -5828,6 +5828,149 @@ def build_hours_by_event_report(start_date, end_date):
     conn.close()
     return rows
 
+def build_range_recap_report(start_date, end_date):
+    """Flexible date-range volunteer recap (used for quarterly/YTD/custom)."""
+    conn = get_db()
+    import datetime as _dt
+
+    totals = fetchone(conn, """
+        SELECT COALESCE(SUM(h.hours),0) as total_hours,
+               COUNT(DISTINCT h.volunteer_id) as active_volunteers,
+               COUNT(*) as total_entries
+        FROM hours h WHERE h.date >= %s AND h.date <= %s""", (start_date, end_date))
+
+    top_vols = fetchall(conn, """
+        SELECT v.name, v.email,
+               COALESCE(SUM(h.hours),0) as hours,
+               COUNT(DISTINCT h.event) as events_count
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.date >= %s AND h.date <= %s
+        GROUP BY v.id, v.name, v.email
+        ORDER BY hours DESC LIMIT 20""", (start_date, end_date))
+
+    by_event = fetchall(conn, """
+        SELECT h.event,
+               SUM(h.hours) as hours,
+               COUNT(DISTINCT h.volunteer_id) as vol_count
+        FROM hours h WHERE h.date >= %s AND h.date <= %s
+        GROUP BY h.event ORDER BY hours DESC LIMIT 15""", (start_date, end_date))
+
+    # New volunteers in range
+    new_vols = fetchall(conn, """
+        SELECT name, email, created_at::date as join_date
+        FROM volunteers WHERE created_at::date >= %s AND created_at::date <= %s
+        ORDER BY created_at""", (start_date, end_date))
+
+    # Lapsed (60+ days as of end_date)
+    lapsed = fetchall(conn, """
+        SELECT v.name, v.email, MAX(h.date) as last_date
+        FROM volunteers v JOIN hours h ON h.volunteer_id=v.id
+        WHERE v.status='active'
+        GROUP BY v.id, v.name, v.email
+        HAVING MAX(h.date) < (%s::date - INTERVAL '60 days')::text
+        ORDER BY last_date ASC LIMIT 20""", (end_date,))
+
+    # Hours by week for sparkline (up to 52 buckets)
+    try:
+        weekly = fetchall(conn, """
+            SELECT TO_CHAR(date::date, 'IYYY-IW') as week,
+                   SUM(hours) as hours
+            FROM hours WHERE date >= %s AND date <= %s
+            GROUP BY week ORDER BY week""", (start_date, end_date))
+    except Exception:
+        weekly = []
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'total_hours': float(totals['total_hours']) if totals else 0,
+        'active_volunteers': int(totals['active_volunteers']) if totals else 0,
+        'total_entries': int(totals['total_entries']) if totals else 0,
+        'top_volunteers': top_vols,
+        'hours_by_event': by_event,
+        'new_volunteers': new_vols,
+        'lapsed_volunteers': lapsed,
+        'weekly_hours': weekly,
+    }
+
+
+def build_board_attendance_report(start_date, end_date):
+    conn = get_db()
+    meetings = fetchall(conn, """
+        SELECT bm.id, bm.meeting_date, bm.location, bm.status,
+               COUNT(bma.id) as total_members,
+               COUNT(CASE WHEN bma.attendance_type IN ('in_person','virtual') OR bma.attended=TRUE THEN 1 END) as attended,
+               COUNT(CASE WHEN bma.attendance_type='in_person' THEN 1 END) as in_person,
+               COUNT(CASE WHEN bma.attendance_type='virtual' THEN 1 END) as virtual_count
+        FROM board_meetings bm
+        LEFT JOIN board_meeting_attendance bma ON bma.meeting_id=bm.id
+        WHERE bm.meeting_date >= %s AND bm.meeting_date <= %s
+        GROUP BY bm.id, bm.meeting_date, bm.location, bm.status
+        ORDER BY bm.meeting_date""", (start_date, end_date))
+
+    member_stats = fetchall(conn, """
+        SELECT bm.name, bm.role, bm.email,
+               COUNT(bma.id) as total_meetings,
+               COUNT(CASE WHEN bma.attendance_type IN ('in_person','virtual') OR bma.attended=TRUE THEN 1 END) as attended,
+               COUNT(CASE WHEN bma.attendance_type='in_person' THEN 1 END) as in_person,
+               COUNT(CASE WHEN bma.attendance_type='virtual' THEN 1 END) as virtual_count
+        FROM board_members bm
+        LEFT JOIN board_meeting_attendance bma ON bma.member_id=bm.id
+        LEFT JOIN board_meetings meet ON bma.meeting_id=meet.id
+            AND meet.meeting_date >= %s AND meet.meeting_date <= %s
+        WHERE bm.status='active'
+        GROUP BY bm.id, bm.name, bm.role, bm.email
+        ORDER BY attended DESC, bm.name""", (start_date, end_date))
+
+    total_meetings = len(meetings)
+    total_possible = sum(m['total_members'] for m in meetings)
+    total_attended = sum(m['attended'] for m in meetings)
+    avg_rate = round(total_attended / total_possible * 100) if total_possible else 0
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'meetings': meetings,
+        'member_stats': member_stats,
+        'total_meetings': total_meetings,
+        'total_possible': total_possible,
+        'total_attended': total_attended,
+        'avg_attendance_rate': avg_rate,
+    }
+
+
+def build_enrollment_report(start_date, end_date):
+    conn = get_db()
+    programs = fetchall(conn, """
+        SELECT yp.id, yp.name, yp.program_type, yp.status,
+               yp.start_date, yp.end_date,
+               COUNT(DISTINCT ype.youth_id) as enrolled_count
+        FROM youth_programs yp
+        LEFT JOIN youth_program_enrollments ype ON ype.program_id=yp.id
+        WHERE yp.created_at::date <= %s
+          AND (yp.end_date IS NULL OR yp.end_date >= %s)
+        GROUP BY yp.id, yp.name, yp.program_type, yp.status, yp.start_date, yp.end_date
+        ORDER BY yp.start_date DESC NULLS LAST, yp.name""", (end_date, start_date))
+
+    total_youth = fetchone(conn, """
+        SELECT COUNT(DISTINCT y.id) as c FROM youth_participants y
+        WHERE y.status='active'""")
+
+    new_youth = fetchall(conn, """
+        SELECT first_name||' '||last_name as name, created_at::date as join_date
+        FROM youth_participants
+        WHERE created_at::date >= %s AND created_at::date <= %s
+        ORDER BY created_at""", (start_date, end_date))
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'programs': programs,
+        'total_active_youth': int(total_youth['c']) if total_youth else 0,
+        'new_youth': new_youth,
+    }
+
+
 def build_report_email_html(report_type, data, params=None):
     """Generate HTML email for a report."""
     from datetime import date
@@ -5926,6 +6069,21 @@ def run_report():
         start = params.get('start_date', today.replace(day=1).isoformat())
         end   = params.get('end_date', today.isoformat())
         data  = build_hours_by_event_report(start, end)
+
+    elif rtype == 'range_recap':
+        start = params.get('start_date', today.replace(day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_range_recap_report(start, end)
+
+    elif rtype == 'board_attendance':
+        start = params.get('start_date', today.replace(month=1, day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_board_attendance_report(start, end)
+
+    elif rtype == 'enrollment':
+        start = params.get('start_date', today.replace(month=1, day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_enrollment_report(start, end)
 
     else:
         return jsonify({'error': 'Unknown report type'}), 400

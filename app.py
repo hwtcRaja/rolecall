@@ -1066,15 +1066,6 @@ def init_db():
             source TEXT DEFAULT 'staff',
             created_at TIMESTAMP DEFAULT NOW())""",
 
-        """CREATE TABLE IF NOT EXISTS portal_files (
-            id TEXT PRIMARY KEY,
-            context_type TEXT NOT NULL,
-            context_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            url TEXT,
-            file_type TEXT,
-            created_at TIMESTAMP DEFAULT NOW())""",
-
         """CREATE TABLE IF NOT EXISTS carpools (
             id TEXT PRIMARY KEY,
             event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -7910,6 +7901,8 @@ def delete_portal_announcement_admin(aid):
     return jsonify({'ok': True})
 
 # ── Portal files & folders ──
+# Real table schema: id, program_id, production_id, title, drive_url, description, folder, author_id
+
 @app.route('/api/portal/files', methods=['POST'])
 def create_portal_file():
     err = require_auth()
@@ -7917,10 +7910,16 @@ def create_portal_file():
     d = request.json or {}
     fid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO portal_files (id,context_type,context_id,name,url,file_type)
-        VALUES (%s,%s,%s,%s,%s,%s)''',
-        (fid, d.get('context_type','production'), d.get('production_id') or d.get('context_id',''),
-         d.get('name',''), d.get('url',''), d.get('file_type','')))
+    program_id    = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    title      = d.get('title') or d.get('name','')
+    drive_url  = d.get('drive_url') or d.get('url','')
+    folder     = d.get('folder','General')
+    author_id  = session.get('user_id')
+    execute(conn, '''INSERT INTO portal_files
+        (id, program_id, production_id, title, drive_url, folder, author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, program_id, production_id, title, drive_url, folder, author_id))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
     conn.close()
@@ -7939,32 +7938,56 @@ def delete_portal_file(fid):
 def get_portal_folders():
     err = require_auth()
     if err: return err
-    prod_id = request.args.get('production_id')
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
     conn = get_db()
-    rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s ORDER BY name', (prod_id,)) if prod_id else []
+    if program_id:
+        rows = fetchall(conn, "SELECT DISTINCT folder FROM portal_files WHERE program_id=%s AND folder IS NOT NULL ORDER BY folder", (program_id,))
+    elif production_id:
+        rows = fetchall(conn, "SELECT DISTINCT folder FROM portal_files WHERE production_id=%s AND folder IS NOT NULL ORDER BY folder", (production_id,))
+    else:
+        rows = []
     conn.close()
-    return jsonify(rows)
+    # Return as list of folder name strings for the pill UI
+    return jsonify([r['folder'] for r in rows if r.get('folder') and r['folder'] != 'General'])
 
 @app.route('/api/portal/folders', methods=['POST'])
 def create_portal_folder():
+    """Create a placeholder file entry to register a folder name."""
     err = require_auth()
     if err: return err
     d = request.json or {}
+    folder_name   = (d.get('name') or '').strip()
+    program_id    = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    if not folder_name:
+        return jsonify({'error': 'Folder name required'}), 400
     fid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO portal_files (id,context_type,context_id,name,file_type) VALUES (%s,%s,%s,%s,%s)',
-        (fid, 'production', d.get('production_id',''), d.get('name',''), 'folder'))
+    # Insert a placeholder row so the folder name is registered
+    execute(conn, '''INSERT INTO portal_files
+        (id, program_id, production_id, title, drive_url, folder, description)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, program_id, production_id,
+         '__folder__' + folder_name, '', folder_name, '__folder__'))
     conn.commit()
-    row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
     conn.close()
-    return jsonify(row)
+    return jsonify({'ok': True, 'folder': folder_name})
 
-@app.route('/api/portal/folders/<fid>', methods=['DELETE'])
-def delete_portal_folder(fid):
+@app.route('/api/portal/folders/<folder_name>', methods=['DELETE'])
+def delete_portal_folder(folder_name):
     err = require_auth()
     if err: return err
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
     conn = get_db()
-    execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
+    # Move files in this folder to General, then delete the placeholder
+    if program_id:
+        execute(conn, "UPDATE portal_files SET folder='General' WHERE program_id=%s AND folder=%s AND description!='__folder__'", (program_id, folder_name))
+        execute(conn, "DELETE FROM portal_files WHERE program_id=%s AND folder=%s AND description='__folder__'", (program_id, folder_name))
+    elif production_id:
+        execute(conn, "UPDATE portal_files SET folder='General' WHERE production_id=%s AND folder=%s AND description!='__folder__'", (production_id, folder_name))
+        execute(conn, "DELETE FROM portal_files WHERE production_id=%s AND folder=%s AND description='__folder__'", (production_id, folder_name))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

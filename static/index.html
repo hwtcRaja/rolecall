@@ -10434,10 +10434,13 @@ async function saveChecklistItem(cid, data){
 // ═══════════════════════════════════════════════════════════════
 
 const REPORT_TYPES = [
-  { id:'monthly_recap',     label:'Monthly Recap',       icon:'📅', desc:'Hours, top volunteers, new members' },
-  { id:'top_volunteers',    label:'Top Volunteers',       icon:'🏆', desc:'Ranked by hours for a date range' },
-  { id:'lapsed_volunteers', label:'Lapsed Volunteers',    icon:'⚠️', desc:'No activity in X days' },
-  { id:'hours_by_event',    label:'Hours by Event',       icon:'📋', desc:'Which events drove the most volunteer hours' },
+  { id:'monthly_recap',     label:'Monthly Recap',        icon:'📅', desc:'Hours, volunteers, new members for a single month',       hasRange:false },
+  { id:'range_recap',       label:'Range Recap',          icon:'📊', desc:'Same as monthly but for any date range',                   hasRange:true  },
+  { id:'top_volunteers',    label:'Top Volunteers',       icon:'🏆', desc:'Ranked by hours for a date range',                        hasRange:true  },
+  { id:'hours_by_event',    label:'Hours by Event',       icon:'📋', desc:'Which events drove the most volunteer hours',              hasRange:true  },
+  { id:'board_attendance',  label:'Board Attendance',     icon:'🎭', desc:'Meeting attendance rates and per-member breakdown',        hasRange:true  },
+  { id:'enrollment',        label:'Youth Enrollment',     icon:'🎓', desc:'Program enrollment counts and new participant roster',     hasRange:true  },
+  { id:'lapsed_volunteers', label:'Lapsed Volunteers',    icon:'⚠️', desc:'Members with no activity in X days',                      hasRange:false },
 ]
 
 let _currentReportType = 'monthly_recap'
@@ -10445,6 +10448,58 @@ let _currentReportData = null
 let _scheduledReports  = []
 let _allUsers          = []
 
+// ── Date range helpers ──────────────────────────────────────────────────────
+function getQuarterRange(offset=0){
+  const now = new Date()
+  let q = Math.floor(now.getMonth()/3) + offset
+  let y = now.getFullYear()
+  while(q < 0){ q += 4; y-- }
+  while(q > 3){ q -= 4; y++ }
+  const starts = ['-01-01','-04-01','-07-01','-10-01']
+  const ends   = ['-03-31','-06-30','-09-30','-12-31']
+  return { start: y+starts[q], end: y+ends[q], label: `Q${q+1} ${y}` }
+}
+
+function getPresetRanges(){
+  const now   = new Date()
+  const today = now.toISOString().split('T')[0]
+  const y     = now.getFullYear()
+  const m     = now.getMonth()
+  const pad   = n => String(n).padStart(2,'0')
+
+  const firstThisMonth = `${y}-${pad(m+1)}-01`
+  const lastThisMonth  = new Date(y, m+1, 0).toISOString().split('T')[0]
+
+  const prevM  = m === 0 ? 11 : m-1
+  const prevY  = m === 0 ? y-1 : y
+  const firstLastMonth = `${prevY}-${pad(prevM+1)}-01`
+  const lastLastMonth  = new Date(prevY, prevM+1, 0).toISOString().split('T')[0]
+
+  const thisQ = getQuarterRange(0)
+  const lastQ = getQuarterRange(-1)
+
+  return [
+    { key:'this_month',  label:'This Month',   start:firstThisMonth,  end:today },
+    { key:'last_month',  label:'Last Month',   start:firstLastMonth,  end:lastLastMonth },
+    { key:'this_quarter',label:thisQ.label,    start:thisQ.start,     end:today },
+    { key:'last_quarter',label:lastQ.label,    start:lastQ.start,     end:lastQ.end },
+    { key:'ytd',         label:'Year to Date', start:`${y}-01-01`,    end:today },
+    { key:'last_year',   label:'Last Year',    start:`${y-1}-01-01`,  end:`${y-1}-12-31` },
+    { key:'custom',      label:'Custom Range', start:'',              end:'' },
+  ]
+}
+
+let _selectedPreset = 'last_month'
+let _customStart    = ''
+let _customEnd      = ''
+
+function getEffectiveDateRange(){
+  const presets = getPresetRanges()
+  if(_selectedPreset === 'custom') return { start: _customStart, end: _customEnd }
+  return presets.find(p=>p.key===_selectedPreset) || presets[1]
+}
+
+// ── Tab switch ──────────────────────────────────────────────────────────────
 function switchReportTab(tab){
   document.getElementById('rtab-run').style.display      = tab==='run' ? '' : 'none'
   document.getElementById('rtab-scheduled').style.display = tab==='scheduled' ? '' : 'none'
@@ -10456,7 +10511,6 @@ function switchReportTab(tab){
 }
 
 async function initReportsPage(){
-  // Load users for recipient picker
   const users = await api('/api/users')
   if(Array.isArray(users)) _allUsers = users
   renderReportTypePicker()
@@ -10486,14 +10540,11 @@ function selectReportType(id){
     </div>`
 }
 
+// ── Params panel ─────────────────────────────────────────────────────────────
 function renderReportParams(){
   const el = document.getElementById('report-params')
   if(!el) return
-  const today = new Date().toISOString().split('T')[0]
-  const firstOfMonth = today.substring(0,8)+'01'
-  const lastMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 0)
-  const lastMonthStr = lastMonth.toISOString().split('T')[0]
-  const firstOfLastMonth = lastMonthStr.substring(0,8)+'01'
+  const rt = REPORT_TYPES.find(r=>r.id===_currentReportType)
 
   if(_currentReportType === 'monthly_recap'){
     const d = new Date(); d.setMonth(d.getMonth()-1)
@@ -10506,14 +10557,10 @@ function renderReportParams(){
         <div class="form-group"><label>Year</label>
           <input type="number" id="rp-year" value="${d.getFullYear()}" min="2020" max="2030"/></div>
       </div>`
-  } else if(_currentReportType === 'top_volunteers'){
-    el.innerHTML = `
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Date Range</div>
-      <div class="form-group"><label>From</label><input type="date" id="rp-start" value="${firstOfLastMonth}"/></div>
-      <div class="form-group"><label>To</label><input type="date" id="rp-end" value="${lastMonthStr}"/></div>
-      <div class="form-group"><label>Show top</label>
-        <select id="rp-limit"><option value="25">25</option><option value="50" selected>50</option><option value="100">All</option></select></div>`
-  } else if(_currentReportType === 'lapsed_volunteers'){
+    return
+  }
+
+  if(_currentReportType === 'lapsed_volunteers'){
     el.innerHTML = `
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Parameters</div>
       <div class="form-group"><label>Inactive for more than</label>
@@ -10524,12 +10571,43 @@ function renderReportParams(){
           <option value="180">6 months</option>
           <option value="365">1 year</option>
         </select></div>`
-  } else if(_currentReportType === 'hours_by_event'){
-    el.innerHTML = `
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Date Range</div>
-      <div class="form-group"><label>From</label><input type="date" id="rp-start" value="${firstOfLastMonth}"/></div>
-      <div class="form-group"><label>To</label><input type="date" id="rp-end" value="${lastMonthStr}"/></div>`
+    return
   }
+
+  if(!rt?.hasRange){ el.innerHTML=''; return }
+
+  // Range-based reports — show preset picker + optional custom dates
+  const presets = getPresetRanges()
+  const range   = getEffectiveDateRange()
+
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Date Range</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px" id="preset-btns">
+      ${presets.map(p=>`
+        <button onclick="selectPreset('${p.key}')" id="preset-${p.key}"
+          style="padding:5px 11px;font-size:12px;font-weight:600;border-radius:20px;cursor:pointer;font-family:inherit;border:1.5px solid ${_selectedPreset===p.key?'var(--teal)':'var(--border-md)'};background:${_selectedPreset===p.key?'var(--teal-50)':'var(--surface)'};color:${_selectedPreset===p.key?'var(--teal-dark)':'var(--text-muted)'}">
+          ${p.label}</button>`).join('')}
+    </div>
+    <div id="custom-range-inputs" style="display:${_selectedPreset==='custom'?'grid':'none'};grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      <div class="form-group"><label>From</label><input type="date" id="rp-start" value="${_customStart}" oninput="_customStart=this.value"/></div>
+      <div class="form-group"><label>To</label><input type="date" id="rp-end" value="${_customEnd}" oninput="_customEnd=this.value"/></div>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:2px" id="range-label-display">
+      ${_selectedPreset!=='custom'?`${range.start} → ${range.end}`:''}</div>
+    ${_currentReportType==='top_volunteers'?`
+    <div class="form-group" style="margin-top:8px"><label>Show top</label>
+      <select id="rp-limit"><option value="25">25</option><option value="50" selected>50</option><option value="100">All</option></select></div>`:''}
+  `
+}
+
+function selectPreset(key){
+  _selectedPreset = key
+  if(key !== 'custom'){
+    const p = getPresetRanges().find(p=>p.key===key)
+    _customStart = p.start
+    _customEnd   = p.end
+  }
+  renderReportParams()
 }
 
 function getReportParams(){
@@ -10538,17 +10616,14 @@ function getReportParams(){
     month: parseInt(document.getElementById('rp-month')?.value||new Date().getMonth()),
     year:  parseInt(document.getElementById('rp-year')?.value||new Date().getFullYear())
   }
-  if(t==='top_volunteers') return {
-    start_date: document.getElementById('rp-start')?.value,
-    end_date:   document.getElementById('rp-end')?.value,
-    limit:      parseInt(document.getElementById('rp-limit')?.value||50)
-  }
   if(t==='lapsed_volunteers') return { days: parseInt(document.getElementById('rp-days')?.value||90) }
-  if(t==='hours_by_event') return {
-    start_date: document.getElementById('rp-start')?.value,
-    end_date:   document.getElementById('rp-end')?.value
-  }
-  return {}
+  // All range-based reports
+  const range = getEffectiveDateRange()
+  const start = document.getElementById('rp-start')?.value || range.start
+  const end   = document.getElementById('rp-end')?.value   || range.end
+  const base  = { start_date: start, end_date: end }
+  if(t==='top_volunteers') base.limit = parseInt(document.getElementById('rp-limit')?.value||50)
+  return base
 }
 
 async function runReport(){
@@ -10556,66 +10631,111 @@ async function runReport(){
   btn.disabled=true; btn.textContent='Running…'
   const res = await api('/api/reports/run','POST',{report_type:_currentReportType, params:getReportParams()})
   btn.disabled=false; btn.textContent='▶ Run'
-  if(res.error){ toast(res.error,'error'); return }
+  if(!res||res.error){ toast((res&&res.error)||'Report failed','error'); return }
   _currentReportData = res.data
   renderReportResults(res)
 }
 
+// ── Mini bar chart (inline SVG) ──────────────────────────────────────────────
+function miniBarChart(values, labels, color='var(--teal)', height=56, showLabels=false){
+  if(!values||!values.length) return ''
+  const max  = Math.max(...values, 0.01)
+  const w    = 100 / values.length
+  const bars = values.map((v,i)=>{
+    const pct = Math.round((v/max)*100)
+    const barH = Math.max(2, Math.round((v/max)*(height-16)))
+    const x    = i * w
+    const lbl  = labels?.[i]||''
+    return `<rect x="${x+0.5}%" y="${height-barH-8}" width="${w-1.5}%" height="${barH}" fill="${color}" rx="2" opacity="0.85"/>
+            ${showLabels&&lbl?`<text x="${x+w/2}%" y="${height}" text-anchor="middle" font-size="7" fill="var(--text-muted)">${escHtml(String(lbl).slice(0,6))}</text>`:''}
+            <title>${lbl}: ${typeof v==='number'?v.toFixed(1):v}</title>`
+  }).join('')
+  return `<svg width="100%" height="${height}" style="display:block">${bars}</svg>`
+}
+
+function attendanceDonut(rate, size=64){
+  const r = (size/2)-6
+  const circ = 2*Math.PI*r
+  const dash = (rate/100)*circ
+  const cx = size/2, cy = size/2
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border)" stroke-width="6"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--teal)" stroke-width="6"
+      stroke-dasharray="${dash} ${circ}" stroke-dashoffset="${circ/4}" stroke-linecap="round"/>
+    <text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--teal-dark)">${rate}%</text>
+  </svg>`
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
 function renderReportResults(res){
   const el = document.getElementById('report-results')
   if(!el) return
-  const data = res.data
+  const data  = res.data
   const rtype = res.report_type
+  const rt    = REPORT_TYPES.find(r=>r.id===rtype)
+
+  // Range label for header
+  let rangeLabel = ''
+  if(data.start_date && data.end_date) rangeLabel = `${formatDate(data.start_date)} – ${formatDate(data.end_date)}`
+  else if(data.month && data.year) rangeLabel = `${data.month} ${data.year}`
 
   let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
-    <div style="font-size:16px;font-weight:700">${REPORT_TYPES.find(r=>r.id===rtype)?.icon||'📊'} ${REPORT_TYPES.find(r=>r.id===rtype)?.label||'Report'}</div>
+    <div>
+      <div style="font-size:17px;font-weight:800">${rt?.icon||'📊'} ${rt?.label||'Report'}</div>
+      ${rangeLabel?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${rangeLabel}</div>`:''}
+    </div>
     <div style="display:flex;gap:8px">
-      <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ Export CSV</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
       <button class="btn btn-secondary btn-sm" onclick="printReport()">🖨 Print</button>
     </div>
   </div>`
 
   if(rtype === 'monthly_recap'){
-    html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-      ${statCard('Total Hours', data.total_hours?.toFixed(1)+'h', 'var(--teal-dark)')}
-      ${statCard('Active Volunteers', data.active_volunteers, 'var(--blue-600)')}
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
+      ${statCard('Total Hours', (data.total_hours||0).toFixed(1)+'h', 'var(--teal-dark)')}
+      ${statCard('Active Volunteers', data.active_volunteers||0, 'var(--blue-600)')}
       ${statCard('New This Month', data.new_volunteers?.length||0, 'var(--green-600)')}
-      ${statCard('Pending Approval', data.pending_count+' ('+data.pending_hours?.toFixed(1)+'h)', 'var(--amber-600)')}
-      ${statCard('Lapsed (60d+)', data.lapsed_volunteers?.length||0, data.lapsed_volunteers?.length>0?'var(--red-600)':'var(--text-muted)')}
+      ${statCard('Pending Approval', (data.pending_count||0)+' ('+((data.pending_hours||0).toFixed(1))+'h)', 'var(--amber-600)')}
+      ${statCard('Lapsed (60d+)', data.lapsed_volunteers?.length||0, (data.lapsed_volunteers?.length||0)>0?'var(--red-600)':'var(--text-muted)')}
     </div>`
+    if(data.top_volunteers?.length)
+      html += reportSection('🏆 Top Volunteers', reportTable(['Volunteer','Hours','Events'], data.top_volunteers.slice(0,10), ['name',r=>parseFloat(r.hours||0).toFixed(1)+'h','events_count']))
+    if(data.hours_by_event?.length)
+      html += reportSection('📋 Hours by Event', reportTable(['Event','Hours','Volunteers'], data.hours_by_event, ['event',r=>parseFloat(r.hours||0).toFixed(1)+'h','vol_count']))
+    if(data.new_volunteers?.length)
+      html += reportSection(`✨ New Volunteers (${data.new_volunteers.length})`, reportTable(['Name','Email'], data.new_volunteers, ['name','email']))
+    if(data.lapsed_volunteers?.length)
+      html += reportSection(`⚠️ Lapsed Volunteers`, reportTable(['Name','Last Active','Email'], data.lapsed_volunteers, ['name','last_date','email']))
 
-    if(data.top_volunteers?.length){
-      html += reportSection('🏆 Top Volunteers', reportTable(
-        ['Volunteer','Hours','Events'],
-        data.top_volunteers.slice(0,10),
-        ['name',r=>parseFloat(r.hours||0).toFixed(1)+'h','events_count']
-      ))
+  } else if(rtype === 'range_recap'){
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
+      ${statCard('Total Hours', (data.total_hours||0).toFixed(1)+'h', 'var(--teal-dark)')}
+      ${statCard('Active Volunteers', data.active_volunteers||0, 'var(--blue-600)')}
+      ${statCard('Total Entries', data.total_entries||0, 'var(--purple-600,#7c3aed)')}
+      ${statCard('New Volunteers', data.new_volunteers?.length||0, 'var(--green-600)')}
+      ${statCard('Lapsed (60d+)', data.lapsed_volunteers?.length||0, (data.lapsed_volunteers?.length||0)>0?'var(--red-600)':'var(--text-muted)')}
+    </div>`
+    if(data.weekly_hours?.length > 1){
+      const vals  = data.weekly_hours.map(w=>parseFloat(w.hours||0))
+      const lbls  = data.weekly_hours.map(w=>w.week)
+      html += reportSection('📈 Hours by Week', `<div style="padding:8px 0">${miniBarChart(vals,lbls,'var(--teal)',72,vals.length<=24)}</div>`)
     }
-    if(data.hours_by_event?.length){
-      html += reportSection('📋 Hours by Event', reportTable(
-        ['Event','Hours','Volunteers'],
-        data.hours_by_event,
-        ['event',r=>parseFloat(r.hours||0).toFixed(1)+'h','vol_count']
-      ))
-    }
-    if(data.new_volunteers?.length){
-      html += reportSection(`✨ New Volunteers (${data.new_volunteers.length})`, reportTable(
-        ['Name','Email'], data.new_volunteers, ['name','email']
-      ))
-    }
-    if(data.lapsed_volunteers?.length){
-      html += reportSection(`⚠️ Lapsed Volunteers (${data.lapsed_volunteers.length})`, reportTable(
-        ['Name','Last Active','Email'],
-        data.lapsed_volunteers,
-        ['name','last_date','email']
-      ))
-    }
+    if(data.top_volunteers?.length)
+      html += reportSection('🏆 Top Volunteers', reportTable(['Volunteer','Hours','Events'], data.top_volunteers.slice(0,20), ['name',r=>parseFloat(r.hours||0).toFixed(1)+'h','events_count']))
+    if(data.hours_by_event?.length)
+      html += reportSection('📋 Hours by Event', reportTable(['Event','Hours','Volunteers'], data.hours_by_event, ['event',r=>parseFloat(r.hours||0).toFixed(1)+'h','vol_count']))
+    if(data.new_volunteers?.length)
+      html += reportSection(`✨ New Volunteers (${data.new_volunteers.length})`, reportTable(['Name','Join Date'], data.new_volunteers, ['name','join_date']))
+    if(data.lapsed_volunteers?.length)
+      html += reportSection(`⚠️ Lapsed Volunteers`, reportTable(['Name','Last Active','Email'], data.lapsed_volunteers, ['name','last_date','email']))
+
   } else if(rtype === 'top_volunteers'){
     html += reportTable(
       ['#','Name','Email','Total Hours','Events','Last Active'],
       data.map((r,i)=>({...r,'#':i+1, total_hours: parseFloat(r.total_hours||0).toFixed(1)+'h'})),
       ['#','name','email','total_hours','events_count','last_date']
     )
+
   } else if(rtype === 'lapsed_volunteers'){
     html += `<div style="font-size:14px;color:var(--amber-600);font-weight:600;margin-bottom:12px">⚠️ ${data.length} volunteer${data.length!==1?'s':''} inactive</div>`
     html += reportTable(
@@ -10623,12 +10743,74 @@ function renderReportResults(res){
       data.map(r=>({...r, total_hours_ever: parseFloat(r.total_hours_ever||0).toFixed(1)+'h'})),
       ['name','email','last_date','total_hours_ever']
     )
+
   } else if(rtype === 'hours_by_event'){
     html += reportTable(
       ['Event','Total Hours','Volunteers','Entries'],
       data.map(r=>({...r, total_hours: parseFloat(r.total_hours||0).toFixed(1)+'h'})),
       ['event','total_hours','volunteer_count','entry_count']
     )
+
+  } else if(rtype === 'board_attendance'){
+    const rate = data.avg_attendance_rate||0
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+      ${statCard('Meetings', data.total_meetings||0, 'var(--teal-dark)')}
+      ${statCard('Avg Attendance', rate+'%', rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)')}
+      ${statCard('Total Attended', data.total_attended||0, 'var(--blue-600)')}
+      ${statCard('Total Possible', data.total_possible||0, 'var(--text-muted)')}
+    </div>`
+
+    // Attendance donut + per-meeting bar
+    if(data.meetings?.length){
+      const attPcts  = data.meetings.map(m=>m.total_members>0?Math.round(m.attended/m.total_members*100):0)
+      const mtgLbls  = data.meetings.map(m=>formatDate(m.meeting_date))
+      html += reportSection('📅 Attendance per Meeting',
+        `<div style="margin-bottom:6px">${miniBarChart(attPcts,mtgLbls,'var(--teal)',72,data.meetings.length<=12)}</div>`
+        + reportTable(
+          ['Date','Location','Attended','In Person','Virtual','% Rate'],
+          data.meetings.map(m=>({...m,
+            meeting_date: formatDate(m.meeting_date),
+            rate: m.total_members>0?Math.round(m.attended/m.total_members*100)+'%':'—'
+          })),
+          ['meeting_date','location','attended','in_person','virtual_count','rate']
+        )
+      )
+    }
+
+    if(data.member_stats?.length){
+      html += reportSection('👥 Member Breakdown',
+        reportTable(
+          ['Member','Role','Meetings','Attended','In Person','Virtual','Rate'],
+          data.member_stats.map(m=>({...m,
+            rate: m.total_meetings>0?Math.round(m.attended/m.total_meetings*100)+'%':'—'
+          })),
+          ['name','role','total_meetings','attended','in_person','virtual_count','rate']
+        )
+      )
+    }
+
+  } else if(rtype === 'enrollment'){
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+      ${statCard('Active Youth', data.total_active_youth||0, 'var(--teal-dark)')}
+      ${statCard('Programs', data.programs?.length||0, 'var(--blue-600)')}
+      ${statCard('New Participants', data.new_youth?.length||0, 'var(--green-600)')}
+    </div>`
+
+    if(data.programs?.length){
+      // Enrollment bar chart
+      const progVals = data.programs.map(p=>parseInt(p.enrolled_count||0))
+      const progLbls = data.programs.map(p=>p.name)
+      if(data.programs.length > 1)
+        html += reportSection('📊 Enrollment by Program',
+          `<div style="padding:4px 0 8px">${miniBarChart(progVals,progLbls,'var(--blue-400,#60a5fa)',64,data.programs.length<=10)}</div>`)
+      html += reportSection('🎓 Programs', reportTable(
+        ['Program','Type','Status','Start','End','Enrolled'],
+        data.programs,
+        ['name','program_type','status','start_date','end_date','enrolled_count']
+      ))
+    }
+    if(data.new_youth?.length)
+      html += reportSection(`✨ New Participants (${data.new_youth.length})`, reportTable(['Name','Join Date'], data.new_youth, ['name','join_date']))
   }
 
   el.innerHTML = html
@@ -10661,37 +10843,45 @@ function reportTable(headers, rows, cols){
 
 function exportReportCSV(){
   if(!_currentReportData){ toast('Run a report first','error'); return }
-  api('/api/reports/export-csv','POST',{
-    report_type: _currentReportType,
-    data: _currentReportData,
-    params: getReportParams()
-  }).then(res=>{
-    // Trigger download via fetch directly
-    fetch('/api/reports/export-csv',{
-      method:'POST', credentials:'include',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({report_type:_currentReportType, data:_currentReportData, params:getReportParams()})
-    }).then(r=>r.blob()).then(blob=>{
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href=url; a.download=`rolecall_${_currentReportType}.csv`
-      a.click(); URL.revokeObjectURL(url)
-    })
+  fetch('/api/reports/export-csv',{
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({report_type:_currentReportType, data:_currentReportData, params:getReportParams()})
+  }).then(r=>r.blob()).then(blob=>{
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href=url; a.download=`rolecall_${_currentReportType}.csv`
+    a.click(); URL.revokeObjectURL(url)
   })
 }
 
 function printReport(){
   const content = document.getElementById('report-results')?.innerHTML||''
-  const win = window.open('','_blank','width=900,height=700')
-  win.document.write(`<!DOCTYPE html><html><head><title>RoleCall Report</title>
-    <style>body{font-family:-apple-system,sans-serif;padding:24px;color:#1a1a17}
-    table{width:100%;border-collapse:collapse}
-    th{padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db}
-    td{padding:7px 12px;font-size:13px;border-bottom:1px solid #e0e0db}
-    @media print{button{display:none}}</style></head>
-    <body><h2 style="color:#0d3d4d">Horizon West Theatre Company — Report</h2>
-    <p style="font-size:12px;color:#9b9b94">Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p>
-    ${content}<br/><button onclick="window.print()" style="padding:10px 20px;background:#145466;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px">Print</button>
+  const rt = REPORT_TYPES.find(r=>r.id===_currentReportType)
+  const win = window.open('','_blank','width=960,height=700')
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>RoleCall Report</title>
+    <style>
+      body{font-family:-apple-system,sans-serif;padding:28px 36px;color:#1a1a17;max-width:900px;margin:0 auto}
+      h1{font-size:20px;font-weight:800;color:#0d3d4d;margin-bottom:2px}
+      .sub{font-size:12px;color:#9b9b94;margin-bottom:24px}
+      table{width:100%;border-collapse:collapse;margin-top:8px}
+      th{padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db}
+      td{padding:6px 10px;font-size:12px;border-bottom:1px solid #e0e0db}
+      tr:nth-child(even){background:#f9f9f9}
+      .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:20px}
+      .stat-box{background:#f5f9fa;border-radius:8px;padding:12px;text-align:center}
+      .stat-val{font-size:22px;font-weight:800;color:#145466}
+      .stat-lbl{font-size:10px;color:#888;margin-top:3px;font-weight:600;text-transform:uppercase}
+      .section{margin-bottom:20px}
+      .section-title{font-size:13px;font-weight:700;margin-bottom:6px;color:#1a1a17}
+      svg rect{fill:#1D9E75}
+      @media print{.no-print{display:none}body{padding:16px}}
+    </style></head>
+    <body>
+    <h1>${rt?.icon||'📊'} ${rt?.label||'Report'} — Horizon West Theatre Company</h1>
+    <div class="sub">Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+    ${content}
+    <br/><button class="no-print" onclick="window.print()" style="padding:10px 24px;background:#145466;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;margin-top:8px">🖨 Print</button>
     </body></html>`)
   win.document.close()
 }
@@ -10699,7 +10889,7 @@ function printReport(){
 async function emailReportNow(){
   if(!_currentReportData){ toast('Run a report first then email it','error'); return }
   const emailsRaw = prompt('Send to (email addresses, comma-separated):\nLeave blank to use your configured report recipients.')
-  if(emailsRaw === null) return  // cancelled
+  if(emailsRaw === null) return
   const emails = emailsRaw ? emailsRaw.split(',').map(e=>e.trim()).filter(Boolean) : []
   const res = await api('/api/reports/send-now','POST',{
     report_type: _currentReportType,
@@ -10709,6 +10899,7 @@ async function emailReportNow(){
   if(res.ok) toast('Report emailed to '+(res.sent_to||[]).join(', '),'success')
   else toast(res.error||'Failed to send','error')
 }
+
 
 // ── Scheduled Reports ──
 async function loadScheduledReports(){

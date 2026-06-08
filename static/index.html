@@ -1487,7 +1487,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
               </div>
 
               <div style="display:flex;gap:10px">
-                <button class="btn btn-primary" onclick="saveEmailSettings()">💾 Save Email Settings</button>
+                <button class="btn btn-primary" id="es-save-btn" onclick="saveEmailSettings()">💾 Save Email Settings</button>
                 <button class="btn btn-secondary" onclick="testEmail()">📤 Send Test Email</button>
               </div>
               <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
@@ -6267,8 +6267,10 @@ async function loadEmailSettings(){
   // Load sender identities
   let identities = []
   try { identities = JSON.parse(s.sender_identities||'[]') } catch(e){}
-  if(!identities.length) identities = [{ name:'', email: s.from_email||'info@hwtco.org' }]
+  // If none saved yet, seed from legacy from_email so something is visible
+  if(!identities.length && s.from_email) identities = [{ name:'', email: s.from_email }]
   window._senderIdentities = identities
+  window._senderIdentitiesSaved = JSON.stringify(identities)
   renderSenderIdentities()
 
   let savedIds = []
@@ -6317,11 +6319,13 @@ function renderSenderIdentities(){
 function updateSenderIdentity(i, field, val){
   if(!window._senderIdentities) return
   window._senderIdentities[i][field] = val
+  markSendersDirty()
 }
 
 function addSenderIdentity(){
   if(!window._senderIdentities) window._senderIdentities = []
   window._senderIdentities.push({name:'', email:''})
+  markSendersDirty()
   renderSenderIdentities()
   // Focus the new name field
   const inputs = document.querySelectorAll('#es-sender-list input[type="text"]')
@@ -6331,6 +6335,7 @@ function addSenderIdentity(){
 function removeSenderIdentity(i){
   if(!window._senderIdentities) return
   window._senderIdentities.splice(i,1)
+  markSendersDirty()
   renderSenderIdentities()
 }
 
@@ -6339,7 +6344,19 @@ function moveSenderUp(i){
   const tmp = window._senderIdentities[i-1]
   window._senderIdentities[i-1] = window._senderIdentities[i]
   window._senderIdentities[i] = tmp
+  markSendersDirty()
   renderSenderIdentities()
+}
+
+function markSendersDirty(){
+  const btn = document.getElementById('es-save-btn')
+  if(btn){ btn.style.background='var(--amber-600,#d97706)'; btn.textContent='💾 Save Email Settings (unsaved changes)' }
+}
+
+function clearSendersDirty(){
+  const btn = document.getElementById('es-save-btn')
+  if(btn){ btn.style.background=''; btn.textContent='💾 Save Email Settings' }
+  window._senderIdentitiesSaved = JSON.stringify(window._senderIdentities||[])
 }
 
 async function saveEmailSettings(){
@@ -6367,6 +6384,7 @@ async function saveEmailSettings(){
   const res = await api('/api/email-settings','PUT',data)
   const statusEl = document.getElementById('email-settings-status')
   if(res.ok){
+    clearSendersDirty()
     toast('Email settings saved!','success')
     if(statusEl) statusEl.innerHTML = '<span style="color:var(--green)">&#x2713; Settings saved</span>'
   } else {

@@ -2523,16 +2523,24 @@ def portal_start_message_thread():
     execute(conn, "INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,'family',%s,%s)",
         (str(uuid.uuid4()), tid, sender_name, body))
     conn.commit()
-    # Email notify — admins + anyone with youth permission
+    # Email notify — configured recipients + all admins + anyone with youth permission
     s = get_email_settings()
-    recipients = list(set(get_recipient_emails(s)))
+    recipients = list(get_recipient_emails(s))
     try:
         staff_with_perm = fetchall(conn, """SELECT email FROM users
             WHERE email IS NOT NULL AND email!='' AND active=TRUE
             AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
         for u in staff_with_perm:
-            if u['email'] not in recipients: recipients.append(u['email'])
-    except Exception: pass
+            if u['email'] and u['email'] not in recipients:
+                recipients.append(u['email'])
+    except Exception as e:
+        app.logger.warning(f'portal message staff lookup failed: {e}')
+    # Always fall back to all admin users if list is still empty
+    if not recipients:
+        try:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        except Exception: pass
     # Also notify the program instructor if one is set
     try:
         if program_id:
@@ -2617,13 +2625,19 @@ def portal_reply_thread(tid):
                 send_email([family['email']], f'Re: {thread["subject"]}', html)
         except Exception: pass
     elif is_family:
-        recipients = list(set(get_recipient_emails(s)))
+        recipients = list(get_recipient_emails(s))
         try:
             staff = fetchall(conn, """SELECT email FROM users WHERE email IS NOT NULL AND email!='' AND active=TRUE
                 AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
             for u in staff:
-                if u['email'] not in recipients: recipients.append(u['email'])
-        except Exception: pass
+                if u['email'] and u['email'] not in recipients: recipients.append(u['email'])
+        except Exception as e:
+            app.logger.warning(f'portal reply staff lookup failed: {e}')
+        if not recipients:
+            try:
+                admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+                recipients = [u['email'] for u in admins if u.get('email')]
+            except Exception: pass
         # Also notify the program instructor
         try:
             if thread.get('program_id'):

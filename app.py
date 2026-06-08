@@ -5019,14 +5019,19 @@ def portal_get_participant(yid):
     except Exception as e:
         announcements = []; errors.append(f'announcements: {e}')
 
-    # Files
+    # Files — fetch for all productions and programs the participant is in
     try:
         files = []
+        all_placeholders = []
+        all_vals = []
         if prod_ids:
-            placeholders = ','.join(['%s']*len(prod_ids))
-            files = fetchall(conn, f'''SELECT * FROM portal_files
-                WHERE context_id IN ({placeholders})
-                ORDER BY created_at DESC''', tuple(prod_ids))
+            ph = ','.join(['%s']*len(prod_ids))
+            prod_files = fetchall(conn, f'SELECT * FROM portal_files WHERE production_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prod_ids))
+            files.extend(prod_files)
+        if prog_ids:
+            ph = ','.join(['%s']*len(prog_ids))
+            prog_files = fetchall(conn, f'SELECT * FROM portal_files WHERE program_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prog_ids))
+            files.extend(prog_files)
     except Exception as e:
         files = []; errors.append(f'files: {e}')
 
@@ -5134,14 +5139,15 @@ def portal_youth_request_update(yid):
 
 @app.route('/api/portal/files')
 def portal_get_files():
-    context_id = request.args.get('context_id')
-    context_type = request.args.get('context_type','production')
+    program_id    = request.args.get('program_id') or request.args.get('context_id') if request.args.get('context_type','production')=='program' else None
+    production_id = request.args.get('production_id') or (request.args.get('context_id') if request.args.get('context_type','production')=='production' else None)
     conn = get_db()
-    if context_id:
-        rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s AND context_type=%s ORDER BY created_at DESC',
-            (context_id, context_type))
+    if program_id:
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE program_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (program_id,))
+    elif production_id:
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE production_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (production_id,))
     else:
-        rows = fetchall(conn, 'SELECT * FROM portal_files ORDER BY created_at DESC')
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE description IS NULL OR description!='__folder__' ORDER BY created_at DESC")
     conn.close()
     return jsonify(rows)
 
@@ -6068,17 +6074,21 @@ def get_portal_instructor_content(context_type, context_id):
     err = require_auth()
     if err: return err
     conn = get_db()
+    # Use real column names: program_id / production_id (not context_type/context_id)
     try:
-        files = fetchall(conn, '''SELECT * FROM portal_files
-            WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
-            (context_type, context_id))
-    except Exception:
-        # context_type column may not exist yet on older DBs
         if context_type == 'production':
             files = fetchall(conn, '''SELECT * FROM portal_files
-                WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
+                WHERE production_id=%s AND (description IS NULL OR description != '__folder__')
+                ORDER BY folder, title''', (context_id,))
+        elif context_type == 'program':
+            files = fetchall(conn, '''SELECT * FROM portal_files
+                WHERE program_id=%s AND (description IS NULL OR description != '__folder__')
+                ORDER BY folder, title''', (context_id,))
         else:
             files = []
+    except Exception as e:
+        app.logger.warning(f'portal files fetch failed: {e}')
+        files = []
     try:
         if context_type == 'production':
             announcements = fetchall(conn, '''SELECT * FROM portal_announcements

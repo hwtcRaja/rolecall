@@ -680,6 +680,25 @@ def init_db():
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
         "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
+        """CREATE TABLE IF NOT EXISTS portal_message_threads (
+            id TEXT PRIMARY KEY,
+            family_id TEXT,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE SET NULL,
+            production_id TEXT REFERENCES productions(id) ON DELETE SET NULL,
+            subject TEXT NOT NULL,
+            status TEXT DEFAULT 'open',
+            unread_admin INTEGER DEFAULT 0,
+            unread_family INTEGER DEFAULT 0,
+            family_passphrase TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS portal_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES portal_message_threads(id) ON DELETE CASCADE,
+            sender_side TEXT NOT NULL,
+            sender_name TEXT,
+            body TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT NOW())""",
         "UPDATE board_meeting_attendance SET attendance_type='in_person' WHERE attended=TRUE AND (attendance_type IS NULL OR attendance_type='absent')",
         "UPDATE board_meeting_attendance SET attendance_type='absent' WHERE attended=FALSE AND (attendance_type IS NULL OR attendance_type='in_person')",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
@@ -2485,6 +2504,185 @@ def get_welcome_recipients(pid):
 
     conn.close()
     return jsonify(result)
+
+
+# ─────────────────────────────────────────────────────────────
+#  PORTAL MESSAGING THREADS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/portal/messages/start', methods=['POST'])
+def portal_start_message_thread():
+    d = request.json or {}
+    passphrase   = d.get('passphrase','').strip()
+    subject      = (d.get('subject') or '').strip()
+    body         = (d.get('body') or '').strip()
+    program_id   = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    if not subject or not body:
+        return jsonify({'error': 'Subject and message are required'}), 400
+    conn = get_db()
+    family = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    sender_name = d.get('sender_name','').strip() or (family.get('name') if family else 'Family')
+    family_id   = family['id'] if family else None
+    tid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO portal_message_threads
+        (id, family_id, program_id, production_id, subject, status, unread_admin, unread_family, family_passphrase)
+        VALUES (%s,%s,%s,%s,%s,'open',1,0,%s)""",
+        (tid, family_id, program_id, production_id, subject, passphrase or None))
+    execute(conn, "INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,'family',%s,%s)",
+        (str(uuid.uuid4()), tid, sender_name, body))
+    conn.commit()
+    # Email notify — admins + anyone with youth permission
+    s = get_email_settings()
+    recipients = list(set(get_recipient_emails(s)))
+    try:
+        staff_with_perm = fetchall(conn, """SELECT email FROM users
+            WHERE email IS NOT NULL AND email!='' AND active=TRUE
+            AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
+        for u in staff_with_perm:
+            if u['email'] not in recipients: recipients.append(u['email'])
+    except Exception: pass
+    if recipients:
+        ctx = ''
+        if program_id:
+            p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (program_id,))
+            if p: ctx = f' - {p["name"]}'
+        elif production_id:
+            p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+            if p: ctx = f' - {p["name"]}'
+        html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {sender_name}<br/><strong>Subject:</strong> {subject}</p><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
+        send_email(recipients, f'Portal Message: {subject}', html)
+    conn.close()
+    return jsonify({'ok': True, 'thread_id': tid})
+
+
+@app.route('/api/portal/messages/thread/<tid>')
+def portal_get_thread(tid):
+    passphrase = request.args.get('passphrase','')
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM portal_message_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    is_admin  = session.get('user_id') is not None
+    is_family = passphrase and thread.get('family_passphrase') == passphrase
+    if not is_admin and not is_family:
+        conn.close(); return jsonify({'error': 'Unauthorized'}), 403
+    messages = fetchall(conn, 'SELECT * FROM portal_messages WHERE thread_id=%s ORDER BY sent_at', (tid,))
+    if is_admin:
+        execute(conn, 'UPDATE portal_message_threads SET unread_admin=0 WHERE id=%s', (tid,))
+    if is_family:
+        execute(conn, 'UPDATE portal_message_threads SET unread_family=0 WHERE id=%s', (tid,))
+    conn.commit()
+    prog = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (thread.get('program_id'),)) if thread.get('program_id') else None
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (thread.get('production_id'),)) if thread.get('production_id') else None
+    conn.close()
+    return jsonify({**dict(thread), 'messages': messages,
+        'program_name': prog['name'] if prog else None,
+        'production_name': prod['name'] if prod else None,
+        'from_name': messages[0]['sender_name'] if messages else 'Family'})
+
+
+@app.route('/api/portal/messages/thread/<tid>/reply', methods=['POST'])
+def portal_reply_thread(tid):
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body: return jsonify({'error': 'Message body required'}), 400
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM portal_message_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    is_admin  = session.get('user_id') is not None
+    passphrase = d.get('passphrase','')
+    is_family  = passphrase and thread.get('family_passphrase') == passphrase
+    if not is_admin and not is_family:
+        conn.close(); return jsonify({'error': 'Unauthorized'}), 403
+    side = 'admin' if is_admin else 'family'
+    sender_name = session.get('user_name','Staff') if is_admin else (d.get('sender_name') or 'Family')
+    execute(conn, 'INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,%s,%s,%s)',
+        (str(uuid.uuid4()), tid, side, sender_name, body))
+    if is_admin:
+        execute(conn, 'UPDATE portal_message_threads SET unread_family=unread_family+1, updated_at=NOW() WHERE id=%s', (tid,))
+    else:
+        execute(conn, 'UPDATE portal_message_threads SET unread_admin=unread_admin+1, updated_at=NOW() WHERE id=%s', (tid,))
+    conn.commit()
+    s = get_email_settings()
+    if is_admin and thread.get('family_passphrase'):
+        try:
+            family = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
+            if family and family.get('email'):
+                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
+                send_email([family['email']], f'Re: {thread["subject"]}', html)
+        except Exception: pass
+    elif is_family:
+        recipients = list(set(get_recipient_emails(s)))
+        try:
+            staff = fetchall(conn, """SELECT email FROM users WHERE email IS NOT NULL AND email!='' AND active=TRUE
+                AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
+            for u in staff:
+                if u['email'] not in recipients: recipients.append(u['email'])
+        except Exception: pass
+        if recipients:
+            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'
+            send_email(recipients, f'Portal Reply: {thread["subject"]}', html)
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/portal/messages/threads')
+def portal_list_threads():
+    err = require_auth()
+    if err: return err
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
+    conn = get_db()
+    where, vals = [], []
+    if program_id:    where.append('t.program_id=%s');    vals.append(program_id)
+    if production_id: where.append('t.production_id=%s'); vals.append(production_id)
+    clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+    threads = fetchall(conn, f"""
+        SELECT t.*,
+            (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
+            (SELECT body FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_body,
+            (SELECT sent_at FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_at,
+            (SELECT sender_name FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at ASC LIMIT 1) as from_name,
+            yp.name as program_name, p.name as production_name
+        FROM portal_message_threads t
+        LEFT JOIN youth_programs yp ON yp.id=t.program_id
+        LEFT JOIN productions p ON p.id=t.production_id
+        {clause}
+        ORDER BY t.updated_at DESC""", vals)
+    conn.close()
+    return jsonify(threads)
+
+
+@app.route('/api/portal/messages/thread/<tid>/close', methods=['POST'])
+def portal_close_thread(tid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE portal_message_threads SET status='closed' WHERE id=%s", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/portal/messages/family')
+def portal_family_threads():
+    passphrase = request.args.get('passphrase','').strip()
+    if not passphrase: return jsonify([])
+    conn = get_db()
+    threads = fetchall(conn, """
+        SELECT t.*,
+            (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
+            (SELECT body FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_body,
+            (SELECT sent_at FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_at,
+            yp.name as program_name, p.name as production_name
+        FROM portal_message_threads t
+        LEFT JOIN youth_programs yp ON yp.id=t.program_id
+        LEFT JOIN productions p ON p.id=t.production_id
+        WHERE t.family_passphrase=%s
+        ORDER BY t.updated_at DESC""", (passphrase,))
+    conn.close()
+    return jsonify(threads)
 
 
 # ─────────────────────────────────────────────

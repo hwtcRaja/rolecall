@@ -5267,7 +5267,7 @@ function renderBoardMeetings(){
   if(!el) return
   if(!_boardMeetings.length){ el.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>No meetings recorded yet</p></div>'; return }
   el.innerHTML=_boardMeetings.map(function(m){
-    var att=(m.attendance||[]).filter(function(a){return a.attended}).length
+    var att=(m.attendance||[]).filter(function(a){return a.attendance_type==='in_person'||a.attendance_type==='virtual'||(!a.attendance_type&&a.attended)}).length
     var tot=(m.attendance||[]).length
     return '<div class="card" style="padding:20px;margin-bottom:16px">'
       +'<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
@@ -5276,14 +5276,16 @@ function renderBoardMeetings(){
       +'</div>'
       +'<div style="display:flex;gap:8px;align-items:center">'
       +'<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+att+'/'+tot+' attended</span>'
-      +'<button data-id="+m.id+" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
-      +'<button data-id="+m.id+" onclick="deleteBoardMeeting(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
+      +'<button data-id="'+m.id+'" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm">✏️ Attendance</button>'
+      +'<button data-id="'+m.id+'" onclick="deleteBoardMeeting(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
       +'</div></div>'
       +'<div style="display:flex;flex-wrap:wrap;gap:8px">'
       +(m.attendance||[]).map(function(a){
-        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;'
-          +(a.attended?'background:var(--green-50);color:var(--green-600)':'background:var(--bg);color:var(--text-muted)')+';">'
-          +(a.attended?'✅':'○')+' '+escHtml(a.member_name||'')+'</div>'
+        var atype=a.attendance_type||(a.attended?'in_person':'absent')
+        var styles={in_person:'background:var(--green-50);color:var(--green-600)',virtual:'background:#ede9fe;color:#6366f1',absent:'background:var(--bg);color:var(--text-muted)'}
+        var icons={in_person:'✅',virtual:'💻',absent:'○'}
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;'+styles[atype]+'">'
+          +icons[atype]+' '+escHtml(a.member_name||'')+'</div>'
       }).join('')
       +'</div></div>'
   }).join('')
@@ -5563,29 +5565,59 @@ function openAttendanceEditor(meetingId){
   var existing=document.getElementById('attendance-editor-overlay'); if(existing) existing.remove()
   var overlay=document.createElement('div'); overlay.id='attendance-editor-overlay'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var attended={}; (meeting.attendance||[]).forEach(function(a){attended[a.member_id]=a.attended})
-  var rows=_boardMembers.filter(function(m){return m.status==='active'}).map(function(m){
-    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px">'
-      +'<input type="checkbox" class="att-cb" data-mid="'+m.id+'" '+(attended[m.id]!==false?'checked':'')+' style="accent-color:var(--teal);width:16px;height:16px"/>'
-      +avatarHTML(m.name,28)+'<span style="font-weight:500">'+escHtml(m.name)+'</span>'
-      +(m.role?'<span style="color:var(--text-muted);font-size:11px;margin-left:auto">'+escHtml(m.role)+'</span>':'')+'</label>'
+  var attMap={}; (meeting.attendance||[]).forEach(function(a){ attMap[a.member_id]=a.attendance_type||(a.attended?'in_person':'absent') })
+  var activeMembers=_boardMembers.filter(function(m){return m.status==='active'})
+  var rows=activeMembers.map(function(m){
+    var cur=attMap[m.id]||'absent'
+    var optDefs=[{t:'in_person',l:'In Person',c:'background:var(--teal);color:#fff'},{t:'virtual',l:'Virtual',c:'background:#6366f1;color:#fff'},{t:'absent',l:'Absent',c:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)'}]
+    return '<div class="att-row" data-mid="'+m.id+'" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +avatarHTML(m.name,30)
+      +'<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:13px">'+escHtml(m.name)+'</div>'
+      +(m.role?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(m.role)+'</div>':'')+'</div>'
+      +'<div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0">'
+      +optDefs.map(function(o){
+          var active=cur===o.t
+          return '<button class="att-toggle" data-mid="'+m.id+'" data-type="'+o.t+'" '
+            +'style="border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;'
+            +(active?o.c:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)')+'" '
+            +'onclick="setAttType(this)">'+ o.l +'</button>'
+        }).join('')
+      +'</div></div>'
   }).join('')
-  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
     +'<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
-    +'<div style="font-size:16px;font-weight:700">✅ Attendance — '+formatDate(meeting.meeting_date)+'</div>'
-    +'<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button></div>'
-    +'<div style="padding:16px 24px;overflow-y:auto;flex:1">'+rows+'</div>'
-    +'<div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
+    +'<div><div style="font-size:16px;font-weight:700">Attendance â '+formatDate(meeting.meeting_date)+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+activeMembers.length+' active members</div></div>'
+    +'<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">Ã</button></div>'
+    +'<div style="padding:4px 24px 8px;overflow-y:auto;flex:1">'+rows+'</div>'
+    +'<div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
     +'<button class="btn btn-secondary" style="flex:1" onclick="closeAttendanceOverlay()">Cancel</button>'
     +'<button class="btn btn-primary" style="flex:2" id="att-save-btn">Save Attendance</button></div></div>'
   overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
   document.body.appendChild(overlay)
-  document.querySelector('#att-save-btn').onclick = function(){ saveAttendance(meetingId) }
+  document.getElementById('att-save-btn').onclick=function(){ saveAttendance(meetingId) }
+}
+
+function setAttType(el){
+  var memberId=el.dataset.mid, type=el.dataset.type
+  var colors={in_person:'background:var(--teal);color:#fff',virtual:'background:#6366f1;color:#fff',absent:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)'}
+  document.querySelectorAll('.att-toggle[data-mid="'+memberId+'"]').forEach(function(btn){
+    var isActive=btn.dataset.type===type
+    btn.style.cssText='border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;'+(isActive?colors[btn.dataset.type]:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)')
+  })
 }
 
 async function saveAttendance(meetingId){
-  var att=[]
-  document.querySelectorAll('.att-cb').forEach(function(cb){att.push({member_id:cb.dataset.mid,attended:cb.checked})})
+  var att=[]; var seen={}
+  document.querySelectorAll('.att-toggle').forEach(function(btn){
+    if(seen[btn.dataset.mid]) return
+    seen[btn.dataset.mid]=true
+    // find active button for this member by checking inline style color
+    var activeBtns=document.querySelectorAll('.att-toggle[data-mid="'+btn.dataset.mid+'"]')  
+    var chosen='absent'
+    activeBtns.forEach(function(b){ if(b.style.color==='#fff' || b.style.color==='rgb(255,255,255)') chosen=b.dataset.type })
+    att.push({member_id:btn.dataset.mid, attendance_type:chosen})
+  })
   var res=await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:att})
   if(res&&res.error){toast(res.error,'error');return}
   document.getElementById('attendance-editor-overlay')?.remove()

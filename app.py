@@ -671,6 +671,9 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
+        "UPDATE board_meeting_attendance SET attendance_type='in_person' WHERE attended=TRUE AND (attendance_type IS NULL OR attendance_type='absent')",
+        "UPDATE board_meeting_attendance SET attendance_type='absent' WHERE attended=FALSE AND (attendance_type IS NULL OR attendance_type='in_person')",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
@@ -1702,7 +1705,7 @@ def get_volunteer(vol_id):
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
     # Board membership
     vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
-        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attended=TRUE) as meetings_attended,
+        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id) as meetings_total
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
@@ -8223,7 +8226,7 @@ def get_board_members():
         ORDER BY bm.name''')
     for m in members:
         total    = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
-        attended = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attended=TRUE', (m['id'],))
+        attended = fetchone(conn, "SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attendance_type IN ('in_person','virtual')", (m['id'],))
         m['meetings_total']    = total['c'] if total else 0
         m['meetings_attended'] = attended['c'] if attended else 0
         m['nominations'] = fetchall(conn,
@@ -8444,13 +8447,15 @@ def update_board_attendance(mid):
     attendance = d.get('attendance', [])
     conn = get_db()
     for a in attendance:
+        atype = a.get('attendance_type', 'absent')
+        attended = atype in ('in_person', 'virtual')
         existing = fetchone(conn, 'SELECT id FROM board_meeting_attendance WHERE meeting_id=%s AND member_id=%s', (mid, a['member_id']))
         if existing:
-            execute(conn, 'UPDATE board_meeting_attendance SET attended=%s WHERE meeting_id=%s AND member_id=%s',
-                (a.get('attended', False), mid, a['member_id']))
+            execute(conn, 'UPDATE board_meeting_attendance SET attended=%s, attendance_type=%s WHERE meeting_id=%s AND member_id=%s',
+                (attended, atype, mid, a['member_id']))
         else:
-            execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended) VALUES (%s,%s,%s,%s)',
-                (str(uuid.uuid4()), mid, a['member_id'], a.get('attended', False)))
+            execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended,attendance_type) VALUES (%s,%s,%s,%s,%s)',
+                (str(uuid.uuid4()), mid, a['member_id'], attended, atype))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

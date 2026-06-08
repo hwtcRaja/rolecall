@@ -175,7 +175,14 @@ def seed_system_email_templates(conn):
     <p>Please review immediately.</p>
   </div>
 </div>'''),
+        ('welcome_email',
+         'Welcome to {{program_name}} — HWTC RoleCall',
+         'welcome_email',
+         'Sent to families when they are enrolled in a program. Includes their portal passphrase. Supports {{program_name}}, {{passphrase}}, {{family_greeting}} merge tags.',
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}} — HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall — your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong> — our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company — all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important — your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started — three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile — changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families — create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details — dates, materials, and sign-up links — will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements — inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information — Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available — see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+
     ]
+
 
     for key, subject, _, description, body in templates:
         existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
@@ -662,6 +669,7 @@ def init_db():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_closed BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_new_rsvp BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_role_filled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS sender_identities TEXT DEFAULT '[]'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
         """CREATE TABLE IF NOT EXISTS production_general_content (
@@ -1211,14 +1219,30 @@ def get_recipient_emails(settings=None):
         pass
     return emails
 
-def send_email(to_emails, subject, html_body, from_email=None):
-    """Send via Resend API."""
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
+    """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured — email not sent')
         return False, 'Resend API key not configured'
-    from_addr = from_email or settings.get('from_email','info@hwtco.org')
+    # Build from address
+    if from_email:
+        base_email = from_email
+        base_name  = from_name or ''
+    else:
+        # Use first sender identity as default, fall back to from_email setting
+        try:
+            identities = json.loads(settings.get('sender_identities') or '[]')
+        except Exception:
+            identities = []
+        if identities:
+            base_email = identities[0].get('email', settings.get('from_email','info@hwtco.org'))
+            base_name  = identities[0].get('name', '')
+        else:
+            base_email = settings.get('from_email','info@hwtco.org')
+            base_name  = ''
+    from_addr = f'{base_name} <{base_email}>' if base_name else base_email
     if isinstance(to_emails, str):
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
@@ -2215,7 +2239,8 @@ def push_program_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body)
+        fi = (request.json or {}).get('from_identity') or {}
+        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         app.logger.error(f'push_program_announcement email error: {e}')
@@ -2301,6 +2326,166 @@ def send_program_email(pid):
     except Exception as e:
         app.logger.error(f'send_program_email error: {e}')
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/youth-programs/<pid>/send-welcome', methods=['POST'])
+def send_program_welcome(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    # mode: 'all' | 'family' | 'participant'
+    mode       = d.get('mode', 'all')
+    family_id  = d.get('family_id')
+    youth_id   = d.get('youth_id')
+    subject_override = d.get('subject', '').strip()
+
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    prog_name = prog.get('name', 'Program')
+
+    # Load template
+    tmpl = get_system_template(conn, 'welcome_email')
+    if not tmpl:
+        conn.close()
+        return jsonify({'error': 'Welcome email template not found — check Email Templates in Settings'}), 404
+    body_tmpl    = tmpl['body']
+    subject_tmpl = tmpl['subject']
+
+    # Build recipient list: list of dicts {email, passphrase, family_greeting}
+    recipients = []
+
+    if mode == 'participant' and youth_id:
+        y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (youth_id,))
+        if y:
+            guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (youth_id,))
+            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            greeting = f"{y['first_name']} {y['last_name']}"
+            for g in guardians:
+                if g['email']:
+                    recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting, 'name': g.get('name','')})
+            # Also check family passphrase
+            if y.get('family_id'):
+                fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+                if fam and fam.get('passphrase'):
+                    for r in recipients:
+                        r['passphrase'] = fam['passphrase']
+
+    elif mode == 'family' and family_id:
+        fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,))
+        if fam:
+            members = fetchall(conn, "SELECT * FROM youth_participants WHERE family_id=%s AND status='active'", (family_id,))
+            pp = fam.get('passphrase', '')
+            greeting = fam.get('name', 'HWTC Family')
+            # Family email first
+            if fam.get('email'):
+                recipients.append({'email': fam['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+            # Guardian emails
+            for m in members:
+                guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (m['id'],))
+                for g in guardians:
+                    if g['email']:
+                        recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+
+    else:  # all enrolled in program
+        enrolled = fetchall(conn, """
+            SELECT y.* FROM youth_participants y
+            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+            WHERE ype.program_id=%s AND y.status='active'""", (pid,))
+        for y in enrolled:
+            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            greeting = f"{y['first_name']} {y['last_name']}"
+            # Prefer family passphrase if set
+            if y.get('family_id'):
+                fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+                if fam and fam.get('passphrase'):
+                    pp = fam['passphrase']
+                    greeting = fam.get('name', greeting)
+            guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (y['id'],))
+            for g in guardians:
+                if g['email']:
+                    recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+
+    conn.close()
+
+    # Deduplicate by email (keep first passphrase seen per address)
+    seen = {}
+    deduped = []
+    for r in recipients:
+        e = r['email'].lower()
+        if e not in seen:
+            seen[e] = True
+            deduped.append(r)
+
+    if not deduped:
+        return jsonify({'error': 'No email addresses found for the selected recipients'}), 400
+
+    subject_base = subject_override or subject_tmpl.replace('{{program_name}}', prog_name)
+
+    sent = 0
+    errors = []
+    for r in deduped:
+        html_body = (body_tmpl
+            .replace('{{program_name}}', prog_name)
+            .replace('{{passphrase}}', r.get('passphrase', ''))
+            .replace('{{family_greeting}}', r.get('family_greeting', 'HWTC Family')))
+        subject = subject_base.replace('{{program_name}}', prog_name)
+        fi = d.get('from_identity') or {}
+        ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
+        if ok:
+            sent += 1
+        else:
+            errors.append({'email': r['email'], 'error': err_msg})
+
+    return jsonify({
+        'ok': True,
+        'sent': sent,
+        'total': len(deduped),
+        'errors': errors,
+        'recipients': [r['email'] for r in deduped],
+    })
+
+
+@app.route('/api/youth-programs/<pid>/welcome-recipients', methods=['GET'])
+def get_welcome_recipients(pid):
+    """Preview who would receive the welcome email for a program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    enrolled = fetchall(conn, """
+        SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+               y.status
+        FROM youth_participants y
+        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+        WHERE ype.program_id=%s AND y.status='active'
+        ORDER BY y.last_name, y.first_name""", (pid,))
+
+    result = []
+    for y in enrolled:
+        pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+        family_name = None
+        family_id   = y.get('family_id')
+        if family_id:
+            fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,))
+            if fam:
+                if fam.get('passphrase'):
+                    pp = fam['passphrase']
+                family_name = fam.get('name')
+        guardians = fetchall(conn, "SELECT name, email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (y['id'],))
+        result.append({
+            'youth_id':     y['id'],
+            'name':         f"{y['first_name']} {y['last_name']}",
+            'family_id':    family_id,
+            'family_name':  family_name,
+            'passphrase':   pp,
+            'guardians':    guardians,
+        })
+
+    conn.close()
+    return jsonify(result)
+
 
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
@@ -4272,7 +4457,7 @@ def save_email_settings_route():
     d = request.json or {}
     conn = get_db()
     # Build dynamic UPDATE for any fields passed
-    allowed = ['resend_api_key','from_email','report_recipients','report_recipient_user_ids',
+    allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
@@ -4436,7 +4621,8 @@ def send_reset_link(uid):
             <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
         </div>
     </div>'''
-    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body)
+    fi = (request.json or {}).get('from_identity') or {}
+    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Failed to send email. Check that your Resend API key is configured in Settings → Email.'}), 500
@@ -6185,7 +6371,8 @@ def send_report_now():
     if not emails:
         return jsonify({'error': 'No recipients configured'}), 400
 
-    ok, msg = send_email(emails, subject, html)
+    fi = d.get('from_identity') or {}
+    ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True, 'sent_to': emails})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -7300,7 +7487,8 @@ def email_send_report(rid):
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall — Horizon West Theatre Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")} — {close_log.get("event_date","")}'
-    ok, msg = send_email(recipients, subject, body)
+    fi = (request.json or {}).get('from_identity') or {}
+    ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Send failed'}), 500
 
@@ -8166,7 +8354,8 @@ def send_rsvp_invite(eid):
         </div>'''
 
         try:
-            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body)
+            fi = d.get('from_identity') or {}
+            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             # Small delay between emails to avoid rate limiting
@@ -8578,7 +8767,8 @@ def create_board_meeting():
                     <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theatre Company.</p>
                   </div>
                 </div>'''
-                send_email([m['email']], f'Board Meeting — {friendly_date}', body)
+                fi = d.get('from_identity') or {}
+                send_email([m['email']], f'Board Meeting — {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
     except Exception as e:
         app.logger.warning(f'Board meeting email notification failed: {e}')
     conn.close()
@@ -8674,7 +8864,8 @@ def send_board_availability_request():
           </div>
         </div>'''
         try:
-            send_email([m['email']], subj, body)
+            fi = d.get('from_identity') or {}
+            send_email([m['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
@@ -8901,7 +9092,8 @@ def send_single_giving_reminder(vol_id):
     else:
         body = base_body + hours_section
     conn3 = get_db()
-    ok, msg = send_email([v['email']], subj, body)
+    fi = d.get('from_identity') or {}
+    ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
     if ok:
         log_volunteer_comm(conn3, vol_id, subj,
             'disney_reminder' if is_disney else 'universal_reminder',
@@ -9070,7 +9262,8 @@ def send_employer_program_reminder():
         else:
             body = base_body
         try:
-            send_email([v['email']], subj, body)
+            fi = d.get('from_identity') or {}
+            send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             conn3 = get_db()
             execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)

@@ -445,6 +445,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates">✉️</span>Email Templates</div>
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
+        <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page">✉️</span>Email Templates</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
         <div class="nav-item admin-only" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
@@ -797,6 +798,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </section>
 
       <!-- EMAIL -->
+      <section class="page" id="page-email-templates-page">
+        <div class="page-header">
+          <div>
+            <div class="page-title">✉️ Email Templates</div>
+            <div class="page-subtitle" id="email-tmpl-subtitle">System and custom templates used across RoleCall</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="openNewEmailTemplateForm()">+ New Template</button>
+          </div>
+        </div>
+        <div class="page-body" id="email-templates-full-body"></div>
+      </section>
+
       <section class="page" id="page-email">
         <div class="page-header">
           <div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send groups via Gmail</div></div>
@@ -2826,6 +2840,7 @@ const NAV_PERM_MAP = {
   'portal-admin':     'portal_admin',
   'youth-signin':     'kiosk',
   'carpools':         'youth',
+  'email-templates-page': 'email-templates-page',
   'event-logs':       'reports',
   'reports':          'reports',
   'notifications':    'settings',
@@ -2925,6 +2940,7 @@ function navTo(page,el){
   if(page==='carpools') loadCarpoolsPage()
   if(page==='production-signin') initProdSignIn()
   if(page==='settings') loadSettings()
+  if(page==='email-templates-page') loadEmailTemplatesPage()
   if(page==='portal-admin'){ renderPortalAdmin() }
   if(page==='notifications') loadNotifications()
   if(page==='donors') loadDonorsPage()
@@ -4509,20 +4525,6 @@ function openSaveTemplateModal(){
   document.getElementById('et-subject').value=document.getElementById('email-subject')?.value||''
   document.getElementById('et-body').value=document.getElementById('email-body')?.value||''
   openModal('modal-email-template')
-}
-
-async function saveEmailTemplate(){
-  const name=document.getElementById('et-name').value.trim()
-  const subject=document.getElementById('et-subject').value.trim()
-  const body=document.getElementById('et-body').value.trim()
-  if(!name||!subject||!body){toast('All fields required','error');return}
-  const res=await api('/api/email-templates','POST',{name,subject,body})
-  if(res.error){toast(res.error,'error');return}
-  emailTemplates.push(res)
-  populateEmailTemplates()
-  renderEmailTemplatesSettings()
-  closeModal('modal-email-template')
-  toast('Template saved!','success')
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6790,48 +6792,129 @@ async function deleteEvent(eid){
   toast('Deleted')
 }
 
-// Email templates settings
-function renderEmailTemplatesSettings(){
-  const el=document.getElementById('email-templates-settings-list')
+
+// ═══════════════════════════════════════════════════════════════
+//  UNIFIED EMAIL TEMPLATES PAGE
+// ═══════════════════════════════════════════════════════════════
+
+async function loadEmailTemplatesPage(){
+  const templates = await api('/api/email-templates')
+  if(Array.isArray(templates)) emailTemplates = templates
+  renderEmailTemplatesPage()
+}
+
+function renderEmailTemplatesPage(){
+  const el = document.getElementById('email-templates-full-body')
   if(!el) return
-  const systemTemplates = emailTemplates.filter(t=>t.is_system)
-  const customTemplates = emailTemplates.filter(t=>!t.is_system)
+
+  const system  = emailTemplates.filter(t=>t.is_system)
+  const custom  = emailTemplates.filter(t=>!t.is_system)
+
+  const sub = document.getElementById('email-tmpl-subtitle')
+  if(sub) sub.textContent = `${system.length} system template${system.length!==1?'s':''} · ${custom.length} custom template${custom.length!==1?'s':''}`
 
   let html = ''
 
-  if(systemTemplates.length){
-    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">System Emails</div>'
-    html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">These are sent automatically by RoleCall. Edit to customize the content.</div>'
-    html += systemTemplates.map(t=>{
-      const desc = t.description||''
-      return `<div class="setting-item" style="align-items:flex-start;padding:12px 0;flex-direction:column;gap:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;gap:8px">
-          <div style="flex:1">
-            <div class="setting-item-label">${escHtml(t.name.replace(/_/g,' '))}</div>
-            <div class="setting-item-sub" style="margin-top:2px">${escHtml(desc)}</div>
-            <div style="font-size:11px;color:var(--teal-600);margin-top:3px;font-family:monospace">Subject: ${escHtml(t.subject)}</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" style="flex-shrink:0" onclick="openEmailTemplateEditor('${t.id}')">✏️ Edit</button>
-        </div>
-      </div>`
-    }).join('')
+  // ── System templates ──
+  if(system.length){
+    html += `<div style="margin-bottom:28px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:4px">System Emails</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Sent automatically by RoleCall. Edit to customize content — merge tags like <code>{{name}}</code> are replaced at send time.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">`
+    html += system.map(t => emailTemplateCard(t)).join('')
+    html += `</div></div>`
   }
 
-  if(customTemplates.length){
-    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:16px 0 8px">Custom Templates</div>'
-    html += customTemplates.map(t=>`
-      <div class="setting-item">
-        <div><div class="setting-item-label">${escHtml(t.name)}</div><div class="setting-item-sub">${escHtml(t.subject)}</div></div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEmailTemplateEditor('${t.id}')">✏️</button>
-          <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteEmailTemplateById('${t.id}')">✕</button>
-        </div>
-      </div>`).join('')
-  }
+  // ── Custom templates ──
+  html += `<div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div>
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:2px">Custom Templates</div>
+        <div style="font-size:13px;color:var(--text-muted)">Reusable drafts for composing volunteer emails.</div>
+      </div>
+    </div>`
 
-  if(!html) html='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No templates yet</div>'
-  el.innerHTML=html
+  if(!custom.length){
+    html += `<div style="text-align:center;padding:36px 20px;border:2px dashed var(--border);border-radius:var(--radius-lg);color:var(--text-muted)">
+      <div style="font-size:28px;margin-bottom:8px">✉️</div>
+      <div style="font-weight:600;margin-bottom:4px">No custom templates yet</div>
+      <div style="font-size:13px;margin-bottom:14px">Save a reusable message draft for composing volunteer emails.</div>
+      <button class="btn btn-primary btn-sm" onclick="openNewEmailTemplateForm()">+ New Template</button>
+    </div>`
+  } else {
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">`
+    html += custom.map(t => emailTemplateCard(t)).join('')
+    html += `</div>`
+  }
+  html += `</div>`
+
+  el.innerHTML = html
 }
+
+function emailTemplateCard(t){
+  const preview = (t.body||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim().substring(0,110)
+  const isSystem = !!t.is_system
+  return `<div class="card" style="padding:18px 20px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:4px">
+          <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(t.name||t.template_key||'Template')}</div>
+          ${isSystem?'<span style="font-size:10px;font-weight:700;background:var(--teal-50);color:var(--teal-dark);padding:2px 7px;border-radius:10px;white-space:nowrap">SYSTEM</span>':''}
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><strong>Subject:</strong> ${escHtml(t.subject||'')}</div>
+        ${t.description?`<div style="font-size:11px;color:var(--text-hint);margin-top:3px">${escHtml(t.description)}</div>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-secondary btn-sm" onclick="openEmailTemplateEditor('${t.id}')">✏️ Edit</button>
+        ${!isSystem?`<button onclick="deleteEmailTemplateById('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text-muted);padding:2px 4px" title="Delete">×</button>`:''}
+      </div>
+    </div>
+    ${preview?`<div style="font-size:12px;color:var(--text-hint);font-style:italic;background:var(--bg);padding:8px 10px;border-radius:7px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${escHtml(preview)}…</div>`:''}
+  </div>`
+}
+
+function openNewEmailTemplateForm(){
+  // Reuse the existing modal
+  document.getElementById('et-name').value = ''
+  document.getElementById('et-subject').value = ''
+  document.getElementById('et-body').value = ''
+  const m = document.getElementById('modal-email-template')
+  if(m){ m.classList.add('open'); m.style.display='' }
+}
+
+// Override saveEmailTemplate to refresh the full page too
+const _origSaveEmailTemplate = typeof saveEmailTemplate === 'function' ? saveEmailTemplate : null
+async function saveEmailTemplate(){
+  const name=document.getElementById('et-name').value.trim()
+  const subject=document.getElementById('et-subject').value.trim()
+  const body=document.getElementById('et-body').value.trim()
+  if(!name||!subject||!body){toast('All fields required','error');return}
+  const res=await api('/api/email-templates','POST',{name,subject,body})
+  if(res.error){toast(res.error,'error');return}
+  emailTemplates.push(res)
+  populateEmailTemplates()
+  renderEmailTemplatesSettings()
+  renderEmailTemplatesPage()
+  closeModal('modal-email-template')
+  toast('Template saved!','success')
+}
+
+// Override deleteEmailTemplateById to refresh full page too
+async function deleteEmailTemplateById(tid){
+  if(!confirm('Delete this template?')) return
+  await api(`/api/email-templates/${tid}`,'DELETE')
+  emailTemplates=emailTemplates.filter(t=>t.id!==tid)
+  renderEmailTemplatesSettings()
+  renderEmailTemplatesPage()
+  toast('Deleted')
+}
+
+// Patch openEmailTemplateEditor save to also refresh full page
+function renderEmailTemplatesSettings(){
+  // No-op — settings no longer has an email templates section
+  // Kept for backward compatibility with any call sites
+}
+
 
 function openEmailTemplateEditor(tid){
   const t = emailTemplates.find(x=>x.id===tid)
@@ -6921,6 +7004,7 @@ function openEmailTemplateEditor(tid){
     if(idx>=0){ emailTemplates[idx].subject=subject; emailTemplates[idx].body=bodyVal; if(!t.is_system) emailTemplates[idx].name=nameVal }
     overlay.remove()
     renderEmailTemplatesSettings()
+    renderEmailTemplatesPage()
     toast('Template saved!','success')
   }
   footer.appendChild(cancelB); footer.appendChild(testB); footer.appendChild(saveB); box.appendChild(footer)
@@ -6970,14 +7054,6 @@ async function deleteYouthProgram(pid){
   renderYouthProgramsSettings()
   populateProgramsDropdown()
   toast('Program deleted')
-}
-
-async function deleteEmailTemplateById(tid){
-  await api(`/api/email-templates/${tid}`,'DELETE')
-  emailTemplates=emailTemplates.filter(t=>t.id!==tid)
-  populateEmailTemplates()
-  renderEmailTemplatesSettings()
-  toast('Template deleted')
 }
 
 // Add user
@@ -13892,14 +13968,9 @@ async function renderWelcomePreviewFrame(pid){
 }
 
 function navToEmailTemplates(){
-  // Navigate to settings > email templates
   document.getElementById('modal-program-email')?.remove()
-  navTo('settings', document.querySelector('.nav-item[onclick*="settings"]'))
-  setTimeout(()=>{
-    const etab = document.querySelector('[onclick*="switchSettingsTab(\'email-templates\')"]') ||
-                 document.querySelector('[onclick*="email-templates"]')
-    if(etab) etab.click()
-  }, 300)
+  const navEl = document.querySelector('.nav-item[onclick*="email-templates-page"]')
+  navTo('email-templates-page', navEl)
 }
 
 async function sendWelcomeEmail(pid){

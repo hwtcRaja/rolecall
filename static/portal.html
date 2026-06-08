@@ -704,6 +704,7 @@ async function selectContext(type, id, name, color){
     }
     if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
     if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
+    tabDefs.push({id:'messages', label:'💬 Messages'})
     // Profile tab removed — shown at top of page instead
 
     document.getElementById('detail-tabs').innerHTML = ''
@@ -785,6 +786,7 @@ async function selectContext(type, id, name, color){
       +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
       // profile tab removed
+      +'<div class="tab-content" id="dtab-messages" style="padding:20px">'        +'<div id="portal-inline-messages" style="min-height:120px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'      +'</div>'
 
     document.getElementById('detail-tab-contents').innerHTML = tabHTML
     panel.scrollIntoView({behavior:'smooth', block:'nearest'})
@@ -1127,6 +1129,10 @@ function switchDetailTab(id, btn){
     c.classList.remove('active')
     c.style.display = 'none'
   })
+  if(id === 'messages'){
+    const passphrase = portalSession?.passphrase || ''
+    loadInlineMessages(passphrase, activeContextType, activeContextId)
+  }
   const target = document.getElementById('dtab-'+id)
   if(target){ target.classList.add('active'); target.style.display = 'block' }
 }
@@ -1221,10 +1227,7 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 
   let html = ''
 
-  // ── Contact Team button ──
-  html += '<div style="margin-bottom:20px">'
-  html += '<button onclick="openContactModal()" style="background:#334155;border:none;border-radius:var(--radius);padding:10px 16px;font-family:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;width:100%">💬 Messages & Contact</button>'
-  html += '</div>'
+
 
   // ── Role banner (if cast) ──
   if(castRole){
@@ -1297,6 +1300,160 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 }
 
 // ── Contact Production Team modal ──
+function loadInlineMessages(passphrase, contextType, contextId){
+  const el = document.getElementById('portal-inline-messages')
+  if(!el) return
+  const senderName = (() => {
+    const g = activeChildData?.guardians?.[0]
+    if(g?.name) return g.name
+    const p = portalSession?.participant
+    return p ? (p.first_name+' '+(p.last_name||'')).trim() : 'Family'
+  })()
+  const prodId = contextType === 'production' ? contextId : null
+  const progId = contextType === 'program'    ? contextId : null
+  const ctxLabel = contextType === 'program' ? 'Class / Program Team' : 'Production Team'
+
+  // Show thread list
+  showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel)
+}
+
+async function showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel){
+  const el = document.getElementById('portal-inline-messages')
+  if(!el) return
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+  const r = await fetch(`/api/portal/messages/family?passphrase=${encodeURIComponent(passphrase)}`)
+  const threads = await r.json().catch(()=>[])
+  const encPass = encodeURIComponent(passphrase)
+
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700">Messages with ${escHtml(ctxLabel)}</div>
+    <button onclick="showInlineNewMessage('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+      style="background:#334155;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">+ New Message</button>
+  </div>`
+
+  if(!threads.length){
+    html += `<div style="text-align:center;padding:28px 16px;background:var(--bg);border-radius:var(--radius)">
+      <div style="font-size:28px;margin-bottom:8px">💬</div>
+      <div style="font-size:13px;color:var(--text-muted)">No messages yet.<br/>Start a conversation with the team!</div>
+    </div>`
+  } else {
+    html += threads.map(t=>`
+      <div onclick="showInlineThread('${t.id}','${encPass}','${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+        style="padding:12px 14px;border:1.5px solid ${t.unread_family>0?'#334155':'var(--border)'};border-radius:var(--radius);margin-bottom:8px;cursor:pointer;background:${t.unread_family>0?'var(--teal-50)':'var(--surface)'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
+          <div style="font-size:13px;font-weight:${t.unread_family>0?'800':'600'}">${escHtml(t.subject)}</div>
+          ${t.unread_family>0?`<span style="background:#334155;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;flex-shrink:0">${t.unread_family} new</span>`:''}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted)">${t.message_count} message${t.message_count!==1?'s':''} · ${t.status==='closed'?'Closed · ':''}${t.last_at?portalTimeAgo(t.last_at):''}</div>
+        ${t.last_body?`<div style="font-size:12px;color:var(--text-hint);margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml((t.last_body||'').substring(0,80))}</div>`:''}
+      </div>`).join('')
+  }
+  el.innerHTML = html
+}
+
+async function showInlineThread(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel){
+  const el = document.getElementById('portal-inline-messages')
+  if(!el) return
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+  const r = await fetch(`/api/portal/messages/thread/${tid}?passphrase=${encodeURIComponent(passphrase)}`)
+  const thread = await r.json().catch(()=>null)
+  if(!thread||thread.error){ el.innerHTML='<div style="color:#dc2626;font-size:13px">Could not load conversation.</div>'; return }
+  const msgs = thread.messages || []
+
+  const msgHtml = msgs.map(m=>{
+    const isAdmin = m.sender_side === 'admin'
+    return `<div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-start':'flex-end'};margin-bottom:10px">
+      <div style="max-width:84%;background:${isAdmin?'var(--bg)':'#334155'};color:${isAdmin?'var(--text)':'#fff'};padding:10px 14px;border-radius:${isAdmin?'12px 12px 12px 2px':'12px 12px 2px 12px'};font-size:13px;line-height:1.5">
+        ${escHtml(m.body)}</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(m.sender_name||'')} · ${m.sent_at?portalTimeAgo(m.sent_at):''}</div>
+    </div>`
+  }).join('')
+
+  el.innerHTML = `
+    <button onclick="showInlineThreadList('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+      style="background:none;border:none;cursor:pointer;font-size:13px;color:#334155;font-weight:600;margin-bottom:12px;padding:0;display:flex;align-items:center;gap:4px">&larr; Back</button>
+    <div style="font-size:14px;font-weight:700;margin-bottom:2px">${escHtml(thread.subject)}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">${thread.message_count} message${thread.message_count!==1?'s':''} · ${thread.status==='closed'?'Closed':'Open'}</div>
+    <div style="max-height:280px;overflow-y:auto;margin-bottom:12px;padding-right:4px" id="inline-thread-msgs">${msgHtml}</div>
+    ${thread.status==='open'?`
+    <textarea id="inline-reply-body" placeholder="Type your reply…" rows="3"
+      style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+    <button onclick="sendInlineReply('${tid}','${encPass}','${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+      style="width:100%;margin-top:8px;background:#334155;color:#fff;border:none;border-radius:var(--radius);padding:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Reply</button>`
+    :'<div style="text-align:center;font-size:13px;color:var(--text-muted);padding:8px;background:var(--bg);border-radius:var(--radius)">This conversation has been closed.</div>'}`
+
+  requestAnimationFrame(()=>{ const d=document.getElementById('inline-thread-msgs'); if(d) d.scrollTop=d.scrollHeight })
+}
+
+async function sendInlineReply(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel){
+  const body = document.getElementById('inline-reply-body')?.value.trim()
+  if(!body){ return }
+  const btn = document.querySelector('#portal-inline-messages button:last-of-type')
+  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
+  const r = await fetch(`/api/portal/messages/thread/${tid}/reply`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({body, passphrase, sender_name: senderName})
+  })
+  const d = await r.json().catch(()=>({}))
+  if(!d.ok){ if(btn){btn.disabled=false;btn.textContent='Send Reply'} return }
+  showInlineThread(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel)
+}
+
+function showInlineNewMessage(passphrase, senderName, prodId, progId, ctxLabel){
+  const el = document.getElementById('portal-inline-messages')
+  if(!el) return
+  el.innerHTML = `
+    <button onclick="showInlineThreadList('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+      style="background:none;border:none;cursor:pointer;font-size:13px;color:#334155;font-weight:600;margin-bottom:14px;padding:0">&larr; Back</button>
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px">New Message to ${escHtml(ctxLabel)}</div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Your Name</label>
+      <input type="text" id="inm-name" value="${escHtml(senderName)}"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Subject</label>
+      <input type="text" id="inm-subject" placeholder="e.g. Question about rehearsal schedule"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Message</label>
+      <textarea id="inm-body" placeholder="Write your message…" rows="4"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+    </div>
+    <div id="inm-status" style="font-size:13px;margin-bottom:8px"></div>
+    <button onclick="submitInlineNewMessage('${escHtml(passphrase)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+      style="width:100%;background:#334155;color:#fff;border:none;border-radius:var(--radius);padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Message</button>`
+}
+
+async function submitInlineNewMessage(passphrase, prodId, progId, ctxLabel){
+  const senderName = document.getElementById('inm-name')?.value.trim()
+  const subject    = document.getElementById('inm-subject')?.value.trim()
+  const body       = document.getElementById('inm-body')?.value.trim()
+  const status     = document.getElementById('inm-status')
+  if(!subject||!body){
+    if(status) status.innerHTML = '<span style="color:#dc2626">Subject and message are required.</span>'
+    return
+  }
+  const payload = { passphrase, sender_name: senderName, subject, body }
+  if(prodId) payload.production_id = prodId
+  if(progId) payload.program_id = progId
+  const r = await fetch('/api/portal/messages/start',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  })
+  const d = await r.json().catch(()=>({}))
+  if(!d.ok){
+    if(status) status.innerHTML = `<span style="color:#dc2626">${escHtml(d.error||'Failed. Please try again.')}</span>`
+    return
+  }
+  if(status) status.innerHTML = '<span style="color:#16a34a">✓ Message sent!</span>'
+  setTimeout(()=>{
+    showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel)
+  }, 1000)
+}
+
+
 function openContactModal(){
   openMessagesPanel()
 }

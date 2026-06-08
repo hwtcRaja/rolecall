@@ -2533,6 +2533,18 @@ def portal_start_message_thread():
         for u in staff_with_perm:
             if u['email'] not in recipients: recipients.append(u['email'])
     except Exception: pass
+    # Also notify the program instructor if one is set
+    try:
+        if program_id:
+            prog_row = fetchone(conn, 'SELECT name, instructor_id FROM youth_programs WHERE id=%s', (program_id,))
+            if prog_row and prog_row.get('instructor_id'):
+                vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog_row['instructor_id'],))
+                if vol and vol.get('email') and vol['email'] not in recipients:
+                    recipients.append(vol['email'])
+        elif production_id:
+            prod_row = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+    except Exception: pass
+
     if recipients:
         ctx = ''
         if program_id:
@@ -2611,6 +2623,15 @@ def portal_reply_thread(tid):
                 AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
             for u in staff:
                 if u['email'] not in recipients: recipients.append(u['email'])
+        except Exception: pass
+        # Also notify the program instructor
+        try:
+            if thread.get('program_id'):
+                prog_row = fetchone(conn, 'SELECT instructor_id FROM youth_programs WHERE id=%s', (thread['program_id'],))
+                if prog_row and prog_row.get('instructor_id'):
+                    vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog_row['instructor_id'],))
+                    if vol and vol.get('email') and vol['email'] not in recipients:
+                        recipients.append(vol['email'])
         except Exception: pass
         if recipients:
             html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'

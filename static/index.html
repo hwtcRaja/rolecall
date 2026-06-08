@@ -1415,10 +1415,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
                   <input type="password" id="es-api-key" placeholder="re_••••••••••••••••••••••"/>
                   <div style="font-size:11px;color:var(--text-hint);margin-top:3px">From your Resend dashboard → API Keys</div>
                 </div>
-                <div class="form-group">
-                  <label>From Email</label>
-                  <input type="email" id="es-from-email" value="info@hwtco.org" placeholder="info@hwtco.org"/>
-                  <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Must be a verified domain in Resend</div>
+                <div class="form-group" style="grid-column:1/-1">
+                  <label>Sender Identities <span style="font-weight:400;color:var(--text-muted);font-size:11px">— who emails can be sent as</span></label>
+                  <div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Each identity must use a domain verified in Resend. The first entry is the system default for automated emails.</div>
+                  <div id="es-sender-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+                  <button class="btn btn-secondary btn-sm" onclick="addSenderIdentity()">+ Add Sender</button>
                 </div>
               </div>
               <div class="form-group" style="margin-bottom:20px">
@@ -6240,6 +6241,7 @@ async function resetNavIcons(){
 }
 
 
+
 async function loadEmailSettings(){
   const [s, usersData] = await Promise.all([
     api('/api/email-settings'),
@@ -6249,7 +6251,6 @@ async function loadEmailSettings(){
   const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||'' }
   const chk = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val }
   set('es-api-key', s.resend_api_key||'')
-  set('es-from-email', s.from_email||'info@hwtco.org')
   chk('es-alert-checklist', s.auto_send_checklist_report!==false)
   chk('es-alert-hours', s.alert_pending_hours!==false)
   chk('es-alert-profiles', s.alert_profile_updates!==false)
@@ -6260,6 +6261,14 @@ async function loadEmailSettings(){
   chk('es-alert-not-closed', s.alert_event_not_closed!==false)
   chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
   chk('es-alert-role-filled', s.alert_role_filled!==false)
+
+  // Load sender identities
+  let identities = []
+  try { identities = JSON.parse(s.sender_identities||'[]') } catch(e){}
+  if(!identities.length) identities = [{ name:'', email: s.from_email||'info@hwtco.org' }]
+  window._senderIdentities = identities
+  renderSenderIdentities()
+
   let savedIds = []
   try { savedIds = JSON.parse(s.report_recipient_user_ids||'[]') } catch(e){}
   const listEl = document.getElementById('es-recipients-list')
@@ -6274,7 +6283,6 @@ async function loadEmailSettings(){
         '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+u.name+'</div>'+
         '<div style="font-size:11px;color:var(--text-muted)">'+u.email+' &middot; '+u.role+'</div></div></label>'
       ).join('')
-      // Attach change handlers
       listEl.querySelectorAll('.es-recipient-cb').forEach(function(cb){
         cb.addEventListener('change', function(){
           var lbl = document.getElementById('es-rcpt-label-'+this.dataset.userId)
@@ -6285,13 +6293,62 @@ async function loadEmailSettings(){
   }
 }
 
+function renderSenderIdentities(){
+  const el = document.getElementById('es-sender-list')
+  if(!el) return
+  const ids = window._senderIdentities || []
+  if(!ids.length){ el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No sender identities configured.</div>'; return }
+  el.innerHTML = ids.map((s,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+      ${i===0?'<span title="Default" style="font-size:14px;flex-shrink:0">⭐</span>':'<span style="width:18px;flex-shrink:0"></span>'}
+      <input type="text" value="${escHtml(s.name||'')}" placeholder="Display name (e.g. HWTC Team)"
+        oninput="updateSenderIdentity(${i},'name',this.value)"
+        style="flex:1;padding:6px 9px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;font-family:inherit;min-width:0"/>
+      <input type="email" value="${escHtml(s.email||'')}" placeholder="sender@hwtco.org"
+        oninput="updateSenderIdentity(${i},'email',this.value)"
+        style="flex:1.4;padding:6px 9px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;font-family:inherit;min-width:0"/>
+      ${i>0?`<button onclick="moveSenderUp(${i})" title="Move up" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;color:var(--text-muted)">↑</button>`:'<span style="width:24px"></span>'}
+      <button onclick="removeSenderIdentity(${i})" title="Remove" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;color:var(--text-muted)">×</button>
+    </div>`).join('')
+}
+
+function updateSenderIdentity(i, field, val){
+  if(!window._senderIdentities) return
+  window._senderIdentities[i][field] = val
+}
+
+function addSenderIdentity(){
+  if(!window._senderIdentities) window._senderIdentities = []
+  window._senderIdentities.push({name:'', email:''})
+  renderSenderIdentities()
+  // Focus the new name field
+  const inputs = document.querySelectorAll('#es-sender-list input[type="text"]')
+  if(inputs.length) inputs[inputs.length-1].focus()
+}
+
+function removeSenderIdentity(i){
+  if(!window._senderIdentities) return
+  window._senderIdentities.splice(i,1)
+  renderSenderIdentities()
+}
+
+function moveSenderUp(i){
+  if(!window._senderIdentities || i<=0) return
+  const tmp = window._senderIdentities[i-1]
+  window._senderIdentities[i-1] = window._senderIdentities[i]
+  window._senderIdentities[i] = tmp
+  renderSenderIdentities()
+}
+
 async function saveEmailSettings(){
   const get = id => document.getElementById(id)?.value?.trim()||''
   const chk = id => document.getElementById(id)?.checked||false
   const selectedIds = [...document.querySelectorAll('.es-recipient-cb:checked')].map(el=>el.dataset.userId)
+  const identities = (window._senderIdentities||[]).filter(s=>s.email&&s.email.trim())
   const data = {
     resend_api_key: get('es-api-key'),
-    from_email: get('es-from-email')||'info@hwtco.org',
+    from_email: identities[0]?.email || 'info@hwtco.org',
+    sender_identities: JSON.stringify(identities),
     report_recipient_user_ids: selectedIds,
     auto_send_checklist_report: chk('es-alert-checklist'),
     alert_pending_hours: chk('es-alert-hours'),
@@ -6315,6 +6372,71 @@ async function saveEmailSettings(){
   }
 }
 
+// ── Sender picker overlay ────────────────────────────────────────────────────
+// Call pickSender(callback) before any interactive send.
+// callback receives {name, email} or null (if skipped/cancelled).
+// If only one identity is configured, calls back immediately without showing UI.
+
+async function pickSender(callback){
+  // Load fresh identities
+  const s = await api('/api/email-settings')
+  let identities = []
+  try { identities = JSON.parse(s?.sender_identities||'[]') } catch(e){}
+  if(!identities.length && s?.from_email) identities = [{name:'', email: s.from_email}]
+
+  // Single identity — no need to ask
+  if(identities.length <= 1){
+    callback(identities[0] || null)
+    return
+  }
+
+  // Show picker overlay
+  let existing = document.getElementById('sender-picker-overlay')
+  if(existing) existing.remove()
+
+  const overlay = document.createElement('div')
+  overlay.id = 'sender-picker-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:380px;box-shadow:var(--shadow-lg)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border)">
+      <div style="font-size:15px;font-weight:700">Send as…</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Choose which sender this email comes from</div>
+    </div>
+    <div style="padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+      ${identities.map((id,i)=>`
+        <button onclick="chooseSender(${i})" data-idx="${i}"
+          style="display:flex;align-items:center;gap:12px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);cursor:pointer;font-family:inherit;text-align:left;width:100%">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--teal-50);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--teal-dark);flex-shrink:0">
+            ${escHtml((id.name||id.email||'?')[0].toUpperCase())}</div>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(id.name||id.email)}</div>
+            ${id.name?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(id.email)}</div>`:''}
+          </div>
+          ${i===0?'<span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--teal-dark);background:var(--teal-50);padding:2px 8px;border-radius:10px;flex-shrink:0">DEFAULT</span>':''}
+        </button>`).join('')}
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('sender-picker-overlay').remove()">Cancel</button>
+    </div>
+  </div>`
+
+  overlay.addEventListener('click', e=>{ if(e.target===overlay){ overlay.remove(); callback(null) } })
+  document.body.appendChild(overlay)
+
+  // Store callback for chooseSender
+  window._senderPickerCallback = callback
+  window._senderPickerIdentities = identities
+}
+
+function chooseSender(idx){
+  const overlay = document.getElementById('sender-picker-overlay')
+  if(overlay) overlay.remove()
+  const id = window._senderPickerIdentities?.[idx]
+  if(window._senderPickerCallback) window._senderPickerCallback(id||null)
+  window._senderPickerCallback = null
+}
+
+
 async function testEmail(){
   const statusEl = document.getElementById('email-settings-status')
   if(statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sending test...</span>'
@@ -6333,7 +6455,8 @@ async function sendSingleGivingReminder(volId, name, program, skipConfirm){
   var icon = program==='Disney Cast Member' ? '🐭' : '🎬'
   var label = program==='Disney Cast Member' ? 'Disney VoluntEARS' : 'Universal Giving'
   if(!skipConfirm && !confirm('Send a personalized '+label+' reminder to '+name+'?\n\nThis will include a list of all their recent volunteer hours.')){return}
-  var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{})
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{from_identity:_fi})
   if(res&&res.error){ toast(res.error,'error'); return }
   toast(icon+' Sent to '+res.sent_to+' — '+parseFloat(res.total_hours).toFixed(1)+'h total','success')
   if(typeof renderDashboard==='function' && document.getElementById('page-dashboard')?.classList.contains('active')) renderDashboard()
@@ -6401,7 +6524,8 @@ async function sendEmployerReminder(){
   var btn=document.getElementById('emp-remind-btn'); btn.disabled=true; btn.textContent='Sending…'
   var filter=document.getElementById('emp-remind-filter').value
   var days=parseInt(document.getElementById('emp-remind-days')?.value)||60
-  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null,min_days_since_last:days})
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  var res=await api('/api/volunteers/employer-program-reminder','POST',{program:filter||null,min_days_since_last:days,from_identity:_fi})
   btn.disabled=false; btn.textContent='📬 Send Reminders'
   if(res&&res.error){toast(res.error,'error');return}
   closeEmployerReminderOverlay()
@@ -6414,7 +6538,8 @@ async function sendEmployerReminder(){
 }
 
 async function sendEventReport(eventId){
-  const res = await api('/api/email-settings/send-report/'+eventId,'POST')
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api('/api/email-settings/send-report/'+eventId,'POST',{from_identity:_fi})
   if(res.ok) toast('Report sent to recipients!','success')
   else toast(res.error||'Send failed','error')
 }
@@ -7482,7 +7607,8 @@ async function sendThankYou(donationId, donorId){
     }
   }
   if(!confirm('Send a thank-you email for this donation?')) return
-  const res = await api('/api/donations/'+donationId+'/send-thankyou','POST', templateId?{template_id:templateId}:{})
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api('/api/donations/'+donationId+'/send-thankyou','POST', templateId?{template_id:templateId,from_identity:_fi}:{from_identity:_fi})
   if(res.ok){
     toast('Thank-you email sent!','success')
     const donor = await api('/api/donors/'+donorId+'/detail')
@@ -9734,7 +9860,8 @@ async function saveUserEdits(uid){
 
 async function sendResetLink(uid, name){
   if(!confirm('Send a temporary password to '+name+'\'s email address?')) return
-  const res = await api('/api/users/'+uid+'/send-reset-link','POST')
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api('/api/users/'+uid+'/send-reset-link','POST',{from_identity:_fi})
   if(res.ok) toast('Temporary password emailed to '+name,'success')
   else toast(res.error||'Failed to send email','error')
 }
@@ -10891,10 +11018,11 @@ async function emailReportNow(){
   const emailsRaw = prompt('Send to (email addresses, comma-separated):\nLeave blank to use your configured report recipients.')
   if(emailsRaw === null) return
   const emails = emailsRaw ? emailsRaw.split(',').map(e=>e.trim()).filter(Boolean) : []
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
   const res = await api('/api/reports/send-now','POST',{
     report_type: _currentReportType,
     params: getReportParams(),
-    emails
+    emails, from_identity:_fi
   })
   if(res.ok) toast('Report emailed to '+(res.sent_to||[]).join(', '),'success')
   else toast(res.error||'Failed to send','error')
@@ -12474,7 +12602,8 @@ async function confirmSendRsvp(eid){
   if(btn){ btn.disabled=true; btn.textContent='Sending…' }
   if(resultEl) resultEl.innerHTML = ''
   const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
-  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
     volunteer_ids: targets.map(v=>v.id),
     message
   })
@@ -12527,7 +12656,8 @@ async function sendEmailToSignups(eid){
   const result = document.getElementById('signup-email-result')
   if(!subject||!body){ toast('Subject and message required','error'); return }
   if(result) result.innerHTML='<span style="color:var(--text-muted)">Sending…</span>'
-  const res = await api(`/api/events/${eid}/email-signups`,'POST',{subject,body})
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api(`/api/events/${eid}/email-signups`,'POST',{subject,body,from_identity:_fi})
   if(res?.error){
     if(result) result.innerHTML=`<span style="color:var(--red-600)">⚠️ ${escHtml(res.error)}</span>`
     return
@@ -13543,20 +13673,84 @@ function openEditProgramModal(pid){
 }
 
 function openProgramEmailModal(pid){
-  const p=allPrograms.find(p=>p.id===pid)
+  const p = allPrograms.find(p=>p.id===pid)
   if(!p) return
-  let existing=document.getElementById('modal-program-email')
+  let existing = document.getElementById('modal-program-email')
   if(existing) existing.remove()
-  const m=document.createElement('div')
-  m.id='modal-program-email'
-  m.className='modal-overlay'
-  m.onclick=function(e){ if(e.target===m) m.remove() }
-  m.innerHTML=`<div class="modal" style="max-width:560px;width:100%">
+  const m = document.createElement('div')
+  m.id = 'modal-program-email'
+  m.className = 'modal-overlay'
+  m.onclick = function(e){ if(e.target===m) m.remove() }
+  m.innerHTML = `<div class="modal" style="max-width:680px;width:100%">
     <div class="modal-header">
       <div class="modal-title">✉️ Email — ${escHtml(p.name)}</div>
       <button class="modal-close" onclick="document.getElementById('modal-program-email').remove()">×</button>
     </div>
-    <div class="modal-body">
+    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 24px;background:var(--surface)">
+      <button id="pem-tab-welcome" onclick="switchProgramEmailTab('welcome')"
+        style="padding:10px 16px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);color:var(--teal-dark)">
+        🏠 Welcome Email</button>
+      <button id="pem-tab-custom" onclick="switchProgramEmailTab('custom')"
+        style="padding:10px 16px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)">
+        ✏️ Custom Email</button>
+    </div>
+
+    <!-- WELCOME EMAIL TAB -->
+    <div id="pem-welcome" class="modal-body" style="padding:20px 24px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+        <!-- Left: send controls -->
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Send To</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+            <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:13px" id="pem-mode-all-lbl">
+              <input type="radio" name="pem-mode" value="all" id="pem-mode-all" checked onchange="renderWelcomeRecipientPreview('${pid}')">
+              <span><strong>All enrolled families</strong><br><span style="font-size:11px;color:var(--text-muted)">Every guardian with an email on file</span></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;font-size:13px" id="pem-mode-participant-lbl">
+              <input type="radio" name="pem-mode" value="participant" id="pem-mode-participant" onchange="renderWelcomeRecipientPreview('${pid}')">
+              <span><strong>One participant</strong><br><span style="font-size:11px;color:var(--text-muted)">Send to a single participant's guardians</span></span>
+            </label>
+          </div>
+
+          <!-- Participant picker (hidden until that mode selected) -->
+          <div id="pem-participant-picker" style="display:none;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Select Participant</div>
+            <select id="pem-participant-select" onchange="renderWelcomeRecipientPreview('${pid}')"
+              style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">— choose —</option>
+            </select>
+          </div>
+
+          <!-- Subject override -->
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Subject <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional override)</span></div>
+            <input type="text" id="pem-welcome-subject" placeholder="Leave blank to use template default"
+              style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+          </div>
+
+          <!-- Recipient preview -->
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Recipients</div>
+          <div id="pem-recipient-list" style="border:1px solid var(--border);border-radius:var(--radius);max-height:180px;overflow-y:auto;font-size:12px">
+            <div style="padding:10px 12px;color:var(--text-muted)">Loading…</div>
+          </div>
+
+          <div id="pem-welcome-result" style="margin-top:10px;font-size:13px"></div>
+        </div>
+
+        <!-- Right: email preview -->
+        <div style="display:flex;flex-direction:column">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">
+            Email Preview
+            <a href="#" onclick="navToEmailTemplates();return false" style="font-size:11px;font-weight:600;color:var(--teal);margin-left:8px;text-transform:none;letter-spacing:0">Edit template ↗</a>
+          </div>
+          <iframe id="pem-preview-frame" style="flex:1;min-height:320px;border:1px solid var(--border);border-radius:var(--radius);background:#fff" srcdoc="<p style='padding:20px;color:#999;font-family:sans-serif'>Loading preview…</p>"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUSTOM EMAIL TAB -->
+    <div id="pem-custom" class="modal-body" style="display:none;padding:20px 24px">
       <div class="form-group" style="margin-bottom:12px">
         <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Send To</label>
         <div style="display:flex;gap:16px">
@@ -13570,21 +13764,179 @@ function openProgramEmailModal(pid){
       </div>
       <div class="form-group" style="margin-bottom:12px">
         <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Subject</label>
-        <input type="text" id="prog-email-subject" value="${escHtml(p.name)} — " style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+        <input type="text" id="prog-email-subject" value="${escHtml(p.name)} — "
+          style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
       </div>
       <div class="form-group">
         <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
-        <textarea id="prog-email-body" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:160px;resize:vertical;box-sizing:border-box"></textarea>
+        <textarea id="prog-email-body" placeholder="Write your message here…"
+          style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:180px;resize:vertical;box-sizing:border-box"></textarea>
       </div>
       <div id="prog-email-result" style="margin-top:10px;font-size:13px"></div>
     </div>
-    <div class="modal-footer">
+
+    <div class="modal-footer" id="pem-footer">
       <button class="btn btn-secondary" onclick="document.getElementById('modal-program-email').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="sendProgramEmail('${pid}')">📤 Send Email</button>
+      <button class="btn btn-primary" id="pem-send-btn" onclick="sendWelcomeEmail('${pid}')">📤 Send Welcome Email</button>
     </div>
   </div>`
   document.body.appendChild(m)
   requestAnimationFrame(()=>m.classList.add('open'))
+  loadWelcomeRecipients(pid)
+}
+
+let _welcomeRecipients = []
+
+function switchProgramEmailTab(tab){
+  const isWelcome = tab === 'welcome'
+  document.getElementById('pem-welcome').style.display = isWelcome ? '' : 'none'
+  document.getElementById('pem-custom').style.display  = isWelcome ? 'none' : ''
+  const wBtn = document.getElementById('pem-tab-welcome')
+  const cBtn = document.getElementById('pem-tab-custom')
+  if(wBtn){ wBtn.style.borderBottomColor = isWelcome ? 'var(--teal-mid)' : 'transparent'; wBtn.style.color = isWelcome ? 'var(--teal-dark)' : 'var(--text-muted)'; wBtn.style.fontWeight = isWelcome ? '700' : '600' }
+  if(cBtn){ cBtn.style.borderBottomColor = isWelcome ? 'transparent' : 'var(--teal-mid)'; cBtn.style.color = isWelcome ? 'var(--text-muted)' : 'var(--teal-dark)'; cBtn.style.fontWeight = isWelcome ? '600' : '700' }
+  const sendBtn = document.getElementById('pem-send-btn')
+  const pid = _welcomeRecipients.length ? _welcomeRecipients[0]?.pid : null
+  if(sendBtn){
+    if(isWelcome){
+      sendBtn.textContent = '📤 Send Welcome Email'
+      sendBtn.onclick = function(){ sendWelcomeEmail(_currentWelcomePid) }
+    } else {
+      sendBtn.textContent = '📤 Send Email'
+      sendBtn.onclick = function(){ sendProgramEmail(_currentWelcomePid) }
+    }
+  }
+}
+
+let _currentWelcomePid = null
+
+async function loadWelcomeRecipients(pid){
+  _currentWelcomePid = pid
+  const res = await api(`/api/youth-programs/${pid}/welcome-recipients`)
+  if(!res || res.error){ 
+    const el = document.getElementById('pem-recipient-list')
+    if(el) el.innerHTML = `<div style="padding:10px 12px;color:var(--red-600)">${escHtml(res?.error||'Failed to load')}</div>`
+    return
+  }
+  _welcomeRecipients = res
+
+  // Populate participant select
+  const sel = document.getElementById('pem-participant-select')
+  if(sel){
+    sel.innerHTML = '<option value="">— choose participant —</option>'
+      + res.map(r=>`<option value="${r.youth_id}">${escHtml(r.name)}${r.family_name?' ('+escHtml(r.family_name)+')':''}</option>`).join('')
+  }
+
+  renderWelcomeRecipientPreview(pid)
+  renderWelcomePreviewFrame(pid)
+}
+
+function renderWelcomeRecipientPreview(pid){
+  const mode = document.querySelector('input[name="pem-mode"]:checked')?.value || 'all'
+  const el   = document.getElementById('pem-recipient-list')
+  const participantPicker = document.getElementById('pem-participant-picker')
+  if(!el) return
+
+  if(mode === 'participant'){
+    if(participantPicker) participantPicker.style.display = ''
+    const yid = document.getElementById('pem-participant-select')?.value
+    if(!yid){ el.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted)">Select a participant above</div>'; return }
+    const rec = _welcomeRecipients.find(r=>r.youth_id===yid)
+    if(!rec){ el.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted)">Not found</div>'; return }
+    renderRecipientRows([rec])
+  } else {
+    if(participantPicker) participantPicker.style.display = 'none'
+    renderRecipientRows(_welcomeRecipients)
+  }
+}
+
+function renderRecipientRows(recs){
+  const el = document.getElementById('pem-recipient-list')
+  if(!el) return
+  if(!recs.length){ el.innerHTML = '<div style="padding:10px 12px;color:var(--text-muted)">No enrolled participants with guardian emails</div>'; return }
+
+  // Collect all unique emails across all recs
+  let allEmails = []
+  recs.forEach(r=>{
+    r.guardians.forEach(g=>{ if(g.email) allEmails.push({email:g.email, name:r.name, passphrase:r.passphrase}) })
+  })
+  // Deduplicate
+  const seen = {}; const deduped = []
+  allEmails.forEach(e=>{ const k=e.email.toLowerCase(); if(!seen[k]){ seen[k]=true; deduped.push(e) } })
+
+  el.innerHTML = `<div style="padding:6px 12px;background:var(--teal-50);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--teal-dark)">${deduped.length} recipient${deduped.length!==1?'s':''}</div>`
+    + deduped.map(e=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border);gap:8px">
+        <div>
+          <div style="font-size:12px;font-weight:600">${escHtml(e.name)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${escHtml(e.email)}</div>
+        </div>
+        <div style="font-size:11px;font-family:monospace;background:var(--bg);padding:2px 7px;border-radius:4px;color:var(--teal-dark);white-space:nowrap">${escHtml(e.passphrase)}</div>
+      </div>`).join('')
+}
+
+async function renderWelcomePreviewFrame(pid){
+  // Fetch the template and render a sample preview
+  const templates = await api('/api/email-templates')
+  if(!Array.isArray(templates)) return
+  const tmpl = templates.find(t=>t.template_key==='welcome_email')
+  if(!tmpl) return
+  const prog = allPrograms.find(p=>p.id===pid)
+  const progName = prog?.name || 'Your Program'
+  const sample = tmpl.body
+    .replace(/\{\{program_name\}\}/g, escHtml(progName))
+    .replace(/\{\{passphrase\}\}/g, 'your_passphrase_here')
+    .replace(/\{\{family_greeting\}\}/g, 'HWTC Families')
+  const frame = document.getElementById('pem-preview-frame')
+  if(frame) frame.srcdoc = sample
+}
+
+function navToEmailTemplates(){
+  // Navigate to settings > email templates
+  document.getElementById('modal-program-email')?.remove()
+  navTo('settings', document.querySelector('.nav-item[onclick*="settings"]'))
+  setTimeout(()=>{
+    const etab = document.querySelector('[onclick*="switchSettingsTab(\'email-templates\')"]') ||
+                 document.querySelector('[onclick*="email-templates"]')
+    if(etab) etab.click()
+  }, 300)
+}
+
+async function sendWelcomeEmail(pid){
+  const mode  = document.querySelector('input[name="pem-mode"]:checked')?.value || 'all'
+  const yid   = document.getElementById('pem-participant-select')?.value
+  const subj  = document.getElementById('pem-welcome-subject')?.value.trim()
+  const resEl = document.getElementById('pem-welcome-result')
+  const btn   = document.getElementById('pem-send-btn')
+
+  if(mode==='participant' && !yid){ toast('Select a participant first','error'); return }
+
+  const count = document.getElementById('pem-recipient-list')?.querySelectorAll('[style*="border-bottom"]').length - 1
+  const label = mode==='participant' ? '1 participant' : `${_welcomeRecipients.length} participant${_welcomeRecipients.length!==1?'s':''}`
+  if(!confirm(`Send the welcome email to ${label}?`)) return
+
+  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
+  if(resEl) resEl.innerHTML = '<span style="color:var(--text-muted)">Sending…</span>'
+
+  const payload = { mode, subject: subj }
+  if(mode==='participant') payload.youth_id = yid
+
+  const _fi = await new Promise(r=>pickSender(r)); if(_fi===null) return
+  payload.from_identity = _fi
+  const res = await api(`/api/youth-programs/${pid}/send-welcome`, 'POST', payload)
+
+  if(btn){ btn.disabled=false; btn.textContent='📤 Send Welcome Email' }
+
+  if(!res || res.error){
+    if(resEl) resEl.innerHTML = `<span style="color:var(--red-600)">⚠️ ${escHtml(res?.error||'Failed')}</span>`
+    toast(res?.error||'Send failed','error'); return
+  }
+
+  let msg = `✅ Sent to ${res.sent}/${res.total} recipient${res.total!==1?'s':''}`
+  if(res.errors?.length) msg += ` (${res.errors.length} failed)`
+  if(resEl) resEl.innerHTML = `<span style="color:var(--green-600)">${msg}</span>`
+  toast(msg, res.errors?.length ? 'warning' : 'success')
+  setTimeout(()=>{ document.getElementById('modal-program-email')?.remove() }, 2200)
 }
 
 async function sendProgramEmail(pid){
@@ -13596,15 +13948,17 @@ async function sendProgramEmail(pid){
   if(!subject||!body){toast('Subject and message required','error');return}
   if(!include_guardians&&!include_instructors){toast('Select at least one recipient group','error');return}
   if(result) result.innerHTML='<span style="color:var(--text-muted)">Sending…</span>'
-  const res=await api(`/api/youth-programs/${pid}/send-email`,'POST',{subject,body,include_guardians,include_instructors})
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res=await api(`/api/youth-programs/${pid}/send-email`,'POST',{subject,body,include_guardians,include_instructors,from_identity:_fi})
   if(res.error){
     if(result) result.innerHTML=`<span style="color:var(--red-600)">⚠️ ${escHtml(res.error)}</span>`
     return
   }
   if(result) result.innerHTML=`<span style="color:var(--green-600)">✅ Sent to ${res.sent_to} recipient${res.sent_to===1?'':'s'}</span>`
-  setTimeout(()=>{ const m=document.getElementById('modal-program-email'); if(m) m.remove() },2000)
+  setTimeout(()=>{ document.getElementById('modal-program-email')?.remove() },2000)
   toast(`Email sent to ${res.sent_to} recipient${res.sent_to===1?'':'s'}!`)
 }
+
 
 async function saveYouthProgram(){
   const eid=document.getElementById('program-edit-id').value
@@ -15154,7 +15508,8 @@ async function saveProgramAnnouncementDraft(pid, publishNow){
 }
 
 async function publishAndEmailProgramAnn(pid, aid){
-  const res = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST')
+  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+  const res = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST',{from_identity:_fi})
   if(res && res.error){toast(res.error,'error');return}
   const sent = res && res.sent_to ? res.sent_to : 0
   toast(sent>0 ? 'Published & emailed '+sent+' recipient'+(sent!==1?'s':'')+'!' : 'Published! (No email addresses on file)')

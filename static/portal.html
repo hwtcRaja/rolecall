@@ -1223,7 +1223,7 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 
   // ── Contact Team button ──
   html += '<div style="margin-bottom:20px">'
-  html += '<button onclick="openContactModal()" style="background:#334155;border:none;border-radius:var(--radius);padding:10px 16px;font-family:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;width:100%">✉️ Contact Production Team</button>'
+  html += '<button onclick="openContactModal()" style="background:#334155;border:none;border-radius:var(--radius);padding:10px 16px;font-family:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;width:100%">💬 Messages & Contact</button>'
   html += '</div>'
 
   // ── Role banner (if cast) ──
@@ -1298,69 +1298,178 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 
 // ── Contact Production Team modal ──
 function openContactModal(){
-  // Pre-fill from guardian data if available
-  const guardian = activeChildData?.guardians?.[0] || {}
-  const fromName = guardian.name || ''
-  const fromEmail = guardian.email || ''
-  const prodId = activeContextId
+  openMessagesPanel()
+}
 
-  // Build modal
-  const existing = document.getElementById('contact-modal-overlay')
+function openMessagesPanel(){
+  const passphrase = portalSession?.passphrase || ''
+  const isProgram  = activeContextType === 'program'
+  const prodId = isProgram ? null : activeContextId
+  const progId = isProgram ? activeContextId : null
+  const guardian = activeChildData?.guardians?.[0] || {}
+  const senderName = guardian.name || (portalSession?.participant ? (portalSession.participant.first_name+' '+(portalSession.participant.last_name||'')) : 'Family')
+  // Build a context label for the panel header
+  const ctxName = isProgram
+    ? (activeChildData?.enrollments?.find(e=>e.program_id===activeContextId)?.program_name || 'Program')
+    : (activeChildData?.productions?.find(p=>p.id===activeContextId)?.name || 'Production')
+  const ctxLabel = isProgram ? 'Class / Program Team' : 'Production Team'
+
+  const existing = document.getElementById('messages-panel-overlay')
   if(existing) existing.remove()
 
   const overlay = document.createElement('div')
-  overlay.id = 'contact-modal-overlay'
+  overlay.id = 'messages-panel-overlay'
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
-  overlay.innerHTML = '<div style="background:#fff;border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:24px">'
-    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
-    +'<div style="font-size:17px;font-weight:800">\uD83D\uDCE7 Contact Production Team</div>'
-    +'<button onclick="document.getElementById(\'contact-modal-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;line-height:1">\xd7</button>'
-    +'</div>'
-    +'<div style="font-size:13px;color:#6b7280;margin-bottom:16px">Your message will be sent to the production team and director.</div>'
-    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Name</label>'
-    +'<input type="text" id="ct-name" value="'+escHtml(fromName)+'" placeholder="Your name" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
-    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Email (for replies)</label>'
-    +'<input type="email" id="ct-email" value="'+escHtml(fromEmail)+'" placeholder="your@email.com" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
-    +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Subject</label>'
-    +'<input type="text" id="ct-subject" placeholder="e.g. Question about rehearsal schedule" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
-    +'<div style="margin-bottom:20px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Message</label>'
-    +'<textarea id="ct-message" placeholder="Write your message here\u2026" rows="5" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;resize:vertical;box-sizing:border-box"></textarea></div>'
-    +'<div id="ct-status" style="font-size:13px;margin-bottom:10px"></div>'
-    +'<button onclick="submitContactForm(\''+prodId+'\')" style="width:100%;background:#334155;color:#fff;border:none;border-radius:10px;padding:14px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">\uD83D\uDCE7 Send Message</button>'
-    +'</div>'
+  overlay.onclick = e => { if(e.target===overlay) overlay.remove() }
+
+  overlay.innerHTML = `<div style="background:#fff;border-radius:16px;width:100%;max-width:500px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="padding:18px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:16px;font-weight:800">💬 Messages</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:1px">${escHtml(ctxName)} — ${escHtml(ctxLabel)}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="showNewMessageForm('${escHtml(senderName)}','${escHtml(passphrase)}','${prodId||''}','${progId||''}')"
+          style="background:#145466;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">+ New Message</button>
+        <button onclick="document.getElementById('messages-panel-overlay').remove()"
+          style="background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;line-height:1">×</button>
+      </div>
+    </div>
+    <div id="portal-thread-list" style="flex:1;overflow-y:auto;padding:14px 16px">
+      <div style="color:#9ca3af;font-size:13px">Loading…</div>
+    </div>
+  </div>`
+
   document.body.appendChild(overlay)
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  loadFamilyThreads(passphrase)
 }
 
-async function submitContactForm(prodId){
-  const name    = document.getElementById('ct-name')?.value.trim()
-  const email   = document.getElementById('ct-email')?.value.trim()
-  const subject = document.getElementById('ct-subject')?.value.trim()
-  const message = document.getElementById('ct-message')?.value.trim()
-  const status  = document.getElementById('ct-status')
-  if(!name||!email||!subject||!message){
-    if(status) status.innerHTML = '<span style="color:#dc2626">Please fill in all fields.</span>'
+async function loadFamilyThreads(passphrase){
+  const el = document.getElementById('portal-thread-list')
+  if(!el) return
+  const r = await fetch(`/api/portal/messages/family?passphrase=${encodeURIComponent(passphrase)}`)
+  const threads = await r.json().catch(()=>[])
+  if(!threads.length){
+    el.innerHTML = '<div style="text-align:center;padding:28px 16px;color:#9ca3af"><div style="font-size:32px;margin-bottom:10px">💬</div><div style="font-size:13px;margin-bottom:14px">No messages yet. Start a conversation with the HWTC team!</div></div>'
     return
   }
-  const btn = document.querySelector('#contact-modal-overlay button[onclick^="submitContactForm"]')
-  if(btn){ btn.disabled=true; btn.textContent='Sending\u2026' }
-  try {
-    const r = await fetch('/api/portal/contact-production',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({production_id:prodId, from_name:name, from_email:email, subject, message})
-    })
-    const d = await r.json()
-    if(d.ok){
-      if(status) status.innerHTML = '<span style="color:#16a34a">\u2713 Message sent to the production team!</span>'
-      setTimeout(()=>{ const ov=document.getElementById('contact-modal-overlay'); if(ov)ov.remove() }, 2000)
-    } else {
-      if(status) status.innerHTML = '<span style="color:#dc2626">'+(d.error||'Failed to send. Please try again.')+'</span>'
-      if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDCE7 Send Message' }
-    }
-  } catch(err){
-    if(status) status.innerHTML = '<span style="color:#dc2626">Network error. Please try again.</span>'
-    if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDCE7 Send Message' }
+  el.innerHTML = threads.map(t=>`
+    <div onclick="openFamilyThread('${t.id}','${encodeURIComponent(passphrase)}')"
+      style="padding:12px 14px;border:1.5px solid ${t.unread_family>0?'#145466':'#e5e7eb'};border-radius:10px;margin-bottom:8px;cursor:pointer;background:${t.unread_family>0?'#f0f9f8':'#fff'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
+        <div style="font-size:13px;font-weight:${t.unread_family>0?'800':'600'}">${escHtml(t.subject)}</div>
+        ${t.unread_family>0?`<span style="background:#145466;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;flex-shrink:0">${t.unread_family} new</span>`:''}
+      </div>
+      <div style="font-size:11px;color:#9ca3af">${t.message_count} message${t.message_count!==1?'s':''} · ${t.status==='closed'?'Closed · ':''}${t.last_at?portalTimeAgo(t.last_at):''}</div>
+      ${t.last_body?`<div style="font-size:12px;color:#6b7280;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml((t.last_body||'').substring(0,80))}</div>`:''}
+    </div>`).join('')
+}
+
+async function openFamilyThread(tid, passphraseEnc){
+  const passphrase = decodeURIComponent(passphraseEnc)
+  const r = await fetch(`/api/portal/messages/thread/${tid}?passphrase=${encodeURIComponent(passphrase)}`)
+  const thread = await r.json().catch(()=>null)
+  if(!thread||thread.error){ alert('Could not load conversation.'); return }
+
+  const el = document.getElementById('portal-thread-list')
+  const msgs = thread.messages || []
+
+  const msgHtml = msgs.map(m=>{
+    const isAdmin = m.sender_side === 'admin'
+    return `<div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-start':'flex-end'};margin-bottom:12px">
+      <div style="max-width:82%;background:${isAdmin?'#f3f4f6':'#145466'};color:${isAdmin?'#1a1a17':'#fff'};padding:10px 14px;border-radius:${isAdmin?'12px 12px 12px 2px':'12px 12px 2px 12px'};font-size:13px;line-height:1.5">
+        ${escHtml(m.body)}</div>
+      <div style="font-size:10px;color:#9ca3af;margin-top:3px">${escHtml(m.sender_name||'')} · ${m.sent_at?portalTimeAgo(m.sent_at):''}</div>
+    </div>`
+  }).join('')
+
+  el.innerHTML = `
+    <button onclick="loadFamilyThreads('${escHtml(passphrase)}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:#145466;font-weight:600;margin-bottom:12px;padding:0">&larr; Back to messages</button>
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px">${escHtml(thread.subject)}</div>
+    <div style="font-size:11px;color:#9ca3af;margin-bottom:14px">${thread.message_count} message${thread.message_count!==1?'s':''}</div>
+    <div style="max-height:320px;overflow-y:auto;margin-bottom:12px" id="family-thread-msgs">${msgHtml}</div>
+    ${thread.status==='open'?`
+    <textarea id="family-reply-body" placeholder="Type your reply…" rows="3"
+      style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;resize:none;box-sizing:border-box;outline:none"></textarea>
+    <button onclick="sendFamilyReply('${tid}','${encHtml(passphrase)}')"
+      style="width:100%;margin-top:8px;background:#145466;color:#fff;border:none;border-radius:8px;padding:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Reply</button>`
+    :'<div style="text-align:center;font-size:13px;color:#9ca3af;padding:8px">This conversation has been closed.</div>'}`
+
+  requestAnimationFrame(()=>{ const d=document.getElementById('family-thread-msgs'); if(d) d.scrollTop=d.scrollHeight })
+}
+
+function encHtml(s){ return encodeURIComponent(s) }
+
+async function sendFamilyReply(tid, passphraseEnc){
+  const passphrase = decodeURIComponent(passphraseEnc)
+  const body = document.getElementById('family-reply-body')?.value.trim()
+  if(!body){ alert('Please enter a message.'); return }
+  const r = await fetch(`/api/portal/messages/thread/${tid}/reply`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({body, passphrase})
+  })
+  const d = await r.json().catch(()=>({}))
+  if(!d.ok){ alert(d.error||'Failed to send reply.'); return }
+  openFamilyThread(tid, passphraseEnc)
+}
+
+function showNewMessageForm(senderName, passphrase, prodId, progId){
+  const el = document.getElementById('portal-thread-list')
+  if(!el) return
+  el.innerHTML = `
+    <button onclick="loadFamilyThreads('${escHtml(passphrase)}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:#145466;font-weight:600;margin-bottom:14px;padding:0">&larr; Back to messages</button>
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px">New Message to HWTC</div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Name</label>
+      <input type="text" id="nm-name" value="${escHtml(senderName)}" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Subject</label>
+      <input type="text" id="nm-subject" placeholder="e.g. Question about rehearsal schedule"
+        style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Message</label>
+      <textarea id="nm-body" placeholder="Write your message here…" rows="5"
+        style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+    </div>
+    <div id="nm-status" style="font-size:13px;margin-bottom:8px"></div>
+    <button onclick="submitNewMessage('${escHtml(passphrase)}','${prodId||''}','${progId||''}')"
+      style="width:100%;background:#145466;color:#fff;border:none;border-radius:8px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Message</button>`
+}
+
+async function submitNewMessage(passphrase, prodId, progId){
+  const senderName = document.getElementById('nm-name')?.value.trim()
+  const subject    = document.getElementById('nm-subject')?.value.trim()
+  const body       = document.getElementById('nm-body')?.value.trim()
+  const status     = document.getElementById('nm-status')
+  if(!subject||!body){
+    if(status) status.innerHTML = '<span style="color:#dc2626">Subject and message are required.</span>'
+    return
   }
+  const payload = { passphrase, sender_name:senderName, subject, body }
+  if(prodId) payload.production_id = prodId
+  if(progId) payload.program_id = progId
+  const r = await fetch('/api/portal/messages/start',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  })
+  const d = await r.json().catch(()=>({}))
+  if(!d.ok){
+    if(status) status.innerHTML = `<span style="color:#dc2626">${escHtml(d.error||'Failed to send. Please try again.')}</span>`
+    return
+  }
+  if(status) status.innerHTML = '<span style="color:#16a34a">✓ Message sent!</span>'
+  setTimeout(()=>{ loadFamilyThreads(passphrase) }, 1200)
+}
+
+function portalTimeAgo(ts){
+  if(!ts) return ''
+  const d = new Date(ts), diff = (Date.now()-d)/1000
+  if(diff<60) return 'just now'
+  if(diff<3600) return Math.floor(diff/60)+'m ago'
+  if(diff<86400) return Math.floor(diff/3600)+'h ago'
+  return d.toLocaleDateString()
 }
 
 function buildTeamHTML(members){

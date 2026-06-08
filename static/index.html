@@ -7031,6 +7031,128 @@ function openEmailTemplateEditor(tid){
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()})
   document.body.appendChild(overlay)
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  PORTAL MESSAGES (admin side)
+// ═══════════════════════════════════════════════════════════════
+
+async function loadPortalMessages(programId, productionId, containerId){
+  const el = document.getElementById(containerId)
+  if(!el) return
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Loading messages…</div>'
+  const params = programId ? `?program_id=${programId}` : productionId ? `?production_id=${productionId}` : ''
+  const threads = await api('/api/portal/messages/threads' + params)
+  if(!threads || threads.error){
+    el.innerHTML = '<div style="color:var(--red-600);font-size:13px">Could not load messages.</div>'; return
+  }
+  if(!threads.length){
+    el.innerHTML = '<div style="text-align:center;padding:28px 16px;color:var(--text-muted)"><div style="font-size:28px;margin-bottom:8px">💬</div><div style="font-size:13px">No messages yet. Families can contact you from the parent portal.</div></div>'
+    return
+  }
+  const unread = threads.filter(t=>t.unread_admin>0).length
+  el.innerHTML = (unread ? `<div style="margin-bottom:10px;font-size:12px;font-weight:700;color:var(--teal-dark)">● ${unread} unread thread${unread!==1?'s':''}</div>` : '')
+    + threads.map(t=>`
+    <div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;border-left:3px solid ${t.unread_admin>0?'var(--teal)':'var(--border)'}"
+         onclick="openMessageThread('${t.id}','${containerId}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+        <div style="font-size:13px;font-weight:${t.unread_admin>0?'800':'600'}">${escHtml(t.subject)}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          ${t.unread_admin>0?`<span style="background:var(--teal);color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px">${t.unread_admin} new</span>`:''}
+          ${t.status==='closed'?'<span style="background:var(--bg);color:var(--text-muted);font-size:10px;font-weight:600;padding:1px 7px;border-radius:20px;border:1px solid var(--border)">closed</span>':''}
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted)">From ${escHtml(t.from_name||'Family')} · ${t.message_count} message${t.message_count!==1?'s':''} · ${t.last_at?timeAgo(t.last_at):''}</div>
+      ${t.last_body?`<div style="font-size:12px;color:var(--text-hint);margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml((t.last_body||'').substring(0,90))}</div>`:''}
+    </div>`).join('')
+}
+
+async function openMessageThread(tid, returnContainerId){
+  const thread = await api(`/api/portal/messages/thread/${tid}`)
+  if(!thread || thread.error){ toast('Could not load thread','error'); return }
+
+  const existing = document.getElementById('message-thread-overlay')
+  if(existing) existing.remove()
+
+  const overlay = document.createElement('div')
+  overlay.id = 'message-thread-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.onclick = e => { if(e.target===overlay) overlay.remove() }
+
+  const msgs = thread.messages || []
+
+  const renderMessages = (messages) => messages.map(m=>{
+    const isAdmin = m.sender_side === 'admin'
+    return `<div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-end':'flex-start'};margin-bottom:12px">
+      <div style="max-width:80%;background:${isAdmin?'var(--teal)':'var(--bg)'};color:${isAdmin?'#fff':'var(--text)'};padding:10px 14px;border-radius:${isAdmin?'12px 12px 2px 12px':'12px 12px 12px 2px'};font-size:13px;line-height:1.5">
+        ${escHtml(m.body)}
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(m.sender_name||'')} · ${m.sent_at?timeAgo(m.sent_at):''}</div>
+    </div>`
+  }).join('')
+
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+      <div>
+        <div style="font-size:15px;font-weight:700">${escHtml(thread.subject)}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+          From ${escHtml(thread.from_name||'Family')}
+          ${thread.program_name?` · ${escHtml(thread.program_name)}`:''}
+          ${thread.production_name?` · ${escHtml(thread.production_name)}`:''}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+        ${thread.status==='open'?`<button class="btn btn-secondary btn-sm" onclick="closeThread('${tid}','${returnContainerId}')">✓ Close</button>`:'<span style="font-size:11px;color:var(--text-muted)">Closed</span>'}
+        <button onclick="document.getElementById('message-thread-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>
+      </div>
+    </div>
+    <div id="msg-thread-body" style="flex:1;overflow-y:auto;padding:16px 20px">
+      ${renderMessages(msgs)}
+    </div>
+    ${thread.status==='open'?`
+    <div style="padding:12px 16px;border-top:1px solid var(--border)">
+      <textarea id="admin-reply-body" placeholder="Type your reply…"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;min-height:72px;box-sizing:border-box;outline:none"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-primary" onclick="sendAdminReply('${tid}','${returnContainerId}')">Send Reply</button>
+      </div>
+    </div>`:'<div style="padding:12px 20px;font-size:12px;color:var(--text-muted);text-align:center">This thread is closed.</div>'}
+  </div>`
+
+  document.body.appendChild(overlay)
+  // Scroll to bottom
+  requestAnimationFrame(()=>{
+    const body = document.getElementById('msg-thread-body')
+    if(body) body.scrollTop = body.scrollHeight
+  })
+}
+
+async function sendAdminReply(tid, returnContainerId){
+  const body = document.getElementById('admin-reply-body')?.value.trim()
+  if(!body){ toast('Enter a reply first','error'); return }
+  const res = await api(`/api/portal/messages/thread/${tid}/reply`, 'POST', {body})
+  if(!res||res.error){ toast(res?.error||'Failed','error'); return }
+  document.getElementById('message-thread-overlay')?.remove()
+  toast('Reply sent!')
+  if(returnContainerId) loadPortalMessages(null, null, returnContainerId)
+}
+
+async function closeThread(tid, returnContainerId){
+  await api(`/api/portal/messages/thread/${tid}/close`, 'POST')
+  document.getElementById('message-thread-overlay')?.remove()
+  toast('Thread closed')
+  if(returnContainerId) loadPortalMessages(null, null, returnContainerId)
+}
+
+function timeAgo(ts){
+  if(!ts) return ''
+  const d = new Date(ts)
+  const diff = (Date.now() - d) / 1000
+  if(diff < 60) return 'just now'
+  if(diff < 3600) return Math.floor(diff/60)+'m ago'
+  if(diff < 86400) return Math.floor(diff/3600)+'h ago'
+  return formatDate(ts)
+}
+
 // Youth Programs
 function populateProgramsDropdown(){
   const sel=document.getElementById('youth-program')
@@ -14196,6 +14318,7 @@ async function openProgramDetail(programId){
   const p = allPrograms.find(p=>p.id===programId)
   if(!p) return
   const isAdmin = canEdit('programs')
+  const canViewMessages = isAdmin || canEdit('youth') || canEdit('rising_stars')
 
   // Build banner
   const type = p.program_type||'class'
@@ -14333,7 +14456,7 @@ async function openProgramDetail(programId){
         <!-- Tab strip -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
           <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">📅 Events</button>
-          ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
+          ${canViewMessages?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
         </div>
 
         <!-- Events tab -->
@@ -14408,6 +14531,18 @@ async function openProgramDetail(programId){
               <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
             </div>
             <div id="prog-file-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+          </div>
+
+          <!-- Messages card -->
+          <div class="card" style="padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div>
+                <div style="font-size:15px;font-weight:700">💬 Family Messages</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Conversations started by families from the parent portal</div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadPortalMessages('${p.id}',null,'prog-messages-${p.id}')">↻ Refresh</button>
+            </div>
+            <div id="prog-messages-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
           <!-- Required Waivers card -->
@@ -14970,7 +15105,7 @@ function renderAnnRow(a, pid, isDraft){
       ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Publish</button>'
       :'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Push to Families</button>'
     )
-    +'<button onclick="editAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\',\''+(a.status||'published')+'\')" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Edit</button>'
+    +'<button data-ann-id="'+a.id+'" data-prod-id="'+pid+'" onclick="editAnnouncementById(this)" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Edit</button>'
     +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'
     +'</div>'
     +'</div>'
@@ -15033,6 +15168,14 @@ function editAnnouncement(pid, aid, titleEnc, bodyEnc, status){
   if(cancelBtn) cancelBtn.style.display = ''
   titleEl?.focus()
   titleEl?.scrollIntoView({behavior:'smooth', block:'nearest'})
+}
+
+function editAnnouncementById(btn){
+  const aid = btn.dataset.annId
+  const pid = btn.dataset.prodId
+  const a = window._prodAnnMap && window._prodAnnMap[aid]
+  if(!a){ toast('Could not load announcement data','error'); return }
+  editAnnouncement(pid, aid, encodeURIComponent(a.title||''), encodeURIComponent(a.body||''), a.status||'published')
 }
 
 function resetAnnForm(pid){
@@ -15364,6 +15507,7 @@ async function loadProgramPortalContent(pid){
     renderPortalFolderPills('prog', pid, folders)
     renderProgramAnnouncements(pid, announcements)
     renderProgramFiles(pid, files, folders)
+    loadPortalMessages(pid, null, 'prog-messages-'+pid)
     try { renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:(waiverStatus||{})) }
     catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
     try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }
@@ -15621,6 +15765,23 @@ function editProgAnn(pid, aid, titleEnc, bodyEnc){
   var cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
   if(cancelBtn) cancelBtn.style.display=''
   document.getElementById('prog-ann-title-'+pid).focus()
+}
+
+function editProgAnnById(btn){
+  const aid = btn.dataset.annId
+  const pid = btn.dataset.progId
+  const a = window._progAnnMap && window._progAnnMap[aid]
+  if(!a){ toast('Could not load announcement data','error'); return }
+  const editIdEl = document.getElementById('prog-ann-edit-id-'+pid)
+  const titleEl  = document.getElementById('prog-ann-title-'+pid)
+  const bodyEl   = document.getElementById('prog-ann-body-'+pid)
+  const cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  if(editIdEl) editIdEl.value = aid
+  if(titleEl)  titleEl.value  = a.title || ''
+  if(bodyEl)   bodyEl.value   = a.body  || ''
+  if(cancelBtn) cancelBtn.style.display = ''
+  if(titleEl)  titleEl.focus()
+  titleEl?.scrollIntoView({behavior:'smooth', block:'nearest'})
 }
 
 function cancelEditProgramAnnouncement(pid){

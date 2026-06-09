@@ -14318,7 +14318,6 @@ async function openProgramDetail(programId){
   const p = allPrograms.find(p=>p.id===programId)
   if(!p) return
   const isAdmin = canEdit('programs')
-  const canViewMessages = isAdmin || canEdit('youth') || canEdit('rising_stars')
 
   // Build banner
   const type = p.program_type||'class'
@@ -14455,8 +14454,9 @@ async function openProgramDetail(programId){
       <div>
         <!-- Tab strip -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
-          <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">📅 Events</button>
-          ${canViewMessages?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
+          <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">📅 Events</button>
+          <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">💬 Messages</button>
+          ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
         </div>
 
         <!-- Events tab -->
@@ -14472,6 +14472,21 @@ async function openProgramDetail(programId){
             <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text-muted)">📋 Past Events</div>
             ${eventRows(past, true)}
           </div>`:''}
+        </div>
+
+
+        <!-- Messages tab -->
+        <div id="pdtab-messages" style="display:none">
+          <div class="card" style="padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div>
+                <div style="font-size:15px;font-weight:700">💬 Family Messages</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Conversations started by families from the parent portal</div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadPortalMessages('${p.id}',null,'prog-messages-${p.id}')">↻ Refresh</button>
+            </div>
+            <div id="prog-messages-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+          </div>
         </div>
 
         <!-- Portal content tab -->
@@ -14531,18 +14546,6 @@ async function openProgramDetail(programId){
               <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
             </div>
             <div id="prog-file-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
-          </div>
-
-          <!-- Messages card -->
-          <div class="card" style="padding:20px;margin-bottom:16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div>
-                <div style="font-size:15px;font-weight:700">💬 Family Messages</div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Conversations started by families from the parent portal</div>
-              </div>
-              <button class="btn btn-secondary btn-sm" onclick="loadPortalMessages('${p.id}',null,'prog-messages-${p.id}')">↻ Refresh</button>
-            </div>
-            <div id="prog-messages-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
           <!-- Required Waivers card -->
@@ -15484,13 +15487,15 @@ async function submitAddConflict(pid){
 // ── Enhanced program portal tab: add folder support ──
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
-  document.getElementById('pdtab-events').style.display = tab==='events'?'':'none'
-  document.getElementById('pdtab-portal').style.display = tab==='portal'?'':'none'
-  const evBtn = document.getElementById('pdtab-btn-events')
-  const porBtn = document.getElementById('pdtab-btn-portal')
-  if(evBtn){ evBtn.style.borderBottomColor=tab==='events'?'var(--teal-mid)':'transparent'; evBtn.style.color=tab==='events'?'var(--teal-dark)':'var(--text-muted)' }
-  if(porBtn){ porBtn.style.borderBottomColor=tab==='portal'?'var(--teal-mid)':'transparent'; porBtn.style.color=tab==='portal'?'var(--teal-dark)':'var(--text-muted)' }
-  if(tab==='portal') loadProgramPortalContent(window._currentProgramDetailId)
+  ['events','messages','portal'].forEach(t=>{
+    const el = document.getElementById('pdtab-'+t)
+    const btn = document.getElementById('pdtab-btn-'+t)
+    if(el) el.style.display = tab===t ? '' : 'none'
+    if(btn){ btn.style.borderBottomColor = tab===t ? 'var(--teal-mid)' : 'transparent'; btn.style.color = tab===t ? 'var(--teal-dark)' : 'var(--text-muted)' }
+  })
+  const pid = window._currentProgramDetailId
+  if(tab==='portal') loadProgramPortalContent(pid)
+  if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-'+pid)
 }
 
 async function loadProgramPortalContent(pid){
@@ -15507,7 +15512,6 @@ async function loadProgramPortalContent(pid){
     renderPortalFolderPills('prog', pid, folders)
     renderProgramAnnouncements(pid, announcements)
     renderProgramFiles(pid, files, folders)
-    loadPortalMessages(pid, null, 'prog-messages-'+pid)
     try { renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:(waiverStatus||{})) }
     catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
     try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }

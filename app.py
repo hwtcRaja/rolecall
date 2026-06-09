@@ -2830,9 +2830,30 @@ def get_audition_submissions(context_type, context_id):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, """SELECT * FROM audition_submissions
-        WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
-        (context_type, context_id))
+    try:
+        rows = fetchall(conn, """SELECT id, context_type, context_id, family_id,
+            participant_id, submitter_name, submitter_email, role_requested,
+            video_url, resume_url, headshot_url, notes, status, admin_notes,
+            submitted_at, updated_at,
+            COALESCE(roles_requested, '[]') as roles_requested,
+            COALESCE(cast_role, '') as cast_role
+            FROM audition_submissions
+            WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+            (context_type, context_id))
+    except Exception as e:
+        app.logger.error(f'get_audition_submissions error: {e}')
+        # Fallback without new columns if migration hasn't run yet
+        try:
+            rows = fetchall(conn, """SELECT * FROM audition_submissions
+                WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+                (context_type, context_id))
+            for r in rows:
+                if 'roles_requested' not in r: r['roles_requested'] = '[]'
+                if 'cast_role' not in r: r['cast_role'] = ''
+        except Exception as e2:
+            conn.close()
+            app.logger.error(f'get_audition_submissions fallback error: {e2}')
+            return jsonify([])
     conn.close()
     return jsonify(rows)
 

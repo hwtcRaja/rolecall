@@ -5563,90 +5563,130 @@ function closeAttendanceOverlay(){ var el=document.getElementById("attendance-ed
 function closeAvailReqOverlay(){ var el=document.getElementById("avail-req-overlay"); if(el) el.remove() }
 
 function openAttendanceEditor(meetingId){
-  var meeting=_boardMeetings.find(function(m){return m.id===meetingId})
+  var meeting = _boardMeetings.find(function(m){ return m.id===meetingId })
   if(!meeting) return
-  var existing=document.getElementById('attendance-editor-overlay'); if(existing) existing.remove()
-  var overlay=document.createElement('div'); overlay.id='attendance-editor-overlay'
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var attMap={}; (meeting.attendance||[]).forEach(function(a){ attMap[a.member_id]=a.attendance_type||(a.attended?'in_person':'absent') })
-  var activeMembers=_boardMembers.filter(function(m){return m.status==='active'})
-  var rows=activeMembers.map(function(m){
-    var cur=attMap[m.id]||'absent'
-    var optDefs=[{t:'in_person',l:'In Person',c:'background:var(--teal);color:#fff'},{t:'virtual',l:'Virtual',c:'background:#6366f1;color:#fff'},{t:'absent',l:'Absent',c:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)'}]
-    return '<div class="att-row" data-mid="'+m.id+'" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
-      +avatarHTML(m.name,30)
-      +'<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:13px">'+escHtml(m.name)+'</div>'
-      +(m.role?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(m.role)+'</div>':'')+'</div>'
-      +'<div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0">'
-      +optDefs.map(function(o){
-          var active=cur===o.t
-          return '<button class="att-toggle" data-mid="'+m.id+'" data-type="'+o.t+'" '
-            +'style="border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;'
-            +(active?o.c:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)')+'" '
-            +'onclick="setAttType(this)">'+ o.l +'</button>'
-        }).join('')
-      +'</div></div>'
-  }).join('')
-  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
-    +'<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
-    +'<div><div style="font-size:16px;font-weight:700">Attendance â '+formatDate(meeting.meeting_date)+'</div>'
-    +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+activeMembers.length+' active members</div></div>'
-    +'<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">Ã</button></div>'
-    +'<div style="padding:4px 24px 8px;overflow-y:auto;flex:1">'+rows+'</div>'
-    +'<div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
-    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAttendanceOverlay()">Cancel</button>'
-    +'<button class="btn btn-primary" style="flex:2" id="att-save-btn">Save Attendance</button></div></div>'
-  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
+  var existing = document.getElementById('attendance-editor-overlay')
+  if(existing) existing.remove()
+
+  // Build state map — track selections in JS, not CSS
+  var state = {}
+  ;(meeting.attendance||[]).forEach(function(a){
+    state[a.member_id] = a.attendance_type || (a.attended ? 'in_person' : 'absent')
+  })
+  var activeMembers = _boardMembers.filter(function(m){ return m.status==='active' })
+  // Members with no existing record default to absent
+  activeMembers.forEach(function(m){ if(!state[m.id]) state[m.id]='absent' })
+
+  function renderRows(){
+    return activeMembers.map(function(m){
+      var cur = state[m.id] || 'absent'
+      var opts = [
+        {t:'in_person', l:'In Person'},
+        {t:'virtual',   l:'Virtual'},
+        {t:'absent',    l:'Absent'}
+      ]
+      var btnStyles = {
+        in_person: 'background:var(--teal);color:#fff',
+        virtual:   'background:#6366f1;color:#fff',
+        absent:    'background:#e5e7eb;color:#6b7280'
+      }
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
+        + avatarHTML(m.name, 30)
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:500;font-size:13px">' + escHtml(m.name) + '</div>'
+          + (m.role ? '<div style="font-size:11px;color:var(--text-muted)">' + escHtml(m.role) + '</div>' : '')
+        + '</div>'
+        + '<div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0">'
+        + opts.map(function(o){
+            var active = cur === o.t
+            return '<button class="att-toggle"'
+              + ' data-mid="' + m.id + '"'
+              + ' data-type="' + o.t + '"'
+              + ' style="border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:all .1s;'
+              + (active ? btnStyles[o.t] : 'background:#f3f4f6;color:#6b7280') + '"'
+              + ' onclick="setAttType(this)">' + o.l + '</button>'
+          }).join('')
+        + '</div>'
+        + '</div>'
+    }).join('')
+  }
+
+  var overlay = document.createElement('div')
+  overlay.id = 'attendance-editor-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+
+  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+    + '<div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+      + '<div>'
+        + '<div style="font-size:16px;font-weight:700">Attendance \u2014 ' + formatDate(meeting.meeting_date) + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">' + activeMembers.length + ' active members</div>'
+      + '</div>'
+      + '<button onclick="closeAttendanceOverlay()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>'
+    + '</div>'
+    + '<div id="att-rows-container" style="padding:4px 24px 8px;overflow-y:auto;flex:1">' + renderRows() + '</div>'
+    + '<div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;gap:10px">'
+      + '<button class="btn btn-secondary" style="flex:1" onclick="closeAttendanceOverlay()">Cancel</button>'
+      + '<button class="btn btn-primary" style="flex:2" id="att-save-btn">Save Attendance</button>'
+    + '</div>'
+    + '</div>'
+
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
-  document.getElementById('att-save-btn').onclick=function(){ saveAttendance(meetingId) }
+
+  // Store state on the overlay so setAttType can update it
+  overlay._attState = state
+  overlay._renderRows = renderRows
+
+  document.getElementById('att-save-btn').onclick = function(){ saveAttendance(meetingId) }
 }
 
-function setAttType(el){
-  var memberId=el.dataset.mid, type=el.dataset.type
-  var colors={in_person:'background:var(--teal);color:#fff',virtual:'background:#6366f1;color:#fff',absent:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)'}
-  document.querySelectorAll('.att-toggle[data-mid="'+memberId+'"]').forEach(function(btn){
-    var isActive=btn.dataset.type===type
-    btn.style.cssText='border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;'+(isActive?colors[btn.dataset.type]:'background:var(--bg-muted,#f3f4f6);color:var(--text-muted)')
+function setAttType(btn){
+  var overlay = document.getElementById('attendance-editor-overlay')
+  if(!overlay || !overlay._attState) return
+  var memberId = btn.dataset.mid
+  var type     = btn.dataset.type
+
+  // Update state
+  overlay._attState[memberId] = type
+
+  // Update button styles for this member
+  var btnStyles = {
+    in_person: 'background:var(--teal);color:#fff',
+    virtual:   'background:#6366f1;color:#fff',
+    absent:    'background:#e5e7eb;color:#6b7280'
+  }
+  document.querySelectorAll('.att-toggle[data-mid="' + memberId + '"]').forEach(function(b){
+    var isActive = b.dataset.type === type
+    b.style.cssText = 'border:none;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:all .1s;'
+      + (isActive ? btnStyles[b.dataset.type] : 'background:#f3f4f6;color:#6b7280')
   })
 }
 
 async function saveAttendance(meetingId){
-  var att=[]; var seen={}
-  document.querySelectorAll('.att-toggle').forEach(function(btn){
-    if(seen[btn.dataset.mid]) return
-    seen[btn.dataset.mid]=true
-    // find active button for this member by checking inline style color
-    var activeBtns=document.querySelectorAll('.att-toggle[data-mid="'+btn.dataset.mid+'"]')  
-    var chosen='absent'
-    activeBtns.forEach(function(b){ if(b.style.color==='#fff' || b.style.color==='rgb(255,255,255)') chosen=b.dataset.type })
-    att.push({member_id:btn.dataset.mid, attendance_type:chosen})
+  var overlay = document.getElementById('attendance-editor-overlay')
+  var state   = overlay && overlay._attState ? overlay._attState : {}
+
+  // Build attendance array directly from state — no CSS inspection needed
+  var att = Object.keys(state).map(function(memberId){
+    return { member_id: memberId, attendance_type: state[memberId] || 'absent' }
   })
-  var res=await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:att})
-  if(res&&res.error){toast(res.error,'error');return}
-  document.getElementById('attendance-editor-overlay')?.remove()
-  toast('Attendance saved!','success'); await loadBoardPage()
+
+  if(!att.length){
+    toast('No members to save','error'); return
+  }
+
+  var saveBtn = document.getElementById('att-save-btn')
+  if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving…' }
+
+  var res = await api('/api/board/meetings/'+meetingId+'/attendance','PUT',{attendance:att})
+  if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Save Attendance' }
+
+  if(res && res.error){ toast(res.error,'error'); return }
+  overlay.remove()
+  toast('Attendance saved!','success')
+  await loadBoardPage()
 }
 
-async function openBoardAvailability(){
-  var now=new Date()
-  var months=['January','February','March','April','May','June','July','August','September','October','November','December']
-  var existing=document.getElementById('avail-req-overlay'); if(existing) existing.remove()
-  var overlay=document.createElement('div'); overlay.id='avail-req-overlay'
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  var active=_boardMembers.filter(function(m){return m.status==='active'}).length
-  overlay.innerHTML='<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg);padding:24px;display:flex;flex-direction:column;gap:16px">'
-    +'<div style="font-size:16px;font-weight:700">📬 Request Availability</div>'
-    +'<div style="font-size:13px;color:var(--text-muted)">Send availability form links to all '+active+' active board members.</div>'
-    +'<div style="display:flex;gap:10px">'
-    +'<div class="form-group" style="margin:0;flex:1"><label>Month</label><select id="avail-month" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
-    +months.map(function(n,i){return '<option value="'+(i+1)+'"'+(i===now.getMonth()?' selected':'')+'>'+n+'</option>'}).join('')+'</select></div>'
-    +'<div class="form-group" style="margin:0;width:90px"><label>Year</label><input type="number" id="avail-year" value="'+now.getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div></div>'
-    +'<div style="display:flex;gap:10px">'
-    +'<button class="btn btn-secondary" style="flex:1" onclick="closeAvailReqOverlay()">Cancel</button>'
-    +'<button class="btn btn-primary" style="flex:2" id="avail-send-btn" onclick="sendAvailabilityRequest()">📬 Send Emails</button></div></div>'
-  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
-  document.body.appendChild(overlay)
-}
 
 async function sendAvailabilityRequest(){
   var month=document.getElementById('avail-month').value, year=document.getElementById('avail-year').value

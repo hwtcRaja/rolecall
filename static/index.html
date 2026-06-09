@@ -14864,7 +14864,7 @@ async function openProgramDetail(programId){
 
         <!-- Auditions tab -->
         <div id="pdtab-auditions" style="display:none">
-          <div id="prog-auditions-${p.id}"></div>
+          <div id="prog-auditions-content"></div>
         </div>
 
         <!-- Portal content tab -->
@@ -15883,11 +15883,8 @@ function switchProgramDetailTab(tab){
   if(tab==='portal') loadProgramPortalContent(pid)
   if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-'+pid)
   if(tab==='auditions' && pid){
-    const el = document.getElementById('prog-auditions-'+pid)
-    if(el && !el.dataset.loaded){
-      el.dataset.loaded='1'
-      loadAuditionsTab('program', pid, 'prog-auditions-'+pid)
-    }
+    const el = document.getElementById('prog-auditions-content')
+    if(el) loadAuditionsTab('program', pid, 'prog-auditions-content')
   }
 }
 

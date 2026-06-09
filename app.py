@@ -1280,6 +1280,30 @@ def serialize_row(r):
             out[k] = v
     return out
 
+def parse_db_datetime(val):
+    """Safely parse a datetime value that may be a string (from serialize_row) or datetime object.
+    Always returns a naive UTC datetime, or None if unparseable."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=None) if val.tzinfo else val
+    if isinstance(val, str):
+        s = val.strip()
+        # Strip timezone offset if present (handles Python < 3.11)
+        import re as _re
+        s = _re.sub(r'[+-]\d{2}:\d{2}$', '', s).replace('Z', '')
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        # Try common formats
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                pass
+    return None
+
 def fetchall(conn, sql, params=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
         c.execute(sql, params)
@@ -8559,11 +8583,11 @@ def send_rsvp_invite(eid):
 
         # Skip if invited recently (within 24h) unless force_resend
         if existing and existing.get('last_invited_at') and not force_resend:
-            from datetime import datetime as _dt2, timezone as _tz
+            from datetime import datetime as _dt2
             last_sent = existing['last_invited_at']
-            if hasattr(last_sent, 'replace'):
-                last_sent = last_sent.replace(tzinfo=None)
-            diff = (_dt2.utcnow() - last_sent).total_seconds()
+            last_sent_dt = parse_db_datetime(last_sent)
+            if last_sent_dt is None: last_sent_dt = _dt2.utcnow()
+            diff = (_dt2.utcnow() - last_sent_dt).total_seconds()
             if diff < 86400:  # 24 hours
                 skipped += 1
                 skipped_names.append(v['name'])
@@ -9491,12 +9515,9 @@ def send_employer_program_reminder():
         if v.get('last_sent'):
             from datetime import datetime, timezone
             last = v['last_sent']
-            if hasattr(last, 'replace'):
-                now = datetime.now(timezone.utc)
-                if hasattr(last, 'tzinfo') and last.tzinfo:
-                    diff = (now - last).days
-                else:
-                    diff = (now.replace(tzinfo=None) - last).days
+            last_dt = parse_db_datetime(last)
+            if last_dt is not None:
+                diff = (datetime.utcnow() - last_dt).days
                 if diff < min_days:
                     skipped += 1
                     skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')

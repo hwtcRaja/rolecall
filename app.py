@@ -2780,12 +2780,16 @@ def get_audition_settings(context_type, context_id):
         (context_id, context_type))
     conn.close()
     if not row:
-        return jsonify({'context_type': context_type, 'context_id': context_id,
+        resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
     except Exception: row['roles'] = []
-    return jsonify(row)
+    resp = jsonify(row)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
@@ -3023,11 +3027,16 @@ def get_my_audition_submission():
             AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
             (passphrase, context_type, context_id))
     conn.close()
-    if not sub: return jsonify(None)
+    if not sub: 
+        resp = jsonify(None)
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
     except Exception: sub['roles_requested'] = []
     if not sub.get('cast_role'): sub['cast_role'] = ''
-    return jsonify(sub)
+    resp = jsonify(sub)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])
@@ -3078,7 +3087,9 @@ def get_cast_list(context_type, context_id):
         (context_type, context_id))
     if not row or not row.get('cast_list_published'):
         conn.close()
-        return jsonify({'published': False, 'cast': []})
+        resp = jsonify({'published': False, 'cast': []})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     # Get the actual production/program name
     ctx_name = ''
     if context_type == 'production':
@@ -3093,7 +3104,9 @@ def get_cast_list(context_type, context_id):
     except Exception:
         cast = []
     title = row.get('title') or ctx_name
-    return jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
+    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 # ─────────────────────────────────────────────

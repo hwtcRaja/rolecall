@@ -2981,7 +2981,19 @@ def delete_audition_submission(sid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    # Hard delete the submission
     execute(conn, 'DELETE FROM audition_submissions WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/submissions/<sid>/decline', methods=['POST'])
+def decline_audition_submission(sid):
+    """Soft-delete — marks as declined so portal shows the form again."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE audition_submissions SET status='declined', updated_at=NOW() WHERE id=%s", (sid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

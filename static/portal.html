@@ -704,6 +704,8 @@ async function selectContext(type, id, name, color){
     }
     if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
     if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
+    // Add Auditions tab if open (loaded async — add as placeholder, fill when clicked)
+    tabDefs.push({id:'auditions', label:'🎭 Auditions'})
     tabDefs.push({id:'messages', label:'💬 Messages'})
     // Profile tab removed — shown at top of page instead
 
@@ -786,7 +788,7 @@ async function selectContext(type, id, name, color){
       +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
       +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
       // profile tab removed
-      +'<div class="tab-content" id="dtab-messages" style="padding:20px">'        +'<div id="portal-inline-messages" style="min-height:120px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'      +'</div>'
+      +'<div class="tab-content" id="dtab-auditions" style="padding:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'      +'<div class="tab-content" id="dtab-messages" style="padding:20px">'        +'<div id="portal-inline-messages" style="min-height:120px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'      +'</div>'
 
     document.getElementById('detail-tab-contents').innerHTML = tabHTML
     panel.scrollIntoView({behavior:'smooth', block:'nearest'})
@@ -1133,6 +1135,13 @@ function switchDetailTab(id, btn){
     const passphrase = portalSession?.passphrase || ''
     loadInlineMessages(passphrase, activeContextType, activeContextId)
   }
+  if(id === 'auditions'){
+    const passphrase = portalSession?.passphrase || ''
+    const participant = activeChildData?.members?.find(m=>String(m.id)===String(activeChildId))
+                     || portalSession?.participant
+    const pName = participant ? (participant.first_name+' '+(participant.last_name||'')).trim() : ''
+    loadPortalAuditionsTab(activeContextType, activeContextId, passphrase, activeChildId, pName)
+  }
   const target = document.getElementById('dtab-'+id)
   if(target){ target.classList.add('active'); target.style.display = 'block' }
 }
@@ -1453,6 +1462,150 @@ async function submitInlineNewMessage(passphrase, prodId, progId, ctxLabel){
   }, 1000)
 }
 
+
+
+// ── Auditions tab (portal family side) ───────────────────────────────────────
+
+async function loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName){
+  const el = document.getElementById('dtab-auditions')
+  if(!el) return
+
+  const settings = await fetch(`/api/auditions/settings/${contextType}/${contextId}`)
+    .then(r=>r.json()).catch(()=>null)
+
+  if(!settings || !settings.is_open){
+    el.innerHTML = `<div style="text-align:center;padding:36px 20px;color:var(--text-muted)">
+      <div style="font-size:36px;margin-bottom:12px">🎭</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px">Auditions Not Currently Open</div>
+      <div style="font-size:13px">Check back soon or contact us for more information.</div>
+    </div>`
+    return
+  }
+
+  const roles = settings.roles || []
+  const emailAddr = settings.email_submissions || 'info@hwtco.org'
+
+  el.innerHTML = `
+    <div style="max-width:560px">
+      ${settings.title?`<div style="font-size:18px;font-weight:800;margin-bottom:6px">🎭 ${escHtml(settings.title)}</div>`:'<div style="font-size:18px;font-weight:800;margin-bottom:6px">🎭 Auditions</div>'}
+      ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">📅 ${settings.audition_date}${settings.audition_time?' at '+settings.audition_time:''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
+      ${settings.description?`<div style="font-size:13px;margin:10px 0;padding:12px 14px;background:var(--bg);border-radius:var(--radius);line-height:1.6">${escHtml(settings.description)}</div>`:''}
+      ${settings.instructions?`<div style="font-size:13px;margin-bottom:14px;color:var(--text-muted)">${escHtml(settings.instructions)}</div>`:''}
+
+      <div id="aud-portal-form" style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px">Submit Your Audition</div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Your Name *</label>
+            <input type="text" id="aud-name" value="${escHtml(participantName||'')}" placeholder="Full name"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>
+          <div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Email (for confirmation)</label>
+            <input type="email" id="aud-email" placeholder="your@email.com"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>
+          ${roles.length?`<div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role Auditioning For</label>
+            <select id="aud-role" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+              <option value="">— Select a role —</option>
+              ${roles.map(r=>`<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('')}
+              <option value="__other__">Other / Not sure yet</option>
+            </select>
+          </div>`:`<div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role Auditioning For</label>
+            <input type="text" id="aud-role-text" placeholder="e.g. Lead, Ensemble, Crew…"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>`}
+
+          ${settings.allow_video_link!==false?`<div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">🎬 Video Link</label>
+            <input type="url" id="aud-video" placeholder="YouTube, Google Drive, Vimeo…"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Paste a link to your audition video. Can't share a link? Email the file to <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal)">${escHtml(emailAddr)}</a></div>
+          </div>`:''}
+
+          ${settings.allow_resume_link!==false?`<div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">📄 Resume Link</label>
+            <input type="url" id="aud-resume" placeholder="Google Drive or Dropbox link to resume/PDF…"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>`:''}
+
+          ${settings.allow_headshot_link!==false?`<div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">📸 Headshot Link</label>
+            <input type="url" id="aud-headshot" placeholder="Google Drive or Dropbox link to headshot…"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Can't share a link? Email to <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal)">${escHtml(emailAddr)}</a></div>
+          </div>`:''}
+
+          <div class="form-group">
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Additional Notes</label>
+            <textarea id="aud-notes" rows="3" placeholder="Anything else you'd like us to know…"
+              style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+          </div>
+
+          <div id="aud-submit-status" style="font-size:13px"></div>
+          <button onclick="submitPortalAudition('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}')"
+            style="width:100%;background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:13px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
+            Submit Audition</button>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;font-size:12px;color:var(--text-muted);text-align:center">
+        Can't use links? Email files directly to
+        <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal);font-weight:600">${escHtml(emailAddr)}</a>
+        with your name and the production in the subject line.
+      </div>
+    </div>`
+}
+
+async function submitPortalAudition(contextType, contextId, passphrase, participantId){
+  const name   = document.getElementById('aud-name')?.value.trim()
+  const email  = document.getElementById('aud-email')?.value.trim()
+  const roleEl = document.getElementById('aud-role') || document.getElementById('aud-role-text')
+  let role = roleEl?.value?.trim()||''
+  if(role === '__other__') role = ''
+  const video   = document.getElementById('aud-video')?.value.trim()||''
+  const resume  = document.getElementById('aud-resume')?.value.trim()||''
+  const headshot= document.getElementById('aud-headshot')?.value.trim()||''
+  const notes   = document.getElementById('aud-notes')?.value.trim()||''
+  const status  = document.getElementById('aud-submit-status')
+
+  if(!name){ if(status) status.innerHTML='<span style="color:#dc2626">Please enter your name.</span>'; return }
+
+  const btn = document.querySelector('#aud-portal-form button:last-of-type')
+  if(btn){ btn.disabled=true; btn.textContent='Submitting…' }
+
+  const payload = {
+    context_type: contextType, context_id: contextId,
+    passphrase, participant_id: participantId||null,
+    submitter_name: name, submitter_email: email||null,
+    role_requested: role||null,
+    video_url: video||null, resume_url: resume||null,
+    headshot_url: headshot||null, notes: notes||null
+  }
+  const r = await fetch('/api/auditions/submit',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  })
+  const d = await r.json().catch(()=>({}))
+  if(btn){ btn.disabled=false; btn.textContent='Submit Audition' }
+  if(!d.ok){
+    if(status) status.innerHTML=`<span style="color:#dc2626">${escHtml(d.error||'Submission failed. Please try again.')}</span>`
+    return
+  }
+  // Show success
+  document.getElementById('aud-portal-form').innerHTML = `
+    <div style="text-align:center;padding:28px 16px">
+      <div style="font-size:40px;margin-bottom:12px">✅</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">Audition Submitted!</div>
+      <div style="font-size:13px;color:var(--text-muted)">
+        Thanks, ${escHtml(name)}. We received your submission and will be in touch.
+        ${email?'A confirmation was sent to '+escHtml(email)+'.':''}
+      </div>
+    </div>`
+}
 
 function openContactModal(){
   openMessagesPanel()

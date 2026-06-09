@@ -7193,6 +7193,337 @@ function timeAgo(ts){
   return formatDate(ts)
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+//  AUDITIONS — Admin
+// ═══════════════════════════════════════════════════════════════
+
+const AUDITION_STATUS_COLORS = {
+  pending:  ['#fef3c7','#92400e'],
+  callback: ['#dbeafe','#1e40af'],
+  cast:     ['#dcfce7','#166534'],
+  declined: ['#fee2e2','#991b1b'],
+  waitlist: ['#ede9fe','#6d28d9'],
+}
+const AUDITION_STATUS_LABELS = {
+  pending:'Pending', callback:'Callback', cast:'Cast', declined:'Declined', waitlist:'Waitlist'
+}
+
+async function loadAuditionsTab(contextType, contextId, containerId){
+  const el = document.getElementById(containerId)
+  if(!el) return
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px 0">Loading…</div>'
+  const [settings, submissions] = await Promise.all([
+    api(`/api/auditions/settings/${contextType}/${contextId}`),
+    api(`/api/auditions/submissions/${contextType}/${contextId}`)
+  ])
+  renderAuditionsAdmin(contextType, contextId, containerId, settings||{}, submissions||[])
+}
+
+function renderAuditionsAdmin(contextType, contextId, containerId, settings, submissions){
+  const el = document.getElementById(containerId)
+  if(!el) return
+  const isOpen = !!settings.is_open
+  const roles  = settings.roles || []
+
+  // Status filter
+  const counts = {}
+  submissions.forEach(s=>{ counts[s.status]=(counts[s.status]||0)+1 })
+  const total = submissions.length
+
+  // Group by status for summary
+  const summaryBadges = Object.entries(AUDITION_STATUS_LABELS).map(([k,l])=>{
+    const c = counts[k]||0
+    if(!c) return ''
+    const [bg,col] = AUDITION_STATUS_COLORS[k]
+    return `<span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${c} ${l}</span>`
+  }).filter(Boolean).join(' ')
+
+  let html = `
+  <!-- Settings card -->
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:15px;font-weight:700">🎭 Audition Settings</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Configure what families see and can submit</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;font-weight:700;color:${isOpen?'var(--green-600)':'var(--text-muted)'}">
+          ${isOpen?'🟢 Open':'⚫ Closed'}</span>
+        <button class="btn ${isOpen?'btn-secondary':'btn-primary'} btn-sm"
+          onclick="toggleAuditionOpen('${contextType}','${contextId}','${containerId}',${!isOpen})">
+          ${isOpen?'Close Submissions':'Open Submissions'}</button>
+        <button class="btn btn-secondary btn-sm"
+          onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">
+          ⚙️ Settings</button>
+      </div>
+    </div>
+    ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">📅 ${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
+    ${roles.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${roles.map(r=>'<span style="background:var(--teal-50);color:var(--teal-dark);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">'+escHtml(r)+'</span>').join('')}</div>`:''}
+  </div>
+
+  <!-- Submissions card -->
+  <div class="card" style="padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:15px;font-weight:700">📋 Submissions (${total})</div>
+        ${summaryBadges?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${summaryBadges}</div>`:''}
+      </div>
+      <div style="display:flex;gap:8px">
+        <select id="aud-filter-${contextId}" onchange="filterAuditionSubmissions('${contextId}')"
+          style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">
+          <option value="">All Statuses</option>
+          ${Object.entries(AUDITION_STATUS_LABELS).map(([k,l])=>`<option value="${k}">${l}${counts[k]?' ('+counts[k]+')':''}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div id="aud-list-${contextId}">
+      ${renderAuditionList(submissions, contextId)}
+    </div>
+  </div>`
+
+  el.innerHTML = html
+  // Store submissions for filtering
+  el._submissions = submissions
+  el._contextId   = contextId
+}
+
+function renderAuditionList(submissions, contextId, filterStatus){
+  if(!submissions.length)
+    return '<div style="text-align:center;padding:28px;color:var(--text-muted)"><div style="font-size:28px;margin-bottom:8px">🎭</div><div>No submissions yet</div></div>'
+  const filtered = filterStatus ? submissions.filter(s=>s.status===filterStatus) : submissions
+  if(!filtered.length)
+    return `<div style="text-align:center;padding:20px;color:var(--text-muted)">No ${AUDITION_STATUS_LABELS[filterStatus]||''} submissions</div>`
+  return filtered.map(s=>{
+    const [bg,col] = AUDITION_STATUS_COLORS[s.status]||AUDITION_STATUS_COLORS.pending
+    const links = [
+      s.video_url   ? `<a href="${escHtml(s.video_url)}" target="_blank" class="btn btn-secondary btn-sm">▶ Video</a>` : '',
+      s.resume_url  ? `<a href="${escHtml(s.resume_url)}" target="_blank" class="btn btn-secondary btn-sm">📄 Resume</a>` : '',
+      s.headshot_url? `<a href="${escHtml(s.headshot_url)}" target="_blank" class="btn btn-secondary btn-sm">📸 Headshot</a>` : '',
+    ].filter(Boolean).join('')
+    const videoEmbed = s.video_url && (s.video_url.includes('youtube.com')||s.video_url.includes('youtu.be'))
+      ? getYouTubeEmbedId(s.video_url) : null
+    return `<div class="aud-submission" data-sid="${s.id}" data-status="${s.status}"
+      style="border:1.5px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            ${avatarHTML(s.submitter_name, 30)}
+            <div style="font-size:14px;font-weight:700">${escHtml(s.submitter_name)}</div>
+            <span style="background:${bg};color:${col};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${AUDITION_STATUS_LABELS[s.status]||s.status}</span>
+          </div>
+          ${s.role_requested?`<div style="font-size:13px;color:var(--teal-dark);font-weight:600">Auditioning for: ${escHtml(s.role_requested)}</div>`:''}
+          ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
+          ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
+          <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;min-width:160px">
+          <select onchange="updateAuditionStatus('${s.id}','${contextId}',this.value)"
+            style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:${bg};color:${col};font-weight:700">
+            ${Object.entries(AUDITION_STATUS_LABELS).map(([k,l])=>`<option value="${k}" ${s.status===k?'selected':''}>${l}</option>`).join('')}
+          </select>
+          <button onclick="openAuditionNotesModal('${s.id}','${contextId}')"
+            style="padding:5px 10px;font-size:11px;font-weight:600;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);cursor:pointer;font-family:inherit">
+            ${s.admin_notes?'✏️ Edit Notes':'+ Add Notes'}</button>
+          <button onclick="deleteAuditionSubmission('${s.id}','${contextId}')"
+            style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:2px">× Remove</button>
+        </div>
+      </div>
+      ${links?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:${videoEmbed?'10px':'0'}">${links}</div>`:''}
+      ${videoEmbed?`<div style="margin-top:10px;border-radius:var(--radius);overflow:hidden;background:#000">
+        <iframe width="100%" height="200" src="https://www.youtube.com/embed/${videoEmbed}" frameborder="0" allowfullscreen style="display:block"></iframe>
+      </div>`:''}
+      ${s.admin_notes?`<div style="margin-top:8px;font-size:12px;background:var(--teal-50);color:var(--teal-dark);padding:8px 10px;border-radius:6px"><strong>Notes:</strong> ${escHtml(s.admin_notes)}</div>`:''}
+    </div>`
+  }).join('')
+}
+
+function getYouTubeEmbedId(url){
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)
+  return m ? m[1] : null
+}
+
+function filterAuditionSubmissions(contextId){
+  const container = document.getElementById('aud-list-'+contextId)?.closest('[id]')
+  // Find the submissions stored on the parent el
+  const parentEl = document.getElementById('aud-list-'+contextId)?.parentElement?.parentElement?.parentElement
+  if(!parentEl || !parentEl._submissions) return
+  const status = document.getElementById('aud-filter-'+contextId)?.value
+  document.getElementById('aud-list-'+contextId).innerHTML = renderAuditionList(parentEl._submissions, contextId, status)
+}
+
+async function toggleAuditionOpen(contextType, contextId, containerId, newState){
+  const s = await api(`/api/auditions/settings/${contextType}/${contextId}`)
+  const updated = Object.assign({}, s, {is_open: newState})
+  await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', updated)
+  toast(newState ? 'Auditions are now open!' : 'Auditions closed', 'success')
+  loadAuditionsTab(contextType, contextId, containerId)
+}
+
+async function updateAuditionStatus(sid, contextId, status){
+  // Get existing notes
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  const notesEl = container?.querySelector('[data-admin-notes]')
+  const adminNotes = notesEl?.textContent || ''
+  await api(`/api/auditions/submissions/${sid}/status`, 'PUT', {status, admin_notes: adminNotes})
+  toast('Status updated', 'success')
+  // Update the badge inline without full reload
+  const badge = container?.querySelector('[style*="border-radius:20px"]')
+  if(badge){
+    const [bg,col] = AUDITION_STATUS_COLORS[status]||AUDITION_STATUS_COLORS.pending
+    badge.textContent = AUDITION_STATUS_LABELS[status]||status
+    badge.style.background = bg; badge.style.color = col
+  }
+  const sel = container?.querySelector('select')
+  if(sel){ sel.style.background = (AUDITION_STATUS_COLORS[status]||[])[0]||''; sel.style.color = (AUDITION_STATUS_COLORS[status]||[])[1]||'' }
+}
+
+function openAuditionNotesModal(sid, contextId){
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  const existing = container?.querySelector('.admin-notes-text')?.textContent || ''
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;box-shadow:var(--shadow-lg)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700">Admin Notes</div>
+    <div style="padding:16px 20px">
+      <textarea id="aud-notes-input" rows="4" placeholder="Private notes visible only to admin…"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;outline:none;box-sizing:border-box">${escHtml(existing)}</textarea>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveAuditionNotes('${sid}','${contextId}',this)">Save Notes</button>
+    </div>
+  </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveAuditionNotes(sid, contextId, btn){
+  const notes = document.getElementById('aud-notes-input')?.value.trim()||''
+  const selEl  = document.querySelector(`[data-sid="${sid}"] select`)
+  const status = selEl?.value || 'pending'
+  await api(`/api/auditions/submissions/${sid}/status`, 'PUT', {status, admin_notes: notes})
+  btn.closest('[style*=fixed]').remove()
+  toast('Notes saved', 'success')
+  // Update notes display inline
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  let notesDiv = container?.querySelector('.aud-admin-notes')
+  if(notes){
+    if(!notesDiv){
+      notesDiv = document.createElement('div')
+      notesDiv.className = 'aud-admin-notes'
+      notesDiv.style.cssText = 'margin-top:8px;font-size:12px;background:var(--teal-50);color:var(--teal-dark);padding:8px 10px;border-radius:6px'
+      container.appendChild(notesDiv)
+    }
+    notesDiv.innerHTML = `<strong>Notes:</strong> ${escHtml(notes)}`
+  } else if(notesDiv){
+    notesDiv.remove()
+  }
+  // Update button label
+  const notesBtn = container?.querySelector('button[onclick*="openAuditionNotesModal"]')
+  if(notesBtn) notesBtn.textContent = notes ? '✏️ Edit Notes' : '+ Add Notes'
+}
+
+async function deleteAuditionSubmission(sid, contextId){
+  if(!confirm('Remove this submission? This cannot be undone.')) return
+  await api(`/api/auditions/submissions/${sid}`, 'DELETE')
+  document.querySelector(`[data-sid="${sid}"]`)?.remove()
+  toast('Submission removed')
+}
+
+function openAuditionSettingsModal(contextType, contextId, containerId){
+  api(`/api/auditions/settings/${contextType}/${contextId}`).then(settings=>{
+    const roles = (settings.roles||[]).join(', ')
+    const existing = document.getElementById('aud-settings-overlay')
+    if(existing) existing.remove()
+    const overlay = document.createElement('div')
+    overlay.id = 'aud-settings-overlay'
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
+    overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:540px;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:16px;font-weight:700">🎭 Audition Settings</div>
+        <button onclick="document.getElementById('aud-settings-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
+      </div>
+      <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label>Audition Title <span style="font-weight:400;color:var(--text-muted)">(shown on portal)</span></label>
+          <input type="text" id="aud-s-title" value="${escHtml(settings.title||'')}" placeholder="e.g. Spring Musical Auditions"/>
+        </div>
+        <div class="form-group">
+          <label>Description / What to Prepare</label>
+          <textarea id="aud-s-desc" rows="3" style="resize:vertical">${escHtml(settings.description||'')}</textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label>Audition Date</label>
+            <input type="date" id="aud-s-date" value="${settings.audition_date||''}"/></div>
+          <div class="form-group"><label>Audition Time</label>
+            <input type="time" id="aud-s-time" value="${settings.audition_time||''}"/></div>
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <input type="text" id="aud-s-location" value="${escHtml(settings.location||'')}" placeholder="e.g. HWTC Main Stage"/>
+        </div>
+        <div class="form-group">
+          <label>Available Roles <span style="font-weight:400;color:var(--text-muted)">(comma separated)</span></label>
+          <input type="text" id="aud-s-roles" value="${escHtml(roles)}" placeholder="e.g. Lead, Supporting, Ensemble, Crew"/>
+        </div>
+        <div class="form-group">
+          <label>Additional Instructions</label>
+          <textarea id="aud-s-instructions" rows="2" style="resize:vertical" placeholder="Any other prep notes for families…">${escHtml(settings.instructions||'')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>Also notify this email on submissions <span style="font-weight:400;color:var(--text-muted)">(in addition to admins)</span></label>
+          <input type="email" id="aud-s-email" value="${escHtml(settings.email_submissions||'')}" placeholder="director@hwtco.org"/>
+        </div>
+        <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Allow families to submit</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="aud-s-video" ${settings.allow_video_link!==false?'checked':''} style="accent-color:var(--teal)">
+              🎬 Video link (YouTube, Drive, Vimeo…)</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="aud-s-resume" ${settings.allow_resume_link!==false?'checked':''} style="accent-color:var(--teal)">
+              📄 Resume / headshot link (Drive, Dropbox…)</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="checkbox" id="aud-s-headshot" ${settings.allow_headshot_link!==false?'checked':''} style="accent-color:var(--teal)">
+              📸 Headshot link</label>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="document.getElementById('aud-settings-overlay').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveAuditionSettings('${contextType}','${contextId}','${containerId}')">Save Settings</button>
+      </div>
+    </div>`
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+    document.body.appendChild(overlay)
+  })
+}
+
+async function saveAuditionSettings(contextType, contextId, containerId){
+  const roles = (document.getElementById('aud-s-roles')?.value||'')
+    .split(',').map(r=>r.trim()).filter(Boolean)
+  const data = {
+    is_open:             !!(await api(`/api/auditions/settings/${contextType}/${contextId}`)).is_open,
+    title:               document.getElementById('aud-s-title')?.value.trim()||'',
+    description:         document.getElementById('aud-s-desc')?.value.trim()||'',
+    audition_date:       document.getElementById('aud-s-date')?.value||null,
+    audition_time:       document.getElementById('aud-s-time')?.value||null,
+    location:            document.getElementById('aud-s-location')?.value.trim()||'',
+    roles,
+    instructions:        document.getElementById('aud-s-instructions')?.value.trim()||'',
+    email_submissions:   document.getElementById('aud-s-email')?.value.trim()||'',
+    allow_video_link:    !!document.getElementById('aud-s-video')?.checked,
+    allow_resume_link:   !!document.getElementById('aud-s-resume')?.checked,
+    allow_headshot_link: !!document.getElementById('aud-s-headshot')?.checked,
+  }
+  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)
+  if(res?.error){ toast(res.error,'error'); return }
+  document.getElementById('aud-settings-overlay')?.remove()
+  toast('Settings saved!', 'success')
+  loadAuditionsTab(contextType, contextId, containerId)
+}
+
 // Youth Programs
 function populateProgramsDropdown(){
   const sel=document.getElementById('youth-program')
@@ -9676,6 +10007,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
   s += '</div>'
   // Portal content tab
   s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
+  s += '<div id="prodtab-auditions" style="display:none"><div id="prodtab-auditions-inner-'+p.id+'"></div></div>'
   s += '</div>' // end right column
   s += '</div>' // end grid
   return s
@@ -14496,6 +14828,7 @@ async function openProgramDetail(programId){
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
           <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">📅 Events</button>
           <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">💬 Messages</button>
+          <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')">🎭 Auditions</button>
           ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">🏠 Portal Content</button>`:''}
         </div>
 
@@ -14527,6 +14860,11 @@ async function openProgramDetail(programId){
             </div>
             <div id="prog-messages-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
+        </div>
+
+        <!-- Auditions tab -->
+        <div id="pdtab-auditions" style="display:none">
+          <div id="prog-auditions-${p.id}"></div>
         </div>
 
         <!-- Portal content tab -->
@@ -14752,7 +15090,7 @@ function renderProductionPortalHTML(pid, stage){
 
 function switchProductionTab(tab){
   const pid = window._currentProductionDetailId
-  const tabs = ['members','youth','schedule','info','portal']
+  const tabs = ['members','youth','schedule','info','portal','auditions']
   tabs.forEach(t=>{
     const el = document.getElementById('prodtab-'+t)
     if(el) el.style.display = t===tab?'':'none'
@@ -14761,6 +15099,14 @@ function switchProductionTab(tab){
   })
   if(tab==='portal') loadProductionPortalContent(pid)
   if(tab==='youth' && pid) loadYouthProdMembers(pid)
+  if(tab==='auditions' && pid){
+    const inner = document.getElementById('prodtab-auditions-inner-'+pid)
+    if(inner && !inner.dataset.loaded){
+      inner.dataset.loaded='1'
+      inner.innerHTML = '<div id="prod-auditions-'+pid+'"></div>'
+      loadAuditionsTab('production', pid, 'prod-auditions-'+pid)
+    }
+  }
   if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
 }
 
@@ -15527,7 +15873,7 @@ async function submitAddConflict(pid){
 // ── Enhanced program portal tab: add folder support ──
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
-  ['events','messages','portal'].forEach(t=>{
+  ['events','messages','portal','auditions'].forEach(t=>{
     const el = document.getElementById('pdtab-'+t)
     const btn = document.getElementById('pdtab-btn-'+t)
     if(el) el.style.display = tab===t ? '' : 'none'
@@ -15536,6 +15882,13 @@ function switchProgramDetailTab(tab){
   const pid = window._currentProgramDetailId
   if(tab==='portal') loadProgramPortalContent(pid)
   if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-'+pid)
+  if(tab==='auditions' && pid){
+    const el = document.getElementById('prog-auditions-'+pid)
+    if(el && !el.dataset.loaded){
+      el.dataset.loaded='1'
+      loadAuditionsTab('program', pid, 'prog-auditions-'+pid)
+    }
+  }
 }
 
 async function loadProgramPortalContent(pid){

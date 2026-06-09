@@ -1519,7 +1519,6 @@ async function submitInlineNewMessage(passphrase, prodId, progId, ctxLabel){
 
 async function loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName){
   const el = document.getElementById('dtab-auditions')
-  console.log('[Auditions] el=', el, 'contextType=', contextType, 'contextId=', contextId, 'passphrase=', passphrase ? 'set' : 'empty')
   if(!el){ console.error('[Auditions] dtab-auditions not found!'); return }
 
   // Fetch everything in parallel
@@ -1529,7 +1528,6 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
     fetch(`/api/auditions/cast-list/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
   ])
 
-  console.log('[Auditions] settings=', settings, 'existingSub=', existingSub, 'castData=', castData)
   // 1. Cast list published — show it (highest priority)
   if(castData?.published && castData.cast?.length){
     el.innerHTML = buildCastListHTML(castData)
@@ -1569,6 +1567,8 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
   }
 
 
+  const emailAddr = settings.email_submissions || 'info@hwtco.org'
+  const roles = settings.roles || []
   el.innerHTML = `
     <div style="max-width:560px">
       ${settings.title?`<div style="font-size:18px;font-weight:800;margin-bottom:6px">🎭 ${escHtml(settings.title)}</div>`:'<div style="font-size:18px;font-weight:800;margin-bottom:6px">🎭 Auditions</div>'}

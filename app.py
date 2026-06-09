@@ -2735,6 +2735,198 @@ def portal_family_threads():
     return jsonify(threads)
 
 
+
+# ─────────────────────────────────────────────────────────────
+#  AUDITIONS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
+def get_audition_settings(context_type, context_id):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    conn.close()
+    if not row:
+        return jsonify({'context_type': context_type, 'context_id': context_id,
+            'is_open': False, 'roles': [], 'allow_video_link': True,
+            'allow_resume_link': True, 'allow_headshot_link': True})
+    try: row['roles'] = json.loads(row.get('roles') or '[]')
+    except Exception: row['roles'] = []
+    return jsonify(row)
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
+def save_audition_settings(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    roles_json = json.dumps(d.get('roles') or [])
+    is_open  = bool(d.get('is_open', False))
+    title    = (d.get('title') or '').strip() or None
+    desc     = (d.get('description') or '').strip() or None
+    aud_date = d.get('audition_date') or None
+    aud_time = d.get('audition_time') or None
+    location = (d.get('location') or '').strip() or None
+    instructions = (d.get('instructions') or '').strip() or None
+    email_sub    = (d.get('email_submissions') or '').strip() or None
+    allow_video  = bool(d.get('allow_video_link', True))
+    allow_resume = bool(d.get('allow_resume_link', True))
+    allow_head   = bool(d.get('allow_headshot_link', True))
+    if existing:
+        execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
+            audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
+            email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
+            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
+             email_sub,allow_video,allow_resume,allow_head,context_id,context_type))
+    else:
+        sid = str(uuid.uuid4())
+        execute(conn, """INSERT INTO audition_settings
+            (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/submissions/<context_type>/<context_id>', methods=['GET'])
+def get_audition_submissions(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT * FROM audition_submissions
+        WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+        (context_type, context_id))
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/auditions/submit', methods=['POST'])
+def submit_audition():
+    d = request.json or {}
+    context_type = d.get('context_type')
+    context_id   = d.get('context_id')
+    name = (d.get('submitter_name') or '').strip()
+    if not context_type or not context_id or not name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    settings = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    if not settings or not settings.get('is_open'):
+        conn.close()
+        return jsonify({'error': 'Auditions are not currently open'}), 400
+    passphrase  = (d.get('passphrase') or '').strip()
+    family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    family_id   = family['id'] if family else None
+    sid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO audition_submissions
+        (id,context_type,context_id,family_id,participant_id,submitter_name,
+         submitter_email,role_requested,video_url,resume_url,headshot_url,notes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        sid, context_type, context_id, family_id,
+        d.get('participant_id') or None, name,
+        (d.get('submitter_email') or '').strip() or None,
+        (d.get('role_requested') or '').strip() or None,
+        (d.get('video_url') or '').strip() or None,
+        (d.get('resume_url') or '').strip() or None,
+        (d.get('headshot_url') or '').strip() or None,
+        (d.get('notes') or '').strip() or None,
+    ))
+    conn.commit()
+    # Get context name
+    ctx_name = ''
+    instructor_id = None
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name, instructor_id FROM youth_programs WHERE id=%s', (context_id,))
+        if p:
+            ctx_name = p['name']
+            instructor_id = p.get('instructor_id')
+    # Notify
+    try:
+        es = get_email_settings()
+        recipients = list(get_recipient_emails(es))
+        try:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE")
+            for u in admins:
+                if u['email'] and u['email'] not in recipients: recipients.append(u['email'])
+        except Exception: pass
+        if instructor_id:
+            vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (instructor_id,))
+            if vol and vol.get('email') and vol['email'] not in recipients:
+                recipients.append(vol['email'])
+        if settings.get('email_submissions'):
+            for e in settings['email_submissions'].split(','):
+                e = e.strip()
+                if e and e not in recipients: recipients.append(e)
+        if recipients:
+            links = []
+            if d.get('video_url'):    links.append('<a href="' + d['video_url'] + '">Video</a>')
+            if d.get('resume_url'):   links.append('<a href="' + d['resume_url'] + '">Resume</a>')
+            if d.get('headshot_url'): links.append('<a href="' + d['headshot_url'] + '">Headshot</a>')
+            html = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">New Audition: ' + ctx_name + '</h2>'
+                '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                '<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:140px">Name</td><td style="padding:8px 12px">' + name + '</td></tr>'
+                '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role</td><td style="padding:8px 12px">' + (d.get('role_requested') or 'Not specified') + '</td></tr>'
+                + ('<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">' + d.get('submitter_email','') + '</td></tr>' if d.get('submitter_email') else '')
+                + ('<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Notes</td><td style="padding:8px 12px">' + d.get('notes','') + '</td></tr>' if d.get('notes') else '')
+                + '</table>'
+                + ('<p>' + ' &nbsp; '.join(links) + '</p>' if links else '')
+                + '<p style="color:#9ca3af;font-size:12px">Manage submissions in RoleCall under the Auditions tab.</p>'
+                + '</div>'
+            )
+            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, html)
+    except Exception as e:
+        app.logger.warning(f'Audition notification failed: {e}')
+    # Confirmation to submitter
+    try:
+        sub_email = (d.get('submitter_email') or '').strip()
+        if sub_email:
+            conf = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">Audition Received: ' + ctx_name + '</h2>'
+                '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
+                '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
+                '<p>We will be in touch soon.</p>'
+                '<p style="color:#9ca3af;font-size:13px">Horizon West Theatre Company</p></div>'
+            )
+            send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
+    except Exception: pass
+    conn.close()
+    return jsonify({'ok': True, 'submission_id': sid})
+
+
+@app.route('/api/auditions/submissions/<sid>/status', methods=['PUT'])
+def update_audition_status(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
+        (d.get('status','pending'), d.get('admin_notes',''), sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/submissions/<sid>', methods=['DELETE'])
+def delete_audition_submission(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM audition_submissions WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────

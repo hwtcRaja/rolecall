@@ -2460,13 +2460,13 @@ def send_program_welcome(pid):
 
     sent = 0
     errors = []
+    fi = d.get('from_identity') or {}
     for r in deduped:
         html_body = (body_tmpl
             .replace('{{program_name}}', prog_name)
             .replace('{{passphrase}}', r.get('passphrase', ''))
             .replace('{{family_greeting}}', r.get('family_greeting', 'HWTC Family')))
         subject = subject_base.replace('{{program_name}}', prog_name)
-        fi = d.get('from_identity') or {}
         ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
         if ok:
             sent += 1
@@ -8643,8 +8643,8 @@ def send_rsvp_invite(eid):
           </div>
         </div>'''
 
+        fi = d.get('from_identity') or {}
         try:
-            fi = d.get('from_identity') or {}
             send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
@@ -9382,6 +9382,7 @@ def send_single_giving_reminder(vol_id):
     else:
         body = base_body + hours_section
     conn3 = get_db()
+    d = request.json or {}
     fi = d.get('from_identity') or {}
     ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
     if ok:

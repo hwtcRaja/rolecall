@@ -638,6 +638,31 @@ async function selectContext(type, id, name, color){
     if(type==='program'){
       const e = activeChildData.enrollments?.find(e=>e.program_id===id)
       if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):'' }
+      // Check if cast in this program's audition
+      const pp = portalSession?.passphrase||''
+      if(pp){
+        // Only show cast role badge if cast list is published
+        Promise.all([
+          fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(pp)}&context_type=program&context_id=${id}`).then(r=>r.json()).catch(()=>null),
+          fetch(`/api/auditions/cast-list/program/${id}`).then(r=>r.json()).catch(()=>null)
+        ]).then(([sub, castData])=>{
+            if(sub?.status==='cast' && sub?.cast_role && castData?.published){
+              castRole = sub.cast_role
+              // Re-render hero with cast role
+              const heroEl = document.getElementById('detail-hero')
+              if(heroEl){
+                const badge = '<div style="margin-top:5px"><span style="background:rgba(255,255,255,0.18);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">'+sub.cast_role+'</span></div>'
+                const nameEl = heroEl.querySelector('.detail-hero-name')
+                if(nameEl && !heroEl.querySelector('.cast-role-badge')){
+                  const div = document.createElement('div')
+                  div.className = 'cast-role-badge'
+                  div.innerHTML = badge
+                  nameEl.after(div)
+                }
+              }
+            }
+        }).catch(()=>{})
+      }
     } else {
       const p = activeChildData.productions?.find(p=>p.id===id)
       if(p){
@@ -1533,6 +1558,7 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
           ${roleList.map(r=>`<span style="background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')}
         </div>`:''}
         <div style="font-size:12px;color:var(--text-hint);margin-top:8px">Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString() : ''}</div>
+        <div style="font-size:11px;color:var(--text-hint);margin-top:10px"><a href="#" onclick="loadPortalAuditionsTab('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}','${escHtml(participantName||'')}');return false" style="color:var(--teal)">↻ Refresh</a></div>
         ${existingSub.status==='cast'&&existingSub.cast_role?`
         <div style="margin-top:14px;background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;text-align:left">
           <div style="font-size:13px;font-weight:800;margin-bottom:6px">${escHtml(settings.title||activeContextType==='program'?'Program':'Production')}</div>

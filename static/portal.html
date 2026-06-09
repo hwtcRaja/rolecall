@@ -392,16 +392,16 @@ function switchLoginTab(tab){
 async function doLogin(){
  const pass = document.getElementById('login-passphrase').value.trim()
  if(!pass){ showError('Please enter a passphrase'); return }
- const btn = document.querySelector('#tab-family.login-btn')
- btn.disabled = true; btn.textContent = 'Checking…'
+ const btn = document.querySelector('#tab-family .login-btn')
+ if(btn){ btn.disabled = true; btn.textContent = 'Checking...' }
  try{
  const r = await fetch('/api/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass})})
  const d = await r.json()
- if(!r.ok){ showError(d.error||'Passphrase not found'); btn.disabled=false; btn.textContent='Enter Portal →'; return }
+ if(!r.ok){ showError(d.error||'Passphrase not found'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' }; return }
  portalSession = d
  if(d.type==='family') enterFamilyPortal(d)
  else enterParticipantPortal(d)
- }catch(e){ showError('Connection error'); btn.disabled=false; btn.textContent='Enter Portal →' }
+ }catch(e){ showError('Connection error'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' } }
 }
 
 async function doInstructorLogin(){

@@ -7211,13 +7211,23 @@ const AUDITION_STATUS_LABELS = {
 
 async function loadAuditionsTab(contextType, contextId, containerId){
   const el = document.getElementById(containerId)
-  if(!el) return
+  if(!el){ console.error('loadAuditionsTab: container not found:', containerId); return }
   el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px 0">Loading…</div>'
-  const [settings, submissions] = await Promise.all([
-    api(`/api/auditions/settings/${contextType}/${contextId}`),
-    api(`/api/auditions/submissions/${contextType}/${contextId}`)
-  ])
-  renderAuditionsAdmin(contextType, contextId, containerId, settings||{}, submissions||[])
+  let settings = {}, submissions = []
+  try {
+    const [s, sub] = await Promise.all([
+      api(`/api/auditions/settings/${contextType}/${contextId}`),
+      api(`/api/auditions/submissions/${contextType}/${contextId}`)
+    ])
+    if(s && !s.error) settings = s
+    else if(s && s.error) console.error('Audition settings error:', s.error)
+    if(Array.isArray(sub)) submissions = sub
+    else if(sub && sub.error) console.error('Audition submissions error:', sub.error)
+  } catch(e){
+    el.innerHTML = '<div style="color:var(--red-600);padding:16px">Failed to load auditions: '+e.message+'</div>'
+    return
+  }
+  renderAuditionsAdmin(contextType, contextId, containerId, settings, submissions||[])
 }
 
 function renderAuditionsAdmin(contextType, contextId, containerId, settings, submissions){

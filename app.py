@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from flask import Flask, request, jsonify, session, send_from_directory, send_file
 from flask_cors import CORS
 import psycopg2
@@ -28,7 +29,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def seed_system_email_templates(conn):
     """Seed default system email templates if they don't already exist."""
     templates = [
-        ('join_notification', 'New Volunteer Interest — {{name}}', 'new_volunteer_join',
+        ('join_notification', 'New Volunteer Interest  -  {{name}}', 'new_volunteer_join',
          'Sent to admins when someone submits the join/interest form.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">New Volunteer Interest</h2>
@@ -45,7 +46,7 @@ def seed_system_email_templates(conn):
   <p><a href="{{review_link}}" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Review Application</a></p>
 </div>'''),
 
-        ('hours_submitted', 'RoleCall — Hours Submitted: {{volunteer_name}}', 'hours_submitted',
+        ('hours_submitted', 'RoleCall  -  Hours Submitted: {{volunteer_name}}', 'hours_submitted',
          'Sent to admins when a volunteer submits hours for approval.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">Hours Submitted for Approval</h2>
@@ -76,7 +77,7 @@ def seed_system_email_templates(conn):
   <p style="color:#666">Role: {{role}}<br>Date: {{event_date}}</p>
 </div>'''),
 
-        ('role_filled', 'Role Filled: {{role_name}} — {{event_name}}', 'role_filled',
+        ('role_filled', 'Role Filled: {{role_name}}  -  {{event_name}}', 'role_filled',
          'Sent to admins when a role on an event reaches full capacity.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">Role Now Full</h2>
@@ -99,10 +100,10 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
 
-        ('board_availability', 'Board Meeting Availability — {{month}} {{year}}', 'board_availability',
+        ('board_availability', 'Board Meeting Availability  -  {{month}} {{year}}', 'board_availability',
          'Sent to board members requesting their availability for a month.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
-  <h2 style="color:#145466">Board Meeting Availability — {{month}} {{year}}</h2>
+  <h2 style="color:#145466">Board Meeting Availability  -  {{month}} {{year}}</h2>
   <p>Hi {{name}},</p>
   <p>We\'re scheduling the board meeting for <strong>{{month}} {{year}}</strong> and need to know your availability. Please click below and mark any dates you <strong>cannot</strong> attend.</p>
   <div style="text-align:center;margin:28px 0">
@@ -111,7 +112,7 @@ def seed_system_email_templates(conn):
   <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
 </div>'''),
 
-        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours — Disney VoluntEARS', 'disney_reminder',
+        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
          'Sent to Disney Cast Members who have logged hours, reminding them to submit to VoluntEARS.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
@@ -120,7 +121,7 @@ def seed_system_email_templates(conn):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
     <p>As a <strong>Disney Cast Member</strong>, you may be eligible to submit your volunteer hours through <strong>Disney VoluntEARS</strong>, which can result in a donation to our organization at no cost to you!</p>
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong>To submit your hours:</strong><br/>
@@ -131,7 +132,7 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
 
-        ('universal_reminder', '🎬 Reminder: Submit Your Volunteer Hours — Universal Giving', 'universal_reminder',
+        ('universal_reminder', '🎬 Reminder: Submit Your Volunteer Hours  -  Universal Giving', 'universal_reminder',
          'Sent to Universal Team Members who have logged hours, reminding them to submit to Universal Giving.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
@@ -140,7 +141,7 @@ def seed_system_email_templates(conn):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
     <p>As a <strong>Universal Team Member</strong>, you may be eligible to submit your volunteer hours through <strong>Universal Giving</strong>, which can result in a donation to our organization at no cost to you!</p>
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong>To submit your hours:</strong><br/>
@@ -176,10 +177,10 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
         ('welcome_email',
-         'Welcome to {{program_name}} — HWTC RoleCall',
+         'Welcome to {{program_name}}  -  HWTC RoleCall',
          'welcome_email',
          'Sent to families when they are enrolled in a program. Includes their portal passphrase. Supports {{program_name}}, {{passphrase}}, {{family_greeting}} merge tags.',
-         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}} — HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall — your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong> — our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company — all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important — your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started — three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile — changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families — create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details — dates, materials, and sign-up links — will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements — inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information — Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available — see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong>  -  our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company  -  all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important  -  your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details  -  dates, materials, and sign-up links  -  will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information  -  Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available  -  see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
 
     ]
 
@@ -436,7 +437,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # summer camps (programs with dates)
-    # already covered by youth_programs — just add date columns via migration
+    # already covered by youth_programs  -  just add date columns via migration
 
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
@@ -537,7 +538,7 @@ def init_db():
         "UPDATE interest_types SET sub_options_label='' WHERE sub_options_label IS NULL",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
         "UPDATE volunteer_applications SET sub_selections='{}' WHERE sub_selections IS NULL",
-        # Sync required_all from required_for_volunteering — they should be the same column
+        # Sync required_all from required_for_volunteering  -  they should be the same column
         "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
         "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
@@ -709,6 +710,7 @@ def init_db():
         "ALTER TABLE audition_settings DROP CONSTRAINT IF EXISTS audition_settings_context_id_key",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
@@ -933,7 +935,7 @@ def init_db():
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
             waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
             UNIQUE(program_id, waiver_type_id))""",
-        # meet the team — standalone public-facing entries (no volunteer required)
+        # meet the team  -  standalone public-facing entries (no volunteer required)
         """CREATE TABLE IF NOT EXISTS production_team_bios (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -1265,7 +1267,7 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
-        app.logger.warning('Resend API key not configured — email not sent')
+        app.logger.warning('Resend API key not configured  -  email not sent')
         return False, 'Resend API key not configured'
     # Build from address
     if from_email:
@@ -1457,7 +1459,7 @@ def me():
 
 @app.route('/api/auth/change-password', methods=['POST'])
 def change_password():
-    """Self-service password change — any logged-in user."""
+    """Self-service password change  -  any logged-in user."""
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     d = request.json or {}
@@ -1732,7 +1734,7 @@ def delete_event(eid):
             cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
             app.logger.warning(f'delete_event carpools: {e}')
 
-        # The main delete — if this fails we want the real error
+        # The main delete  -  if this fails we want the real error
         cur.execute('DELETE FROM events WHERE id=%s', (eid,))
         conn.commit()
         cur.close()
@@ -2415,7 +2417,7 @@ def send_program_welcome(pid):
     tmpl = get_system_template(conn, 'welcome_email')
     if not tmpl:
         conn.close()
-        return jsonify({'error': 'Welcome email template not found — check Email Templates in Settings'}), 404
+        return jsonify({'error': 'Welcome email template not found  -  check Email Templates in Settings'}), 404
     body_tmpl    = tmpl['body']
     subject_tmpl = tmpl['subject']
 
@@ -2578,7 +2580,7 @@ def portal_start_message_thread():
     execute(conn, "INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,'family',%s,%s)",
         (str(uuid.uuid4()), tid, sender_name, body))
     conn.commit()
-    # Email notify — configured recipients + all admins + anyone with youth permission
+    # Email notify  -  configured recipients + all admins + anyone with youth permission
     s = get_email_settings()
     recipients = list(get_recipient_emails(s))
     try:
@@ -2878,8 +2880,8 @@ def submit_audition():
     sid = str(uuid.uuid4())
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
-         submitter_email,role_requested,video_url,resume_url,headshot_url,notes)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
@@ -2888,6 +2890,7 @@ def submit_audition():
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
         (d.get('notes') or '').strip() or None,
+        passphrase or None,
     ))
     conn.commit()
     # Get context name
@@ -2901,7 +2904,7 @@ def submit_audition():
         if p:
             ctx_name = p['name']
             instructor_id = p.get('instructor_id')
-    # Notify — instructor + info@ + audition email_submissions only (not all admins)
+    # Notify  -  instructor + info@ + audition email_submissions only (not all admins)
     try:
         recipients = []
         # 1. Program/production instructor
@@ -2993,17 +2996,25 @@ def get_my_audition_submission():
     if not passphrase or not context_type or not context_id:
         return jsonify(None)
     conn = get_db()
+    sub = None
+    # Try by family record first
     family = fetchone(conn, 'SELECT id FROM families WHERE passphrase=%s', (passphrase,))
-    if not family:
-        conn.close(); return jsonify(None)
-    sub = fetchone(conn, """SELECT * FROM audition_submissions
-        WHERE family_id=%s AND context_type=%s AND context_id=%s
-        AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
-        (family['id'], context_type, context_id))
+    if family:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE family_id=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            (family['id'], context_type, context_id))
+    # Fallback: check by submitter passphrase stored on the submission
+    if not sub:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            (passphrase, context_type, context_id))
     conn.close()
     if not sub: return jsonify(None)
     try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
-    except Exception: pass
+    except Exception: sub['roles_requested'] = []
+    if not sub.get('cast_role'): sub['cast_role'] = ''
     return jsonify(sub)
 
 
@@ -3048,19 +3059,29 @@ def publish_cast_list(context_type, context_id):
 
 @app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
 def get_cast_list(context_type, context_id):
-    """Public endpoint — returns cast list if published."""
+    """Public endpoint - returns cast list if published."""
     conn = get_db()
     row = fetchone(conn, """SELECT cast_list, cast_list_published, title
         FROM audition_settings WHERE context_type=%s AND context_id=%s""",
         (context_type, context_id))
-    conn.close()
     if not row or not row.get('cast_list_published'):
+        conn.close()
         return jsonify({'published': False, 'cast': []})
+    # Get the actual production/program name
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
     try:
         cast = json.loads(row.get('cast_list') or '[]')
     except Exception:
         cast = []
-    return jsonify({'published': True, 'cast': cast, 'title': row.get('title','')})
+    title = row.get('title') or ctx_name
+    return jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
 
 
 # ─────────────────────────────────────────────
@@ -3968,7 +3989,7 @@ def delete_donor_campaign(cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-# ── Donors — static routes MUST come before <did> dynamic routes ──
+# ── Donors  -  static routes MUST come before <did> dynamic routes ──
 @app.route('/api/donors')
 def get_donors():
     err = require_auth()
@@ -4235,7 +4256,7 @@ def get_donor_detail(did):
     # Cumulative tier benefits (this tier + all lower tiers)
     donor['benefits'] = get_cumulative_benefits(conn, donor.get('tier_id'))
 
-    # Campaign-specific benefits — for each campaign this donor has donated to,
+    # Campaign-specific benefits  -  for each campaign this donor has donated to,
     # show which benefits they've earned based on their total to that campaign
     try:
         campaign_totals = fetchall(conn, '''
@@ -4385,7 +4406,7 @@ def send_thank_you(donation_id):
         tier_benefits = get_cumulative_benefits(conn, donor['tier_id'])
         all_benefits += [dict(b, source='tier') for b in tier_benefits]
 
-    # Campaign-specific benefits — include all that the donation amount qualifies for
+    # Campaign-specific benefits  -  include all that the donation amount qualifies for
     if row.get('campaign_id') and row.get('amount'):
         try:
             camp_benefits = fetchall(conn, '''SELECT * FROM campaign_benefits
@@ -4404,12 +4425,12 @@ def send_thank_you(donation_id):
             elif b.get('tier_name'):
                 source_tag = f'<em style="font-size:11px;color:#888">{b["tier_name"]}</em> '
             return (f'<li style="margin-bottom:4px">{source_tag}{b["name"]}'
-                    + (f' — {b["description"]}' if b.get('description') else '')
+                    + (f'  -  {b["description"]}' if b.get('description') else '')
                     + '</li>')
         benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
             ''.join(benefit_li(b) for b in all_benefits) + '</ul>'
         benefits_text = '\n'.join(
-            f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '')
+            f'• {b["name"]}' + (f'  -  {b["description"]}' if b.get('description') else '')
             for b in all_benefits)
     # Load template
     tmpl = None
@@ -4433,7 +4454,7 @@ def send_thank_you(donation_id):
         from_name  = tmpl.get('from_name') or ''
         from_addr  = (f'{from_name} <{from_email}>' if from_name and from_email else from_email) if from_email else None
     else:
-        subject   = 'Thank You for Your Generous Support — HWTC'
+        subject   = 'Thank You for Your Generous Support  -  HWTC'
         from_addr = None
         html_body = '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px;text-align:center;border-radius:12px 12px 0 0">
@@ -4714,7 +4735,7 @@ def kiosk_elic_auth():
         WHERE e.pin=%s''', (pin,))
     if not elic:
         conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
-    # Get assigned events — check both assigned_events field AND event_elics table
+    # Get assigned events  -  check both assigned_events field AND event_elics table
     assigned = json.loads(elic.get('assigned_events') or '[]')
     # Also get events assigned via the event detail page (event_elics table)
     event_elics_rows = fetchall(conn, 'SELECT event_id FROM event_elics WHERE elic_id=%s', (elic['id'],))
@@ -4754,7 +4775,7 @@ def kiosk_elic_auth():
 
 @app.route('/api/checklist-items')
 def get_checklist_items():
-    # No auth required — kiosk needs this without an admin session
+    # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, label')
     conn.close()
@@ -4796,7 +4817,7 @@ def delete_checklist_item(iid):
 
 @app.route('/api/opening-checklist-items')
 def get_opening_checklist_items():
-    # No auth required — kiosk needs this without an admin session
+    # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, label')
     conn.close()
@@ -4901,7 +4922,7 @@ def approve_pending_hours(hid):
             (pid, ph['volunteer_id'], ph['event'], ph.get('event_id'),
              ph['date'], ph['hours'], ph.get('role',''), ph.get('notes','')))
     except Exception:
-        # May already exist — just mark as approved
+        # May already exist  -  just mark as approved
         pass
     execute(conn, "UPDATE pending_hours SET status='approved' WHERE id=%s", (hid,))
     conn.commit(); conn.close()
@@ -5061,7 +5082,7 @@ def test_template_email(tid):
     conn.close()
     if not tmpl: return jsonify({'error': 'Template not found'}), 404
     to = (d.get('to') or '').strip() or (user['email'] if user else '')
-    if not to: return jsonify({'error': 'No recipient email — add your email to your user profile.'}), 400
+    if not to: return jsonify({'error': 'No recipient email  -  add your email to your user profile.'}), 400
     # Replace variables with sample values
     sample = {
         '{{name}}': user['name'] if user else 'Test User',
@@ -5091,7 +5112,7 @@ def test_template_email(tid):
         '{{interests}}': 'Acting, Stage Crew',
         '{{employer_program}}': 'Disney Cast Member',
         '{{how_heard}}': 'Social Media',
-        '{{notes}}': '—',
+        '{{notes}}': ' - ',
         '{{phone}}': '555-1234',
     }
     body = tmpl['body']
@@ -5101,7 +5122,7 @@ def test_template_email(tid):
         subject = subject.replace(var, val)
     # Wrap with test banner
     body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
-        <strong>⚠️ This is a test email</strong> — sent to {to}. Sample values have been substituted for real data.
+        <strong>⚠️ This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
     </div>''' + body
     ok, msg = send_email([to], subject, body)
     if ok: return jsonify({'ok': True, 'sent_to': to})
@@ -5185,7 +5206,7 @@ def send_reset_link(uid):
     conn.commit()
     html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px;text-align:center;border-radius:12px 12px 0 0">
-            <h2 style="color:#fff;margin:0">RoleCall — Temporary Password</h2>
+            <h2 style="color:#fff;margin:0">RoleCall  -  Temporary Password</h2>
         </div>
         <div style="padding:28px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
             <p style="font-size:15px;color:#1a1a17">Hi {user['name']},</p>
@@ -5387,7 +5408,7 @@ def portal_get_participant(yid):
     except Exception as e:
         productions = []; errors.append(f'productions: {e}')
 
-    # Announcements — from both productions and programs
+    # Announcements  -  from both productions and programs
     prod_ids = [p['id'] for p in productions]
     prog_ids = [e['program_id'] for e in enrollments if e.get('program_id')]
     try:
@@ -5406,7 +5427,7 @@ def portal_get_participant(yid):
     except Exception as e:
         announcements = []; errors.append(f'announcements: {e}')
 
-    # Files — fetch for all productions and programs the participant is in
+    # Files  -  fetch for all productions and programs the participant is in
     try:
         files = []
         all_placeholders = []
@@ -5447,7 +5468,7 @@ def portal_youth_profile(yid):
     youth['waivers'] = fetchall(conn, '''SELECT yw.*, wt.name as type_name, wt.template_body, wt.can_sign_online
         FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
-    # Get signable waivers not yet signed — includes program-required ones
+    # Get signable waivers not yet signed  -  includes program-required ones
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
     # Also include program-required waivers even if not marked can_sign_online (show as required)
@@ -5708,7 +5729,7 @@ def delete_production_conflict(pid, cid):
 @app.route('/api/productions/<pid>/team')
 def get_production_team(pid):
     conn = get_db()
-    # Return public-facing team bios (headshots, bios — no volunteer required)
+    # Return public-facing team bios (headshots, bios  -  no volunteer required)
     rows = fetchall(conn, '''SELECT * FROM production_team_bios
         WHERE production_id=%s ORDER BY sort_order, name''', (pid,))
     # Also include production_members (crew with volunteer links) as fallback
@@ -6101,7 +6122,7 @@ def kiosk_begin_session():
             conn.close()
             return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
-    if existing: conn.close(); return jsonify({'error': 'Already volunteering — please stop your current session first.'}), 400
+    if existing: conn.close(); return jsonify({'error': 'Already volunteering  -  please stop your current session first.'}), 400
     event_name = d.get('event_name','')
     if event_id and not event_name:
         evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
@@ -6137,7 +6158,7 @@ def kiosk_stop_session():
         pid = str(uuid.uuid4())
         # Override sessions (no event) need admin review before approval
         hours_status = 'pending' if sess.get('event_id') else 'pending_review'
-        override_note = ' [Override — no event selected]' if not sess.get('event_id') else ''
+        override_note = ' [Override  -  no event selected]' if not sess.get('event_id') else ''
         execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
              today, elapsed_hours, role or sess['role'],
@@ -6150,7 +6171,7 @@ def kiosk_stop_session():
                 vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (vol_id,))
                 vol_name = vol['name'] if vol else 'A volunteer'
                 if recipients:
-                    send_email(recipients, 'RoleCall — Hours Submitted: ' + vol_name,
+                    send_email(recipients, 'RoleCall  -  Hours Submitted: ' + vol_name,
                         '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
                         + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
                         + (sess['event_name'] or 'a session') + '</strong>.</p>')
@@ -6226,7 +6247,7 @@ def kiosk_log_full_event():
         (sid, vol_id, event_id, evt['name'], role, hours))
     pid = str(uuid.uuid4())
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event — logged via kiosk'))
+        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event  -  logged via kiosk'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
 
@@ -6257,7 +6278,7 @@ def kiosk_submit_independent():
         recipients = get_recipient_emails(s)
         if recipients and s.get('alert_pending_hours'):
             send_email(recipients,
-                f'RoleCall — Independent Hours Submitted: {vol["name"]}',
+                f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
                 f'<p style="font-family:sans-serif"><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="font-family:sans-serif;color:#666">Please review and approve in RoleCall → Hours.</p>')
     except Exception:
         pass
@@ -6342,17 +6363,17 @@ def join_submit():
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                   <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d.get('name','')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d.get('email','')}</td></tr>
-                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone','—')}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone',' - ')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns',' - ') or ' - '}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
                   {sub_rows}
-                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program','—') or '—'}</td></tr>
-                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard',' - ')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program',' - ') or ' - '}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
                 </table>
             </div>'''
-            send_email(recipients, f'New Volunteer Interest — {d["name"]}', html_body)
+            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
     except Exception:
         pass
     conn.close()
@@ -6364,7 +6385,7 @@ def get_applications():
     if err: return err
     conn = get_db()
     apps = fetchall(conn, 'SELECT * FROM volunteer_applications ORDER BY created_at DESC')
-    # Flag duplicates — email already exists in volunteers table
+    # Flag duplicates  -  email already exists in volunteers table
     for a in apps:
         if a.get('status') == 'pending':
             existing = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s)', (a['email'],))
@@ -6755,7 +6776,7 @@ def build_report_email_html(report_type, data, params=None):
     </div>
     <div style="background:#fff;padding:28px 32px;border:1px solid #e0e0db;border-top:none;border-radius:0 0 12px 12px">'''
     footer = '''</div><p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
-        RoleCall — Horizon West Theatre Company Management System</p></div>'''
+        RoleCall  -  Horizon West Theatre Company Management System</p></div>'''
 
     def stat_box(label, value, color='#145466'):
         return f'<div style="background:#f0f8fa;border-radius:10px;padding:16px 20px;text-align:center"><div style="font-size:28px;font-weight:900;color:{color}">{value}</div><div style="font-size:12px;color:#5f5e5a;margin-top:4px">{label}</div></div>'
@@ -6765,12 +6786,12 @@ def build_report_email_html(report_type, data, params=None):
         trs = ''
         for i, r in enumerate(rows):
             bg = '#f9f9f9' if i%2==0 else '#fff'
-            tds = ''.join(f'<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #e0e0db">{str(r.get(c,"") or "—")}</td>' for c in cols)
+            tds = ''.join(f'<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #e0e0db">{str(r.get(c,"") or " - ")}</td>' for c in cols)
             trs += f'<tr style="background:{bg}">{tds}</tr>'
         return f'<table style="width:100%;border-collapse:collapse;margin-top:12px"><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>'
 
     if report_type == 'monthly_recap':
-        title = f'{data["month"]} {data["year"]} — Volunteer Monthly Recap'
+        title = f'{data["month"]} {data["year"]}  -  Volunteer Monthly Recap'
         body = f'''<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
             {stat_box('Total Hours Logged', f'{data["total_hours"]:.1f}h')}
             {stat_box('Active Volunteers', data["active_volunteers"])}
@@ -6790,7 +6811,7 @@ def build_report_email_html(report_type, data, params=None):
             body += table(['Name','Last Active','Email'], data['lapsed_volunteers'], ['name','last_date','email'])
 
     elif report_type == 'top_volunteers':
-        title = f'Top Volunteers — {params.get("start_date","")} to {params.get("end_date","")}'
+        title = f'Top Volunteers  -  {params.get("start_date","")} to {params.get("end_date","")}'
         body = table(['#','Name','Hours','Events','Last Active'],
             [{**r, '#': i+1} for i,r in enumerate(data)],
             ['#','name','total_hours','events_count','last_date'])
@@ -6801,7 +6822,7 @@ def build_report_email_html(report_type, data, params=None):
         body += table(['Name','Last Active','Total Hours','Email'], data, ['name','last_date','total_hours_ever','email'])
 
     elif report_type == 'hours_by_event':
-        title = f'Hours by Event — {params.get("start_date","")} to {params.get("end_date","")}'
+        title = f'Hours by Event  -  {params.get("start_date","")} to {params.get("end_date","")}'
         body = table(['Event','Total Hours','Volunteers','Entries'], data, ['event','total_hours','volunteer_count','entry_count'])
 
     else:
@@ -6886,7 +6907,7 @@ def export_report_csv():
     }
 
     if rtype == 'monthly_recap' and isinstance(data, dict):
-        writer.writerow([f'{data.get("month","")} {data.get("year","")} — Volunteer Monthly Recap'])
+        writer.writerow([f'{data.get("month","")} {data.get("year","")}  -  Volunteer Monthly Recap'])
         writer.writerow([])
         writer.writerow(['Metric','Value'])
         writer.writerow(['Total Hours', data.get('total_hours',0)])
@@ -7040,13 +7061,13 @@ def _compute_next_send(cadence, send_day):
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
     return None
 
-# Cron-style scheduler — called on every request, fires due reports
+# Cron-style scheduler  -  called on every request, fires due reports
 _last_cron_check = [None]
 def maybe_run_scheduled_reports():
     import datetime as _dt
     now = _dt.datetime.now()
     last = _last_cron_check[0]
-    # Only check once per hour — use total_seconds() not .seconds
+    # Only check once per hour  -  use total_seconds() not .seconds
     if last and (now - last).total_seconds() < 3600: return
     _last_cron_check[0] = now
     try:
@@ -7225,14 +7246,14 @@ def kiosk_production_signout():
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
         (pid, vol_id, evt_name, event_id, today, event_hours, role or '',
-         f'Production member — {hours_source}'))
+         f'Production member  -  {hours_source}'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': event_hours, 'hours_source': hours_source})
 
 
 
 # ─────────────────────────────────────────────
-#  KIOSK — OPEN/CLOSE EVENT & YOUTH
+#  KIOSK  -  OPEN/CLOSE EVENT & YOUTH
 # ─────────────────────────────────────────────
 
 @app.route('/api/kiosk/open-event-checklist', methods=['POST'])
@@ -7324,13 +7345,13 @@ def kiosk_close_event():
                 ol_rows = ''
                 for r in open_responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
                     ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -7346,15 +7367,15 @@ def kiosk_close_event():
                       <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
                     </div>
                     <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-                    {f"""<h3 style="color:#145466;margin-top:0">🟢 Opening Checklist</h3>
+                    {f"""<h3 style="color:#145466;margin-top:0">Opening Checklist</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
                     <tbody>{ol_rows}</tbody></table>""" if ol_rows else ""}
-                    {f"""<h3 style="color:#145466">✅ Closing Checklist</h3>
+                    {f"""<h3 style="color:#145466">Closing Checklist</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
                     <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No closing checklist items recorded.</em></p>"}
-                    {f"""<h3 style="color:#145466">⏱ Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
+                    {f"""<h3 style="color:#145466">Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
@@ -7405,7 +7426,7 @@ def kiosk_youth_for_event(event_id):
     youth = []
 
     if evt.get('production_id'):
-        # Rising Stars production — get enrolled cast
+        # Rising Stars production  -  get enrolled cast
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    ypm.role,
@@ -7418,7 +7439,7 @@ def kiosk_youth_for_event(event_id):
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
     elif evt.get('program_id'):
-        # Youth program — get enrolled participants
+        # Youth program  -  get enrolled participants
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    NULL as role,
@@ -7689,7 +7710,7 @@ def portal_events_for_carpools():
             AND e.carpools_enabled = TRUE
             ORDER BY e.event_date, e.start_time LIMIT 30""")
     except Exception:
-        # carpools_enabled column may not exist yet on live DB — fall back gracefully
+        # carpools_enabled column may not exist yet on live DB  -  fall back gracefully
         events = []
     conn.close()
     return jsonify(events)
@@ -7836,7 +7857,7 @@ def pickup_queue():
 
 @app.route('/api/pickup/clear', methods=['POST'])
 def pickup_clear():
-    """Sign out everyone currently waiting — used for manual clear at end of day."""
+    """Sign out everyone currently waiting  -  used for manual clear at end of day."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -7848,7 +7869,7 @@ def pickup_clear():
 
 @app.route('/api/pickup/cleanup', methods=['POST'])
 def pickup_cleanup():
-    """Clear orphaned sign-ins — kids stuck in deleted/closed events."""
+    """Clear orphaned sign-ins  -  kids stuck in deleted/closed events."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -7890,7 +7911,7 @@ def carpool_signout():
 
 
 # ─────────────────────────────────────────────
-#  MISSING ROUTES — added by audit
+#  MISSING ROUTES  -  added by audit
 # ─────────────────────────────────────────────
 
 # ── Notifications ──
@@ -7920,7 +7941,7 @@ def get_notifications():
                 'type':  'pending_hours',
                 'icon':  '⏱',
                 'color': 'amber',
-                'title': f'{ph["volunteer_name"] or "A volunteer"} — {ph["hours"]}h',
+                'title': f'{ph["volunteer_name"] or "A volunteer"}  -  {ph["hours"]}h',
                 'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
                          (' · Needs review (no event)' if is_override else ''),
                 'data':  ph,
@@ -7943,7 +7964,7 @@ def get_notifications():
                 'type':  'profile_update',
                 'icon':  '👤',
                 'color': 'blue',
-                'title': f'{p["volunteer_name"] or "A volunteer"} — profile update',
+                'title': f'{p["volunteer_name"] or "A volunteer"}  -  profile update',
                 'sub':   'Requested profile change awaiting review',
                 'data':  p,
             })
@@ -7963,7 +7984,7 @@ def get_notifications():
                 'type':  'hours_approved',
                 'icon':  '✅',
                 'color': 'green',
-                'title': f'{h["volunteer_name"] or "Volunteer"} — {h["hours"]}h approved',
+                'title': f'{h["volunteer_name"] or "Volunteer"}  -  {h["hours"]}h approved',
                 'sub':   f'{h["event"] or ""} · {h["date"] or ""}',
                 'data':  h,
             })
@@ -7987,7 +8008,7 @@ def email_send_report(rid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    # rid can be event_id — find the most recent close log
+    # rid can be event_id  -  find the most recent close log
     close_log = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
         v.name as elic_name
         FROM event_logs el
@@ -8025,7 +8046,7 @@ def email_send_report(rid):
         rows = ''.join(f'''<tr>
             <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
-                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response','—') or '—'))}
+                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
             </td></tr>''' for r in items)
         return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
@@ -8049,7 +8070,7 @@ def email_send_report(rid):
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">Event Report</div>
         <div style="font-size:22px;font-weight:800;margin:4px 0">🔒 {close_log.get('event_name','')}</div>
-        <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name','—') if open_log else '—'} &nbsp;·&nbsp; Closed by {close_log.get('elic_name','—')}</div>
+        <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name',' - ') if open_log else ' - '} &nbsp;·&nbsp; Closed by {close_log.get('elic_name',' - ')}</div>
     </div>
     <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px">
@@ -8070,9 +8091,9 @@ def email_send_report(rid):
         {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
         {hours_html}
     </div>
-    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall — Horizon West Theatre Company</p>
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theatre Company</p>
     </div>'''
-    subject = f'Event Report: {close_log.get("event_name","")} — {close_log.get("event_date","")}'
+    subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
     fi = (request.json or {}).get('from_identity') or {}
     ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
@@ -8567,7 +8588,7 @@ def toggle_waiver_required(tid):
     err = require_admin()
     if err: return err
     conn = get_db()
-    # Toggle both columns — required_for_volunteering is used by kiosk, required_all by admin UI
+    # Toggle both columns  -  required_for_volunteering is used by kiosk, required_all by admin UI
     execute(conn, '''UPDATE waiver_types
         SET required_for_volunteering = NOT COALESCE(required_for_volunteering, FALSE),
             required_all = NOT COALESCE(required_all, FALSE)
@@ -8647,7 +8668,7 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-# ── Global error handlers — return JSON for all API errors ──
+# ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
 def internal_error(e):
     app.logger.error(f'500: {e}')
@@ -8810,7 +8831,7 @@ def add_manual_rsvp(eid):
     # Check not already in the list
     existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, vol_id))
     if existing:
-        # Already exists — just mark them as confirmed
+        # Already exists  -  just mark them as confirmed
         execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (existing['id'],))
         conn.commit()
         row = fetchone(conn, '''SELECT er.*, v.name as vol_name, v.email as volunteer_email
@@ -8965,7 +8986,7 @@ def send_rsvp_invite(eid):
             </div>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
             <p style="font-size:12px;color:#9ca3af;margin:0">
-              If you're unable to attend, no action is needed — we only want to hear from those who can volunteer.<br>
+              If you're unable to attend, no action is needed  -  we only want to hear from those who can volunteer.<br>
               This invitation was sent to {v['email']} by Horizon West Theater Company.
             </p>
           </div>
@@ -9005,7 +9026,7 @@ def rsvp_page(token):
           <div style="font-size:48px;margin-bottom:16px">🚫</div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
-          <p style="color:#6b7280">Thank you for your interest — please check back for future events from Horizon West Theater Company.</p>
+          <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
         </body></html>'''
 
     # Already signed up
@@ -9017,7 +9038,7 @@ def rsvp_page(token):
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
           <div style="font-size:48px;margin-bottom:16px">✅</div>
           <h2 style="color:#145466">You're already signed up!</h2>
-          <p>Thanks {rsvp.get("volunteer_name","")} — we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p>Thanks {rsvp.get("volunteer_name","")}  -  we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
           {role_line}
           <p style="color:#888">We'll be in touch with more details.</p>
         </body></html>'''
@@ -9051,13 +9072,13 @@ def rsvp_page(token):
                 </div>
             </label>'''
 
-        return f'''<html><head><title>Sign Up — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
           <div style="text-align:center;margin-bottom:28px">
             <div style="font-size:40px;margin-bottom:12px">✋</div>
             <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
-            <p style="color:#555">Hi {vol_name} — choose your role for:</p>
+            <p style="color:#555">Hi {vol_name}  -  choose your role for:</p>
             <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
               <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
               {f'<div style="color:#555;margin-top:4px">{date_str}</div>' if date_str else ''}
@@ -9074,16 +9095,16 @@ def rsvp_page(token):
           <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
         </body></html>'''
     else:
-        # No roles — just confirm directly
+        # No roles  -  just confirm directly
         conn2 = get_db()
         execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
         conn2.commit(); conn2.close()
-        return f'''<html><head><title>RSVP Confirmed — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
           <div style="font-size:48px;margin-bottom:16px">🎉</div>
           <h2 style="color:#145466">You're in!</h2>
-          <p>Thanks {vol_name} — we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p>Thanks {vol_name}  -  we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
           <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
         </body></html>'''
 
@@ -9104,7 +9125,7 @@ def rsvp_submit(token):
           <div style="font-size:48px;margin-bottom:16px">🚫</div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
-          <p style="color:#6b7280">Thank you for your interest — please check back for future events.</p>
+          <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
         </body></html>'''
 
     role_name = ''
@@ -9146,7 +9167,7 @@ def rsvp_submit(token):
                 filled_now = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
                 if filled_now and role_row and int(filled_now['c']) >= int(role_row['slots']):
-                    send_email(recipients, f'Role Filled: {role_name} — {evt_name}',
+                    send_email(recipients, f'Role Filled: {role_name}  -  {evt_name}',
                         f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> role for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
@@ -9386,7 +9407,7 @@ def create_board_meeting():
                   </div>
                 </div>'''
                 fi = d.get('from_identity') or {}
-                send_email([m['email']], f'Board Meeting — {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
+                send_email([m['email']], f'Board Meeting  -  {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
     except Exception as e:
         app.logger.warning(f'Board meeting email notification failed: {e}')
     conn.close()
@@ -9472,9 +9493,9 @@ def send_board_availability_request():
                 .replace('{{link}}', link)
             subj = tmpl['subject'].replace('{{month}}', month_name_str).replace('{{year}}', str(year))
         else:
-            subj = f'Board Meeting Availability — {month_name_str} {year}'
+            subj = f'Board Meeting Availability  -  {month_name_str} {year}'
             body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
-          <h2 style="color:#145466">Board Meeting Availability — {month_name_str} {year}</h2>
+          <h2 style="color:#145466">Board Meeting Availability  -  {month_name_str} {year}</h2>
           <p>Hi {m['name']},</p>
           <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
           <div style="text-align:center;margin:28px 0">
@@ -9560,7 +9581,7 @@ def board_availability_form(token):
     month_name = ['','January','February','March','April','May','June',
                   'July','August','September','October','November','December'][int(record['month'])]
     return f'''<!DOCTYPE html>
-<html><head><title>Board Availability — {month_name} {record['year']}</title>
+<html><head><title>Board Availability  -  {month_name} {record['year']}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
@@ -9695,14 +9716,14 @@ def send_single_giving_reminder(vol_id):
     conn2.close()
     conn.close()
     if not hours_section:
-        return jsonify({'error': 'No hours logged in the last year — nothing to remind about'}), 400
+        return jsonify({'error': 'No hours logged in the last year  -  nothing to remind about'}), 400
     name = (v.get('name') or 'Volunteer').strip()
     if tmpl:
         base_body = tmpl['body'].replace('{{name}}', name)
         subj = tmpl['subject']
     else:
         base_body = f'<p>Hi {name}, please submit your hours to {submit_name}.</p>'
-        subj = f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+        subj = f'{icon} Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
     # Inject hours table before the last closing div
     if '</div>' in base_body:
         idx = base_body.rfind('</div>')
@@ -9738,15 +9759,15 @@ def build_hours_section(conn, vol_id, submit_name, submit_link):
     total = sum(float(h.get('hours') or 0) for h in hours)
     def row_bg(i): return 'background:#f9fafb' if i % 2 else ''
     rows = ''.join(f'''<tr style="border-bottom:1px solid #e5e7eb;{row_bg(i)}">
-        <td style="padding:7px 10px">{h.get('event') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or '—'}</td>
+        <td style="padding:7px 10px">{h.get('event') or ' - '}</td>
+        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or ' - '}</td>
+        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or ' - '}</td>
         <td style="padding:7px 10px;font-weight:600;text-align:right;white-space:nowrap">{float(h.get('hours') or 0):.1f}h</td>
     </tr>''' for i, h in enumerate(hours))
     section = f'''
 <div style="margin:24px 0;font-family:-apple-system,sans-serif">
   <div style="background:#f0f8fa;border-left:4px solid #145466;padding:14px 18px;border-radius:0 8px 8px 0;margin-bottom:16px">
-    <strong style="font-size:14px;color:#145466">Your recent volunteer hours — {total:.1f}h total</strong>
+    <strong style="font-size:14px;color:#145466">Your recent volunteer hours  -  {total:.1f}h total</strong>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb">
     <thead>
@@ -9866,7 +9887,7 @@ def send_employer_program_reminder():
             subj = tmpl['subject']
         else:
             prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-            subj = f'Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+            subj = f'Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
             base_body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
         # Inject hours table before closing div
         if hours_section:

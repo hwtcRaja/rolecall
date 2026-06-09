@@ -16030,9 +16030,9 @@ async function loadProgramPortalContent(pid){
     renderProgramAnnouncements(pid, announcements)
     renderProgramFiles(pid, files, folders)
     try { renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:(waiverStatus||{})) }
-    catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status--current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
+    catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
     try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }
-    catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers--current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
+    catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers-current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
   } catch(e) {
     console.error('loadProgramPortalContent error:', e)
   }
@@ -16084,7 +16084,7 @@ async function deletePortalFolder(contextType, pid, folderOrFid){
 }
 
 function renderProgramRequiredWaivers(pid, waivers){
-  const el = document.getElementById('prog-required-waivers--current')
+  const el = document.getElementById('prog-required-waivers-current')
   if(!el) return
   const isAdmin = canEdit('youth')
   if(!waivers.length){
@@ -16183,7 +16183,7 @@ function deletePortalFolderByName(btn){
 }
 
 function renderProgramAnnouncements(pid, announcements){
-  const el = document.getElementById('prog-ann-list--current')
+  const el = document.getElementById('prog-ann-list-current')
   if(!el) return
   if(!announcements.length){
     el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No announcements yet. Save a draft above to get started.</div>'
@@ -16242,9 +16242,9 @@ function renderProgramFiles(pid, files, folders){
 
 async function saveProgramAnnouncementDraft(pid, publishNow){
   publishNow = publishNow || false
-  const title = document.getElementById('prog-ann-title--current') ? document.getElementById('prog-ann-title--current').value.trim() : ''
-  const body  = document.getElementById('prog-ann-body--current')  ? document.getElementById('prog-ann-body--current').value.trim()  : ''
-  const editId = document.getElementById('prog-ann-edit-id--current') ? document.getElementById('prog-ann-edit-id--current').value : ''
+  const title = document.getElementById('prog-ann-title-current') ? document.getElementById('prog-ann-title-current').value.trim() : ''
+  const body  = document.getElementById('prog-ann-body-current')  ? document.getElementById('prog-ann-body-current').value.trim()  : ''
+  const editId = document.getElementById('prog-ann-edit-id-current') ? document.getElementById('prog-ann-edit-id-current').value : ''
   if(!title||!body){toast('Title and message required','error');return}
   const status = publishNow ? 'published' : 'draft'
   let res
@@ -16286,12 +16286,12 @@ async function repushProgramAnn(pid, aid){
 }
 
 function editProgAnn(pid, aid, titleEnc, bodyEnc){
-  document.getElementById('prog-ann-edit-id--current').value = aid
-  document.getElementById('prog-ann-title--current').value = decodeURIComponent(titleEnc)
-  document.getElementById('prog-ann-body--current').value = decodeURIComponent(bodyEnc)
-  var cancelBtn = document.getElementById('prog-ann-cancel--current')
+  document.getElementById('prog-ann-edit-id-current').value = aid
+  document.getElementById('prog-ann-title-current').value = decodeURIComponent(titleEnc)
+  document.getElementById('prog-ann-body-current').value = decodeURIComponent(bodyEnc)
+  var cancelBtn = document.getElementById('prog-ann-cancel-current')
   if(cancelBtn) cancelBtn.style.display=''
-  document.getElementById('prog-ann-title--current').focus()
+  document.getElementById('prog-ann-title-current').focus()
 }
 
 function editProgAnnById(btn){
@@ -16299,10 +16299,10 @@ function editProgAnnById(btn){
   const pid = btn.dataset.progId
   const a = window._progAnnMap && window._progAnnMap[aid]
   if(!a){ toast('Could not load announcement data','error'); return }
-  const editIdEl = document.getElementById('prog-ann-edit-id--current')
-  const titleEl  = document.getElementById('prog-ann-title--current')
-  const bodyEl   = document.getElementById('prog-ann-body--current')
-  const cancelBtn = document.getElementById('prog-ann-cancel--current')
+  const editIdEl = document.getElementById('prog-ann-edit-id-current')
+  const titleEl  = document.getElementById('prog-ann-title-current')
+  const bodyEl   = document.getElementById('prog-ann-body-current')
+  const cancelBtn = document.getElementById('prog-ann-cancel-current')
   if(editIdEl) editIdEl.value = aid
   if(titleEl)  titleEl.value  = a.title || ''
   if(bodyEl)   bodyEl.value   = a.body  || ''
@@ -16312,12 +16312,12 @@ function editProgAnnById(btn){
 }
 
 function cancelEditProgramAnnouncement(pid){
-  var editId = document.getElementById('prog-ann-edit-id--current')
+  var editId = document.getElementById('prog-ann-edit-id-current')
   if(editId) editId.value=''
-  var title = document.getElementById('prog-ann-title--current')
-  var body = document.getElementById('prog-ann-body--current')
+  var title = document.getElementById('prog-ann-title-current')
+  var body = document.getElementById('prog-ann-body-current')
   if(title) title.value=''; if(body) body.value=''
-  var cancelBtn = document.getElementById('prog-ann-cancel--current')
+  var cancelBtn = document.getElementById('prog-ann-cancel-current')
   if(cancelBtn) cancelBtn.style.display='none'
 }
 

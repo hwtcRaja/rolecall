@@ -1238,6 +1238,32 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 
 
 
+  // ── Cast list published banner ──
+  const overviewCastEl = document.getElementById('overview-cast-section-'+prodId)
+  if(prodId && !overviewCastEl){
+    fetch(`/api/auditions/cast-list/production/${prodId}`)
+      .then(r=>r.json())
+      .then(data=>{
+        if(data?.published && data.cast?.length){
+          const container = document.getElementById('dtab-overview')
+          if(container){
+            const div = document.createElement('div')
+            div.id = 'overview-cast-section-'+prodId
+            div.style.cssText = 'margin-bottom:20px;padding:0 20px'
+            div.innerHTML = `<div style="background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;margin-bottom:4px">
+              <div style="font-size:11px;opacity:0.7;margin-bottom:4px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Cast Announcement</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+                ${data.cast.map(c=>`<span style="background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600">
+                  ${escHtml(c.submitter_name)}${c.cast_role?' — '+escHtml(c.cast_role):''}
+                </span>`).join('')}
+              </div>
+            </div>`
+            container.insertBefore(div, container.firstChild)
+          }
+        }
+      }).catch(()=>{})
+  }
+
   // ── Role banner (if cast) ──
   if(castRole){
     html += '<div style="background:#334155;border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">'
@@ -1474,6 +1500,13 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
     .then(r=>r.json()).catch(()=>null)
 
   if(!settings || !settings.is_open){
+    // Still check if cast list is published even when closed
+    const castData = await fetch(`/api/auditions/cast-list/${contextType}/${contextId}`)
+      .then(r=>r.json()).catch(()=>null)
+    if(castData?.published && castData.cast?.length){
+      el.innerHTML = buildCastListHTML(castData)
+      return
+    }
     el.innerHTML = `<div style="text-align:center;padding:36px 20px;color:var(--text-muted)">
       <div style="font-size:36px;margin-bottom:12px">🎭</div>
       <div style="font-weight:700;font-size:15px;margin-bottom:6px">Auditions Not Currently Open</div>
@@ -1482,8 +1515,45 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
     return
   }
 
+  // Check if already submitted
+  const existingSub = passphrase ? await fetch(
+    `/api/auditions/my-submission?passphrase=${encodeURIComponent(passphrase)}&context_type=${contextType}&context_id=${contextId}`
+  ).then(r=>r.json()).catch(()=>null) : null
+
+  if(existingSub && existingSub.id){
+    let roleList = []
+    try { roleList = JSON.parse(existingSub.roles_requested||'[]') } catch(e){}
+    if(!roleList.length && existingSub.role_requested) roleList = [existingSub.role_requested]
+    el.innerHTML = `<div style="max-width:480px">
+      <div style="background:var(--green-50,#f0fdf4);border:1.5px solid var(--green-200,#bbf7d0);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-size:32px;margin-bottom:8px">✅</div>
+        <div style="font-size:16px;font-weight:700;color:var(--green-700,#15803d);margin-bottom:6px">Audition Submitted</div>
+        <div style="font-size:13px;color:var(--text-muted)">We received your audition for <strong>${escHtml(settings.title||'this production')}</strong>.</div>
+        ${roleList.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px">
+          ${roleList.map(r=>`<span style="background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')}
+        </div>`:''}
+        <div style="font-size:12px;color:var(--text-hint);margin-top:8px">Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString() : ''}</div>
+        ${existingSub.status==='cast'&&existingSub.cast_role?`
+        <div style="margin-top:14px;background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;text-align:left">
+          <div style="font-size:13px;font-weight:800;margin-bottom:6px">${escHtml(settings.title||activeContextType==='program'?'Program':'Production')}</div>
+          <div style="font-size:12px;opacity:0.8;margin-bottom:2px">Role</div>
+          <div style="font-size:22px;font-weight:800">${escHtml(existingSub.cast_role)}</div>
+        </div>`:''}
+      </div>
+    </div>`
+    return
+  }
+
   const roles = settings.roles || []
   const emailAddr = settings.email_submissions || 'info@hwtco.org'
+
+  // Show cast list if published (even if auditions still open)
+  const castData2 = await fetch(`/api/auditions/cast-list/${contextType}/${contextId}`)
+    .then(r=>r.json()).catch(()=>null)
+  if(castData2?.published && castData2.cast?.length){
+    el.innerHTML = buildCastListHTML(castData2)
+    return
+  }
 
   el.innerHTML = `
     <div style="max-width:560px">
@@ -1615,6 +1685,32 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
       </div>
     </div>`
 }
+
+function buildCastListHTML(castData){
+  const cast = castData.cast || []
+  // Group by role
+  const byRole = {}
+  cast.forEach(c=>{
+    const r = c.cast_role || 'Ensemble'
+    if(!byRole[r]) byRole[r] = []
+    byRole[r].push(c.submitter_name)
+  })
+  const displayTitle = castData.context_name || castData.title || 'Cast List'
+  return `<div style="max-width:480px">
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px">🎭 Cast Announcement</div>
+    <div style="font-size:15px;font-weight:700;color:var(--teal-dark);margin-bottom:16px">${escHtml(displayTitle)}</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${Object.entries(byRole).map(([role, names])=>`
+        <div style="border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden">
+          <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(role)}</div>
+          <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+            ${names.map(n=>`<div style="font-size:14px;font-weight:600">🎭 ${escHtml(n)}</div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`
+}
+
 
 function openContactModal(){
   openMessagesPanel()

@@ -7235,6 +7235,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
   if(!el) return
   const isOpen = !!settings.is_open
   const roles  = settings.roles || []
+  const castCount = submissions.filter(s=>s.status==='cast').length
 
   // Status filter
   const counts = {}
@@ -7279,7 +7280,12 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
         <div style="font-size:15px;font-weight:700">📋 Submissions (${total})</div>
         ${summaryBadges?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${summaryBadges}</div>`:''}
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm ${castCount>0?'btn-primary':'btn-secondary'}"
+          onclick="openPublishCastModal('${contextType}','${contextId}','${containerId}')"
+          style="${castCount===0?'opacity:0.5':''}" ${castCount===0?'title="Mark submissions as Cast first"':''}>
+          ${settings.cast_list_published?'📋 Cast List Published':'📋 Publish Cast List'}
+          ${castCount>0?`(${castCount} cast)`:''}</button>
         <select id="aud-filter-${contextId}" onchange="filterAuditionSubmissions('${contextId}')"
           style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">
           <option value="">All Statuses</option>
@@ -7320,7 +7326,7 @@ function renderAuditionList(submissions, contextId, filterStatus){
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
             ${avatarHTML(s.submitter_name, 30)}
             <div style="font-size:14px;font-weight:700">${escHtml(s.submitter_name)}</div>
-            <span style="background:${bg};color:${col};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${AUDITION_STATUS_LABELS[s.status]||s.status}</span>
+            <span class="aud-status-badge" style="background:${bg};color:${col};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${AUDITION_STATUS_LABELS[s.status]||s.status}</span>
           </div>
           ${(()=>{
         let roleList = []
@@ -7330,6 +7336,7 @@ function renderAuditionList(submissions, contextId, filterStatus){
           + roleList.map(r=>`<span style="background:var(--teal-50);color:var(--teal-dark);padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')
           + `</div>` : ''
       })()}
+      ${s.cast_role?`<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px">🎭 Cast as: ${escHtml(s.cast_role)}</div>`:''}
           ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
           ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
           <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
@@ -7378,21 +7385,73 @@ async function toggleAuditionOpen(contextType, contextId, containerId, newState)
 }
 
 async function updateAuditionStatus(sid, contextId, status){
-  // Get existing notes
+  if(status === 'cast'){
+    // Prompt for the specific role being cast
+    openCastRoleModal(sid, contextId)
+    return
+  }
   const container = document.querySelector(`[data-sid="${sid}"]`)
-  const notesEl = container?.querySelector('[data-admin-notes]')
-  const adminNotes = notesEl?.textContent || ''
+  const adminNotes = container?.querySelector('.aud-admin-notes')?.textContent?.replace('Notes: ','') || ''
   await api(`/api/auditions/submissions/${sid}/status`, 'PUT', {status, admin_notes: adminNotes})
   toast('Status updated', 'success')
-  // Update the badge inline without full reload
-  const badge = container?.querySelector('[style*="border-radius:20px"]')
-  if(badge){
-    const [bg,col] = AUDITION_STATUS_COLORS[status]||AUDITION_STATUS_COLORS.pending
-    badge.textContent = AUDITION_STATUS_LABELS[status]||status
-    badge.style.background = bg; badge.style.color = col
+  updateSubmissionBadge(sid, status)
+}
+
+function updateSubmissionBadge(sid, status){
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  if(!container) return
+  const [bg,col] = AUDITION_STATUS_COLORS[status]||AUDITION_STATUS_COLORS.pending
+  const badge = container.querySelector('.aud-status-badge')
+  if(badge){ badge.textContent = AUDITION_STATUS_LABELS[status]||status; badge.style.background=bg; badge.style.color=col }
+  const sel = container.querySelector('select')
+  if(sel){ sel.value=status; sel.style.background=bg; sel.style.color=col; sel.style.fontWeight='700' }
+}
+
+function openCastRoleModal(sid, contextId){
+  // Get the roles from the settings if available, or let them type
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  const name = container?.querySelector('[style*="font-weight:700"]')?.textContent || 'this person'
+
+  const existing = document.getElementById('cast-role-modal-overlay')
+  if(existing) existing.remove()
+
+  const overlay = document.createElement('div')
+  overlay.id = 'cast-role-modal-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;box-shadow:var(--shadow-lg)">
+    <div style="padding:18px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:15px;font-weight:700">🎭 Assign Role</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">What role is ${escHtml(name)} being cast in?</div>
+    </div>
+    <div style="padding:16px 20px">
+      <input type="text" id="cast-role-input" placeholder="e.g. Lead, Ensemble, Narrator…"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cast-role-modal-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmCastRole('${sid}','${contextId}')">✓ Confirm Cast</button>
+    </div>
+  </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  setTimeout(()=>document.getElementById('cast-role-input')?.focus(), 50)
+}
+
+async function confirmCastRole(sid, contextId){
+  const castRole = document.getElementById('cast-role-input')?.value.trim()
+  if(!castRole){ toast('Please enter a role','error'); return }
+  const res = await api(`/api/auditions/submissions/${sid}/cast-role`, 'PUT', {cast_role: castRole})
+  if(res?.error){ toast(res.error,'error'); return }
+  document.getElementById('cast-role-modal-overlay')?.remove()
+  updateSubmissionBadge(sid, 'cast')
+  // Update role display in card
+  const container = document.querySelector(`[data-sid="${sid}"]`)
+  const roleBadges = container?.querySelector('[style*="teal-50"]')?.parentElement
+  if(roleBadges){
+    roleBadges.insertAdjacentHTML('afterend',
+      `<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px">🎭 Cast as: ${escHtml(castRole)}</div>`)
   }
-  const sel = container?.querySelector('select')
-  if(sel){ sel.style.background = (AUDITION_STATUS_COLORS[status]||[])[0]||''; sel.style.color = (AUDITION_STATUS_COLORS[status]||[])[1]||'' }
+  toast(`${castRole} assigned!`, 'success')
 }
 
 function openAuditionNotesModal(sid, contextId){
@@ -7540,6 +7599,55 @@ async function saveAuditionSettings(contextType, contextId, containerId){
   toast('Settings saved!', 'success')
   loadAuditionsTab(contextType, contextId, containerId)
 }
+
+function openPublishCastModal(contextType, contextId, containerId){
+  api(`/api/auditions/submissions/${contextType}/${contextId}`).then(subs=>{
+    const cast = (subs||[]).filter(s=>s.status==='cast')
+    const existing = document.getElementById('publish-cast-overlay')
+    if(existing) existing.remove()
+    const overlay = document.createElement('div')
+    overlay.id = 'publish-cast-overlay'
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+    overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:16px;font-weight:700">📋 Publish Cast List</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">This will be visible to families in the portal</div>
+        </div>
+        <button onclick="document.getElementById('publish-cast-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px 22px">
+        ${!cast.length
+          ? '<div style="text-align:center;padding:20px;color:var(--text-muted)"><div style="font-size:28px;margin-bottom:8px">🎭</div><div>No submissions marked as Cast yet.</div><div style="font-size:12px;margin-top:6px">Set submission statuses to "Cast" and assign roles first.</div></div>'
+          : '<div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:12px">Cast members to publish</div>'
+            + cast.map(s=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+              <div style="font-size:13px;font-weight:600">${escHtml(s.submitter_name)}</div>
+              <div style="font-size:13px;color:${s.cast_role?'var(--teal-dark)':'var(--text-muted)'}">
+                ${s.cast_role ? escHtml(s.cast_role) : '<em>No role assigned</em>'}
+              </div>
+            </div>`).join('')
+        }
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="publishCastList('${contextType}','${contextId}','${containerId}',false)">Unpublish</button>
+        <button class="btn btn-primary" onclick="publishCastList('${contextType}','${contextId}','${containerId}',true)" ${!cast.length?'disabled':''}>
+          ${cast.length?`Publish (${cast.length} cast)`:'No cast to publish'}
+        </button>
+      </div>
+    </div>`
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+    document.body.appendChild(overlay)
+  })
+}
+
+async function publishCastList(contextType, contextId, containerId, publish){
+  const res = await api(`/api/auditions/settings/${contextType}/${contextId}/publish-cast`, 'POST', {publish})
+  if(res?.error){ toast(res.error,'error'); return }
+  document.getElementById('publish-cast-overlay')?.remove()
+  toast(publish ? '🎭 Cast list published to portal!' : 'Cast list unpublished', 'success')
+  loadAuditionsTab(contextType, contextId, containerId)
+}
+
 
 // Youth Programs
 function populateProgramsDropdown(){
@@ -14965,6 +15073,8 @@ async function openProgramDetail(programId){
 
   window._currentProgramDetailId = programId
   navTo('program-detail')
+  // Auto-load portal content so drafts/announcements are immediately visible
+  if(canEdit('programs')) loadProgramPortalContent(programId)
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n=>{
     if(n.textContent.includes('Programs')) n.classList.add('active')

@@ -1549,24 +1549,22 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
     let roleList = []
     try { roleList = JSON.parse(existingSub.roles_requested||'[]') } catch(e){}
     if(!roleList.length && existingSub.role_requested) roleList = [existingSub.role_requested]
-    el.innerHTML = `<div style="max-width:480px">
-      <div style="background:var(--green-50,#f0fdf4);border:1.5px solid var(--green-200,#bbf7d0);border-radius:var(--radius-lg);padding:20px;text-align:center">
-        <div style="font-size:32px;margin-bottom:8px">✅</div>
-        <div style="font-size:16px;font-weight:700;color:var(--green-700,#15803d);margin-bottom:6px">Audition Submitted</div>
-        <div style="font-size:13px;color:var(--text-muted)">We received your audition for <strong>${escHtml(settings.title||'this production')}</strong>.</div>
-        ${roleList.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px">
-          ${roleList.map(r=>`<span style="background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')}
-        </div>`:''}
-        <div style="font-size:12px;color:var(--text-hint);margin-top:8px">Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString() : ''}</div>
-        ${existingSub.status==='cast'&&existingSub.cast_role?`
-        <div style="margin-top:14px;background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;text-align:left">
-          <div style="font-size:13px;font-weight:800;margin-bottom:6px">${escHtml(settings.title||'')}</div>
-          <div style="font-size:12px;opacity:0.8;margin-bottom:2px">Role</div>
-          <div style="font-size:22px;font-weight:800">${escHtml(existingSub.cast_role)}</div>
-        </div>`:''}
+    el.innerHTML = `<div style='max-width:480px'>
+      <div style='background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center'>
+        <div style='font-size:32px;margin-bottom:8px'>✅</div>
+        <div style='font-size:16px;font-weight:700;color:#15803d;margin-bottom:6px'>Audition Submitted</div>
+        <div style='font-size:13px;color:#6b7280'>We received your audition for <strong>${escHtml(settings.title||'this production')}</strong>.</div>
+        ${roleList.length?`<div style='display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px'>`
+          +roleList.map(r=>`<span style='background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600'>${escHtml(r)}</span>`).join('')
+          +'</div>':''}
+        <div style='font-size:12px;color:#9ca3af;margin-top:8px'>Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString() : ''}</div>
+        ${existingSub.status==='cast'&&existingSub.cast_role?`<div style='margin-top:14px;background:#145466;color:#fff;border-radius:8px;padding:14px 16px;text-align:left'><div style='font-size:13px;font-weight:800;margin-bottom:6px'>${escHtml(settings.title||'')}</div><div style='font-size:12px;opacity:0.8;margin-bottom:2px'>Role</div><div style='font-size:22px;font-weight:800'>${escHtml(existingSub.cast_role)}</div></div>`:''}
       </div>
-      <button onclick="loadPortalAuditionsTab('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}','${escHtml(participantName||'')}')" style="width:100%;margin-top:10px;background:none;border:1.5px solid var(--border);border-radius:var(--radius);padding:10px;font-family:inherit;font-size:13px;color:var(--text-muted);cursor:pointer">↻ Not right? Tap to refresh</button>
+      <button id='aud-refresh-btn' style='width:100%;margin-top:10px;background:none;border:1.5px solid #d1d5db;border-radius:8px;padding:10px;font-family:inherit;font-size:13px;color:#6b7280;cursor:pointer'>↻ Not right? Tap to refresh</button>
     </div>`
+    document.getElementById('aud-refresh-btn')?.addEventListener('click', ()=>{
+      loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName)
+    })
     return
   }
 

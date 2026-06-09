@@ -1507,14 +1507,19 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
               style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
           </div>
           ${roles.length?`<div class="form-group">
-            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role Auditioning For</label>
-            <select id="aud-role" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-              <option value="">— Select a role —</option>
-              ${roles.map(r=>`<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('')}
-              <option value="__other__">Other / Not sure yet</option>
-            </select>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Roles Interested In <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(select all that apply)</span></label>
+            <div style="display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--bg)">
+              ${roles.map(r=>`<label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px">
+                <input type="checkbox" class="aud-role-cb" value="${escHtml(r)}" style="width:16px;height:16px;accent-color:#145466;flex-shrink:0">
+                <span>${escHtml(r)}</span>
+              </label>`).join('')}
+              <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;border-top:1px solid var(--border);padding-top:8px;margin-top:2px">
+                <input type="checkbox" class="aud-role-cb" value="Other / Not sure yet" style="width:16px;height:16px;accent-color:#145466;flex-shrink:0">
+                <span style="color:var(--text-muted)">Other / Not sure yet</span>
+              </label>
+            </div>
           </div>`:`<div class="form-group">
-            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role Auditioning For</label>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Roles Interested In</label>
             <input type="text" id="aud-role-text" placeholder="e.g. Lead, Ensemble, Crew…"
               style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
           </div>`}
@@ -1563,9 +1568,12 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
 async function submitPortalAudition(contextType, contextId, passphrase, participantId){
   const name   = document.getElementById('aud-name')?.value.trim()
   const email  = document.getElementById('aud-email')?.value.trim()
-  const roleEl = document.getElementById('aud-role') || document.getElementById('aud-role-text')
-  let role = roleEl?.value?.trim()||''
-  if(role === '__other__') role = ''
+  // Collect multiple checked roles
+  const checkedRoles = [...document.querySelectorAll('.aud-role-cb:checked')].map(cb=>cb.value)
+  const roleTextEl = document.getElementById('aud-role-text')
+  const roleTextVal = roleTextEl?.value?.trim() || ''
+  const roles_requested = checkedRoles.length ? checkedRoles : (roleTextVal ? roleTextVal.split(',').map(r=>r.trim()).filter(Boolean) : [])
+  const role = roles_requested.join(', ')  // keep for display
   const video   = document.getElementById('aud-video')?.value.trim()||''
   const resume  = document.getElementById('aud-resume')?.value.trim()||''
   const headshot= document.getElementById('aud-headshot')?.value.trim()||''
@@ -1581,6 +1589,7 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
     context_type: contextType, context_id: contextId,
     passphrase, participant_id: participantId||null,
     submitter_name: name, submitter_email: email||null,
+    roles_requested: roles_requested,
     role_requested: role||null,
     video_url: video||null, resume_url: resume||null,
     headshot_url: headshot||null, notes: notes||null

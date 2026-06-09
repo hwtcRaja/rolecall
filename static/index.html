@@ -7322,7 +7322,14 @@ function renderAuditionList(submissions, contextId, filterStatus){
             <div style="font-size:14px;font-weight:700">${escHtml(s.submitter_name)}</div>
             <span style="background:${bg};color:${col};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${AUDITION_STATUS_LABELS[s.status]||s.status}</span>
           </div>
-          ${s.role_requested?`<div style="font-size:13px;color:var(--teal-dark);font-weight:600">Auditioning for: ${escHtml(s.role_requested)}</div>`:''}
+          ${(()=>{
+        let roleList = []
+        try { roleList = JSON.parse(s.roles_requested||'[]') } catch(e){}
+        if(!roleList.length && s.role_requested) roleList = [s.role_requested]
+        return roleList.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:2px">`
+          + roleList.map(r=>`<span style="background:var(--teal-50);color:var(--teal-dark);padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')
+          + `</div>` : ''
+      })()}
           ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
           ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
           <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>

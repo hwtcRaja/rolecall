@@ -643,8 +643,8 @@ async function selectContext(type, id, name, color){
       if(pp){
         // Only show cast role badge if cast list is published
         Promise.all([
-          fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(pp)}&context_type=program&context_id=${id}`).then(r=>r.json()).catch(()=>null),
-          fetch(`/api/auditions/cast-list/program/${id}`).then(r=>r.json()).catch(()=>null)
+          fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(pp)}&context_type=program&context_id=${id}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+          fetch(`/api/auditions/cast-list/program/${id}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
         ]).then(([sub, castData])=>{
             if(sub?.status==='cast' && sub?.cast_role && castData?.published){
               castRole = sub.cast_role
@@ -1266,7 +1266,7 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
   // ── Cast list published banner ──
   const overviewCastEl = document.getElementById('overview-cast-section-'+prodId)
   if(prodId && !overviewCastEl){
-    fetch(`/api/auditions/cast-list/production/${prodId}`)
+    fetch(`/api/auditions/cast-list/production/${prodId}`,{cache:'no-store'})
       .then(r=>r.json())
       .then(data=>{
         if(data?.published && data.cast?.length){
@@ -1523,9 +1523,9 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
 
   // Fetch everything in parallel
   const [settings, existingSub, castData] = await Promise.all([
-    fetch(`/api/auditions/settings/${contextType}/${contextId}`).then(r=>r.json()).catch(()=>null),
-    passphrase ? fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(passphrase)}&context_type=${contextType}&context_id=${contextId}`).then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
-    fetch(`/api/auditions/cast-list/${contextType}/${contextId}`).then(r=>r.json()).catch(()=>null)
+    fetch(`/api/auditions/settings/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+    passphrase ? fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(passphrase)}&context_type=${contextType}&context_id=${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
+    fetch(`/api/auditions/cast-list/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
   ])
 
   // 1. Cast list published — show it (highest priority)

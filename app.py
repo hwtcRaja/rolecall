@@ -707,6 +707,7 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS context_type TEXT",
         "ALTER TABLE audition_settings DROP CONSTRAINT IF EXISTS audition_settings_context_id_key",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
             family_id TEXT,
@@ -2858,7 +2859,7 @@ def submit_audition():
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
-        (d.get('role_requested') or '').strip() or None,
+        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])) ,
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
@@ -2876,19 +2877,19 @@ def submit_audition():
         if p:
             ctx_name = p['name']
             instructor_id = p.get('instructor_id')
-    # Notify
+    # Notify — instructor + info@ + audition email_submissions only (not all admins)
     try:
-        es = get_email_settings()
-        recipients = list(get_recipient_emails(es))
-        try:
-            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE")
-            for u in admins:
-                if u['email'] and u['email'] not in recipients: recipients.append(u['email'])
-        except Exception: pass
+        recipients = []
+        # 1. Program/production instructor
         if instructor_id:
-            vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (instructor_id,))
-            if vol and vol.get('email') and vol['email'] not in recipients:
-                recipients.append(vol['email'])
+            try:
+                vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (instructor_id,))
+                if vol and vol.get('email'): recipients.append(vol['email'])
+            except Exception: pass
+        # 2. info@ default fallback
+        info_email = 'info@hwtco.org'
+        if info_email not in recipients: recipients.append(info_email)
+        # 3. Additional emails configured in audition settings
         if settings.get('email_submissions'):
             for e in settings['email_submissions'].split(','):
                 e = e.strip()
@@ -2903,7 +2904,11 @@ def submit_audition():
                 '<h2 style="color:#145466">New Audition: ' + ctx_name + '</h2>'
                 '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
                 '<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:140px">Name</td><td style="padding:8px 12px">' + name + '</td></tr>'
-                '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role</td><td style="padding:8px 12px">' + (d.get('role_requested') or 'Not specified') + '</td></tr>'
+                (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
+                    (lambda r: r if r else ([d.get('role_requested')] if d.get('role_requested') else []))(
+                        __import__('json').loads(d.get('roles_requested') or '[]') if isinstance(d.get('roles_requested'), str) else (d.get('roles_requested') or [])
+                    )
+                )
                 + ('<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">' + d.get('submitter_email','') + '</td></tr>' if d.get('submitter_email') else '')
                 + ('<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Notes</td><td style="padding:8px 12px">' + d.get('notes','') + '</td></tr>' if d.get('notes') else '')
                 + '</table>'

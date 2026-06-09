@@ -1558,14 +1558,14 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
           ${roleList.map(r=>`<span style="background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">${escHtml(r)}</span>`).join('')}
         </div>`:''}
         <div style="font-size:12px;color:var(--text-hint);margin-top:8px">Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString() : ''}</div>
-        <div style="font-size:11px;color:var(--text-hint);margin-top:10px"><a href="#" onclick="loadPortalAuditionsTab('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}','${escHtml(participantName||'')}');return false" style="color:var(--teal)">↻ Refresh</a></div>
         ${existingSub.status==='cast'&&existingSub.cast_role?`
         <div style="margin-top:14px;background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;text-align:left">
-          <div style="font-size:13px;font-weight:800;margin-bottom:6px">${escHtml(settings.title||activeContextType==='program'?'Program':'Production')}</div>
+          <div style="font-size:13px;font-weight:800;margin-bottom:6px">${escHtml(settings.title||'')}</div>
           <div style="font-size:12px;opacity:0.8;margin-bottom:2px">Role</div>
           <div style="font-size:22px;font-weight:800">${escHtml(existingSub.cast_role)}</div>
         </div>`:''}
       </div>
+      <button onclick="loadPortalAuditionsTab('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}','${escHtml(participantName||'')}')" style="width:100%;margin-top:10px;background:none;border:1.5px solid var(--border);border-radius:var(--radius);padding:10px;font-family:inherit;font-size:13px;color:var(--text-muted);cursor:pointer">↻ Not right? Tap to refresh</button>
     </div>`
     return
   }

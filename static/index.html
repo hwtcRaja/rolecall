@@ -7217,12 +7217,17 @@ async function loadAuditionsTab(contextType, contextId, containerId){
   try {
     const [s, sub] = await Promise.all([
       api(`/api/auditions/settings/${contextType}/${contextId}`),
-      api(`/api/auditions/submissions/${contextType}/${contextId}`)
+      api(`/api/auditions/list/${contextType}/${contextId}`)
     ])
     if(s && !s.error) settings = s
     else if(s && s.error) console.error('Audition settings error:', s.error)
     if(Array.isArray(sub)) submissions = sub
-    else if(sub && sub.error) console.error('Audition submissions error:', sub.error)
+    else {
+      const errMsg = (sub && sub.error) ? sub.error : 'Unexpected response'
+      console.error('Audition submissions error:', errMsg, sub)
+      el.innerHTML = '<div style="color:var(--red-600);padding:16px;font-size:13px">Could not load submissions: '+errMsg+'</div>'
+      return
+    }
   } catch(e){
     el.innerHTML = '<div style="color:var(--red-600);padding:16px">Failed to load auditions: '+e.message+'</div>'
     return
@@ -7601,7 +7606,7 @@ async function saveAuditionSettings(contextType, contextId, containerId){
 }
 
 function openPublishCastModal(contextType, contextId, containerId){
-  api(`/api/auditions/submissions/${contextType}/${contextId}`).then(subs=>{
+  api(`/api/auditions/list/${contextType}/${contextId}`).then(subs=>{
     const cast = (subs||[]).filter(s=>s.status==='cast')
     const existing = document.getElementById('publish-cast-overlay')
     if(existing) existing.remove()

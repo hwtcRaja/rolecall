@@ -708,6 +708,9 @@ def init_db():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS context_type TEXT",
         "ALTER TABLE audition_settings DROP CONSTRAINT IF EXISTS audition_settings_context_id_key",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
             family_id TEXT,
@@ -2822,7 +2825,7 @@ def save_audition_settings(context_type, context_id):
     return jsonify({'ok': True})
 
 
-@app.route('/api/auditions/submissions/<context_type>/<context_id>', methods=['GET'])
+@app.route('/api/auditions/list/<context_type>/<context_id>', methods=['GET'])
 def get_audition_submissions(context_type, context_id):
     err = require_auth()
     if err: return err
@@ -2957,6 +2960,86 @@ def delete_audition_submission(sid):
     execute(conn, 'DELETE FROM audition_submissions WHERE id=%s', (sid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+
+@app.route('/api/auditions/my-submission', methods=['GET'])
+def get_my_audition_submission():
+    """Check if a family/participant already submitted for a context."""
+    passphrase   = request.args.get('passphrase','').strip()
+    context_type = request.args.get('context_type','')
+    context_id   = request.args.get('context_id','')
+    if not passphrase or not context_type or not context_id:
+        return jsonify(None)
+    conn = get_db()
+    family = fetchone(conn, 'SELECT id FROM families WHERE passphrase=%s', (passphrase,))
+    if not family:
+        conn.close(); return jsonify(None)
+    sub = fetchone(conn, """SELECT * FROM audition_submissions
+        WHERE family_id=%s AND context_type=%s AND context_id=%s
+        AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+        (family['id'], context_type, context_id))
+    conn.close()
+    if not sub: return jsonify(None)
+    try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
+    except Exception: pass
+    return jsonify(sub)
+
+
+@app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])
+def update_submission_cast_role(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE audition_submissions SET cast_role=%s, status=%s, updated_at=NOW() WHERE id=%s',
+        (d.get('cast_role','').strip() or None, 'cast', sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
+def publish_cast_list(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    publish = bool(d.get('publish', True))
+    conn = get_db()
+    if publish:
+        # Build cast list from all 'cast' submissions that have a cast_role
+        cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email
+            FROM audition_submissions
+            WHERE context_type=%s AND context_id=%s AND status='cast'
+            ORDER BY cast_role, submitter_name""", (context_type, context_id))
+        cast_json = json.dumps([dict(c) for c in cast])
+        execute(conn, """UPDATE audition_settings
+            SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""",
+            (cast_json, context_type, context_id))
+    else:
+        execute(conn, """UPDATE audition_settings
+            SET cast_list_published=FALSE, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""",
+            (context_type, context_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
+def get_cast_list(context_type, context_id):
+    """Public endpoint — returns cast list if published."""
+    conn = get_db()
+    row = fetchone(conn, """SELECT cast_list, cast_list_published, title
+        FROM audition_settings WHERE context_type=%s AND context_id=%s""",
+        (context_type, context_id))
+    conn.close()
+    if not row or not row.get('cast_list_published'):
+        return jsonify({'published': False, 'cast': []})
+    try:
+        cast = json.loads(row.get('cast_list') or '[]')
+    except Exception:
+        cast = []
+    return jsonify({'published': True, 'cast': cast, 'title': row.get('title','')})
 
 
 # ─────────────────────────────────────────────

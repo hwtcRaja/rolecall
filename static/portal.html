@@ -1519,7 +1519,8 @@ async function submitInlineNewMessage(passphrase, prodId, progId, ctxLabel){
 
 async function loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName){
   const el = document.getElementById('dtab-auditions')
-  if(!el) return
+  console.log('[Auditions] el=', el, 'contextType=', contextType, 'contextId=', contextId, 'passphrase=', passphrase ? 'set' : 'empty')
+  if(!el){ console.error('[Auditions] dtab-auditions not found!'); return }
 
   // Fetch everything in parallel
   const [settings, existingSub, castData] = await Promise.all([
@@ -1528,6 +1529,7 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
     fetch(`/api/auditions/cast-list/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
   ])
 
+  console.log('[Auditions] settings=', settings, 'existingSub=', existingSub, 'castData=', castData)
   // 1. Cast list published — show it (highest priority)
   if(castData?.published && castData.cast?.length){
     el.innerHTML = buildCastListHTML(castData)

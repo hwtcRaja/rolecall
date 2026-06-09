@@ -14856,9 +14856,9 @@ async function openProgramDetail(programId){
                 <div style="font-size:15px;font-weight:700">💬 Family Messages</div>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Conversations started by families from the parent portal</div>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="loadPortalMessages('${p.id}',null,'prog-messages-${p.id}')">↻ Refresh</button>
+              <button class="btn btn-secondary btn-sm" onclick="loadPortalMessages(window._currentProgramDetailId,null,'prog-messages-current')">↻ Refresh</button>
             </div>
-            <div id="prog-messages-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+            <div id="prog-messages-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
         </div>
 
@@ -14876,71 +14876,71 @@ async function openProgramDetail(programId){
               <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Save as draft then publish & email the roster</div></div>
             </div>
             <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
-              <input type="hidden" id="prog-ann-edit-id-${p.id}"/>
+              <input type="hidden" id="prog-ann-edit-id-current"/>
               <div class="form-group" style="margin-bottom:10px">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Title</label>
-                <input type="text" id="prog-ann-title-${p.id}" placeholder="e.g. Rehearsal reminder for Tuesday" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                <input type="text" id="prog-ann-title-current" placeholder="e.g. Rehearsal reminder for Tuesday" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
               </div>
               <div class="form-group" style="margin-bottom:10px">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Message</label>
-                <textarea id="prog-ann-body-${p.id}" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
+                <textarea id="prog-ann-body-current" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
               </div>
               <div style="display:flex;gap:8px">
-                <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft('${p.id}')">💾 Save Draft</button>
-                <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft('${p.id}',true)">📨 Save & Publish</button>
-                <button id="prog-ann-cancel-${p.id}" class="btn btn-secondary btn-sm" style="display:none" onclick="cancelEditProgramAnnouncement('${p.id}')">Cancel</button>
+                <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId)">💾 Save Draft</button>
+                <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true)">📨 Save & Publish</button>
+                <button id="prog-ann-cancel-current" class="btn btn-secondary btn-sm" style="display:none" onclick="cancelEditProgramAnnouncement(window._currentProgramDetailId)">Cancel</button>
               </div>
             </div>
-            <div id="prog-ann-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+            <div id="prog-ann-list-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
           <!-- Files card with dynamic folders -->
           <div class="card" style="padding:20px;margin-bottom:16px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="font-size:15px;font-weight:700">📁 Files</div>
-              <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('program','${p.id}')">+ New Folder</button>
+              <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('program',window._currentProgramDetailId)">+ New Folder</button>
             </div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Google Drive links organized into folders for families</div>
             <!-- Folder list for this program -->
-            <div id="prog-folders-${p.id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+            <div id="prog-folders-current" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
             <!-- Add file form -->
             <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:14px">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
                 <div>
                   <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File Title</label>
-                  <input type="text" id="prog-file-title-${p.id}" placeholder="e.g. Costume Guide" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                  <input type="text" id="prog-file-title-current" placeholder="e.g. Costume Guide" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
                 </div>
                 <div>
                   <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Folder</label>
-                  <select id="prog-file-folder-${p.id}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+                  <select id="prog-file-folder-current" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
                     <option value="General">General</option>
                   </select>
                 </div>
               </div>
               <div style="margin-bottom:10px">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
-                <input type="url" id="prog-file-url-${p.id}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+                <input type="url" id="prog-file-url-current" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
               </div>
-              <button class="btn btn-primary btn-sm" onclick="addProgramFile('${p.id}')">📁 Add File</button>
+              <button class="btn btn-primary btn-sm" onclick="addProgramFile(window._currentProgramDetailId)">📁 Add File</button>
             </div>
-            <div id="prog-file-list-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+            <div id="prog-file-list-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
           <!-- Required Waivers card -->
           <div class="card" style="padding:20px;margin-bottom:16px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="font-size:15px;font-weight:700">📋 Required Waivers</div>
-              ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="addProgramRequiredWaiver('${p.id}')">+ Add</button>`:''}
+              ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="addProgramRequiredWaiver(window._currentProgramDetailId)">+ Add</button>`:''}
             </div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Waivers all enrolled participants must sign</div>
-            <div id="prog-required-waivers-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+            <div id="prog-required-waivers-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
 
           <!-- Waiver status card -->
           <div class="card" style="padding:20px">
             <div style="font-size:15px;font-weight:700;margin-bottom:4px">🚦 Waiver Status</div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Which participants still need to sign required waivers</div>
-            <div id="prog-waiver-status-${p.id}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+            <div id="prog-waiver-status-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
           </div>
         </div>
       </div>
@@ -15881,7 +15881,7 @@ function switchProgramDetailTab(tab){
   })
   const pid = window._currentProgramDetailId
   if(tab==='portal') loadProgramPortalContent(pid)
-  if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-'+pid)
+  if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-current')
   if(tab==='auditions' && pid){
     const el = document.getElementById('prog-auditions-content')
     if(el) loadAuditionsTab('program', pid, 'prog-auditions-content')
@@ -15903,16 +15903,16 @@ async function loadProgramPortalContent(pid){
     renderProgramAnnouncements(pid, announcements)
     renderProgramFiles(pid, files, folders)
     try { renderWaiverStatus(pid, Array.isArray(waiverStatus)?{required_waivers:[],participants:[]}:(waiverStatus||{})) }
-    catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
+    catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status--current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
     try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }
-    catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers-'+pid); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
+    catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers--current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
   } catch(e) {
     console.error('loadProgramPortalContent error:', e)
   }
 }
 
 function renderWaiverStatus(pid, data){
-  const el = document.getElementById(`prog-waiver-status-${pid}`)
+  const el = document.getElementById('prog-waiver-status-current')
   if(!el) return
   if(!data||!data.required_waivers||!data.required_waivers.length){
     el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No required waivers set for this program.</div>'; return
@@ -15957,7 +15957,7 @@ async function deletePortalFolder(contextType, pid, folderOrFid){
 }
 
 function renderProgramRequiredWaivers(pid, waivers){
-  const el = document.getElementById('prog-required-waivers-'+pid)
+  const el = document.getElementById('prog-required-waivers--current')
   if(!el) return
   const isAdmin = canEdit('youth')
   if(!waivers.length){
@@ -16056,7 +16056,7 @@ function deletePortalFolderByName(btn){
 }
 
 function renderProgramAnnouncements(pid, announcements){
-  const el = document.getElementById('prog-ann-list-'+pid)
+  const el = document.getElementById('prog-ann-list--current')
   if(!el) return
   if(!announcements.length){
     el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No announcements yet. Save a draft above to get started.</div>'
@@ -16091,7 +16091,7 @@ function renderProgAnnRow(a, pid, isDraft){
   return '<div style="border:1.5px solid '+(isDraft?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;background:'+(isDraft?'#fefce8':'var(--surface)')+'">'    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'    +'<div style="flex:1">'    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+statusBadge    +'<span style="font-size:13px;font-weight:700">'+escHtml(a.title)+'</span></div>'    +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">'+escHtml(a.body)+'</div>'    +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>'    +pushInfo+'</div>'    +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'    +(isDraft      ?'<button data-ann-id="'+a.id+'" data-prog-id="'+pid+'" onclick="editProgAnnById(this)" style="background:var(--teal-50);border:1.5px solid var(--teal);color:var(--teal-dark);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✏️ Edit Draft</button>'      :'')    +(isDraft      ?'<button onclick="publishAndEmailProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">✓ Publish & Email</button>'      :'<button onclick="repushProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📨 Resend Email</button>')    +'<button onclick="deleteProgramAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'    +'</div></div></div>'}
 
 function renderProgramFiles(pid, files, folders){
-  const el = document.getElementById(`prog-file-list-${pid}`)
+  const el = document.getElementById('prog-file-list-current')
   if(!el) return
   if(!files.length){ el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No files yet.</div>'; return }
   const grouped = {}
@@ -16115,9 +16115,9 @@ function renderProgramFiles(pid, files, folders){
 
 async function saveProgramAnnouncementDraft(pid, publishNow){
   publishNow = publishNow || false
-  const title = document.getElementById('prog-ann-title-'+pid) ? document.getElementById('prog-ann-title-'+pid).value.trim() : ''
-  const body  = document.getElementById('prog-ann-body-'+pid)  ? document.getElementById('prog-ann-body-'+pid).value.trim()  : ''
-  const editId = document.getElementById('prog-ann-edit-id-'+pid) ? document.getElementById('prog-ann-edit-id-'+pid).value : ''
+  const title = document.getElementById('prog-ann-title--current') ? document.getElementById('prog-ann-title--current').value.trim() : ''
+  const body  = document.getElementById('prog-ann-body--current')  ? document.getElementById('prog-ann-body--current').value.trim()  : ''
+  const editId = document.getElementById('prog-ann-edit-id--current') ? document.getElementById('prog-ann-edit-id--current').value : ''
   if(!title||!body){toast('Title and message required','error');return}
   const status = publishNow ? 'published' : 'draft'
   let res
@@ -16159,12 +16159,12 @@ async function repushProgramAnn(pid, aid){
 }
 
 function editProgAnn(pid, aid, titleEnc, bodyEnc){
-  document.getElementById('prog-ann-edit-id-'+pid).value = aid
-  document.getElementById('prog-ann-title-'+pid).value = decodeURIComponent(titleEnc)
-  document.getElementById('prog-ann-body-'+pid).value = decodeURIComponent(bodyEnc)
-  var cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  document.getElementById('prog-ann-edit-id--current').value = aid
+  document.getElementById('prog-ann-title--current').value = decodeURIComponent(titleEnc)
+  document.getElementById('prog-ann-body--current').value = decodeURIComponent(bodyEnc)
+  var cancelBtn = document.getElementById('prog-ann-cancel--current')
   if(cancelBtn) cancelBtn.style.display=''
-  document.getElementById('prog-ann-title-'+pid).focus()
+  document.getElementById('prog-ann-title--current').focus()
 }
 
 function editProgAnnById(btn){
@@ -16172,10 +16172,10 @@ function editProgAnnById(btn){
   const pid = btn.dataset.progId
   const a = window._progAnnMap && window._progAnnMap[aid]
   if(!a){ toast('Could not load announcement data','error'); return }
-  const editIdEl = document.getElementById('prog-ann-edit-id-'+pid)
-  const titleEl  = document.getElementById('prog-ann-title-'+pid)
-  const bodyEl   = document.getElementById('prog-ann-body-'+pid)
-  const cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  const editIdEl = document.getElementById('prog-ann-edit-id--current')
+  const titleEl  = document.getElementById('prog-ann-title--current')
+  const bodyEl   = document.getElementById('prog-ann-body--current')
+  const cancelBtn = document.getElementById('prog-ann-cancel--current')
   if(editIdEl) editIdEl.value = aid
   if(titleEl)  titleEl.value  = a.title || ''
   if(bodyEl)   bodyEl.value   = a.body  || ''
@@ -16185,12 +16185,12 @@ function editProgAnnById(btn){
 }
 
 function cancelEditProgramAnnouncement(pid){
-  var editId = document.getElementById('prog-ann-edit-id-'+pid)
+  var editId = document.getElementById('prog-ann-edit-id--current')
   if(editId) editId.value=''
-  var title = document.getElementById('prog-ann-title-'+pid)
-  var body = document.getElementById('prog-ann-body-'+pid)
+  var title = document.getElementById('prog-ann-title--current')
+  var body = document.getElementById('prog-ann-body--current')
   if(title) title.value=''; if(body) body.value=''
-  var cancelBtn = document.getElementById('prog-ann-cancel-'+pid)
+  var cancelBtn = document.getElementById('prog-ann-cancel--current')
   if(cancelBtn) cancelBtn.style.display='none'
 }
 
@@ -16206,15 +16206,15 @@ async function deleteProgramAnnouncement(pid, aid){
 }
 
 async function addProgramFile(pid){
-  const title = document.getElementById(`prog-file-title-${pid}`)?.value.trim()
-  const url = document.getElementById(`prog-file-url-${pid}`)?.value.trim()
-  const folder = document.getElementById(`prog-file-folder-${pid}`)?.value||'General'
+  const title = document.getElementById('prog-file-title-current')?.value.trim()
+  const url = document.getElementById('prog-file-url-current')?.value.trim()
+  const folder = document.getElementById('prog-file-folder-current')?.value||'General'
   if(!title||!url){toast('Title and URL required','error');return}
   if(!url.startsWith('http')){toast('Enter a valid URL starting with https://','error');return}
   const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, folder})
   if(res.error){toast(res.error,'error');return}
-  document.getElementById(`prog-file-title-${pid}`).value=''
-  document.getElementById(`prog-file-url-${pid}`).value=''
+  document.getElementById('prog-file-title-current').value=''
+  document.getElementById('prog-file-url-current').value=''
   await loadProgramPortalContent(pid)
   toast('File added!')
 }

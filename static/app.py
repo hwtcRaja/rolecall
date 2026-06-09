@@ -175,7 +175,14 @@ def seed_system_email_templates(conn):
     <p>Please review immediately.</p>
   </div>
 </div>'''),
+        ('welcome_email',
+         'Welcome to {{program_name}} — HWTC RoleCall',
+         'welcome_email',
+         'Sent to families when they are enrolled in a program. Includes their portal passphrase. Supports {{program_name}}, {{passphrase}}, {{family_greeting}} merge tags.',
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}} — HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall — your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong> — our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company — all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important — your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started — three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile — changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families — create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details — dates, materials, and sign-up links — will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements — inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information — Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available — see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+
     ]
+
 
     for key, subject, _, description, body in templates:
         existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
@@ -592,6 +599,9 @@ def init_db():
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
+        "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS portal_last_login TIMESTAMP",
+        "ALTER TABLE families ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''",
+        "ALTER TABLE families ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS portal_passphrase TEXT",
         # portal content tables
         """CREATE TABLE IF NOT EXISTS families (
@@ -659,6 +669,7 @@ def init_db():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_event_not_closed BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_new_rsvp BOOLEAN DEFAULT TRUE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS alert_role_filled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS sender_identities TEXT DEFAULT '[]'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'",
         """CREATE TABLE IF NOT EXISTS production_general_content (
@@ -668,6 +679,28 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
+        """CREATE TABLE IF NOT EXISTS portal_message_threads (
+            id TEXT PRIMARY KEY,
+            family_id TEXT,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE SET NULL,
+            production_id TEXT REFERENCES productions(id) ON DELETE SET NULL,
+            subject TEXT NOT NULL,
+            status TEXT DEFAULT 'open',
+            unread_admin INTEGER DEFAULT 0,
+            unread_family INTEGER DEFAULT 0,
+            family_passphrase TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS portal_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES portal_message_threads(id) ON DELETE CASCADE,
+            sender_side TEXT NOT NULL,
+            sender_name TEXT,
+            body TEXT NOT NULL,
+            sent_at TIMESTAMP DEFAULT NOW())""",
+        "UPDATE board_meeting_attendance SET attendance_type='in_person' WHERE attended=TRUE AND (attendance_type IS NULL OR attendance_type='absent')",
+        "UPDATE board_meeting_attendance SET attendance_type='absent' WHERE attended=FALSE AND (attendance_type IS NULL OR attendance_type='in_person')",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_via TEXT DEFAULT 'upload'",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS shirt_size TEXT DEFAULT ''",
@@ -1033,15 +1066,6 @@ def init_db():
             source TEXT DEFAULT 'staff',
             created_at TIMESTAMP DEFAULT NOW())""",
 
-        """CREATE TABLE IF NOT EXISTS portal_files (
-            id TEXT PRIMARY KEY,
-            context_type TEXT NOT NULL,
-            context_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            url TEXT,
-            file_type TEXT,
-            created_at TIMESTAMP DEFAULT NOW())""",
-
         """CREATE TABLE IF NOT EXISTS carpools (
             id TEXT PRIMARY KEY,
             event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -1149,8 +1173,19 @@ def require_permission(section, level='edit'):
         return jsonify({'error': 'Unauthorized'}), 401
     if session.get('role') == 'admin':
         return None
+    # Always read fresh from DB for non-admin users to pick up permission changes
     try:
-        perms = json.loads(session.get('permissions') or '{}')
+        conn = get_db()
+        u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session['user_id'],))
+        conn.close()
+        if not u:
+            return jsonify({'error': 'Unauthorized'}), 401
+        if u.get('role') == 'admin':
+            session['role'] = 'admin'
+            return None
+        perms = json.loads(u.get('role_permissions') or '{}')
+        # Update session so future checks are faster
+        session['permissions'] = u.get('role_permissions') or '{}'
     except Exception:
         perms = {}
     user_level = perms.get(section, 'none')
@@ -1158,7 +1193,7 @@ def require_permission(section, level='edit'):
         return None
     if level == 'edit' and user_level == 'edit':
         return None
-    return jsonify({'error': f'Permission denied — {level} access required for {section}'}), 403
+    return jsonify({'error': f'Permission denied: need {level} access for {section}. Contact an admin to update your permissions.'}), 403
 
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
@@ -1194,14 +1229,30 @@ def get_recipient_emails(settings=None):
         pass
     return emails
 
-def send_email(to_emails, subject, html_body, from_email=None):
-    """Send via Resend API."""
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
+    """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured — email not sent')
         return False, 'Resend API key not configured'
-    from_addr = from_email or settings.get('from_email','info@hwtco.org')
+    # Build from address
+    if from_email:
+        base_email = from_email
+        base_name  = from_name or ''
+    else:
+        # Use first sender identity as default, fall back to from_email setting
+        try:
+            identities = json.loads(settings.get('sender_identities') or '[]')
+        except Exception:
+            identities = []
+        if identities:
+            base_email = identities[0].get('email', settings.get('from_email','info@hwtco.org'))
+            base_name  = identities[0].get('name', '')
+        else:
+            base_email = settings.get('from_email','info@hwtco.org')
+            base_name  = ''
+    from_addr = f'{base_name} <{base_email}>' if base_name else base_email
     if isinstance(to_emails, str):
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
@@ -1688,7 +1739,7 @@ def get_volunteer(vol_id):
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
     # Board membership
     vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
-        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attended=TRUE) as meetings_attended,
+        (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id) as meetings_total
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
@@ -2052,8 +2103,9 @@ def bulk_import_youth():
                 results['updated'] += 1
             else:
                 yid = str(uuid.uuid4())
-                execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,dob,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                    (yid, first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent))
+                pp = default_passphrase(first, last)
+                execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,dob,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (yid, first, last, dob, status, medical_notes, allergies, photo_consent, medical_consent, pp))
                 results['created'] += 1
             # Guardian
             gname = (row.get('guardian_name') or '').strip()
@@ -2197,7 +2249,8 @@ def push_program_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body)
+        fi = (request.json or {}).get('from_identity') or {}
+        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         app.logger.error(f'push_program_announcement email error: {e}')
@@ -2283,6 +2336,380 @@ def send_program_email(pid):
     except Exception as e:
         app.logger.error(f'send_program_email error: {e}')
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/youth-programs/<pid>/send-welcome', methods=['POST'])
+def send_program_welcome(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    # mode: 'all' | 'family' | 'participant'
+    mode       = d.get('mode', 'all')
+    family_id  = d.get('family_id')
+    youth_id   = d.get('youth_id')
+    subject_override = d.get('subject', '').strip()
+
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    prog_name = prog.get('name', 'Program')
+
+    # Load template
+    tmpl = get_system_template(conn, 'welcome_email')
+    if not tmpl:
+        conn.close()
+        return jsonify({'error': 'Welcome email template not found — check Email Templates in Settings'}), 404
+    body_tmpl    = tmpl['body']
+    subject_tmpl = tmpl['subject']
+
+    # Build recipient list: list of dicts {email, passphrase, family_greeting}
+    recipients = []
+
+    if mode == 'participant' and youth_id:
+        y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (youth_id,))
+        if y:
+            guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (youth_id,))
+            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            greeting = f"{y['first_name']} {y['last_name']}"
+            for g in guardians:
+                if g['email']:
+                    recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting, 'name': g.get('name','')})
+            # Also check family passphrase
+            if y.get('family_id'):
+                fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+                if fam and fam.get('passphrase'):
+                    for r in recipients:
+                        r['passphrase'] = fam['passphrase']
+
+    elif mode == 'family' and family_id:
+        fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,))
+        if fam:
+            members = fetchall(conn, "SELECT * FROM youth_participants WHERE family_id=%s AND status='active'", (family_id,))
+            pp = fam.get('passphrase', '')
+            greeting = fam.get('name', 'HWTC Family')
+            # Family email first
+            if fam.get('email'):
+                recipients.append({'email': fam['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+            # Guardian emails
+            for m in members:
+                guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (m['id'],))
+                for g in guardians:
+                    if g['email']:
+                        recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+
+    else:  # all enrolled in program
+        enrolled = fetchall(conn, """
+            SELECT y.* FROM youth_participants y
+            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+            WHERE ype.program_id=%s AND y.status='active'""", (pid,))
+        for y in enrolled:
+            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            greeting = f"{y['first_name']} {y['last_name']}"
+            # Prefer family passphrase if set
+            if y.get('family_id'):
+                fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+                if fam and fam.get('passphrase'):
+                    pp = fam['passphrase']
+                    greeting = fam.get('name', greeting)
+            guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (y['id'],))
+            for g in guardians:
+                if g['email']:
+                    recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting})
+
+    conn.close()
+
+    # Deduplicate by email (keep first passphrase seen per address)
+    seen = {}
+    deduped = []
+    for r in recipients:
+        e = r['email'].lower()
+        if e not in seen:
+            seen[e] = True
+            deduped.append(r)
+
+    if not deduped:
+        return jsonify({'error': 'No email addresses found for the selected recipients'}), 400
+
+    subject_base = subject_override or subject_tmpl.replace('{{program_name}}', prog_name)
+
+    sent = 0
+    errors = []
+    for r in deduped:
+        html_body = (body_tmpl
+            .replace('{{program_name}}', prog_name)
+            .replace('{{passphrase}}', r.get('passphrase', ''))
+            .replace('{{family_greeting}}', r.get('family_greeting', 'HWTC Family')))
+        subject = subject_base.replace('{{program_name}}', prog_name)
+        fi = d.get('from_identity') or {}
+        ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
+        if ok:
+            sent += 1
+        else:
+            errors.append({'email': r['email'], 'error': err_msg})
+
+    return jsonify({
+        'ok': True,
+        'sent': sent,
+        'total': len(deduped),
+        'errors': errors,
+        'recipients': [r['email'] for r in deduped],
+    })
+
+
+@app.route('/api/youth-programs/<pid>/welcome-recipients', methods=['GET'])
+def get_welcome_recipients(pid):
+    """Preview who would receive the welcome email for a program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    enrolled = fetchall(conn, """
+        SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+               y.status
+        FROM youth_participants y
+        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+        WHERE ype.program_id=%s AND y.status='active'
+        ORDER BY y.last_name, y.first_name""", (pid,))
+
+    result = []
+    for y in enrolled:
+        pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+        family_name = None
+        family_id   = y.get('family_id')
+        if family_id:
+            fam = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,))
+            if fam:
+                if fam.get('passphrase'):
+                    pp = fam['passphrase']
+                family_name = fam.get('name')
+        guardians = fetchall(conn, "SELECT name, email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (y['id'],))
+        result.append({
+            'youth_id':     y['id'],
+            'name':         f"{y['first_name']} {y['last_name']}",
+            'family_id':    family_id,
+            'family_name':  family_name,
+            'passphrase':   pp,
+            'guardians':    guardians,
+        })
+
+    conn.close()
+    return jsonify(result)
+
+
+# ─────────────────────────────────────────────────────────────
+#  PORTAL MESSAGING THREADS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/portal/messages/start', methods=['POST'])
+def portal_start_message_thread():
+    d = request.json or {}
+    passphrase   = d.get('passphrase','').strip()
+    subject      = (d.get('subject') or '').strip()
+    body         = (d.get('body') or '').strip()
+    program_id   = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    if not subject or not body:
+        return jsonify({'error': 'Subject and message are required'}), 400
+    conn = get_db()
+    family = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    sender_name = d.get('sender_name','').strip() or (family.get('name') if family else 'Family')
+    family_id   = family['id'] if family else None
+    tid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO portal_message_threads
+        (id, family_id, program_id, production_id, subject, status, unread_admin, unread_family, family_passphrase)
+        VALUES (%s,%s,%s,%s,%s,'open',1,0,%s)""",
+        (tid, family_id, program_id, production_id, subject, passphrase or None))
+    execute(conn, "INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,'family',%s,%s)",
+        (str(uuid.uuid4()), tid, sender_name, body))
+    conn.commit()
+    # Email notify — configured recipients + all admins + anyone with youth permission
+    s = get_email_settings()
+    recipients = list(get_recipient_emails(s))
+    try:
+        staff_with_perm = fetchall(conn, """SELECT email FROM users
+            WHERE email IS NOT NULL AND email!='' AND active=TRUE
+            AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
+        for u in staff_with_perm:
+            if u['email'] and u['email'] not in recipients:
+                recipients.append(u['email'])
+    except Exception as e:
+        app.logger.warning(f'portal message staff lookup failed: {e}')
+    # Always fall back to all admin users if list is still empty
+    if not recipients:
+        try:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        except Exception: pass
+    # Also notify the program instructor if one is set
+    try:
+        if program_id:
+            prog_row = fetchone(conn, 'SELECT name, instructor_id FROM youth_programs WHERE id=%s', (program_id,))
+            if prog_row and prog_row.get('instructor_id'):
+                vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog_row['instructor_id'],))
+                if vol and vol.get('email') and vol['email'] not in recipients:
+                    recipients.append(vol['email'])
+        elif production_id:
+            prod_row = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+    except Exception: pass
+
+    if recipients:
+        ctx = ''
+        if program_id:
+            p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (program_id,))
+            if p: ctx = f' - {p["name"]}'
+        elif production_id:
+            p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+            if p: ctx = f' - {p["name"]}'
+        html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {sender_name}<br/><strong>Subject:</strong> {subject}</p><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
+        send_email(recipients, f'Portal Message: {subject}', html)
+    conn.close()
+    return jsonify({'ok': True, 'thread_id': tid})
+
+
+@app.route('/api/portal/messages/thread/<tid>')
+def portal_get_thread(tid):
+    passphrase = request.args.get('passphrase','')
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM portal_message_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    is_admin  = session.get('user_id') is not None
+    is_family = passphrase and thread.get('family_passphrase') == passphrase
+    if not is_admin and not is_family:
+        conn.close(); return jsonify({'error': 'Unauthorized'}), 403
+    messages = fetchall(conn, 'SELECT * FROM portal_messages WHERE thread_id=%s ORDER BY sent_at', (tid,))
+    if is_admin:
+        execute(conn, 'UPDATE portal_message_threads SET unread_admin=0 WHERE id=%s', (tid,))
+    if is_family:
+        execute(conn, 'UPDATE portal_message_threads SET unread_family=0 WHERE id=%s', (tid,))
+    conn.commit()
+    prog = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (thread.get('program_id'),)) if thread.get('program_id') else None
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (thread.get('production_id'),)) if thread.get('production_id') else None
+    conn.close()
+    return jsonify({**dict(thread), 'messages': messages,
+        'program_name': prog['name'] if prog else None,
+        'production_name': prod['name'] if prod else None,
+        'from_name': messages[0]['sender_name'] if messages else 'Family'})
+
+
+@app.route('/api/portal/messages/thread/<tid>/reply', methods=['POST'])
+def portal_reply_thread(tid):
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body: return jsonify({'error': 'Message body required'}), 400
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM portal_message_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    is_admin  = session.get('user_id') is not None
+    passphrase = d.get('passphrase','')
+    is_family  = passphrase and thread.get('family_passphrase') == passphrase
+    if not is_admin and not is_family:
+        conn.close(); return jsonify({'error': 'Unauthorized'}), 403
+    side = 'admin' if is_admin else 'family'
+    sender_name = session.get('user_name','Staff') if is_admin else (d.get('sender_name') or 'Family')
+    execute(conn, 'INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,%s,%s,%s)',
+        (str(uuid.uuid4()), tid, side, sender_name, body))
+    if is_admin:
+        execute(conn, 'UPDATE portal_message_threads SET unread_family=unread_family+1, updated_at=NOW() WHERE id=%s', (tid,))
+    else:
+        execute(conn, 'UPDATE portal_message_threads SET unread_admin=unread_admin+1, updated_at=NOW() WHERE id=%s', (tid,))
+    conn.commit()
+    s = get_email_settings()
+    if is_admin and thread.get('family_passphrase'):
+        try:
+            family = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
+            if family and family.get('email'):
+                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
+                send_email([family['email']], f'Re: {thread["subject"]}', html)
+        except Exception: pass
+    elif is_family:
+        recipients = list(get_recipient_emails(s))
+        try:
+            staff = fetchall(conn, """SELECT email FROM users WHERE email IS NOT NULL AND email!='' AND active=TRUE
+                AND (role='admin' OR role_permissions::text LIKE '%"youth"%')""")
+            for u in staff:
+                if u['email'] and u['email'] not in recipients: recipients.append(u['email'])
+        except Exception as e:
+            app.logger.warning(f'portal reply staff lookup failed: {e}')
+        if not recipients:
+            try:
+                admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+                recipients = [u['email'] for u in admins if u.get('email')]
+            except Exception: pass
+        # Also notify the program instructor
+        try:
+            if thread.get('program_id'):
+                prog_row = fetchone(conn, 'SELECT instructor_id FROM youth_programs WHERE id=%s', (thread['program_id'],))
+                if prog_row and prog_row.get('instructor_id'):
+                    vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (prog_row['instructor_id'],))
+                    if vol and vol.get('email') and vol['email'] not in recipients:
+                        recipients.append(vol['email'])
+        except Exception: pass
+        if recipients:
+            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'
+            send_email(recipients, f'Portal Reply: {thread["subject"]}', html)
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/portal/messages/threads')
+def portal_list_threads():
+    err = require_auth()
+    if err: return err
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
+    conn = get_db()
+    where, vals = [], []
+    if program_id:    where.append('t.program_id=%s');    vals.append(program_id)
+    if production_id: where.append('t.production_id=%s'); vals.append(production_id)
+    clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+    threads = fetchall(conn, f"""
+        SELECT t.*,
+            (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
+            (SELECT body FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_body,
+            (SELECT sent_at FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_at,
+            (SELECT sender_name FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at ASC LIMIT 1) as from_name,
+            yp.name as program_name, p.name as production_name
+        FROM portal_message_threads t
+        LEFT JOIN youth_programs yp ON yp.id=t.program_id
+        LEFT JOIN productions p ON p.id=t.production_id
+        {clause}
+        ORDER BY t.updated_at DESC""", vals)
+    conn.close()
+    return jsonify(threads)
+
+
+@app.route('/api/portal/messages/thread/<tid>/close', methods=['POST'])
+def portal_close_thread(tid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE portal_message_threads SET status='closed' WHERE id=%s", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/portal/messages/family')
+def portal_family_threads():
+    passphrase = request.args.get('passphrase','').strip()
+    if not passphrase: return jsonify([])
+    conn = get_db()
+    threads = fetchall(conn, """
+        SELECT t.*,
+            (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
+            (SELECT body FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_body,
+            (SELECT sent_at FROM portal_messages WHERE thread_id=t.id ORDER BY sent_at DESC LIMIT 1) as last_at,
+            yp.name as program_name, p.name as production_name
+        FROM portal_message_threads t
+        LEFT JOIN youth_programs yp ON yp.id=t.program_id
+        LEFT JOIN productions p ON p.id=t.production_id
+        WHERE t.family_passphrase=%s
+        ORDER BY t.updated_at DESC""", (passphrase,))
+    conn.close()
+    return jsonify(threads)
+
 
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
@@ -2371,8 +2798,44 @@ def get_youth_participant(yid):
         y['incidents'] = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC', (yid,))
     except Exception:
         y['notes'] = []; y['incidents'] = []
+    # Include family data if linked
+    if y.get('family_id'):
+        y['family'] = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (y['family_id'],))
+    else:
+        y['family'] = None
     conn.close()
     return jsonify(y)
+
+@app.route('/api/youth/<yid>/family', methods=['PUT'])
+def set_youth_family(yid):
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    family_id = d.get('family_id') or None
+    conn = get_db()
+    execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (family_id, yid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'family_id': family_id})
+
+def default_passphrase(first_name, last_name):
+    """Generate default portal passphrase: firstname_lastname_hwtc (lowercase)"""
+    first = (first_name or '').strip().lower().replace(' ', '')
+    last  = (last_name  or '').strip().lower().replace(' ', '')
+    return f"{first}_{last}_hwtc"
+
+@app.route('/api/youth/backfill-passphrases', methods=['POST'])
+def backfill_passphrases():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    students = fetchall(conn, "SELECT id, first_name, last_name FROM youth_participants WHERE passphrase IS NULL OR passphrase = ''")
+    count = 0
+    for s in students:
+        pp = default_passphrase(s['first_name'], s['last_name'])
+        execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (pp, s['id']))
+        count += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': count})
 
 @app.route('/api/youth', methods=['POST'])
 def create_youth():
@@ -2380,11 +2843,12 @@ def create_youth():
     if err: return err
     d = request.json or {}
     yid = str(uuid.uuid4())
+    pp = default_passphrase(d.get('first_name',''), d.get('last_name',''))
     conn = get_db()
     execute(conn,
-        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
         (yid, d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp))
     for g in d.get('guardians', []):
         execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                 (str(uuid.uuid4()), yid, g['name'], g.get('relationship',''), g.get('phone',''), g.get('email',''), 1 if g.get('is_primary') else 0))
@@ -4217,7 +4681,7 @@ def save_email_settings_route():
     d = request.json or {}
     conn = get_db()
     # Build dynamic UPDATE for any fields passed
-    allowed = ['resend_api_key','from_email','report_recipients','report_recipient_user_ids',
+    allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
@@ -4381,7 +4845,8 @@ def send_reset_link(uid):
             <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
         </div>
     </div>'''
-    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body)
+    fi = (request.json or {}).get('from_identity') or {}
+    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Failed to send email. Check that your Resend API key is configured in Settings → Email.'}), 500
@@ -4449,29 +4914,66 @@ def portal_auth():
     family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
     if family:
         members = fetchall(conn, 'SELECT * FROM youth_participants WHERE family_id=%s ORDER BY first_name', (family['id'],))
+        # Stamp last login for all members
+        for m in members:
+            execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (m['id'],))
+        conn.commit()
         conn.close()
-        return jsonify({
-            'type': 'family',
-            'family': family,
-            'members': members,
-            'passphrase': passphrase,
-        })
+        return jsonify({'type':'family','family':family,'members':members,'passphrase':passphrase})
 
     # Try individual youth passphrase
     youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
     if youth:
+        execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (youth['id'],))
+        conn.commit()
         family_row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (youth.get('family_id'),)) if youth.get('family_id') else None
         conn.close()
-        return jsonify({
-            'type': 'participant',
-            'participant': youth,
-            'family': family_row,
-            'members': [youth],
-            'passphrase': passphrase,
-        })
+        return jsonify({'type':'participant','participant':youth,'family':family_row,'members':[youth],'passphrase':passphrase})
 
     conn.close()
     return jsonify({'error': 'Passphrase not found. Please check with HWTC staff.'}), 401
+
+@app.route('/api/portal/change-passphrase', methods=['POST'])
+def portal_change_passphrase():
+    d = request.json or {}
+    current      = (d.get('current_passphrase') or '').strip().lower()
+    new_pp       = (d.get('new_passphrase') or '').strip()
+    change_type  = d.get('change_type', 'auto')  # 'family', 'individual', or 'auto'
+    youth_id     = d.get('youth_id')
+    if not current or not new_pp:
+        return jsonify({'error': 'Current and new passphrase required'}), 400
+    if len(new_pp) < 4:
+        return jsonify({'error': 'New passphrase must be at least 4 characters'}), 400
+    conn = get_db()
+    # Try family passphrase
+    family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
+    if family:
+        if change_type == 'individual' and youth_id:
+            # Change just this child's passphrase
+            taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth_id))
+            if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth_id))
+        else:
+            # Change family passphrase
+            taken = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), family['id']))
+            if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+            execute(conn, 'UPDATE families SET passphrase=%s WHERE id=%s', (new_pp, family['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    # Try individual youth passphrase
+    youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (current,))
+    if youth:
+        taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth['id']))
+        if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        if youth.get('family_id') and change_type != 'individual':
+            # Update all family members too
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE family_id=%s', (new_pp, youth['family_id']))
+        else:
+            execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    conn.close()
+    return jsonify({'error': 'Current passphrase incorrect'}), 401
 
 @app.route('/api/portal/announcements')
 def get_portal_announcements():
@@ -4552,14 +5054,19 @@ def portal_get_participant(yid):
     except Exception as e:
         announcements = []; errors.append(f'announcements: {e}')
 
-    # Files
+    # Files — fetch for all productions and programs the participant is in
     try:
         files = []
+        all_placeholders = []
+        all_vals = []
         if prod_ids:
-            placeholders = ','.join(['%s']*len(prod_ids))
-            files = fetchall(conn, f'''SELECT * FROM portal_files
-                WHERE context_id IN ({placeholders})
-                ORDER BY created_at DESC''', tuple(prod_ids))
+            ph = ','.join(['%s']*len(prod_ids))
+            prod_files = fetchall(conn, f'SELECT * FROM portal_files WHERE production_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prod_ids))
+            files.extend(prod_files)
+        if prog_ids:
+            ph = ','.join(['%s']*len(prog_ids))
+            prog_files = fetchall(conn, f'SELECT * FROM portal_files WHERE program_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prog_ids))
+            files.extend(prog_files)
     except Exception as e:
         files = []; errors.append(f'files: {e}')
 
@@ -4667,14 +5174,15 @@ def portal_youth_request_update(yid):
 
 @app.route('/api/portal/files')
 def portal_get_files():
-    context_id = request.args.get('context_id')
-    context_type = request.args.get('context_type','production')
+    program_id    = request.args.get('program_id') or request.args.get('context_id') if request.args.get('context_type','production')=='program' else None
+    production_id = request.args.get('production_id') or (request.args.get('context_id') if request.args.get('context_type','production')=='production' else None)
     conn = get_db()
-    if context_id:
-        rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s AND context_type=%s ORDER BY created_at DESC',
-            (context_id, context_type))
+    if program_id:
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE program_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (program_id,))
+    elif production_id:
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE production_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (production_id,))
     else:
-        rows = fetchall(conn, 'SELECT * FROM portal_files ORDER BY created_at DESC')
+        rows = fetchall(conn, "SELECT * FROM portal_files WHERE description IS NULL OR description!='__folder__' ORDER BY created_at DESC")
     conn.close()
     return jsonify(rows)
 
@@ -5601,17 +6109,21 @@ def get_portal_instructor_content(context_type, context_id):
     err = require_auth()
     if err: return err
     conn = get_db()
+    # Use real column names: program_id / production_id (not context_type/context_id)
     try:
-        files = fetchall(conn, '''SELECT * FROM portal_files
-            WHERE context_type=%s AND context_id=%s ORDER BY created_at DESC''',
-            (context_type, context_id))
-    except Exception:
-        # context_type column may not exist yet on older DBs
         if context_type == 'production':
             files = fetchall(conn, '''SELECT * FROM portal_files
-                WHERE production_id=%s ORDER BY created_at DESC''', (context_id,))
+                WHERE production_id=%s AND (description IS NULL OR description != '__folder__')
+                ORDER BY folder, title''', (context_id,))
+        elif context_type == 'program':
+            files = fetchall(conn, '''SELECT * FROM portal_files
+                WHERE program_id=%s AND (description IS NULL OR description != '__folder__')
+                ORDER BY folder, title''', (context_id,))
         else:
             files = []
+    except Exception as e:
+        app.logger.warning(f'portal files fetch failed: {e}')
+        files = []
     try:
         if context_type == 'production':
             announcements = fetchall(conn, '''SELECT * FROM portal_announcements
@@ -5736,6 +6248,149 @@ def build_hours_by_event_report(start_date, end_date):
     conn.close()
     return rows
 
+def build_range_recap_report(start_date, end_date):
+    """Flexible date-range volunteer recap (used for quarterly/YTD/custom)."""
+    conn = get_db()
+    import datetime as _dt
+
+    totals = fetchone(conn, """
+        SELECT COALESCE(SUM(h.hours),0) as total_hours,
+               COUNT(DISTINCT h.volunteer_id) as active_volunteers,
+               COUNT(*) as total_entries
+        FROM hours h WHERE h.date >= %s AND h.date <= %s""", (start_date, end_date))
+
+    top_vols = fetchall(conn, """
+        SELECT v.name, v.email,
+               COALESCE(SUM(h.hours),0) as hours,
+               COUNT(DISTINCT h.event) as events_count
+        FROM hours h JOIN volunteers v ON h.volunteer_id=v.id
+        WHERE h.date >= %s AND h.date <= %s
+        GROUP BY v.id, v.name, v.email
+        ORDER BY hours DESC LIMIT 20""", (start_date, end_date))
+
+    by_event = fetchall(conn, """
+        SELECT h.event,
+               SUM(h.hours) as hours,
+               COUNT(DISTINCT h.volunteer_id) as vol_count
+        FROM hours h WHERE h.date >= %s AND h.date <= %s
+        GROUP BY h.event ORDER BY hours DESC LIMIT 15""", (start_date, end_date))
+
+    # New volunteers in range
+    new_vols = fetchall(conn, """
+        SELECT name, email, created_at::date as join_date
+        FROM volunteers WHERE created_at::date >= %s AND created_at::date <= %s
+        ORDER BY created_at""", (start_date, end_date))
+
+    # Lapsed (60+ days as of end_date)
+    lapsed = fetchall(conn, """
+        SELECT v.name, v.email, MAX(h.date) as last_date
+        FROM volunteers v JOIN hours h ON h.volunteer_id=v.id
+        WHERE v.status='active'
+        GROUP BY v.id, v.name, v.email
+        HAVING MAX(h.date) < (%s::date - INTERVAL '60 days')::text
+        ORDER BY last_date ASC LIMIT 20""", (end_date,))
+
+    # Hours by week for sparkline (up to 52 buckets)
+    try:
+        weekly = fetchall(conn, """
+            SELECT TO_CHAR(date::date, 'IYYY-IW') as week,
+                   SUM(hours) as hours
+            FROM hours WHERE date >= %s AND date <= %s
+            GROUP BY week ORDER BY week""", (start_date, end_date))
+    except Exception:
+        weekly = []
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'total_hours': float(totals['total_hours']) if totals else 0,
+        'active_volunteers': int(totals['active_volunteers']) if totals else 0,
+        'total_entries': int(totals['total_entries']) if totals else 0,
+        'top_volunteers': top_vols,
+        'hours_by_event': by_event,
+        'new_volunteers': new_vols,
+        'lapsed_volunteers': lapsed,
+        'weekly_hours': weekly,
+    }
+
+
+def build_board_attendance_report(start_date, end_date):
+    conn = get_db()
+    meetings = fetchall(conn, """
+        SELECT bm.id, bm.meeting_date, bm.location, bm.status,
+               COUNT(bma.id) as total_members,
+               COUNT(CASE WHEN bma.attendance_type IN ('in_person','virtual') OR bma.attended=TRUE THEN 1 END) as attended,
+               COUNT(CASE WHEN bma.attendance_type='in_person' THEN 1 END) as in_person,
+               COUNT(CASE WHEN bma.attendance_type='virtual' THEN 1 END) as virtual_count
+        FROM board_meetings bm
+        LEFT JOIN board_meeting_attendance bma ON bma.meeting_id=bm.id
+        WHERE bm.meeting_date >= %s AND bm.meeting_date <= %s
+        GROUP BY bm.id, bm.meeting_date, bm.location, bm.status
+        ORDER BY bm.meeting_date""", (start_date, end_date))
+
+    member_stats = fetchall(conn, """
+        SELECT bm.name, bm.role, bm.email,
+               COUNT(bma.id) as total_meetings,
+               COUNT(CASE WHEN bma.attendance_type IN ('in_person','virtual') OR bma.attended=TRUE THEN 1 END) as attended,
+               COUNT(CASE WHEN bma.attendance_type='in_person' THEN 1 END) as in_person,
+               COUNT(CASE WHEN bma.attendance_type='virtual' THEN 1 END) as virtual_count
+        FROM board_members bm
+        LEFT JOIN board_meeting_attendance bma ON bma.member_id=bm.id
+        LEFT JOIN board_meetings meet ON bma.meeting_id=meet.id
+            AND meet.meeting_date >= %s AND meet.meeting_date <= %s
+        WHERE bm.status='active'
+        GROUP BY bm.id, bm.name, bm.role, bm.email
+        ORDER BY attended DESC, bm.name""", (start_date, end_date))
+
+    total_meetings = len(meetings)
+    total_possible = sum(m['total_members'] for m in meetings)
+    total_attended = sum(m['attended'] for m in meetings)
+    avg_rate = round(total_attended / total_possible * 100) if total_possible else 0
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'meetings': meetings,
+        'member_stats': member_stats,
+        'total_meetings': total_meetings,
+        'total_possible': total_possible,
+        'total_attended': total_attended,
+        'avg_attendance_rate': avg_rate,
+    }
+
+
+def build_enrollment_report(start_date, end_date):
+    conn = get_db()
+    programs = fetchall(conn, """
+        SELECT yp.id, yp.name, yp.program_type, yp.status,
+               yp.start_date, yp.end_date,
+               COUNT(DISTINCT ype.youth_id) as enrolled_count
+        FROM youth_programs yp
+        LEFT JOIN youth_program_enrollments ype ON ype.program_id=yp.id
+        WHERE yp.created_at::date <= %s
+          AND (yp.end_date IS NULL OR yp.end_date >= %s)
+        GROUP BY yp.id, yp.name, yp.program_type, yp.status, yp.start_date, yp.end_date
+        ORDER BY yp.start_date DESC NULLS LAST, yp.name""", (end_date, start_date))
+
+    total_youth = fetchone(conn, """
+        SELECT COUNT(DISTINCT y.id) as c FROM youth_participants y
+        WHERE y.status='active'""")
+
+    new_youth = fetchall(conn, """
+        SELECT first_name||' '||last_name as name, created_at::date as join_date
+        FROM youth_participants
+        WHERE created_at::date >= %s AND created_at::date <= %s
+        ORDER BY created_at""", (start_date, end_date))
+
+    conn.close()
+    return {
+        'start_date': start_date, 'end_date': end_date,
+        'programs': programs,
+        'total_active_youth': int(total_youth['c']) if total_youth else 0,
+        'new_youth': new_youth,
+    }
+
+
 def build_report_email_html(report_type, data, params=None):
     """Generate HTML email for a report."""
     from datetime import date
@@ -5834,6 +6489,21 @@ def run_report():
         start = params.get('start_date', today.replace(day=1).isoformat())
         end   = params.get('end_date', today.isoformat())
         data  = build_hours_by_event_report(start, end)
+
+    elif rtype == 'range_recap':
+        start = params.get('start_date', today.replace(day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_range_recap_report(start, end)
+
+    elif rtype == 'board_attendance':
+        start = params.get('start_date', today.replace(month=1, day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_board_attendance_report(start, end)
+
+    elif rtype == 'enrollment':
+        start = params.get('start_date', today.replace(month=1, day=1).isoformat())
+        end   = params.get('end_date', today.isoformat())
+        data  = build_enrollment_report(start, end)
 
     else:
         return jsonify({'error': 'Unknown report type'}), 400
@@ -5935,7 +6605,8 @@ def send_report_now():
     if not emails:
         return jsonify({'error': 'No recipients configured'}), 400
 
-    ok, msg = send_email(emails, subject, html)
+    fi = d.get('from_identity') or {}
+    ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True, 'sent_to': emails})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -7050,7 +7721,8 @@ def email_send_report(rid):
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall — Horizon West Theatre Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")} — {close_log.get("event_date","")}'
-    ok, msg = send_email(recipients, subject, body)
+    fi = (request.json or {}).get('from_identity') or {}
+    ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Send failed'}), 500
 
@@ -7274,6 +7946,8 @@ def delete_portal_announcement_admin(aid):
     return jsonify({'ok': True})
 
 # ── Portal files & folders ──
+# Real table schema: id, program_id, production_id, title, drive_url, description, folder, author_id
+
 @app.route('/api/portal/files', methods=['POST'])
 def create_portal_file():
     err = require_auth()
@@ -7281,10 +7955,16 @@ def create_portal_file():
     d = request.json or {}
     fid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO portal_files (id,context_type,context_id,name,url,file_type)
-        VALUES (%s,%s,%s,%s,%s,%s)''',
-        (fid, d.get('context_type','production'), d.get('production_id') or d.get('context_id',''),
-         d.get('name',''), d.get('url',''), d.get('file_type','')))
+    program_id    = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    title      = d.get('title') or d.get('name','')
+    drive_url  = d.get('drive_url') or d.get('url','')
+    folder     = d.get('folder','General')
+    author_id  = session.get('user_id')
+    execute(conn, '''INSERT INTO portal_files
+        (id, program_id, production_id, title, drive_url, folder, author_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, program_id, production_id, title, drive_url, folder, author_id))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
     conn.close()
@@ -7303,32 +7983,56 @@ def delete_portal_file(fid):
 def get_portal_folders():
     err = require_auth()
     if err: return err
-    prod_id = request.args.get('production_id')
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
     conn = get_db()
-    rows = fetchall(conn, 'SELECT * FROM portal_files WHERE context_id=%s ORDER BY name', (prod_id,)) if prod_id else []
+    if program_id:
+        rows = fetchall(conn, "SELECT DISTINCT folder FROM portal_files WHERE program_id=%s AND folder IS NOT NULL ORDER BY folder", (program_id,))
+    elif production_id:
+        rows = fetchall(conn, "SELECT DISTINCT folder FROM portal_files WHERE production_id=%s AND folder IS NOT NULL ORDER BY folder", (production_id,))
+    else:
+        rows = []
     conn.close()
-    return jsonify(rows)
+    # Return as list of folder name strings for the pill UI
+    return jsonify([r['folder'] for r in rows if r.get('folder') and r['folder'] != 'General'])
 
 @app.route('/api/portal/folders', methods=['POST'])
 def create_portal_folder():
+    """Create a placeholder file entry to register a folder name."""
     err = require_auth()
     if err: return err
     d = request.json or {}
+    folder_name   = (d.get('name') or '').strip()
+    program_id    = d.get('program_id') or None
+    production_id = d.get('production_id') or None
+    if not folder_name:
+        return jsonify({'error': 'Folder name required'}), 400
     fid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO portal_files (id,context_type,context_id,name,file_type) VALUES (%s,%s,%s,%s,%s)',
-        (fid, 'production', d.get('production_id',''), d.get('name',''), 'folder'))
+    # Insert a placeholder row so the folder name is registered
+    execute(conn, '''INSERT INTO portal_files
+        (id, program_id, production_id, title, drive_url, folder, description)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, program_id, production_id,
+         '__folder__' + folder_name, '', folder_name, '__folder__'))
     conn.commit()
-    row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
     conn.close()
-    return jsonify(row)
+    return jsonify({'ok': True, 'folder': folder_name})
 
-@app.route('/api/portal/folders/<fid>', methods=['DELETE'])
-def delete_portal_folder(fid):
+@app.route('/api/portal/folders/<folder_name>', methods=['DELETE'])
+def delete_portal_folder(folder_name):
     err = require_auth()
     if err: return err
+    program_id    = request.args.get('program_id')
+    production_id = request.args.get('production_id')
     conn = get_db()
-    execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
+    # Move files in this folder to General, then delete the placeholder
+    if program_id:
+        execute(conn, "UPDATE portal_files SET folder='General' WHERE program_id=%s AND folder=%s AND description!='__folder__'", (program_id, folder_name))
+        execute(conn, "DELETE FROM portal_files WHERE program_id=%s AND folder=%s AND description='__folder__'", (program_id, folder_name))
+    elif production_id:
+        execute(conn, "UPDATE portal_files SET folder='General' WHERE production_id=%s AND folder=%s AND description!='__folder__'", (production_id, folder_name))
+        execute(conn, "DELETE FROM portal_files WHERE production_id=%s AND folder=%s AND description='__folder__'", (production_id, folder_name))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -7855,10 +8559,15 @@ def send_rsvp_invite(eid):
 
         # Skip if invited recently (within 24h) unless force_resend
         if existing and existing.get('last_invited_at') and not force_resend:
-            from datetime import datetime as _dt2, timezone as _tz
+            from datetime import datetime as _dt2
             last_sent = existing['last_invited_at']
-            if hasattr(last_sent, 'replace'):
-                last_sent = last_sent.replace(tzinfo=None)
+            try:
+                if isinstance(last_sent, str):
+                    last_sent = _dt2.fromisoformat(last_sent.replace('Z', '+00:00'))
+                if hasattr(last_sent, 'tzinfo') and last_sent.tzinfo:
+                    last_sent = last_sent.replace(tzinfo=None)
+            except Exception:
+                last_sent = _dt2.utcnow()
             diff = (_dt2.utcnow() - last_sent).total_seconds()
             if diff < 86400:  # 24 hours
                 skipped += 1
@@ -7916,7 +8625,8 @@ def send_rsvp_invite(eid):
         </div>'''
 
         try:
-            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body)
+            fi = d.get('from_identity') or {}
+            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             # Small delay between emails to avoid rate limiting
@@ -8134,7 +8844,7 @@ def get_board_members():
         ORDER BY bm.name''')
     for m in members:
         total    = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s', (m['id'],))
-        attended = fetchone(conn, 'SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attended=TRUE', (m['id'],))
+        attended = fetchone(conn, "SELECT COUNT(*) as c FROM board_meeting_attendance WHERE member_id=%s AND attendance_type IN ('in_person','virtual')", (m['id'],))
         m['meetings_total']    = total['c'] if total else 0
         m['meetings_attended'] = attended['c'] if attended else 0
         m['nominations'] = fetchall(conn,
@@ -8328,7 +9038,8 @@ def create_board_meeting():
                     <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theatre Company.</p>
                   </div>
                 </div>'''
-                send_email([m['email']], f'Board Meeting — {friendly_date}', body)
+                fi = d.get('from_identity') or {}
+                send_email([m['email']], f'Board Meeting — {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
     except Exception as e:
         app.logger.warning(f'Board meeting email notification failed: {e}')
     conn.close()
@@ -8355,13 +9066,15 @@ def update_board_attendance(mid):
     attendance = d.get('attendance', [])
     conn = get_db()
     for a in attendance:
+        atype = a.get('attendance_type', 'absent')
+        attended = atype in ('in_person', 'virtual')
         existing = fetchone(conn, 'SELECT id FROM board_meeting_attendance WHERE meeting_id=%s AND member_id=%s', (mid, a['member_id']))
         if existing:
-            execute(conn, 'UPDATE board_meeting_attendance SET attended=%s WHERE meeting_id=%s AND member_id=%s',
-                (a.get('attended', False), mid, a['member_id']))
+            execute(conn, 'UPDATE board_meeting_attendance SET attended=%s, attendance_type=%s WHERE meeting_id=%s AND member_id=%s',
+                (attended, atype, mid, a['member_id']))
         else:
-            execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended) VALUES (%s,%s,%s,%s)',
-                (str(uuid.uuid4()), mid, a['member_id'], a.get('attended', False)))
+            execute(conn, 'INSERT INTO board_meeting_attendance (id,meeting_id,member_id,attended,attendance_type) VALUES (%s,%s,%s,%s,%s)',
+                (str(uuid.uuid4()), mid, a['member_id'], attended, atype))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -8422,7 +9135,8 @@ def send_board_availability_request():
           </div>
         </div>'''
         try:
-            send_email([m['email']], subj, body)
+            fi = d.get('from_identity') or {}
+            send_email([m['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
@@ -8649,7 +9363,8 @@ def send_single_giving_reminder(vol_id):
     else:
         body = base_body + hours_section
     conn3 = get_db()
-    ok, msg = send_email([v['email']], subj, body)
+    fi = d.get('from_identity') or {}
+    ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
     if ok:
         log_volunteer_comm(conn3, vol_id, subj,
             'disney_reminder' if is_disney else 'universal_reminder',
@@ -8781,16 +9496,20 @@ def send_employer_program_reminder():
         if v.get('last_sent'):
             from datetime import datetime, timezone
             last = v['last_sent']
-            if hasattr(last, 'replace'):
-                now = datetime.now(timezone.utc)
+            try:
+                # Normalise to a naive datetime regardless of whether it came back
+                # as a datetime object or a string (psycopg2 MAX() returns strings)
+                if isinstance(last, str):
+                    last = datetime.fromisoformat(last.replace('Z', '+00:00'))
                 if hasattr(last, 'tzinfo') and last.tzinfo:
-                    diff = (now - last).days
-                else:
-                    diff = (now.replace(tzinfo=None) - last).days
+                    last = last.replace(tzinfo=None)
+                diff = (datetime.utcnow() - last).days
                 if diff < min_days:
                     skipped += 1
                     skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')
                     continue
+            except Exception:
+                pass  # If we can't parse the date, don't skip
         prog = (v.get('employer_program') or '').strip()
         is_disney = 'disney' in prog.lower()
         submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
@@ -8818,7 +9537,8 @@ def send_employer_program_reminder():
         else:
             body = base_body
         try:
-            send_email([v['email']], subj, body)
+            fi = d.get('from_identity') or {}
+            send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             conn3 = get_db()
             execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)

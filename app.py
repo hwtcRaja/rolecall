@@ -1326,6 +1326,15 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
         app.logger.error(f'Email send error: {e}')
         return False, str(e)
 
+def link_director_submission(conn, volunteer_id, email):
+    """Link a director interest submission to a volunteer if not already linked."""
+    try:
+        execute(conn, 'UPDATE director_interest_submissions SET volunteer_id=%s WHERE LOWER(email)=%s AND volunteer_id IS NULL',
+            (volunteer_id, email.strip().lower()))
+    except Exception:
+        pass
+
+
 def serialize_row(r):
     out = {}
     for k, v in r.items():
@@ -6667,6 +6676,7 @@ def approve_application(aid):
             execute(conn, "INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s)",
                 (nid, vid, 'Join Form', app_notes))
 
+        link_director_submission(conn, vid, app_row.get('email',''))
         conn.commit()
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
         conn.close()

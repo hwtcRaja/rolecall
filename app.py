@@ -8550,12 +8550,17 @@ def enroll_in_program(pid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
-        VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
-        (eid, d.get('youth_id'), pid,
-         d.get('enrolled_date',''), d.get('notes','')))
+    # Supports both single youth_id and bulk youth_ids array
+    youth_ids = d.get('youth_ids') or ([d.get('youth_id')] if d.get('youth_id') else [])
+    enrolled_date = d.get('enrolled_date', '') or ''
+    notes = d.get('notes', '') or ''
+    for yid in youth_ids:
+        if not yid: continue
+        eid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
+            VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
+            (eid, yid, pid, enrolled_date, notes))
     conn.commit()
     row = fetchone(conn, '''SELECT ype.*, y.first_name, y.last_name, yp.name as program_name
         FROM youth_program_enrollments ype

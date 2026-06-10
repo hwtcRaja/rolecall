@@ -1214,11 +1214,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     </div>
   </div>
 
-  <!-- Filter bar -->
-  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-    <input type="text" id="dir-search" placeholder="Search by name or email..."
+  <!-- View tabs -->
+  <div style="display:flex;gap:2px;margin-bottom:16px;border-bottom:2px solid var(--border)">
+    <button id="dir-tab-list" onclick="switchDirectorTab('list')"
+      style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)">All Submissions</button>
+    <button id="dir-tab-shows" onclick="switchDirectorTab('shows')"
+      style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)">Show Interests</button>
+    <button id="dir-tab-refuses" onclick="switchDirectorTab('refuses')"
+      style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)">Won't Direct</button>
+  </div>
+
+  <!-- List view filters -->
+  <div id="dir-filters" style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+    <input type="text" id="dir-search" placeholder="Search name, email, or show..."
       oninput="filterDirectors()"
-      style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:240px;outline:none"/>
+      style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:260px;outline:none"/>
     <select id="dir-status-filter" onchange="filterDirectors()"
       style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
       <option value="">All Statuses</option>
@@ -1226,12 +1236,25 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <option value="in_consideration">In Consideration</option>
       <option value="not_moving_forward">Not Moving Forward</option>
     </select>
+    <select id="dir-area-filter" onchange="filterDirectors()"
+      style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+      <option value="">All Experience Areas</option>
+      <option value="MainStage Musicals">MainStage Musicals</option>
+      <option value="MainStage Plays">MainStage Plays</option>
+      <option value="Kids / Youth Productions">Kids / Youth Productions</option>
+      <option value="Teen Productions">Teen Productions</option>
+      <option value="Community Theatre">Community Theatre</option>
+      <option value="Educational / School">Educational / School</option>
+      <option value="Professional Theatre">Professional Theatre</option>
+    </select>
     <span id="dir-count" style="font-size:13px;color:var(--text-muted)"></span>
   </div>
 
   <div id="directors-list">
     <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>
   </div>
+  <div id="directors-shows" style="display:none"></div>
+  <div id="directors-refuses" style="display:none"></div>
 </section>
 
 <section class="page" id="page-event-logs">
@@ -7716,17 +7739,138 @@ async function loadDirectorsPage(){
   filterDirectors()
 }
 
+let _dirTab = 'list'
+
+function switchDirectorTab(tab){
+  _dirTab = tab
+  const tabs = ['list','shows','refuses']
+  tabs.forEach(t=>{
+    const btn = document.getElementById('dir-tab-'+t)
+    const panel = document.getElementById('directors-'+t)
+    if(btn){ btn.style.borderBottomColor = t===tab ? 'var(--teal-mid)' : 'transparent'; btn.style.color = t===tab ? 'var(--teal-dark)' : 'var(--text-muted)' }
+    if(panel) panel.style.display = t===tab ? '' : 'none'
+  })
+  document.getElementById('dir-filters').style.display = tab==='list' ? 'flex' : 'none'
+  if(tab==='list') filterDirectors()
+  else if(tab==='shows') renderShowsAnalysis()
+  else if(tab==='refuses') renderRefusesAnalysis()
+}
+
 function filterDirectors(){
   const q      = (document.getElementById('dir-search')?.value||'').toLowerCase()
   const status = document.getElementById('dir-status-filter')?.value||''
+  const area   = document.getElementById('dir-area-filter')?.value||''
   const filtered = _allDirectors.filter(d=>{
+    const areas = Array.isArray(d.experience_areas) ? d.experience_areas : []
     const matchQ = !q || d.name?.toLowerCase().includes(q) || d.email?.toLowerCase().includes(q)
+      || d.dream_shows?.toLowerCase().includes(q) || d.shows_refuse?.toLowerCase().includes(q)
     const matchS = !status || d.status===status
-    return matchQ && matchS
+    const matchA = !area  || areas.includes(area)
+    return matchQ && matchS && matchA
   })
   const count = document.getElementById('dir-count')
   if(count) count.textContent = filtered.length + ' of ' + _allDirectors.length + ' submissions'
   renderDirectorList(filtered)
+}
+
+function parseShowList(text){
+  if(!text) return []
+  // Split on newlines, commas, semicolons — clean up each entry
+  return text.split(/[\n,;]+/)
+    .map(s=>s.replace(/^[\d\s.\-*)]+/, '').trim())
+    .filter(s=>s.length > 1 && s.length < 100)
+}
+
+function renderShowsAnalysis(){
+  const el = document.getElementById('directors-shows')
+  if(!el) return
+
+  // Aggregate all dream shows across all submissions
+  const showCounts = {}
+  const showPeople = {}
+  _allDirectors.forEach(d=>{
+    if(!d.dream_shows) return
+    parseShowList(d.dream_shows).forEach(show=>{
+      const key = show.toLowerCase()
+      // Group variations — use the first seen capitalization
+      if(!showCounts[key]){ showCounts[key] = 0; showPeople[key] = {display: show, names: []} }
+      showCounts[key]++
+      showPeople[key].names.push(d.name)
+    })
+  })
+
+  // Sort by count descending
+  const sorted = Object.entries(showCounts)
+    .sort(([,a],[,b])=>b-a)
+    .map(([key]) => ({show: showPeople[key].display, count: showCounts[key], names: showPeople[key].names}))
+
+  if(!sorted.length){
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No dream show data found</div>'
+    return
+  }
+
+  const maxCount = sorted[0].count
+  el.innerHTML = `
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">Dream Shows</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:20px">Shows your directors most want to direct — parsed from their free-text responses</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${sorted.map(({show,count,names})=>`
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-size:13px;font-weight:600">${escHtml(show)}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${count} ${count===1?'person':'people'}</div>
+            </div>
+            <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+              <div style="background:var(--teal);height:100%;border-radius:4px;width:${Math.round(count/maxCount*100)}%;transition:width .3s"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">${names.map(n=>escHtml(n)).join(', ')}</div>
+          </div>`).join('')}
+      </div>
+    </div>`
+}
+
+function renderRefusesAnalysis(){
+  const el = document.getElementById('directors-refuses')
+  if(!el) return
+
+  // People with no restrictions
+  const noRestrictions = _allDirectors.filter(d=>
+    !d.shows_refuse || d.shows_refuse.toLowerCase().includes('none') || d.shows_refuse.trim().length < 4
+  )
+
+  // Everyone else
+  const hasRestrictions = _allDirectors.filter(d=>
+    d.shows_refuse && !d.shows_refuse.toLowerCase().includes('none at the moment') &&
+    !d.shows_refuse.toLowerCase().match(/^none\.?$/) && d.shows_refuse.trim().length >= 4
+  )
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card" style="padding:20px;text-align:center">
+        <div style="font-size:36px;font-weight:800;color:var(--green-600)">${noRestrictions.length}</div>
+        <div style="font-size:13px;font-weight:600;margin-top:4px">No Restrictions</div>
+        <div style="font-size:12px;color:var(--text-muted)">Will direct anything</div>
+      </div>
+      <div class="card" style="padding:20px;text-align:center">
+        <div style="font-size:36px;font-weight:800;color:var(--amber)">${hasRestrictions.length}</div>
+        <div style="font-size:13px;font-weight:600;margin-top:4px">Have Preferences</div>
+        <div style="font-size:12px;color:var(--text-muted)">Listed specific restrictions</div>
+      </div>
+    </div>
+    <div class="card" style="padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:16px">Shows / Content They Prefer Not to Direct</div>
+      ${hasRestrictions.map(d=>`
+        <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            ${avatarHTML(d.name,26)}
+            <div style="font-size:13px;font-weight:700">${escHtml(d.name)}</div>
+            <span style="background:${(DIR_STATUS_COLORS[d.status]||DIR_STATUS_COLORS.new)[0]};color:${(DIR_STATUS_COLORS[d.status]||DIR_STATUS_COLORS.new)[1]};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">${DIR_STATUS_LABELS[d.status]||d.status}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;padding-left:34px">${escHtml(d.shows_refuse)}</div>
+        </div>`).join('')}
+      ${!hasRestrictions.length?'<div style="color:var(--text-muted);font-size:13px">No restrictions listed</div>':''}
+    </div>`
 }
 
 function renderDirectorList(rows){

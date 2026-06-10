@@ -3238,9 +3238,31 @@ def update_director_submission(sid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, """UPDATE director_interest_submissions
-        SET status=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s""",
-        (d.get('status', 'new'), d.get('admin_notes', ''), sid))
+    # If full=true, update all response fields too
+    if d.get('full'):
+        execute(conn, """UPDATE director_interest_submissions
+            SET status=%s, admin_notes=%s,
+                hwtc_experience=%s, previous_experience=%s, years_experience=%s,
+                experience_areas=%s, shows_refuse=%s, role_description=%s,
+                most_rewarding=%s, challenges=%s, three_qualities=%s,
+                budget_management=%s, dream_shows=%s,
+                name=%s, phone=%s,
+                updated_at=NOW()
+            WHERE id=%s""",
+            (d.get('status','new'), d.get('admin_notes','') or '',
+             d.get('hwtc_experience') or None, d.get('previous_experience') or None,
+             d.get('years_experience') or None,
+             json.dumps(d.get('experience_areas') or []),
+             d.get('shows_refuse') or None, d.get('role_description') or None,
+             d.get('most_rewarding') or None, d.get('challenges') or None,
+             d.get('three_qualities') or None, d.get('budget_management') or None,
+             d.get('dream_shows') or None,
+             d.get('name',''), d.get('phone','') or None,
+             sid))
+    else:
+        execute(conn, """UPDATE director_interest_submissions
+            SET status=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s""",
+            (d.get('status', 'new'), d.get('admin_notes', '') or '', sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

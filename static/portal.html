@@ -181,7 +181,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  </div>
  <div class="login-tabs">
  <button class="login-tab active" onclick="switchLoginTab('family')">‍‍ Family / Participant</button>
- <button class="login-tab" onclick="switchLoginTab('instructor')"> Instructor</button>
+ <button class="login-tab" onclick="switchLoginTab('instructor')">Instructor</button>
  </div>
  <div id="error-msg" class="login-error"></div>
 
@@ -256,9 +256,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  </div>
  <!-- Top-level tabs: Programs vs Profile -->
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
- <button id="portal-tab-btn-programs" class="tab-btn active" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('programs',this)"> Programs & Productions</button>
- <button id="portal-tab-btn-carpools" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('carpools',this)"> Carpools</button>
- <button id="portal-tab-btn-profile" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('profile',this)"> My Profile</button>
+ <button id="portal-tab-btn-programs" class="tab-btn active" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('programs',this)">Programs & Productions</button>
+ <button id="portal-tab-btn-carpools" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('carpools',this)">Carpools</button>
+ <button id="portal-tab-btn-profile" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('profile',this)">My Profile</button>
  </div>
 
  <!-- Programs tab -->
@@ -959,7 +959,7 @@ function buildProfileTab(y, yid){
  if(inFamily){
  html += '<div style="display:flex;gap:8px;margin-bottom:16px">'
  +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">‍‍ Family Passphrase</button>'
- +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer"> Individual Passphrase</button>'
+ +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Individual Passphrase</button>'
  +'</div>'
  +'<div id="pp-panel-family" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>all children</strong> in your family at once.</div>'
  +'<div id="pp-panel-individual" style="display:none;font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>just this child</strong>.</div>'
@@ -2021,9 +2021,9 @@ async function selectInstructorContext(type, id, name, el){
  <div class="card-body">
  <!-- TABS -->
  <div class="tab-strip" id="instr-tabs" style="margin:-4px -4px 16px">
- <button class="tab-btn active" onclick="switchInstrTab('announcements',this)"> Announcements</button>
- <button class="tab-btn" onclick="switchInstrTab('files',this)"> Files</button>
- <button class="tab-btn" onclick="switchInstrTab('schedule',this)"> Schedule</button>
+ <button class="tab-btn active" onclick="switchInstrTab('announcements',this)">Announcements</button>
+ <button class="tab-btn" onclick="switchInstrTab('files',this)">Files</button>
+ <button class="tab-btn" onclick="switchInstrTab('schedule',this)">Schedule</button>
  </div>
 
  <!-- Announcements tab -->
@@ -2032,7 +2032,7 @@ async function selectInstructorContext(type, id, name, el){
  <div class="section-label" style="margin-bottom:10px">Post Announcement</div>
  <div class="form-group"><label>Title</label><input type="text" id="ann-title" placeholder="e.g. Rehearsal reminder"/></div>
  <div class="form-group"><label>Message</label><textarea id="ann-body" placeholder="Write your message here…"></textarea></div>
- <button class="btn btn-primary" onclick="postAnnouncement()"> Post Announcement</button>
+ <button class="btn btn-primary" onclick="postAnnouncement()">Post Announcement</button>
  </div>
  <div id="ann-list">
  ${!content.announcements.length?'<div class="empty-state"><div class="icon"></div>No announcements yet</div>':
@@ -2055,7 +2055,7 @@ async function selectInstructorContext(type, id, name, el){
  <div class="form-group"><label>Google Drive URL</label><input type="url" id="file-url" placeholder="https://drive.google.com/…"/></div>
  </div>
  <div class="form-group"><label>Description (optional)</label><input type="text" id="file-desc" placeholder="Brief description…"/></div>
- <button class="btn btn-primary" onclick="addFile()"> Add File</button>
+ <button class="btn btn-primary" onclick="addFile()">Add File</button>
  </div>
  <div id="file-list">
  ${!content.files.length?'<div class="empty-state"><div class="icon"></div>No files yet</div>':
@@ -2267,12 +2267,12 @@ function renderPortalCarpoolList(carpools, kids){
  <button onclick="portalJoinCarpoolById('${cp.id}')"
  class="btn btn-primary btn-sm" style="white-space:nowrap">
  + Join
- </button>`: ''}
+</button>`: ''}
  ${alreadyJoined ? `
  <button onclick="portalLeaveCarpool('${cp.id}')"
  style="background:none;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
  Leave
- </button>`: ''}
+</button>`: ''}
  </div>
  </div>
  </div>`

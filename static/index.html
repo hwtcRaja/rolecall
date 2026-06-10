@@ -464,7 +464,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <main class="main-content">
  <div class="mobile-topbar">
- <button class="mobile-menu-btn" onclick="toggleMobileNav()"></button>
+ <button class="mobile-menu-btn" onclick="toggleMobileNav()">☰</button>
  <div style="display:flex;align-items:center;gap:8px"><img src="/static/images/logo.jpg" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/><span style="font-weight:600;font-size:16px;color:#fff">RoleCall</span></div>
  <div style="width:40px"></div>
  </div>
@@ -546,7 +546,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div><div class="page-title">Volunteers</div><div class="page-subtitle" id="vol-count-label">Loading…</div></div>
  <div class="page-actions">
  <button class="btn btn-secondary btn-sm" onclick="exportVolCSV()">⬇ Export CSV</button>
- <button class="btn btn-secondary btn-sm" onclick="navTo('email')"> Email</button>
+ <button class="btn btn-secondary btn-sm" onclick="navTo('email')">Email</button>
  <button class="btn btn-primary admin-only" onclick="openVolModal()">+ Add Volunteer</button>
  </div>
  </div>
@@ -580,7 +580,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="bulk-actions" style="display:none;margin-top:12px;display:none;align-items:center;gap:10px;padding:12px 16px;background:var(--teal-50);border:1px solid var(--teal-100);border-radius:var(--radius)">
  <span id="selected-count" style="font-size:13px;font-weight:500;color:var(--teal-600)">0 selected</span>
- <button class="btn btn-secondary btn-sm" onclick="emailSelected()"> Email Selected</button>
+ <button class="btn btn-secondary btn-sm" onclick="emailSelected()">Email Selected</button>
  </div>
  </div>
  <!-- Applications tab -->
@@ -590,7 +590,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:14px;font-weight:700">Volunteer Interest Submissions</div>
  <div style="font-size:13px;color:var(--text-muted);margin-top:2px">New submissions from your interest form. Add them to your volunteer list or mark as not interested. Share the form at <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px">/join</code></div>
  </div>
- <button class="btn btn-secondary btn-sm" onclick="copyJoinLink()"> Copy Form Link</button>
+ <button class="btn btn-secondary btn-sm" onclick="copyJoinLink()">Copy Form Link</button>
  </div>
  <div id="applications-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
  </div>
@@ -609,10 +609,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div><div class="page-title">Events</div><div class="page-subtitle" id="events-page-subtitle">Loading…</div></div>
  <div class="page-actions">
  <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:var(--radius);padding:3px">
- <button id="ev-view-today" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('today')"> Today</button>
- <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')"> Month</button>
- <button id="ev-view-day" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('day')"> Day</button>
- <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')"> List</button>
+ <button id="ev-view-today" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('today')">Today</button>
+ <button id="ev-view-calendar" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setEventsView('calendar')">Month</button>
+ <button id="ev-view-day" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('day')">Day</button>
+ <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">List</button>
  </div>
 <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
  <select class="filter-select" id="ev-filter-category" onchange="renderEventsPage()" style="font-size:13px">
@@ -703,8 +703,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- LEFT: tabs + table -->
  <div>
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
- <button onclick="switchHoursTab('events')" id="htab-events" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer"> Event Hours</button>
- <button onclick="switchHoursTab('independent')" id="htab-independent" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer"> Independent Time</button>
+ <button onclick="switchHoursTab('events')" id="htab-events" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Event Hours</button>
+ <button onclick="switchHoursTab('independent')" id="htab-independent" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Independent Time</button>
  </div>
  <div class="summary-bar" style="margin-bottom:16px">
  <div class="summary-item"><div class="s-value" id="h-total">0</div><div class="s-label">Total Hours</div></div>
@@ -724,8 +724,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="card admin-only" style="padding:20px">
  <div style="font-size:15px;font-weight:700;margin-bottom:14px">+ Log Time</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
- <button id="qt-type-event" onclick="setQuickType('event')" style="padding:8px;border:2px solid var(--teal);border-radius:8px;background:var(--teal-50);font-family:inherit;font-size:12px;font-weight:600;color:var(--teal-dark);cursor:pointer"> Event</button>
- <button id="qt-type-independent" onclick="setQuickType('independent')" style="padding:8px;border:2px solid var(--border);border-radius:8px;background:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer"> Independent</button>
+ <button id="qt-type-event" onclick="setQuickType('event')" style="padding:8px;border:2px solid var(--teal);border-radius:8px;background:var(--teal-50);font-family:inherit;font-size:12px;font-weight:600;color:var(--teal-dark);cursor:pointer">Event</button>
+ <button id="qt-type-independent" onclick="setQuickType('independent')" style="padding:8px;border:2px solid var(--border);border-radius:8px;background:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer">Independent</button>
  </div>
  <div class="form-group" style="margin-bottom:10px">
  <label style="font-size:11px">Volunteer *</label>
@@ -790,7 +790,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select class="filter-select" id="waiver-filter" onchange="renderWaivers()"><option value="">All Waivers</option><option value="valid"> Valid</option><option value="expiring"> Expiring Soon</option><option value="expired"> Expired</option><option value="none">No Waiver</option></select>
  <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:var(--radius);padding:3px">
  <button id="waiver-view-cards" class="btn btn-sm" style="padding:5px 12px;font-size:12px;background:var(--surface);border-radius:8px;border:none;font-weight:500" onclick="setWaiverView('cards')">⊞ Cards</button>
- <button id="waiver-view-list" class="btn btn-sm" style="padding:5px 12px;font-size:12px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setWaiverView('list')"> List</button>
+ <button id="waiver-view-list" class="btn btn-sm" style="padding:5px 12px;font-size:12px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setWaiverView('list')">List</button>
  </div>
  </div>
  <div id="waivers-grid"></div>
@@ -834,9 +834,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Tip: use {name} for personalization — e.g. "Hi {name},"</div>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap">
- <button class="btn btn-primary" onclick="openGmailCompose()"> Open in Gmail</button>
- <button class="btn btn-secondary" onclick="copyEmailList()"> Copy Addresses</button>
- <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()"> Save Template</button>
+ <button class="btn btn-primary" onclick="openGmailCompose()">Open in Gmail</button>
+ <button class="btn btn-secondary" onclick="copyEmailList()">Copy Addresses</button>
+ <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">Save Template</button>
  </div>
  </div>
  </div>
@@ -953,9 +953,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <!-- Category tabs -->
  <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content">
- <button class="ysi-cat-btn active" data-cat="program" onclick="setYsiCategory('program')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--teal-600)"> Program / Class</button>
+ <button class="ysi-cat-btn active" data-cat="program" onclick="setYsiCategory('program')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--teal-600)">Program / Class</button>
  <button class="ysi-cat-btn" data-cat="rising_stars" onclick="setYsiCategory('rising_stars')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">⭐ Rising Stars</button>
- <button class="ysi-cat-btn" data-cat="standalone" onclick="setYsiCategory('standalone')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)"> Standalone Event</button>
+ <button class="ysi-cat-btn" data-cat="standalone" onclick="setYsiCategory('standalone')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">Standalone Event</button>
  </div>
  <!-- Second-level selector -->
  <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end" id="ysi-selector-row">
@@ -1063,7 +1063,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-youth">
  <div class="page-header">
  <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
- <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one"> Set Default Passphrases</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+ <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
  </div>
  <div class="page-body">
  <div class="search-bar">
@@ -1120,9 +1120,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-subtitle" id="donors-subtitle">Loading…</div>
  </div>
  <div class="page-actions">
- <button class="btn btn-secondary btn-sm" onclick="openBulkDonationsModal()"> Bulk Edit Donations</button>
- <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()"> Import CSV</button>
- <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()"> Campaigns</button>
+ <button class="btn btn-secondary btn-sm" onclick="openBulkDonationsModal()">Bulk Edit Donations</button>
+ <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">Import CSV</button>
+ <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">Campaigns</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()">⭐ Tiers &amp; Benefits</button>
  <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
  </div>
@@ -1146,7 +1146,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="">All</option>
  <option value="inactive">Inactive</option>
  </select>
- <button class="btn btn-secondary btn-sm" id="donors-filter-dupes-btn" onclick="toggleDupesFilter()" style="white-space:nowrap"> Show Duplicates</button>
+ <button class="btn btn-secondary btn-sm" id="donors-filter-dupes-btn" onclick="toggleDupesFilter()" style="white-space:nowrap">Show Duplicates</button>
  </div>
  <div id="donors-list"></div>
  </div>
@@ -1165,8 +1165,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <!-- Report tabs -->
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;flex-wrap:wrap">
- <button id="rtab-btn-run" onclick="switchReportTab('run')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)"> Run Report</button>
- <button id="rtab-btn-scheduled" onclick="switchReportTab('scheduled')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)"> Scheduled Reports</button>
+ <button id="rtab-btn-run" onclick="switchReportTab('run')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)">Run Report</button>
+ <button id="rtab-btn-scheduled" onclick="switchReportTab('scheduled')" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">Scheduled Reports</button>
  </div>
  <!-- Run Report tab -->
  <div id="rtab-run">
@@ -1177,8 +1177,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="report-type-list" style="display:flex;flex-direction:column;gap:8px"></div>
  <div id="report-params" style="margin-top:16px"></div>
  <div style="display:flex;gap:8px;margin-top:16px">
- <button id="run-report-btn" class="btn btn-primary" onclick="runReport()" style="flex:1"> Run</button>
- <button id="email-report-btn" class="btn btn-secondary" onclick="emailReportNow()" title="Email this report now"></button>
+ <button id="run-report-btn" class="btn btn-primary" onclick="runReport()" style="flex:1">Run</button>
+ <button id="email-report-btn" class="btn btn-secondary" onclick="emailReportNow()" title="Email this report now">Email this report now</button>
  </div>
  </div>
  <!-- Right: results -->
@@ -1216,16 +1216,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title"> Board</div><div class="page-subtitle" id="board-subtitle">Loading…</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary" onclick="openBoardAvailability()"> Request Availability</button>
- <button class="btn btn-secondary" onclick="openBoardMeetingModal()"> Schedule Meeting</button>
+ <button class="btn btn-secondary" onclick="openBoardAvailability()">Request Availability</button>
+ <button class="btn btn-secondary" onclick="openBoardMeetingModal()">Schedule Meeting</button>
  <button class="btn btn-primary" onclick="openBoardMemberModal()">+ Add Member</button>
  </div>
  </div>
  <div class="page-body">
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
- <button onclick="switchBoardTab('members')" id="btab-members" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer"> Members</button>
- <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer"> Meetings</button>
- <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer"> Find Best Time</button>
+ <button onclick="switchBoardTab('members')" id="btab-members" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Members</button>
+ <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Meetings</button>
+ <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Find Best Time</button>
  </div>
  <div id="btab-panel-members"></div>
  <div id="btab-panel-meetings" style="display:none"></div>
@@ -1242,8 +1242,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div class="page-body">
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
- <button id="notif-tab-action" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchNotifTab('action',this)"> Needs Action <span id="notif-action-count" style="background:var(--red-50);color:var(--red-600);padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px"></span></button>
- <button id="notif-tab-activity" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchNotifTab('activity',this)"> Activity</button>
+ <button id="notif-tab-action" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)" onclick="switchNotifTab('action',this)">Needs Action <span id="notif-action-count" style="background:var(--red-50);color:var(--red-600);padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px"></span></button>
+ <button id="notif-tab-activity" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)" onclick="switchNotifTab('activity',this)">Activity</button>
  </div>
  <div id="notif-tab-action-content">
  <div id="notif-action-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
@@ -1279,7 +1279,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Passphrase</label>
  <div style="display:flex;gap:8px">
  <input type="text" id="pf-passphrase" placeholder="e.g. SunflowerDance2025" style="flex:1"/>
- <button class="btn btn-secondary btn-sm" onclick="generatePassphrase()" style="white-space:nowrap"> Generate</button>
+ <button class="btn btn-secondary btn-sm" onclick="generatePassphrase()" style="white-space:nowrap">Generate</button>
  </div>
  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Choose something memorable — parents will type this to log in</div>
  </div>
@@ -1487,8 +1487,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <div style="display:flex;gap:10px">
- <button class="btn btn-primary" id="es-save-btn" onclick="saveEmailSettings()"> Save Email Settings</button>
- <button class="btn btn-secondary" onclick="testEmail()"> Send Test Email</button>
+ <button class="btn btn-primary" id="es-save-btn" onclick="saveEmailSettings()">Save Email Settings</button>
+ <button class="btn btn-secondary" onclick="testEmail()">Send Test Email</button>
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div>
@@ -1502,7 +1502,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div style="display:flex;gap:8px;align-items:center">
  <button class="btn btn-secondary btn-sm" onclick="resetNavIcons()">Reset to Emojis</button>
- <button class="btn btn-primary btn-sm" onclick="saveNavIcons()"> Save Icons</button>
+ <button class="btn btn-primary btn-sm" onclick="saveNavIcons()">Save Icons</button>
  </div>
  </div>
  <div style="font-size:12px;color:var(--text-hint);margin-bottom:16px">Example icon names: <code>users</code>, <code>calendar</code>, <code>clock</code>, <code>bell</code>, <code>settings</code>, <code>file-check</code>, <code>star</code></div>
@@ -1765,7 +1765,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- New/Edit Program Modal -->
 <div class="modal-overlay" id="modal-program">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="program-edit-id"/>
  <div class="form-group"><label>Program Name *</label><input type="text" id="program-name" placeholder="e.g. Summer Theater Camp 2025"/></div>
@@ -1805,7 +1805,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- BULK IMPORT MODAL -->
 <div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
- <div class="modal-header"><div class="modal-title">⬆ Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')"></button></div>
+ <div class="modal-header"><div class="modal-title">⬆ Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')">×</button></div>
  <div style="padding:20px 24px;overflow-y:auto;flex:1">
  <div id="bi-step-1">
  <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
@@ -1861,7 +1861,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- BOARD MEMBER MODAL -->
 <div class="modal-overlay" id="modal-board-member">
  <div class="modal" style="max-width:560px">
- <div class="modal-header"><div class="modal-title" id="board-member-modal-title">Add Board Member</div><button class="modal-close" onclick="closeModal('modal-board-member')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="board-member-modal-title">Add Board Member</div><button class="modal-close" onclick="closeModal('modal-board-member')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="bm-id"/>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -1898,7 +1898,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- YOUTH NOTE MODAL -->
 <div class="modal-overlay" id="modal-youth-note">
  <div class="modal" style="max-width:480px">
- <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-youth-note')"></button></div>
+ <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-youth-note')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="yn-youth-id"/>
  <div class="form-group">
@@ -1923,7 +1923,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- YOUTH INCIDENT MODAL -->
 <div class="modal-overlay" id="modal-youth-incident">
  <div class="modal" style="max-width:520px">
- <div class="modal-header"><div class="modal-title" id="yi-modal-title">Report Incident</div><button class="modal-close" onclick="closeModal('modal-youth-incident')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="yi-modal-title">Report Incident</div><button class="modal-close" onclick="closeModal('modal-youth-incident')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="yi-id"/>
  <input type="hidden" id="yi-youth-id"/>
@@ -1953,7 +1953,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- GUARDIAN MODAL -->
 <div class="modal-overlay" id="modal-guardian">
  <div class="modal" style="max-width:440px">
- <div class="modal-header"><div class="modal-title" id="guardian-modal-title">Add Guardian</div><button class="modal-close" onclick="closeModal('modal-guardian')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="guardian-modal-title">Add Guardian</div><button class="modal-close" onclick="closeModal('modal-guardian')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="gm-id"/>
  <input type="hidden" id="gm-youth-id"/>
@@ -1975,7 +1975,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- EMERGENCY CONTACT MODAL -->
 <div class="modal-overlay" id="modal-emergency-contact">
  <div class="modal" style="max-width:440px">
- <div class="modal-header"><div class="modal-title" id="ec-modal-title">Add Emergency Contact</div><button class="modal-close" onclick="closeModal('modal-emergency-contact')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="ec-modal-title">Add Emergency Contact</div><button class="modal-close" onclick="closeModal('modal-emergency-contact')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="ecm-id"/>
  <input type="hidden" id="ecm-youth-id"/>
@@ -1995,7 +1995,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- BOARD NOMINATION MODAL -->
 <div class="modal-overlay" id="modal-board-nomination">
  <div class="modal" style="max-width:420px">
- <div class="modal-header"><div class="modal-title">Add Election / Nomination</div><button class="modal-close" onclick="closeModal('modal-board-nomination')"></button></div>
+ <div class="modal-header"><div class="modal-title">Add Election / Nomination</div><button class="modal-close" onclick="closeModal('modal-board-nomination')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="bnm-member-id"/>
  <div class="form-group"><label>Date</label><input type="date" id="bnm-date"/></div>
@@ -2016,7 +2016,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- BOARD MEETING MODAL -->
 <div class="modal-overlay" id="modal-board-meeting">
  <div class="modal" style="max-width:480px">
- <div class="modal-header"><div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div><button class="modal-close" onclick="closeModal('modal-board-meeting')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="board-meeting-modal-title">Schedule Meeting</div><button class="modal-close" onclick="closeModal('modal-board-meeting')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="bmeet-id"/>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -2039,7 +2039,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <div class="modal-overlay" id="modal-volunteer">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="vol-modal-title">Add Volunteer</div><button class="modal-close" onclick="closeModal('modal-volunteer')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="vol-modal-title">Add Volunteer</div><button class="modal-close" onclick="closeModal('modal-volunteer')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="vol-edit-id"/>
  <div class="form-row">
@@ -2080,7 +2080,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Log Time Modal -->
 <div class="modal-overlay" id="modal-log-time">
  <div class="modal">
- <div class="modal-header"><div class="modal-title">Log Time</div><button class="modal-close" onclick="closeModal('modal-log-time')"></button></div>
+ <div class="modal-header"><div class="modal-title">Log Time</div><button class="modal-close" onclick="closeModal('modal-log-time')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="lt-vol-id"/>
  <div class="form-group" id="lt-vol-select-wrap"></div>
@@ -2112,12 +2112,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Waiver Modal -->
 <div class="modal-overlay" id="modal-waiver">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-waiver')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-waiver')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="waiver-vol-id"/>
  <div class="form-group"><label>Waiver Type *</label><select id="waiver-type-select"><option value="">Loading…</option></select></div>
  <div id="waiver-sign-link-wrap" style="margin-bottom:12px;display:none">
- <button class="btn btn-purple btn-sm" onclick="openOnlineSignModal()"> Send for Online Signing</button>
+ <button class="btn btn-purple btn-sm" onclick="openOnlineSignModal()">Send for Online Signing</button>
  </div>
  <div class="form-row">
  <div class="form-group"><label>Date Signed *</label><input type="date" id="waiver-signed" oninput="autoCalcExpiry()"/></div>
@@ -2142,7 +2142,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Online Sign Modal -->
 <div class="modal-overlay" id="modal-online-sign">
  <div class="modal modal-lg">
- <div class="modal-header"><div class="modal-title" id="online-sign-title">Sign Waiver Online</div><button class="modal-close" onclick="closeModal('modal-online-sign')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="online-sign-title">Sign Waiver Online</div><button class="modal-close" onclick="closeModal('modal-online-sign')">×</button></div>
  <div class="modal-body">
  <div class="sign-box">
  <div id="online-sign-waiver-name" style="font-size:16px;font-weight:600;margin-bottom:12px"></div>
@@ -2157,7 +2157,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-online-sign')">Cancel</button>
- <button class="btn btn-primary" onclick="submitOnlineSign()"> Sign Waiver</button>
+ <button class="btn btn-primary" onclick="submitOnlineSign()">Sign Waiver</button>
  </div>
  </div>
 </div>
@@ -2165,7 +2165,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Note Modal -->
 <div class="modal-overlay" id="modal-note">
  <div class="modal">
- <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-note')"></button></div>
+ <div class="modal-header"><div class="modal-title">Add Note</div><button class="modal-close" onclick="closeModal('modal-note')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="note-vol-id"/>
  <div class="form-group"><label>Note *</label><textarea id="note-content" placeholder="Add an internal note…" style="min-height:120px"></textarea></div>
@@ -2180,7 +2180,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- History Modal -->
 <div class="modal-overlay" id="modal-history">
  <div class="modal">
- <div class="modal-header"><div class="modal-title">Add History Entry</div><button class="modal-close" onclick="closeModal('modal-history')"></button></div>
+ <div class="modal-header"><div class="modal-title">Add History Entry</div><button class="modal-close" onclick="closeModal('modal-history')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="history-vol-id"/>
  <div class="form-group"><label>Event *</label><input type="text" id="history-event" placeholder="e.g. Mamma Mia!"/></div>
@@ -2201,7 +2201,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Edit Event Modal -->
 <div class="modal-overlay" id="modal-edit-event">
  <div class="modal modal-lg">
- <div class="modal-header"><div class="modal-title" id="event-modal-title">New Event</div><button class="modal-close" onclick="closeModal('modal-edit-event')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="event-modal-title">New Event</div><button class="modal-close" onclick="closeModal('modal-edit-event')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="edit-event-id"/>
  <div class="form-row">
@@ -2360,7 +2360,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <div class="modal-overlay" id="modal-waiver-type">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="waiver-type-modal-title">New Waiver Type</div><button class="modal-close" onclick="closeModal('modal-waiver-type')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="waiver-type-modal-title">New Waiver Type</div><button class="modal-close" onclick="closeModal('modal-waiver-type')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="wt-edit-id"/>
  <div class="form-group"><label>Name *</label><input type="text" id="wt-name" placeholder="e.g. Photo Release"/></div>
@@ -2383,7 +2383,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Email Template Modal -->
 <div class="modal-overlay" id="modal-email-template">
  <div class="modal">
- <div class="modal-header"><div class="modal-title">Save Email Template</div><button class="modal-close" onclick="closeModal('modal-email-template')"></button></div>
+ <div class="modal-header"><div class="modal-title">Save Email Template</div><button class="modal-close" onclick="closeModal('modal-email-template')">×</button></div>
  <div class="modal-body">
  <div class="form-group"><label>Template Name *</label><input type="text" id="et-name" placeholder="e.g. Event Reminder"/></div>
  <div class="form-group"><label>Subject *</label><input type="text" id="et-subject" placeholder="Email subject line"/></div>
@@ -2399,7 +2399,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Youth Modal -->
 <div class="modal-overlay" id="modal-youth">
  <div class="modal modal-lg">
- <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="youth-modal-title">Add Participant</div><button class="modal-close" onclick="closeModal('modal-youth')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="youth-edit-id"/>
  <!-- Minor toggle -->
@@ -2469,7 +2469,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Youth Waiver Modal -->
 <div class="modal-overlay" id="modal-youth-waiver">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="youth-waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-youth-waiver')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="youth-waiver-modal-title">Add Waiver</div><button class="modal-close" onclick="closeModal('modal-youth-waiver')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="yw-youth-id"/>
  <div class="form-group"><label>Waiver Type *</label><select id="yw-type-select"></select></div>
@@ -2490,7 +2490,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Production Modal -->
 <div class="modal-overlay" id="modal-production">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="production-modal-title">New Production</div><button class="modal-close" onclick="closeModal('modal-production')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="production-modal-title">New Production</div><button class="modal-close" onclick="closeModal('modal-production')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="prod-edit-id"/>
  <div class="form-group"><label>Production Name *</label><input type="text" id="prod-name" placeholder="e.g. The Wizard of Oz"/></div>
@@ -2549,7 +2549,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Add Production Member Modal -->
 <div class="modal-overlay" id="modal-prod-member">
  <div class="modal">
- <div class="modal-header"><div class="modal-title">Add Member</div><button class="modal-close" onclick="closeModal('modal-prod-member')"></button></div>
+ <div class="modal-header"><div class="modal-title">Add Member</div><button class="modal-close" onclick="closeModal('modal-prod-member')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="pm-prod-id"/>
  <input type="hidden" id="pm-edit-id"/>
@@ -2579,7 +2579,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- Youth Enroll Modal -->
 <div class="modal-overlay" id="modal-youth-enroll">
  <div class="modal">
- <div class="modal-header"><div class="modal-title" id="enroll-modal-title">Enroll in Program</div><button class="modal-close" onclick="closeModal('modal-youth-enroll')"></button></div>
+ <div class="modal-header"><div class="modal-title" id="enroll-modal-title">Enroll in Program</div><button class="modal-close" onclick="closeModal('modal-youth-enroll')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="enroll-youth-id"/>
  <div class="form-group"><label>Program *</label>
@@ -3311,7 +3311,7 @@ function renderApplications(apps){
  <button onclick="toggleAppSection('approved')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
  <span id="app-chevron-approved" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s"></span>
  <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${approved.length} Added to Volunteers</span>
- </button>
+</button>
  <div id="app-section-approved" style="display:none">
  ${approved.map(a=>renderCard(a, false)).join('')}
  </div>
@@ -3324,7 +3324,7 @@ function renderApplications(apps){
  <button onclick="toggleAppSection('declined')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 0;cursor:pointer;font-family:inherit;text-align:left">
  <span id="app-chevron-declined" style="font-size:12px;color:var(--text-hint);transition:transform 0.2s"></span>
  <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted)">${declined.length} Not Right Now</span>
- </button>
+</button>
  <div id="app-section-declined" style="display:none">
  ${declined.map(a=>renderCard(a, false)).join('')}
  </div>
@@ -3519,7 +3519,7 @@ function printVolIdCard(volId, volName){
  </div>
  </div>
  <div style="text-align:center;margin-top:16px">
- <button onclick="window.print()" style="background:#145466;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer"> Print Card</button>
+ <button onclick="window.print()" style="background:#145466;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">Print Card</button>
  <p style="font-size:11px;color:#9b9b94;margin-top:8px">NFC URL: ${kioskUrl}</p>
  </div>
  </div>
@@ -3631,7 +3631,7 @@ async function openProfile(volId){
  ${w.signed_via==='online'?`<div style="color:var(--teal-600);font-size:11px"> Signed online by ${w.signed_name||'volunteer'}</div>`:''}
  ${w.emergency_contact_name?`<div style="font-size:11px;color:var(--text-muted)"> Emergency: ${w.emergency_contact_name}${w.emergency_contact_relationship?' ('+w.emergency_contact_relationship+')':''} ${w.emergency_contact_phone||''}</div>`:''}
  ${w.original_name?`<a href="/api/waivers/${w.id}/download" style="font-size:11px;color:var(--teal-600);text-decoration:none"> Download</a>`:''}
- ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 6px;font-size:11px;margin-left:4px" onclick="deleteWaiverRecord('${w.id}','${v.id}')"></button>`:''}
+ ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 6px;font-size:11px;margin-left:4px" onclick="deleteWaiverRecord('${w.id}','${v.id}')">Delete</button>`:''}
  </div>`).join('')}
  </div>
  ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="openWaiverModal('${v.id}')">+ Add Waiver</button>`:''}
@@ -3641,12 +3641,12 @@ async function openProfile(volId){
  ${isAdmin?`
  <hr class="divider"/>
  <div id="log-time-area-${v.id}">
- <button class="btn btn-primary btn-sm btn-full" onclick="openLogTimeModal('${v.id}')"> Log Time</button>
- <div style="margin-top:8px"><button class="btn btn-secondary btn-sm btn-full" onclick="startLiveTimer('${v.id}')"> Start Live Timer</button></div>
+ <button class="btn btn-primary btn-sm btn-full" onclick="openLogTimeModal('${v.id}')">Log Time</button>
+ <div style="margin-top:8px"><button class="btn btn-secondary btn-sm btn-full" onclick="startLiveTimer('${v.id}')">Start Live Timer</button></div>
  </div>
  <div id="punch-area-${v.id}" style="display:none">
  <div class="punch-status"><div class="punch-dot"></div>Timer running — <span class="punch-timer" id="timer-${v.id}">00:00:00</span></div>
- <button class="btn btn-danger btn-sm btn-full" onclick="stopLiveTimer('${v.id}')"> Stop & Log Time</button>
+ <button class="btn btn-danger btn-sm btn-full" onclick="stopLiveTimer('${v.id}')">Stop & Log Time</button>
  </div>`:''}
  </div>
  <div>
@@ -3927,8 +3927,8 @@ function renderHours(){
  <td style="color:var(--text-muted);font-size:12px">${escHtml(h.role||'—')}</td>
  ${isAdmin?`<td style="text-align:right">
  <div style="display:flex;gap:4px;justify-content:flex-end">
- <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" data-hid="${h.id}" onclick="openEditHoursModal(this.dataset.hid)"></button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteHoursGlobal('${h.id}')"></button>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" data-hid="${h.id}" onclick="openEditHoursModal(this.dataset.hid)">Edit</button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteHoursGlobal('${h.id}')">Delete</button>
  </div></td>`:'<td></td>'}
  </tr>`
  if(isAdmin) _hoursEditData[h.id]={hours:h.hours,event:h.event||'',date:h.date||'',volId:h.volunteer_id,isGlobal:true}
@@ -3942,8 +3942,8 @@ function renderHoursRow(h, volId, isAdminFlag) {
  if (isAdminFlag) _hoursEditData[h.id] = { hours: h.hours, volId: volId }
  var editBtns = isAdminFlag
  ? '<div style="display:flex;gap:4px">'
- + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" onclick="openEditHoursModal(\'' + h.id + '\')"></button>'
- + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px" onclick="deleteHours(\'' + h.id + '\',\'' + volId + '\')"></button>'
+ + '<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:11px" onclick="openEditHoursModal(\'' + h.id + '\')">Edit</button>'
+ + '<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:11px" onclick="deleteHours(\'' + h.id + '\',\'' + volId + '\')">Delete</button>'
  + '</div>'
 : ''
  return '<div class="hours-item">'
@@ -3964,7 +3964,7 @@ function openEditHoursModal(hoursId) {
  overlay.className = 'modal-overlay'
  overlay.onclick = function(e){ if(e.target===overlay) overlay.remove() }
  overlay.innerHTML = `<div class="modal" style="max-width:420px">
- <div class="modal-header"><div class="modal-title"> Edit Time Entry</div><button class="modal-close" onclick="document.getElementById('edit-hours-modal').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title"> Edit Time Entry</div><button class="modal-close" onclick="document.getElementById('edit-hours-modal').remove()">×</button></div>
  <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
  <div class="form-group">
  <label>Event / Description</label>
@@ -4759,7 +4759,7 @@ async function openYouthProfile(yid){
  <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">Individual passphrase</div>
  <div style="display:flex;align-items:center;gap:6px">
  <div style="font-family:monospace;font-size:13px;font-weight:700;background:var(--bg);color:var(--teal-dark);padding:5px 10px;border-radius:6px;border:1px solid var(--border);flex:1">${y.passphrase?escHtml(y.passphrase):'<span style="color:var(--text-hint);font-weight:400">Not set</span>'}</div>
- <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 6px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')"></button>
+ <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 6px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\\'")}')">Set Passphrase</button>
  </div>
  <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Logs in this child only</div>
  </div>
@@ -4798,28 +4798,28 @@ async function openYouthProfile(yid){
  <div id="ytab-strip-${y.id}" style="display:flex;border-bottom:2px solid var(--border);overflow-x:auto;background:var(--gray-50);scrollbar-width:none;-webkit-overflow-scrolling:touch" onscroll="updateYTabScrollHint(this)">
  <button class="ytab-btn active" data-tab="ytab-programs" onclick="switchYTab(this)" style="padding:12px 18px;border:none;background:var(--surface);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;border-bottom:3px solid var(--teal-400);margin-bottom:-2px;color:var(--teal-600)">
  Programs <span style="background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.enrollments||[]).length}</span>
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-guardians" onclick="switchYTab(this)" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Guardians <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.guardians||[]).length}</span>
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-emergency" onclick="switchYTab(this)" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Emergency
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-pickups" onclick="switchYTab(this);loadAuthorizedPickups('${y.id}')" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Pickups <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:4px">${(y.authorized_pickups||[]).length}</span>
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-signin" onclick="switchYTab(this);loadYouthSignInTab('${y.id}')" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Sign-ins
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-notes" onclick="switchYTab(this);loadYouthNotes('${y.id}')" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Notes${(y.notes||[]).length?` <span style="background:var(--gray-100);color:var(--text-muted);padding:1px 6px;border-radius:10px;font-size:11px;margin-left:3px">${(y.notes||[]).length}</span>`:''}
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-incidents" onclick="switchYTab(this);loadYouthIncidents('${y.id}')" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  Incidents${(y.incidents||[]).filter(i=>!i.resolved).length?` <span style="background:var(--red-50);color:var(--red-600);padding:1px 6px;border-radius:10px;font-size:11px;font-weight:700;margin-left:3px">${(y.incidents||[]).filter(i=>!i.resolved).length}</span>`:''}
- </button>
+</button>
  <button class="ytab-btn" data-tab="ytab-history" onclick="switchYTab(this);loadYouthHistory('${y.id}')" style="padding:12px 18px;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)">
  History
- </button>
+</button>
  </div>
  <!-- Scroll hint: fades in when more tabs are off-screen -->
  <div id="ytab-scroll-hint-${y.id}" style="position:absolute;right:0;top:0;bottom:2px;width:40px;background:linear-gradient(to right,transparent,var(--gray-50));pointer-events:none;display:flex;align-items:center;justify-content:flex-end;padding-right:6px">
@@ -4840,7 +4840,7 @@ async function openYouthProfile(yid){
  ${e.enrolled_date?`<div style="font-size:12px;color:var(--text-muted)">Enrolled ${formatDate(e.enrolled_date)}</div>`:''}
  ${e.notes?`<div style="font-size:12px;color:var(--text-muted)">${e.notes}</div>`:''}
  </div>
- ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="unenrollYouth('${e.id}','${y.id}')"></button>`:''}
+ ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="unenrollYouth('${e.id}','${y.id}')">Unenroll</button>`:''}
  </div>
  </div>`).join('')}
  </div>
@@ -4862,8 +4862,8 @@ async function openYouthProfile(yid){
  </div>
  </div>
  ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openGuardianModal('${y.id}','${g.id}')"></button>
- <button class="btn btn-danger btn-sm" onclick="deleteGuardianUI('${g.id}','${y.id}')"></button>
+ <button class="btn btn-secondary btn-sm" onclick="openGuardianModal('${y.id}','${g.id}')">Edit</button>
+ <button class="btn btn-danger btn-sm" onclick="deleteGuardianUI('${g.id}','${y.id}')">Delete</button>
  </div>`:''}
  </div>
  </div>`).join('')}
@@ -4883,8 +4883,8 @@ async function openYouthProfile(yid){
  <div style="font-size:13px;margin-top:6px"> <strong>${escHtml(e.phone||'')}</strong></div>
  </div>
  ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openEmergencyContactModal('${y.id}','${e.id}')"></button>
- <button class="btn btn-danger btn-sm" onclick="deleteEmergencyContactUI('${e.id}','${y.id}')"></button>
+ <button class="btn btn-secondary btn-sm" onclick="openEmergencyContactModal('${y.id}','${e.id}')">Edit</button>
+ <button class="btn btn-danger btn-sm" onclick="deleteEmergencyContactUI('${e.id}','${y.id}')">Delete</button>
  </div>`:''}
  </div>
  </div>`).join('')}
@@ -5003,8 +5003,8 @@ async function loadYouthIncidents(yid){
  <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${formatDate(inc.incident_date)} · Reported by ${escHtml(inc.reported_by||'Staff')}</div>
  </div>
  ${isAdmin?`<div style="display:flex;gap:6px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openYouthIncidentModal('${yid}','${inc.id}')"></button>
- <button class="btn btn-danger btn-sm" onclick="deleteYouthIncident('${inc.id}','${yid}')"></button>
+ <button class="btn btn-secondary btn-sm" onclick="openYouthIncidentModal('${yid}','${inc.id}')">Edit</button>
+ <button class="btn btn-danger btn-sm" onclick="deleteYouthIncident('${inc.id}','${yid}')">Delete</button>
  </div>`:''}
  </div>
  ${inc.description?`<div style="font-size:13px;line-height:1.6;margin-bottom:${inc.follow_up?'8':'0'}px;white-space:pre-wrap">${escHtml(inc.description)}</div>`:''}
@@ -5279,7 +5279,7 @@ function renderBoardMeetings(){
  +'</div>'
  +'<div style="display:flex;gap:8px;align-items:center">'
  +'<span style="background:var(--teal-50);color:var(--teal-dark);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:700">'+att+'/'+tot+' attended</span>'
- +'<button data-id="'+m.id+'" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm"> Attendance</button>'
+ +'<button data-id="'+m.id+'" onclick="openAttendanceEditor(this.dataset.id)" class="btn btn-secondary btn-sm">Attendance</button>'
  +'<button data-id="'+m.id+'" onclick="deleteBoardMeeting(this.dataset.id)" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>'
  +'</div></div>'
  +'<div style="display:flex;flex-wrap:wrap;gap:8px">'
@@ -6473,7 +6473,7 @@ async function pickSender(callback){
  ${id.name?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(id.email)}</div>`:''}
  </div>
  ${i===0?'<span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--teal-dark);background:var(--teal-50);padding:2px 8px;border-radius:10px;flex-shrink:0">DEFAULT</span>':''}
- </button>`).join('')}
+</button>`).join('')}
  </div>
  <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('sender-picker-overlay').remove()">Cancel</button>
@@ -6572,7 +6572,7 @@ async function openEmployerReminderModal(){
  +logHtml
  +'<div style="display:flex;gap:10px;margin-top:4px">'
  +'<button class="btn btn-secondary" style="flex:1" onclick="closeEmployerReminderOverlay()">Cancel</button>'
- +'<button class="btn btn-primary" style="flex:2" id="emp-remind-btn" onclick="sendEmployerReminder()"> Send Reminders</button>'
+ +'<button class="btn btn-primary" style="flex:2" id="emp-remind-btn" onclick="sendEmployerReminder()">Send Reminders</button>'
  +'</div></div>'
  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
  document.body.appendChild(overlay)
@@ -6628,8 +6628,8 @@ function renderInterestTypesSettings(){
  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
  <div>${tagHTML(t.name,t.color)} <strong>${t.name}</strong></div>
  <div style="display:flex;gap:6px">
- <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openSubOptionsEditor('${t.id}')"> Sub-options</button>
- <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')"></button>
+ <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openSubOptionsEditor('${t.id}')">Sub-options</button>
+ <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteInterestType('${t.id}')">Delete</button>
  </div>
  </div>
  ${subOpts.length?`<div style="font-size:12px;color:var(--text-muted)">
@@ -6732,7 +6732,7 @@ function renderWaiverTypesSettings(){
  <div style="display:flex;gap:6px;align-items:center">
  <button class="btn btn-sm ${t.required_all?'btn-danger':'btn-secondary'}" style="padding:4px 8px;font-size:11px" onclick="toggleWaiverRequired('${t.id}')">${t.required_all?' Required':' Set Required'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditWaiverTypeModal('${t.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteWaiverType('${t.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteWaiverType('${t.id}')">Delete</button>
  </div>
  </div>`).join('')
 }
@@ -6800,7 +6800,7 @@ function renderEventsSettings(){
  </div>
  <div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditEventModal('${e.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEvent('${e.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEvent('${e.id}')">Delete</button>
  </div>
  </div>
  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
@@ -6923,7 +6923,7 @@ function emailTemplateCard(t){
  ${t.description?`<div style="font-size:11px;color:var(--text-hint);margin-top:3px">${escHtml(t.description)}</div>`:''}
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openEmailTemplateEditor('${t.id}')"> Edit</button>
+ <button class="btn btn-secondary btn-sm" onclick="openEmailTemplateEditor('${t.id}')">Edit</button>
  ${!isSystem?`<button onclick="deleteEmailTemplateById('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text-muted);padding:2px 4px" title="Delete">×</button>`:''}
  </div>
  </div>
@@ -7141,7 +7141,7 @@ async function openMessageThread(tid, returnContainerId){
  </div>
  </div>
  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
- ${thread.status==='open'?`<button class="btn btn-secondary btn-sm" onclick="closeThread('${tid}','${returnContainerId}')"> Close</button>`:'<span style="font-size:11px;color:var(--text-muted)">Closed</span>'}
+ ${thread.status==='open'?`<button class="btn btn-secondary btn-sm" onclick="closeThread('${tid}','${returnContainerId}')">Close</button>`:'<span style="font-size:11px;color:var(--text-muted)">Closed</span>'}
  <button onclick="document.getElementById('message-thread-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>
  </div>
  </div>
@@ -7434,7 +7434,7 @@ function openCastRoleModal(sid, contextId){
  </div>
  <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cast-role-modal-overlay').remove()">Cancel</button>
- <button class="btn btn-primary btn-sm" onclick="confirmCastRole('${sid}','${contextId}')"> Confirm Cast</button>
+ <button class="btn btn-primary btn-sm" onclick="confirmCastRole('${sid}','${contextId}')">Confirm Cast</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -7637,7 +7637,7 @@ function openPublishCastModal(contextType, contextId, containerId){
  <button class="btn btn-secondary" onclick="publishCastList('${contextType}','${contextId}','${containerId}',false)">Unpublish</button>
  <button class="btn btn-primary" onclick="publishCastList('${contextType}','${contextId}','${containerId}',true)" ${!cast.length?'disabled':''}>
  ${cast.length?`Publish (${cast.length} cast)`:'No cast to publish'}
- </button>
+</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -7670,7 +7670,7 @@ function renderYouthProgramsSettings(){
  el.innerHTML=allPrograms.map(p=>`
  <div class="setting-item">
  <div><div class="setting-item-label">${p.name}</div>${p.description?`<div class="setting-item-sub">${p.description}</div>`:''}</div>
- <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteYouthProgram('${p.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteYouthProgram('${p.id}')">Delete</button>
  </div>`).join('')
 }
 
@@ -7922,7 +7922,7 @@ function openAddDonorModal(donorId=null){
  <textarea id="dm-notes" style="min-height:60px;resize:vertical">${escHtml(donor?.notes||'')}</textarea></div>
  <button class="btn btn-primary" onclick="saveDonor('${donorId||''}')" style="width:100%">
  ${donor?' Save Changes':'+ Add Donor'}
- </button>
+</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -7986,8 +7986,8 @@ function renderDonorDetailPage(donor){
  <div style="font-size:36px;font-weight:900">${total}</div>
  <div style="font-size:13px;opacity:0.8">Total Donated</div>
  <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
- <button onclick="openAddDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer"> Edit</button>
- <button onclick="openMergeDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer"> Merge</button>
+ <button onclick="openAddDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Edit</button>
+ <button onclick="openMergeDonorModal('${donor.id}')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Merge</button>
  <button onclick="openAddDonationModal('${donor.id}')" style="background:#fff;color:${tierColor};border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">+ Log Donation</button>
  </div>
  </div>
@@ -8029,7 +8029,7 @@ function renderDonorDetailPage(donor){
  </div>
  <button onclick="recordBenefitUse('${donor.id}','${b.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">
  ${uses.length ? '+ Use Again': 'Mark Used'}
- </button>
+</button>
  </div>`
  }).join('')}
  ${donor.benefits.filter(b=>!b.is_trackable).length ? `
@@ -8073,7 +8073,7 @@ function renderDonorDetailPage(donor){
  ${b.is_trackable
  ? `<button onclick="recordBenefitUse('${donor.id}','${b.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">
  ${uses.length ? '+ Use Again': 'Mark Used'}
- </button>`
+</button>`
 : '<span style="font-size:11px;color:var(--text-hint)">Info only</span>'}
  </div>`
  }).join('')}
@@ -8147,10 +8147,10 @@ function renderDonationRow(d, donorId){
  </div>
  <div style="display:flex;gap:4px;flex-shrink:0">
  ${!d.thank_you_sent
- ? `<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-sm" style="font-size:12px;font-weight:700;background:#145466;color:#fff;border-color:#145466;white-space:nowrap" title="Send thank-you email"> Send Thank You</button>`
+ ? `<button onclick="sendThankYou('${d.id}','${donorId}')" class="btn btn-sm" style="font-size:12px;font-weight:700;background:#145466;color:#fff;border-color:#145466;white-space:nowrap" title="Send thank-you email">Send Thank You</button>`
 : `<span style="font-size:11px;color:var(--green-600);font-weight:600;white-space:nowrap"> TY sent ${d.thank_you_sent_at ? formatDate(d.thank_you_sent_at): ''}</span>`}
- <button onclick="openEditDonationModal('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px" title="Edit donation"></button>
- <button onclick="deleteDonation('${d.id}','${donorId}')" class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 6px"></button>
+ <button onclick="openEditDonationModal('${d.id}','${donorId}')" class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px" title="Edit donation">Edit donation</button>
+ <button onclick="deleteDonation('${d.id}','${donorId}')" class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 6px">Delete</button>
  </div>
  </div>`
 }
@@ -8200,7 +8200,7 @@ function openAddDonationModal(donorId){
  <input type="text" id="don-check" placeholder="Check number or reference"/></div>
  <div class="form-group"><label>Notes <span style="font-weight:400;color:var(--text-hint)">(optional)</span></label>
  <textarea id="don-notes" style="min-height:60px;resize:vertical"></textarea></div>
- <button class="btn btn-primary" onclick="saveDonation('${donorId}')" style="width:100%"> Log Donation</button>
+ <button class="btn btn-primary" onclick="saveDonation('${donorId}')" style="width:100%">Log Donation</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -8256,7 +8256,7 @@ async function openEditDonationModal(donationId, donorId){
  <input type="text" id="don-check" value="${escHtml(d.check_number||'')}"/></div>
  <div class="form-group"><label>Notes</label>
  <textarea id="don-notes" style="min-height:60px;resize:vertical">${escHtml(d.notes||'')}</textarea></div>
- <button class="btn btn-primary" onclick="saveEditDonation('${donationId}','${donorId}')" style="width:100%"> Save Changes</button>
+ <button class="btn btn-primary" onclick="saveEditDonation('${donationId}','${donorId}')" style="width:100%">Save Changes</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
@@ -8353,15 +8353,15 @@ function showTemplatePicker(templates){
  style="width:100%;text-align:left;padding:12px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:${t.is_default?'var(--teal-50)':'var(--surface)'};margin-bottom:8px;cursor:pointer;font-family:inherit">
  <div style="font-weight:600">${escHtml(t.name)}${t.is_default?' <span style="font-size:11px;color:var(--teal-dark)">(default)</span>':''}</div>
  <div style="font-size:12px;color:var(--text-muted)">${escHtml(t.subject)}</div>
- </button>`).join('')}
+</button>`).join('')}
  <button onclick="document.getElementById('template-picker-modal').remove();resolve_template_picker(null)"
  style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);background:none;cursor:pointer;font-family:inherit;color:var(--text-muted);font-size:13px">
  Use built-in template
- </button>
+</button>
  <button onclick="document.getElementById('template-picker-modal').remove();resolve_template_picker(false)"
  style="width:100%;padding:10px;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--text-hint);font-size:12px;margin-top:4px">
  Cancel
- </button>
+</button>
  </div>
  </div>`
  window.resolve_template_picker = val => { resolve(val) }
@@ -8450,7 +8450,7 @@ function renderCampaignsPage(){
  </div>`:''}
  </div>
  <div style="display:flex;gap:8px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openEditCampaignInline('${c.id}')"> Edit</button>
+ <button class="btn btn-secondary btn-sm" onclick="openEditCampaignInline('${c.id}')">Edit</button>
  <button class="btn btn-danger btn-sm" onclick="deleteCampaignPage('${c.id}')">Delete</button>
  </div>
  </div>
@@ -8531,7 +8531,7 @@ function renderCampaignForm(c){
  <textarea id="cf-desc" style="min-height:70px;resize:vertical">${escHtml(c?.description||'')}</textarea></div>
  </div>
  <div style="display:flex;gap:10px;margin-top:8px">
- <button class="btn btn-primary" onclick="saveCampaignPage('${c?.id||''}')"> ${c?'Save Changes':'Create Campaign'}</button>
+ <button class="btn btn-primary" onclick="saveCampaignPage('${c?.id||''}')">${c?'Save Changes':'Create Campaign'}</button>
  <button class="btn btn-secondary" onclick="document.getElementById('campaign-edit-area').innerHTML=''">Cancel</button>
  </div>
  </div>`
@@ -8620,7 +8620,7 @@ function renderTiersPage(){
  ${t.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px">${escHtml(t.description)}</div>`:''}
  </div>
  <div style="display:flex;gap:8px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openEditTierInline('${t.id}')"> Edit</button>
+ <button class="btn btn-secondary btn-sm" onclick="openEditTierInline('${t.id}')">Edit</button>
  <button class="btn btn-danger btn-sm" onclick="deleteTierPage('${t.id}')">Delete</button>
  </div>
  </div>
@@ -8686,7 +8686,7 @@ function renderTierForm(t){
  <textarea id="tf-desc" style="min-height:70px;resize:vertical">${escHtml(t?.description||'')}</textarea></div>
  </div>
  <div style="display:flex;gap:10px;margin-top:8px">
- <button class="btn btn-primary" onclick="saveTierPage('${t?.id||''}')"> ${t?'Save Changes':'Create Tier'}</button>
+ <button class="btn btn-primary" onclick="saveTierPage('${t?.id||''}')">${t?'Save Changes':'Create Tier'}</button>
  <button class="btn btn-secondary" onclick="document.getElementById('tier-edit-area').innerHTML=''">Cancel</button>
  </div>
  </div>`
@@ -8776,7 +8776,7 @@ function renderTemplatesPage(){
  </div>
  <div style="display:flex;gap:8px;flex-shrink:0">
  ${!t.is_default?`<button class="btn btn-secondary btn-sm" onclick="setDefaultTemplate('${t.id}','${t.template_type}')">Set Default</button>`:''}
- <button class="btn btn-secondary btn-sm" onclick="openEditTemplateForm('${t.id}')"> Edit</button>
+ <button class="btn btn-secondary btn-sm" onclick="openEditTemplateForm('${t.id}')">Edit</button>
  <button class="btn btn-danger btn-sm" onclick="deleteTemplatePage('${t.id}')">Delete</button>
  </div>
  </div>
@@ -8828,8 +8828,8 @@ function openEditTemplateForm(tid){
  </div>
  </div>
  <div style="display:flex;gap:10px;margin-top:8px">
- <button class="btn btn-primary" onclick="saveTemplatePage('${tid||''}')"> ${t?'Save Changes':'Create Template'}</button>
- <button class="btn btn-secondary" onclick="previewTemplate()"> Preview</button>
+ <button class="btn btn-primary" onclick="saveTemplatePage('${tid||''}')">${t?'Save Changes':'Create Template'}</button>
+ <button class="btn btn-secondary" onclick="previewTemplate()">Preview</button>
  <button class="btn btn-secondary" onclick="document.getElementById('template-edit-area').innerHTML=''">Cancel</button>
  </div>
  </div>`
@@ -8928,7 +8928,7 @@ function renderTiersModalBody(){
  </div>
  <div style="display:flex;gap:6px">
  <button onclick="editTier('${t.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>
- <button onclick="deleteTier('${t.id}')" class="btn btn-danger btn-sm" style="font-size:11px"></button>
+ <button onclick="deleteTier('${t.id}')" class="btn btn-danger btn-sm" style="font-size:11px">Delete</button>
  </div>
  </div>
  ${t.description?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${escHtml(t.description)}</div>`:''}
@@ -9059,7 +9059,7 @@ function renderCampaignsModalBody(){
  <span style="font-size:11px;margin-left:8px;padding:2px 7px;border-radius:10px;background:${c.status==='active'?'var(--green-50)':'var(--bg)'};color:${c.status==='active'?'var(--green-600)':'var(--text-muted)'};font-weight:600">${c.status}</span>
  </div>
  <div style="display:flex;gap:6px">
- <button onclick="showCampaignEditForm('${c.id}')" class="btn btn-secondary btn-sm" style="font-size:11px"> Edit</button>
+ <button onclick="showCampaignEditForm('${c.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>
  <button onclick="deleteCampaign('${c.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:18px;padding:0 4px">×</button>
  </div>
  </div>
@@ -9090,7 +9090,7 @@ function renderCampaignsModalBody(){
  <textarea id="ce-desc-${c.id}" style="min-height:50px;resize:vertical">${escHtml(c.description||'')}</textarea></div>
  </div>
  <div style="display:flex;gap:8px">
- <button onclick="saveEditCampaign('${c.id}')" class="btn btn-primary btn-sm"> Save</button>
+ <button onclick="saveEditCampaign('${c.id}')" class="btn btn-primary btn-sm">Save</button>
  <button onclick="hideCampaignEditForm('${c.id}')" class="btn btn-secondary btn-sm">Cancel</button>
  </div>
  </div>
@@ -9195,7 +9195,7 @@ async function openBulkDonationsModal(){
  </div>
  <div style="display:flex;gap:8px;align-items:center">
  <span id="bulk-edit-count" style="font-size:12px;color:var(--amber-600);font-weight:600;display:none"></span>
- <button id="bulk-save-btn" onclick="saveBulkDonations()" class="btn btn-primary btn-sm" style="display:none"> Save Changes</button>
+ <button id="bulk-save-btn" onclick="saveBulkDonations()" class="btn btn-primary btn-sm" style="display:none">Save Changes</button>
  <button onclick="document.getElementById('bulk-donations-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
  </div>
  </div>
@@ -9212,7 +9212,7 @@ async function openBulkDonationsModal(){
  <option value="__missing__"> Missing Date</option>
  </select>
  <span id="bulk-row-count" style="font-size:12px;color:var(--text-muted)"></span>
- <button onclick="document.getElementById('bulk-csv-section').style.display=document.getElementById('bulk-csv-section').style.display==='none'?'':'none'" class="btn btn-secondary btn-sm" style="white-space:nowrap"> Upload CSV to Match</button>
+ <button onclick="document.getElementById('bulk-csv-section').style.display=document.getElementById('bulk-csv-section').style.display==='none'?'':'none'" class="btn btn-secondary btn-sm" style="white-space:nowrap">Upload CSV to Match</button>
  </div>
  <!-- CSV Upload section (hidden by default) -->
  <div id="bulk-csv-section" style="display:none;padding:14px 24px;border-bottom:2px solid var(--teal-400);background:var(--teal-50);flex-shrink:0">
@@ -9240,7 +9240,7 @@ async function openBulkDonationsModal(){
  <div style="padding:12px 24px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:var(--bg);border-radius:0 0 var(--radius-lg) var(--radius-lg)">
  <div style="font-size:12px;color:var(--text-muted)">Click any cell to edit. Tab to move across. Changes save together when you click Save.</div>
  <div style="display:flex;gap:8px">
- <button id="bulk-save-btn-2" onclick="saveBulkDonations()" class="btn btn-primary" style="display:none"> Save All Changes</button>
+ <button id="bulk-save-btn-2" onclick="saveBulkDonations()" class="btn btn-primary" style="display:none">Save All Changes</button>
  <button onclick="document.getElementById('bulk-donations-modal').remove()" class="btn btn-secondary">Close</button>
  </div>
  </div>
@@ -9685,7 +9685,7 @@ function openMergeDonorModal(primaryId){
  This cannot be undone. The duplicate records will be permanently deleted after their donations are moved.
  </div>
  <div style="display:flex;gap:10px;margin-top:16px">
- <button id="merge-confirm-btn" onclick="runMerge('${primaryId}')" class="btn btn-primary" style="flex:1" disabled> Merge Selected</button>
+ <button id="merge-confirm-btn" onclick="runMerge('${primaryId}')" class="btn btn-primary" style="flex:1" disabled>Merge Selected</button>
  <button onclick="document.getElementById('merge-modal').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
  </div>
  </div>
@@ -9781,7 +9781,7 @@ function openDonorImportModal(){
  </div>
  <div id="import-result" style="display:none"></div>
  <div style="display:flex;gap:10px">
- <button id="import-btn" onclick="runImport()" class="btn btn-primary" style="flex:1;display:none"> Import All</button>
+ <button id="import-btn" onclick="runImport()" class="btn btn-primary" style="flex:1;display:none">Import All</button>
  <button onclick="document.getElementById('import-modal').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
  </div>
  </div>
@@ -10033,11 +10033,11 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div>'
  // Tab strip
  s += '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
- s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'> Cast &amp; Crew</button>"
+ s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>Cast &amp; Crew</button>"
  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
- s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'> Schedule &amp; Conflicts</button>"
- s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'> Info</button>"
- if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'> Portal Content</button>"
+ s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
+ s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
+ if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>Portal Content</button>"
  s += '</div>'
 
  // Members tab
@@ -10066,7 +10066,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</div>'
  s += '<div style="font-size:12px;color:var(--text-muted)">'+mem.role+'</div></div>'
  s += '<span style="font-size:11px;font-weight:500;color:'+(memberStatusColors[mem.status]||'var(--text-muted)')+'">'+mem.status+'</span>'
- if(isAdmin) s += '<div style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal(\'' + mem.id + '\',\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember(\'' + mem.id + '\',\'' + p.id + '\')"></button></div>'
+ if(isAdmin) s += '<div style="display:flex;gap:4px"><button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditMemberModal(\'' + mem.id + '\',\'' + p.id + '\')">Edit</button><button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="removeMember(\'' + mem.id + '\',\'' + p.id + '\')">Remove</button></div>'
  s += '</div>'
  if(isYouthProd && bgcStatus!=='cleared'){
  var warnBg = bgcStatus==='pending' ? '#fefce8': '#fef2f2'
@@ -10132,7 +10132,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<input type="url" id="pinfo-imgurl-'+p.id+'" value="'+((p.portal_image_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://drive.google.com/… or any direct image URL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" oninput="previewPortalColor(\''+p.id+'\',document.getElementById(\'pinfo-color-'+p.id+'\').value)"/>'
  s += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tip: use a direct image link. For Google Drive: open image → Share → Copy link, then change <code>open?id=</code> to <code>uc?id=</code>.</div>'
  s += '</div></div>'
- s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')"> Save Info</button>'
+ s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">Save Info</button>'
  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
  s += '</div>'
  // Portal content tab
@@ -10411,8 +10411,8 @@ function renderUsersManagement(users){
  </div>
  <div>${permSummary}</div>
  <div style="display:flex;gap:6px">
- <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal('${u.id}')"> Edit</button>
- ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name.replace(/'/g,"\\'")}')"></button>`:''}
+ <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal('${u.id}')">Edit</button>
+ ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name.replace(/'/g,"\\'")}')">Delete</button>`:''}
  </div>
  </div>`
  }).join('') + '</div>'
@@ -10457,8 +10457,8 @@ function openUserEditModal(uid){
  <input type="password" id="ue-pw-${uid}" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
- <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')"> Save Info</button>
- <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'")}')"> Email Temp Password</button>
+ <button class="btn btn-primary btn-sm" onclick="saveUserEdits('${uid}')">Save Info</button>
+ <button class="btn btn-secondary btn-sm" onclick="sendResetLink('${uid}','${u.name.replace(/'/g,"\\'")}')">Email Temp Password</button>
  <button class="btn btn-sm ${u.active!==false?'btn-danger':'btn-secondary'}" onclick="toggleUser('${uid}',${u.active!==false})">${u.active!==false?'Deactivate':'Activate'}</button>
  </div>
  <div id="perm-section-${uid}"></div>
@@ -10887,13 +10887,13 @@ function renderNotifCard(n, showActions){
 function getNotifActions(n){
  if(n.type==='pending_hours') return `
  <button class="btn btn-primary btn-sm" onclick="approveHours('${n.id}').then(()=>loadNotifications())"> Approve</button>
- <button class="btn btn-danger btn-sm" onclick="rejectHoursNotif('${n.id}')"></button>`
+ <button class="btn btn-danger btn-sm" onclick="rejectHoursNotif('${n.id}')">Reject</button>`
  if(n.type==='profile_update') return `
  <button class="btn btn-primary btn-sm" onclick="approveProfileUpdate('${n.id}').then(()=>loadNotifications())"> Approve</button>
- <button class="btn btn-danger btn-sm" onclick="rejectProfileUpdateNotif('${n.id}')"></button>`
+ <button class="btn btn-danger btn-sm" onclick="rejectProfileUpdateNotif('${n.id}')">Reject</button>`
  if(n.type==='conflict_request') return `
- <button class="btn btn-primary btn-sm" onclick="approveConflict('${n.data.production_id}','${n.id}')"> Approve</button>
- <button class="btn btn-danger btn-sm" onclick="deleteConflict('${n.data.production_id}','${n.id}')"> Deny</button>`
+ <button class="btn btn-primary btn-sm" onclick="approveConflict('${n.data.production_id}','${n.id}')">Approve</button>
+ <button class="btn btn-danger btn-sm" onclick="deleteConflict('${n.data.production_id}','${n.id}')">Deny</button>`
  if(n.type==='missing_waiver') return `
  <button class="btn btn-secondary btn-sm" onclick="openYouthProfile('${n.data.youth.id}')">View Profile →</button>`
  return ''
@@ -10974,11 +10974,11 @@ function openLinkModal(fromType, fromId, currentLinked){
  const modal = document.createElement('div')
  modal.className = 'modal-overlay'; modal.id = 'modal-link-profile'
  modal.innerHTML = `<div class="modal">
- <div class="modal-header"><div class="modal-title">${title}</div><button class="modal-close" onclick="closeModal('modal-link-profile')"></button></div>
+ <div class="modal-header"><div class="modal-title">${title}</div><button class="modal-close" onclick="closeModal('modal-link-profile')">×</button></div>
  <div class="modal-body">
  <input type="text" placeholder="Search…" oninput="filterLinkModal(this.value,'${fromType}','${fromId}')" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:12px"/>
  <div id="link-modal-list" style="max-height:400px;overflow-y:auto">${items}</div>
- <div style="margin-top:12px"><button class="btn btn-secondary btn-sm" onclick="doLink('${fromType}','${fromId}','')"> Remove Link</button></div>
+ <div style="margin-top:12px"><button class="btn btn-secondary btn-sm" onclick="doLink('${fromType}','${fromId}','')">Remove Link</button></div>
  </div>
  </div>`
  document.body.appendChild(modal)
@@ -11143,7 +11143,7 @@ function renderElicsSettings(){
  </div>
  <div style="display:flex;gap:6px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">Delete</button>
  </div>
  </div>
  ${bgcStatus!=='cleared'?`<div style="background:${bgcStatus==='pending'?'#fefce8':'#fef2f2'};border:1.5px solid ${bgcStatus==='pending'?'#fde047':'#fca5a5'};color:${bgcStatus==='pending'?'#854d0e':'#991b1b'};border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600">
@@ -11227,7 +11227,7 @@ function renderChecklistSettings(){
  </div>
  <div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditChecklistItem('${item.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteChecklistItem('${item.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteChecklistItem('${item.id}')">Delete</button>
  </div>
  </div>`).join('')
 }
@@ -11370,7 +11370,7 @@ function renderReportTypePicker(){
  style="text-align:left;padding:12px 14px;border:1.5px solid ${_currentReportType===r.id?'var(--teal)':'var(--border-md)'};border-radius:var(--radius);background:${_currentReportType===r.id?'var(--teal-50)':'var(--surface)'};cursor:pointer;font-family:inherit;width:100%">
  <div style="font-size:14px;font-weight:700">${r.icon} ${r.label}</div>
  <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${r.desc}</div>
- </button>`).join('')
+</button>`).join('')
 }
 
 function selectReportType(id){
@@ -11531,7 +11531,7 @@ function renderReportResults(res){
  </div>
  <div style="display:flex;gap:8px">
  <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
- <button class="btn btn-secondary btn-sm" onclick="printReport()"> Print</button>
+ <button class="btn btn-secondary btn-sm" onclick="printReport()">Print</button>
  </div>
  </div>`
 
@@ -11726,7 +11726,7 @@ function printReport(){
  <h1>${rt?.icon||''} ${rt?.label||'Report'} — Horizon West Theatre Company</h1>
  <div class="sub">Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
  ${content}
- <br/><button class="no-print" onclick="window.print()" style="padding:10px 24px;background:#145466;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;margin-top:8px"> Print</button>
+ <br/><button class="no-print" onclick="window.print()" style="padding:10px 24px;background:#145466;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;margin-top:8px">Print</button>
  </body></html>`)
  win.document.close()
 }
@@ -11785,7 +11785,7 @@ function renderScheduledReportsList(){
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
  <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')"></button>
- <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')"></button>
+ <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')">Delete</button>
  </div>
  </div>
  </div>`
@@ -11835,7 +11835,7 @@ function openScheduledReportForm(rid){
  <input type="text" id="sr-emails" value="${escHtml(r?.recipient_emails||'')}" placeholder="extra@email.com, another@email.com"/></div>
  </div>
  <div style="display:flex;gap:10px;margin-top:12px">
- <button class="btn btn-primary" onclick="saveScheduledReport('${rid||''}')"> ${r?'Save':'Create Schedule'}</button>
+ <button class="btn btn-primary" onclick="saveScheduledReport('${rid||''}')">${r?'Save':'Create Schedule'}</button>
  <button class="btn btn-secondary" onclick="document.getElementById('scheduled-report-form-area').innerHTML=''">Cancel</button>
  </div>
  </div>`
@@ -11915,8 +11915,8 @@ async function loadEventLogs(){
  +'</div>'
  +'<div style="font-size:11px;color:var(--text-hint);white-space:nowrap;flex-shrink:0">'+formatDate((log.timestamp||'').split('T')[0])+'</div>'
  +(isClosed&&isAdmin?'<div style="display:flex;gap:6px;flex-shrink:0">'
- +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendEventReport(\''+pair.close.event_id+'\')"> Email</button>'
- +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="downloadEventReportPdf(\''+pair.close.event_id+'\',\''+(pair.close.log_id||pair.close.id)+'\')"> PDF</button>'
+ +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendEventReport(\''+pair.close.event_id+'\')">Email</button>'
+ +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="downloadEventReportPdf(\''+pair.close.event_id+'\',\''+(pair.close.log_id||pair.close.id)+'\')">PDF</button>'
  +'</div>':'<div style="width:136px"></div>')
  +'</div>'
  }).join('')
@@ -12255,10 +12255,10 @@ function renderEventDetailPage(eid){
 
  // Status action buttons
  const statusActions = isAdmin ? {
- draft: `<button class="btn btn-primary btn-sm" onclick="setEventStatus('${e.id}','open')"> Open Event</button>
- <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')"> Cancel</button>`,
- open: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')"> Close Event</button>
- <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')"> Cancel</button>`,
+ draft: `<button class="btn btn-primary btn-sm" onclick="setEventStatus('${e.id}','open')">Open Event</button>
+ <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">Cancel</button>`,
+ open: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')">Close Event</button>
+ <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">Cancel</button>`,
  closed: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')">↩ Re-open</button>`,
  cancelled: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','draft')">↩ Restore</button>`,
  }[e.status||'draft'] || '': ''
@@ -12277,7 +12277,7 @@ function renderEventDetailPage(eid){
  </div>
  ${isAdmin?`<div class="page-actions" style="display:flex;gap:8px;flex-wrap:wrap">
  ${statusActions}
- <button class="btn btn-secondary btn-sm" onclick="openEventModal('${e.id}')"> Edit Details</button>
+ <button class="btn btn-secondary btn-sm" onclick="openEventModal('${e.id}')">Edit Details</button>
  <button class="btn btn-secondary btn-sm" onclick="duplicateEventFull('${e.id}')">⧉ Duplicate</button>
  <button class="btn btn-danger btn-sm" onclick="deleteEventFull('${e.id}')">Delete</button>
  </div>`:''}`
@@ -12294,7 +12294,7 @@ function renderEventDetailPage(eid){
  <button onclick="switchEventTab('${eid}','${tab}')" id="evt-tab-${tab}"
  style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid ${_eventDetailTab===tab?'var(--teal)':'transparent'};margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:${_eventDetailTab===tab?'var(--teal)':'var(--text-muted)'};cursor:pointer;white-space:nowrap">
  ${label}
- </button>`).join('')}
+</button>`).join('')}
  </div>
 
  <!-- Tab panels -->
@@ -12364,7 +12364,7 @@ function renderEventDetailPage(eid){
  <div>
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign-ups</div>
- ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')"> Email Signed-Up</button>`:''}
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">Email Signed-Up</button>`:''}
  </div>
  <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 
@@ -12414,7 +12414,7 @@ function renderEventDetailPage(eid){
  <option value="">— Select volunteer —</option>
  ${(volunteers||[]).filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`<option value="${v.id}">${escHtml(v.name)}</option>`).join('')}
  </select>
- <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addManualRsvp('${e.id}')"> Add</button>
+ <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addManualRsvp('${e.id}')">Add</button>
  </div>
  </div>
  <div style="font-size:15px;font-weight:700;margin-bottom:4px"> Send Invite</div>
@@ -12477,7 +12477,7 @@ function renderEventDetailPage(eid){
 
  <button class="btn btn-primary" style="width:100%" id="rsvp-send-btn" onclick="confirmSendRsvp('${e.id}')">
  Send Invites
- </button>
+</button>
  <div id="rsvp-send-result" style="margin-top:10px;font-size:13px;text-align:center"></div>
  `}
  </div>
@@ -12486,7 +12486,7 @@ function renderEventDetailPage(eid){
  <div style="font-size:40px;margin-bottom:12px"></div>
  <div style="font-weight:600;font-size:16px;margin-bottom:8px">Sign-ups not enabled for this event</div>
  <div style="font-size:13px;margin-bottom:16px">Enable "Volunteer sign-ups" in the event settings to send invite emails and track who wants to help.</div>
- ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')"> Edit Event to Enable</button>`:''}
+ ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
  </div>`}
  </div>
 
@@ -12778,7 +12778,7 @@ function filterCarpoolsPage(){
  </div>
  <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
  <button class="btn btn-secondary btn-sm" onclick="openAddKidToCarpool('${cp.id}',null)">+ Add Kid</button>
- <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${cp.code}')"> Copy Code</button>
+ <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('${cp.code}')">Copy Code</button>
  <button class="btn btn-danger btn-sm" onclick="deleteCarpoolFromPage('${cp.id}')">Delete</button>
  </div>
  </div>
@@ -13345,7 +13345,7 @@ function openEmailSignedUpModal(eid, eventName){
  m.innerHTML = `<div class="modal" style="max-width:520px;width:100%">
  <div class="modal-header">
  <div class="modal-title"> Email Signed-Up Volunteers</div>
- <button class="modal-close" onclick="document.getElementById('modal-email-signups').remove()"></button>
+ <button class="modal-close" onclick="document.getElementById('modal-email-signups').remove()">×</button>
  </div>
  <div class="modal-body">
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Sends to all volunteers who have signed up (status: <strong>Signed Up</strong>) for this event.</div>
@@ -13361,7 +13361,7 @@ function openEmailSignedUpModal(eid, eventName){
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="document.getElementById('modal-email-signups').remove()">Cancel</button>
- <button class="btn btn-primary" onclick="sendEmailToSignups('${eid}')"> Send to Signed-Up Volunteers</button>
+ <button class="btn btn-primary" onclick="sendEmailToSignups('${eid}')">Send to Signed-Up Volunteers</button>
  </div>
  </div>`
  document.body.appendChild(m)
@@ -13478,7 +13478,7 @@ async function loadEventRsvps(eid){
  <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${statusStyle[r.status]||statusStyle.invited}">
  ${statusLabel[r.status]||r.status}
  </span>
- ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"> Mark Coming</button>`:''}
+ ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Mark Coming</button>`:''}
  ${isAdmin&&(r.status==='confirmed')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
  </div>`
@@ -13605,8 +13605,8 @@ function renderEventTypesSettings(){
  <span style="background:${bg};color:${col};padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">${escHtml(t.name)}</span>
  </div>
  <div style="display:flex;gap:6px">
- <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleEditEventType('${t.id}')"> Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventType('${t.id}')"></button>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleEditEventType('${t.id}')">Edit</button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventType('${t.id}')">Delete</button>
  </div>
  </div>
  <div id="edit-et-${t.id}" style="display:none;background:var(--bg);border-radius:8px;padding:12px;border:1.5px solid var(--border)">
@@ -13686,7 +13686,7 @@ function renderOpeningChecklistSettings(){
  </div>
  <div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditOpeningChecklistItem('${item.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteOpeningChecklistItem('${item.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteOpeningChecklistItem('${item.id}')">Delete</button>
  </div>
  </div>`).join('')
 }
@@ -13979,7 +13979,7 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
 
  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
  <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
- <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px"> List</button>
+ <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">List</button>
  </div>`
 
  const header = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
@@ -14060,7 +14060,7 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
 
  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
  <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
- <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px"> List</button>
+ <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">List</button>
  </div>`
 
  // Youth section
@@ -14321,7 +14321,7 @@ function renderYouthProgramsPage(){
  </div>
  ${isAdmin?`<div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal('${p.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="deleteYouthProgram('${p.id}')"></button>
+ <button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="deleteYouthProgram('${p.id}')">Delete</button>
  </div>`:''}
  </div>
  ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
@@ -14495,7 +14495,7 @@ function openProgramEmailModal(pid){
 
  <div class="modal-footer" id="pem-footer">
  <button class="btn btn-secondary" onclick="document.getElementById('modal-program-email').remove()">Cancel</button>
- <button class="btn btn-primary" id="pem-send-btn" onclick="sendWelcomeEmail('${pid}')"> Send Welcome Email</button>
+ <button class="btn btn-primary" id="pem-send-btn" onclick="sendWelcomeEmail('${pid}')">Send Welcome Email</button>
  </div>
  </div>`
  document.body.appendChild(m)
@@ -14744,7 +14744,7 @@ async function openEnrollProgramModal(programId, programName){
  modal.innerHTML = `<div class="modal modal-lg">
  <div class="modal-header">
  <div class="modal-title">Enroll in ${programName}</div>
- <button class="modal-close" onclick="document.getElementById('modal-enroll-program').remove()"></button>
+ <button class="modal-close" onclick="document.getElementById('modal-enroll-program').remove()">×</button>
  </div>
  <div class="modal-body">
  <div style="margin-bottom:16px">
@@ -14956,10 +14956,10 @@ async function openProgramDetail(programId){
  <div>
  <!-- Tab strip -->
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
- <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);color:var(--teal-dark)" onclick="switchProgramDetailTab('events')"> Events</button>
- <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')"> Messages</button>
- <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')"> Auditions</button>
- ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')"> Portal Content</button>`:''}
+ <button id="pdtab-btn-events" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);color:var(--teal-dark)" onclick="switchProgramDetailTab('events')">Events</button>
+ <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">Messages</button>
+ <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')">Auditions</button>
+ ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">Portal Content</button>`:''}
  </div>
 
  <!-- Events tab -->
@@ -15016,8 +15016,8 @@ async function openProgramDetail(programId){
  <textarea id="prog-ann-body-current" placeholder="Write your message here…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
  </div>
  <div style="display:flex;gap:8px">
- <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId)"> Save Draft</button>
- <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true)"> Save & Publish</button>
+ <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId)">Save Draft</button>
+ <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true)">Save & Publish</button>
  <button id="prog-ann-cancel-current" class="btn btn-secondary btn-sm" style="display:none" onclick="cancelEditProgramAnnouncement(window._currentProgramDetailId)">Cancel</button>
  </div>
  </div>
@@ -15051,7 +15051,7 @@ async function openProgramDetail(programId){
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
  <input type="url" id="prog-file-url-current" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
  </div>
- <button class="btn btn-primary btn-sm" onclick="addProgramFile(window._currentProgramDetailId)"> Add File</button>
+ <button class="btn btn-primary btn-sm" onclick="addProgramFile(window._currentProgramDetailId)">Add File</button>
  </div>
  <div id="prog-file-list-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
@@ -15093,12 +15093,12 @@ function renderProductionPortalHTML(pid, stage){
  const isRS = stage==='rising_stars'
  return `
  <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;scrollbar-width:none">
- ${isRS?'<button class="portal-sub-btn" data-ptab="overview" onclick="switchProdPortalTab(\'overview\',this)"> Overview</button>':''}
- ${isRS?'<button class="portal-sub-btn" data-ptab="general" onclick="switchProdPortalTab(\'general\',this)"> General Info</button>':''}
- <button class="portal-sub-btn ${isRS?'':'active'}" data-ptab="announcements" onclick="switchProdPortalTab('announcements',this)"> Announcements</button>
- <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)"> Files</button>
- <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)"> About</button>
- <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)"> Meet the Team</button>
+ ${isRS?'<button class="portal-sub-btn" data-ptab="overview" onclick="switchProdPortalTab(\'overview\',this)">Overview</button>':''}
+ ${isRS?'<button class="portal-sub-btn" data-ptab="general" onclick="switchProdPortalTab(\'general\',this)">General Info</button>':''}
+ <button class="portal-sub-btn ${isRS?'':'active'}" data-ptab="announcements" onclick="switchProdPortalTab('announcements',this)">Announcements</button>
+ <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">Files</button>
+ <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
+ <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
@@ -15118,9 +15118,9 @@ function renderProductionPortalHTML(pid, stage){
  <textarea id="prod-ann-body-${pid}" placeholder="Message\u2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:80px;resize:vertical"></textarea>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
- <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}',false)"> Post</button>
- <button class="btn btn-secondary btn-sm" onclick="postProductionAnnouncement('${pid}',true)"> Save as Draft</button>
- <button id="prod-ann-cancel-${pid}" class="btn btn-secondary btn-sm" style="display:none;color:var(--text-muted)" onclick="resetAnnForm('${pid}')"> Cancel Edit</button>
+ <button class="btn btn-primary btn-sm" onclick="postProductionAnnouncement('${pid}',false)">Post</button>
+ <button class="btn btn-secondary btn-sm" onclick="postProductionAnnouncement('${pid}',true)">Save as Draft</button>
+ <button id="prod-ann-cancel-${pid}" class="btn btn-secondary btn-sm" style="display:none;color:var(--text-muted)" onclick="resetAnnForm('${pid}')">Cancel Edit</button>
  </div>
  </div>
  <div id="prod-ann-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading\u2026</div></div>
@@ -15153,7 +15153,7 @@ function renderProductionPortalHTML(pid, stage){
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
  <input type="url" id="prod-file-url-${pid}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
  </div>
- <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')"> Add File</button>
+ <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">Add File</button>
  </div>
  <div id="prod-file-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
@@ -15183,7 +15183,7 @@ function renderProductionPortalHTML(pid, stage){
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Description / Director's Note</label>
  <textarea id="prod-description-${pid}" placeholder="About this production, director's note…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:100px;resize:vertical"></textarea>
  </div>
- <button class="btn btn-primary btn-sm" onclick="saveProductionAbout('${pid}')"> Save Info</button>
+ <button class="btn btn-primary btn-sm" onclick="saveProductionAbout('${pid}')">Save Info</button>
  <div id="prod-about-saved-${pid}" style="display:inline;margin-left:10px;font-size:12px;color:var(--green)"></div>
  </div>
  </div>
@@ -15344,8 +15344,8 @@ async function loadProductionScheduleConflicts(pid){
  +'</div>'
  +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'
  +'<span style="font-size:12px;color:var(--text-muted)">'+evConflicts.length+' conflict'+(evConflicts.length!==1?'s':'')+'</span>'
- +(isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openEventModal(\''+e.id+'\')"> Edit</button>':'')
- +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="deleteEventFromSchedule(\''+e.id+'\',\''+pid+'\')"></button>':'')
+ +(isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openEventModal(\''+e.id+'\')">Edit</button>':'')
+ +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="deleteEventFromSchedule(\''+e.id+'\',\''+pid+'\')">Delete</button>':'')
  +'</div>'
  +'</div>'
  +(evConflicts.length?'<div style="padding:0 14px">'
@@ -15356,7 +15356,7 @@ async function loadProductionScheduleConflicts(pid){
  +'</div>'
  +'<div style="display:flex;align-items:center;gap:8px">'
  +'<span style="'+statusStyle[c.status]+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700">'+statusLabel[c.status]+'</span>'
- +(!c.approved&&isAdmin?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')"></button>':'')
+ +(!c.approved&&isAdmin?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')">Approve</button>':'')
  +(isAdmin?'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\').then(()=>loadProductionScheduleConflicts(\''+pid+'\'))"></button>':'')
  +'</div></div>'
  ).join('')
@@ -15515,7 +15515,7 @@ async function loadProductionGeneralInfo(pid){
  el.innerHTML = '<div class="card" style="padding:20px">'
  +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
  +'<div style="font-size:15px;font-weight:700"> Production Notes & Info</div>'
- +'<button class="btn btn-primary btn-sm" onclick="saveGeneralContent(\''+pid+'\')"> Save</button>'
+ +'<button class="btn btn-primary btn-sm" onclick="saveGeneralContent(\''+pid+'\')">Save</button>'
  +'</div>'
  +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Write notes, welcome messages, reminders, or any info for your cast. Formatting is preserved in the family portal.</div>'
  +'<div id="quill-toolbar-'+pid+'">'
@@ -15623,10 +15623,10 @@ function renderAnnRow(a, pid, isDraft){
  +'</div>'
  +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
  +(isDraft
- ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"> Publish</button>'
-:'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"> Push to Families</button>'
+ ?'<button onclick="publishAnnouncement(\''+pid+'\',\''+a.id+'\',\''+encodeURIComponent(a.title)+'\',\''+encodeURIComponent(a.body)+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Publish</button>'
+:'<button onclick="pushAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Push to Families</button>'
  )
- +'<button data-ann-id="'+a.id+'" data-prod-id="'+pid+'" onclick="editAnnouncementById(this)" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"> Edit</button>'
+ +'<button data-ann-id="'+a.id+'" data-prod-id="'+pid+'" onclick="editAnnouncementById(this)" style="background:var(--bg);border:1.5px solid var(--border-md);color:var(--text);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Edit</button>'
  +'<button onclick="deleteProductionAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>'
  +'</div>'
  +'</div>'
@@ -15646,7 +15646,7 @@ function renderProductionFiles(pid, files, folders){
  +'<div style="font-size:18px;flex-shrink:0"></div>'
  +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+f.title+'</div></div>'
  +'<a href="'+f.drive_url+'" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none">Open</a>'
- +'<button onclick="deleteProductionFile(\''+pid+'\',\''+f.id+'\')" class="btn btn-danger btn-sm"></button>'
+ +'<button onclick="deleteProductionFile(\''+pid+'\',\''+f.id+'\')" class="btn btn-danger btn-sm">Delete</button>'
  +'</div>').join('')
  +'</div>'
  ).join('')
@@ -15805,8 +15805,8 @@ async function loadTeamMembers(pid){
  +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
  +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4;max-height:48px;overflow:hidden;position:relative">'+m.bio+'<span style="position:absolute;bottom:0;right:0;background:linear-gradient(to right,transparent,var(--surface) 50%);padding-left:20px;font-size:11px;color:var(--teal);font-weight:700;cursor:pointer" onclick="openTeamMemberModal('+JSON.stringify(m).replace(/"/g,'&quot;')+')">Read more</span></div>':'')
  +'<div style="margin-top:10px;display:flex;gap:6px">'
- +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px"> Edit</button>'
- +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px"></button>'
+ +'<button onclick="editTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-secondary btn-sm" style="font-size:11px">Edit</button>'
+ +'<button onclick="deleteTeamMember(\''+pid+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="font-size:11px">Delete</button>'
  +'</div></div></div>'
  }).join('')
  + '</div>'
@@ -15875,7 +15875,7 @@ async function editTeamMember(pid, mid){
  +'<input id="te-headshot-'+mid+'" value="'+escHtml(m.headshot_url||'')+'" placeholder="Headshot URL (https://…)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
  +'<textarea id="te-bio-'+mid+'" placeholder="Short bio…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:60px;resize:vertical;margin-bottom:8px">'+escHtml(m.bio||'')+'</textarea>'
  +'<div style="display:flex;gap:6px">'
- +'<button onclick="saveTeamMember(\''+pid+'\',\''+mid+'\')" class="btn btn-primary btn-sm"> Save</button>'
+ +'<button onclick="saveTeamMember(\''+pid+'\',\''+mid+'\')" class="btn btn-primary btn-sm">Save</button>'
  +'<button onclick="loadTeamMembers(\''+pid+'\')" class="btn btn-secondary btn-sm">Cancel</button>'
  +'</div></div>'
 }
@@ -15940,8 +15940,8 @@ function conflictRow(c, pid, showApprove){
  +(c.notes?' · '+c.notes:'')
  +'</div></div>'
  +'<span style="background:'+s.bg+';color:'+s.col+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;flex-shrink:0">'+s.label+'</span>'
- +(showApprove?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')"></button>':'')
- +'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\')"></button>'
+ +(showApprove?'<button class="btn btn-primary btn-sm" onclick="approveConflictDirect(\''+pid+'\',\''+c.id+'\')">Approve</button>':'')
+ +'<button class="btn btn-danger btn-sm" onclick="removeConflict(\''+pid+'\',\''+c.id+'\')">Remove</button>'
  +'</div>'
 }
 async function approveConflictDirect(pid, cid){
@@ -15963,7 +15963,7 @@ function openAddConflictModal(pid){
  const modal = document.createElement('div')
  modal.className='modal-overlay open'; modal.id='modal-add-conflict'
  modal.innerHTML = '<div class="modal"><div class="modal-header"><div class="modal-title">Add Conflict</div>'
- +'<button class="modal-close" onclick="document.getElementById(\'modal-add-conflict\').remove()"></button></div>'
+ +'<button class="modal-close" onclick="document.getElementById(\'modal-add-conflict\').remove()">×</button></div>'
  +'<div class="modal-body">'
  +'<div class="form-group"><label>Person</label>'
  +'<select id="conflict-person-id" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
@@ -16121,7 +16121,7 @@ async function addProgramRequiredWaiver(pid){
  m.className='modal-overlay open'
  m.onclick=function(e){if(e.target===m)m.remove()}
  m.innerHTML=`<div class="modal" style="max-width:400px">
- <div class="modal-header"><div class="modal-title">Add Required Waiver</div><button class="modal-close" onclick="this.closest('.modal-overlay').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title">Add Required Waiver</div><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button></div>
  <div class="modal-body">
  <div class="form-group">
  <label>Waiver Type</label>
@@ -16220,7 +16220,7 @@ function renderProgAnnRow(a, pid, isDraft){
  const pushInfo = a.pushed_at
  ? '<div style="font-size:11px;color:var(--green);margin-top:4px">Emailed '+formatDateTime(a.pushed_at)+(a.push_count>1?' ('+a.push_count+'x)':'')+'</div>'
 : ''
- return '<div style="border:1.5px solid '+(isDraft?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;background:'+(isDraft?'#fefce8':'var(--surface)')+'">' +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +'<div style="flex:1">' +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+statusBadge +'<span style="font-size:13px;font-weight:700">'+escHtml(a.title)+'</span></div>' +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">'+escHtml(a.body)+'</div>' +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>' +pushInfo+'</div>' +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">' +(isDraft ?'<button data-ann-id="'+a.id+'" data-prog-id="'+pid+'" onclick="editProgAnnById(this)" style="background:var(--teal-50);border:1.5px solid var(--teal);color:var(--teal-dark);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"> Edit Draft</button>':'') +(isDraft ?'<button onclick="publishAndEmailProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"> Publish & Email</button>':'<button onclick="repushProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap"> Resend Email</button>') +'<button onclick="deleteProgramAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>' +'</div></div></div>'}
+ return '<div style="border:1.5px solid '+(isDraft?'#fde047':'var(--border)')+';border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;background:'+(isDraft?'#fefce8':'var(--surface)')+'">' +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +'<div style="flex:1">' +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+statusBadge +'<span style="font-size:13px;font-weight:700">'+escHtml(a.title)+'</span></div>' +'<div style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;line-height:1.5">'+escHtml(a.body)+'</div>' +'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">'+formatDateTime(a.created_at)+'</div>' +pushInfo+'</div>' +'<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">' +(isDraft ?'<button data-ann-id="'+a.id+'" data-prog-id="'+pid+'" onclick="editProgAnnById(this)" style="background:var(--teal-50);border:1.5px solid var(--teal);color:var(--teal-dark);border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Edit Draft</button>':'') +(isDraft ?'<button onclick="publishAndEmailProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:var(--green);color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Publish & Email</button>':'<button onclick="repushProgramAnn(\''+pid+'\',\''+a.id+'\')" style="background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Resend Email</button>') +'<button onclick="deleteProgramAnnouncement(\''+pid+'\',\''+a.id+'\')" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-hint);padding:2px 4px;line-height:1">×</button>' +'</div></div></div>'}
 
 function renderProgramFiles(pid, files, folders){
  const el = document.getElementById('prog-file-list-current')
@@ -16240,7 +16240,7 @@ function renderProgramFiles(pid, files, folders){
  <div style="font-size:18px;flex-shrink:0"></div>
  <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${escHtml(f.title)}</div>${f.description&&!f.description.startsWith('__folder__')?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(f.description)}</div>`:''}</div>
  <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
- <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm"></button>
+ <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">Delete</button>
  </div>`).join('')}
  </div>`).join('')
 }
@@ -16666,7 +16666,7 @@ async function loadAuthorizedPickups(yid){
  </div>
  ${isAdmin?`<div style="display:flex;gap:6px">
  <button class="btn btn-secondary btn-sm" data-pickup-id="${p.id}" data-yid="${yid}" onclick="openAddPickupModal(this.dataset.yid,this.dataset.pickupId,window._pickupCache[this.dataset.pickupId])"></button>
- <button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')"></button>
+ <button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">Delete</button>
  </div>`:''}
  </div>`).join(''))
 }
@@ -16678,7 +16678,7 @@ function openAddPickupModal(yid, pid, existing){
  modal.id='modal-add-pickup'
  modal.onclick=function(e){if(e.target===modal) modal.remove()}
  modal.innerHTML=`<div class="modal">
- <div class="modal-header"><div class="modal-title">${isEdit?'Edit':'Add'} Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title">${isEdit?'Edit':'Add'} Authorized Person</div><button class="modal-close" onclick="document.getElementById('modal-add-pickup').remove()">×</button></div>
  <div class="modal-body">
  <div class="form-group"><label>Name *</label><input type="text" id="pickup-name" value="${isEdit?escHtml(existing.name||''):''}" placeholder="e.g. Maria Rodriguez" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/></div>
  <div class="form-row">
@@ -16725,7 +16725,7 @@ async function ysiDropOff(youthId, name){
  modal.className='modal-overlay open'
  modal.id='modal-ysi-select'
  modal.innerHTML=`<div class="modal">
- <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-ysi-select').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title">Sign In Participant</div><button class="modal-close" onclick="document.getElementById('modal-ysi-select').remove()">×</button></div>
  <div class="modal-body">
  <div class="form-group"><label>Participant *</label>
  <select id="ysi-select-youth" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
@@ -16789,11 +16789,11 @@ function ysiShowPersonModal(action, youthId, childName, pickups, onSubmit){
  ${pickups.map(p=>`<button onclick="document.getElementById('ysi-person-name').value='${p.name.replace(/'/g,"\'")}'" style="text-align:left;width:100%;background:var(--gray-50);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;cursor:pointer;font-family:inherit;margin-bottom:4px">
  <div style="font-weight:600;font-size:14px">${p.name}</div>
  <div style="font-size:12px;color:var(--text-muted)">${p.relationship||''}${p.phone?' · '+p.phone:''}</div>
- </button>`).join('')}
+</button>`).join('')}
  <div style="margin:8px 0;text-align:center;font-size:12px;color:var(--text-hint)">— or enter manually —</div>
  </div>`:''
  modal.innerHTML=`<div class="modal">
- <div class="modal-header"><div class="modal-title">${isDropoff?'Drop Off':'Pick Up'}: ${childName}</div><button class="modal-close" onclick="document.getElementById('modal-ysi-person').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title">${isDropoff?'Drop Off':'Pick Up'}: ${childName}</div><button class="modal-close" onclick="document.getElementById('modal-ysi-person').remove()">×</button></div>
  <div class="modal-body">
  ${pickupList}
  <div class="form-group"><label>${isDropoff?'Dropped Off By':'Picked Up By'} *</label>
@@ -16834,7 +16834,7 @@ async function openEnrollYouthInProduction(prodId, prodName){
  modal.className='modal-overlay open'
  modal.id='modal-enroll-youth-prod'
  modal.innerHTML=`<div class="modal modal-lg">
- <div class="modal-header"><div class="modal-title">Enroll Youth in ${prodName}</div><button class="modal-close" onclick="document.getElementById('modal-enroll-youth-prod').remove()"></button></div>
+ <div class="modal-header"><div class="modal-title">Enroll Youth in ${prodName}</div><button class="modal-close" onclick="document.getElementById('modal-enroll-youth-prod').remove()">×</button></div>
  <div class="modal-body">
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Select youth participants for this Rising Stars production. They will appear on the sign-in sheet.</div>
  <input type="text" id="epy-search" placeholder="Search name…" oninput="filterEpyList()" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px"/>
@@ -16912,7 +16912,7 @@ async function loadYouthProdMembers(prodId){
  +'</div>'
  +(isAdmin
  ? '<input type="text" placeholder="Assign role…" value="'+(m.role||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit;width:140px;flex-shrink:0" onchange="updateYouthCastRole(\''+prodId+'\',\''+m.id+'\',this.value).then(()=>{ const el=this.previousElementSibling.lastElementChild; el.textContent=this.value||\'No role assigned\'; el.style.color=this.value?\'var(--text-muted)\':\'var(--text-hint)\' })" />'
- +'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px;flex-shrink:0"></button>'
+ +'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px;flex-shrink:0">Remove</button>'
 : '')
  +'</div>'
  }).join('')
@@ -17031,8 +17031,8 @@ function renderRisingStarsPage(){
 
  <!-- Action buttons -->
  <div style="margin-top:12px;display:flex;gap:6px">
- <button class="btn btn-primary btn-sm" style="flex:1" onclick="openProductionDetail('${p.id}','rising-stars-page')"> Manage</button>
- <button class="btn btn-secondary btn-sm" style="flex:1" onclick="event.stopPropagation();navToRSSignIn('${p.id}')"> Sign-In</button>
+ <button class="btn btn-primary btn-sm" style="flex:1" onclick="openProductionDetail('${p.id}','rising-stars-page')">Manage</button>
+ <button class="btn btn-secondary btn-sm" style="flex:1" onclick="event.stopPropagation();navToRSSignIn('${p.id}')">Sign-In</button>
  </div>
  </div>
  </div>`
@@ -17121,7 +17121,7 @@ function renderPortalFamilies(){
  </div>
  <div style="display:flex;gap:4px;flex-shrink:0">
  <button class="btn btn-secondary btn-sm" onclick="openFamilyModal('${f.id}')">Members</button>
- <button class="btn btn-danger btn-sm" onclick="deletePortalFamily('${f.id}')"></button>
+ <button class="btn btn-danger btn-sm" onclick="deletePortalFamily('${f.id}')">Delete</button>
  </div>
  </div>
  <div style="font-size:12px;color:var(--text-muted);display:flex;gap:6px;flex-wrap:wrap">
@@ -17151,7 +17151,7 @@ function renderPortalYouthList(){
  ?`<div style="font-family:monospace;font-size:11px;font-weight:700;color:var(--teal-dark);background:var(--teal-light);padding:2px 6px;border-radius:4px;margin-bottom:4px">${y.passphrase}</div>`
 :'<div style="font-size:11px;color:var(--text-hint);margin-bottom:4px">No passphrase</div>'
  }
- <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\'")}')"> Set</button>
+ <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="setYouthPassphrase('${y.id}','${(y.passphrase||'').replace(/'/g,"\'")}')">Set</button>
  </div>
  </div>`).join('')
 }
@@ -17257,7 +17257,7 @@ async function openFamilyModal(fid){
  const content = `
  <div class="modal-header">
  <div class="modal-title">Manage: ${family.name}</div>
- <button class="modal-close" onclick="closeModal('modal-family')"></button>
+ <button class="modal-close" onclick="closeModal('modal-family')">×</button>
  </div>
  <div class="modal-body">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Current Members</div>

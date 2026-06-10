@@ -1218,6 +1218,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div style="display:flex;gap:2px;margin-bottom:16px;border-bottom:2px solid var(--border)">
     <button id="dir-tab-list" onclick="switchDirectorTab('list')"
       style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)">All Submissions</button>
+    <button id="dir-tab-pending" onclick="switchDirectorTab('pending')"
+      style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)">Not Yet Submitted <span id="dir-pending-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;padding:1px 6px;border-radius:20px;margin-left:4px">0</span></button>
     <button id="dir-tab-shows" onclick="switchDirectorTab('shows')"
       style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)">Show Interests</button>
     <button id="dir-tab-refuses" onclick="switchDirectorTab('refuses')"
@@ -1253,6 +1255,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div id="directors-list">
     <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>
   </div>
+  <div id="directors-pending" style="display:none"></div>
   <div id="directors-shows" style="display:none"></div>
   <div id="directors-refuses" style="display:none"></div>
 </section>
@@ -1783,6 +1786,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-donor-templates" placeholder="mail" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('donor-templates',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-board">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Board</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-board" placeholder="users" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('board',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-directors">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Directors</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-directors" placeholder="film" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('directors',this.value)"/>
  </div>
  </div>
  </div>
@@ -6256,7 +6281,8 @@ const NAV_ICON_DEFAULTS = {
  events:'', productions:'', 'cast-signin':'', youth:'', programs:'',
  'rising-stars':'⭐', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
- donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':''
+ donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':'',
+ board:'', directors:''
 }
 
 let _currentNavIcons = {}
@@ -7731,11 +7757,119 @@ const DIR_STATUS_COLORS = {
   not_moving_forward: ['#fee2e2','#991b1b'],
 }
 
+async function loadPendingDirectors(){
+  const el = document.getElementById('directors-pending')
+  if(!el) return
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
+  const vols = await api('/api/director-interest/pending-volunteers')
+  // Update badge
+  const badge = document.getElementById('dir-pending-badge')
+  if(badge){
+    badge.textContent = (vols||[]).length
+    badge.style.display = (vols||[]).length ? '' : 'none'
+  }
+  if(!vols || !vols.length){
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">✓</div><div style="font-size:14px;font-weight:600">All caught up!</div><div style="font-size:13px;margin-top:4px">Every volunteer who indicated Director interest has submitted the form.</div></div>'
+    return
+  }
+  el.innerHTML = `
+    <div style="margin-bottom:16px">
+      <div class="card" style="padding:16px 20px;background:var(--amber-light);border:1.5px solid var(--amber)">
+        <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:4px">${vols.length} volunteer${vols.length===1?'':' s'} indicated Director interest but have not completed the form</div>
+        <div style="font-size:13px;color:#92400e">Use the Send Form button to email them the Director Interest Form link.</div>
+      </div>
+    </div>
+    ${vols.map(v=>`
+    <div class="card" style="padding:16px 20px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          ${avatarHTML(v.name, 32)}
+          <div>
+            <div style="font-size:14px;font-weight:700">${escHtml(v.name)}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${escHtml(v.email||'')}${v.phone?' · '+escHtml(v.phone):''}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" onclick="previewDirectorFormEmail('${escHtml(v.name)}','${escHtml(v.email||'')}')">Preview Email</button>
+          <button class="btn btn-primary btn-sm" onclick="sendDirectorFormEmail('${v.id}','${escHtml(v.name)}','${escHtml(v.email||'')}',this)">Send Form</button>
+        </div>
+      </div>
+    </div>`).join('')}`
+}
+
+function previewDirectorFormEmail(name, email){
+  const formUrl = `https://rolecall.hwtco.org/director-interest?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:580px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:15px;font-weight:700">Email Preview</div>
+      <button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:20px">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">To: ${escHtml(email)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Subject: HWTC Director Interest Form</div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:20px;font-family:-apple-system,sans-serif;font-size:14px;line-height:1.6">
+        <h2 style="color:#145466;margin:0 0 12px">Thank you for your interest in directing with HWTC</h2>
+        <p>Hi ${escHtml(name)},</p>
+        <p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theatre Company. We are excited to learn more about you!</p>
+        <p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form:</p>
+        <p style="margin:20px 0">
+          <a href="${escHtml(formUrl)}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block">Complete Director Interest Form</a>
+        </p>
+        <p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes.</p>
+        <p style="color:#6b7280;font-size:13px">If you have any questions, reach out at info@hwtco.org.</p>
+        <p style="color:#9ca3af;font-size:12px;margin-top:20px">Horizon West Theatre Company</p>
+      </div>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+      <button class="btn btn-primary" onclick="sendDirectorFormEmailFromPreview('${escHtml(name)}','${escHtml(email)}',this)">Send This Email</button>
+    </div>
+  </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function sendDirectorFormEmail(volId, name, email, btn){
+  if(!email){ toast('No email address on file','error'); return }
+  if(!confirm('Send the Director Interest Form email to '+name+'?')) return
+  if(btn){ btn.disabled=true; btn.textContent='Sending...' }
+  const res = await api('/api/director-interest/send-form-email', 'POST', {volunteer_id: volId, name, email})
+  if(res?.ok){
+    toast('Email sent to '+name, 'success')
+    if(btn){ btn.textContent='Sent'; btn.style.opacity='0.5' }
+  } else {
+    toast(res?.error||'Failed to send','error')
+    if(btn){ btn.disabled=false; btn.textContent='Send Form' }
+  }
+}
+
+async function sendDirectorFormEmailFromPreview(name, email, btn){
+  if(btn){ btn.disabled=true; btn.textContent='Sending...' }
+  const res = await api('/api/director-interest/send-form-email', 'POST', {name, email})
+  if(res?.ok){
+    toast('Email sent to '+name, 'success')
+    btn.closest('[style*=fixed]')?.remove()
+  } else {
+    toast(res?.error||'Failed to send','error')
+    if(btn){ btn.disabled=false; btn.textContent='Send This Email' }
+  }
+}
+
+
 async function loadDirectorsPage(){
   const list = document.getElementById('directors-list')
   if(list) list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
-  const rows = await api('/api/director-interest/submissions')
+  const [rows, pending] = await Promise.all([
+    api('/api/director-interest/submissions'),
+    api('/api/director-interest/pending-volunteers')
+  ])
   _allDirectors = Array.isArray(rows) ? rows : []
+  // Update pending badge
+  const badge = document.getElementById('dir-pending-badge')
+  const pendingCount = Array.isArray(pending) ? pending.length : 0
+  if(badge){ badge.textContent = pendingCount; badge.style.display = pendingCount ? '' : 'none' }
   filterDirectors()
 }
 
@@ -7743,7 +7877,7 @@ let _dirTab = 'list'
 
 function switchDirectorTab(tab){
   _dirTab = tab
-  const tabs = ['list','shows','refuses']
+  const tabs = ['list','pending','shows','refuses']
   tabs.forEach(t=>{
     const btn = document.getElementById('dir-tab-'+t)
     const panel = document.getElementById('directors-'+t)
@@ -7752,6 +7886,7 @@ function switchDirectorTab(tab){
   })
   document.getElementById('dir-filters').style.display = tab==='list' ? 'flex' : 'none'
   if(tab==='list') filterDirectors()
+  else if(tab==='pending') loadPendingDirectors()
   else if(tab==='shows') renderShowsAnalysis()
   else if(tab==='refuses') renderRefusesAnalysis()
 }
@@ -8000,9 +8135,12 @@ function openDirectorResponse(id){
 }
 
 function openVolunteerById(vid){
-  const vol = allVolunteers?.find(v=>v.id===vid)
-  if(vol) openVolunteerProfile(vol)
-  else toast('Volunteer profile not found','error')
+  const vol = volunteers?.find(v=>v.id===vid)
+  if(vol){ openVolunteerProfile(vol) }
+  else {
+    // Volunteers may not be loaded yet — fetch directly
+    api('/api/volunteers/'+vid).then(v=>{ if(v&&!v.error) openVolunteerProfile(v); else toast('Volunteer profile not found','error') })
+  }
 }
 
 function openDirectorEdit(id){

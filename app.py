@@ -3192,8 +3192,13 @@ def submit_director_interest():
         s = get_email_settings()
         recipients = list(get_recipient_emails(s))
         if not recipients:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        if not recipients:
+            # Final fallback
             admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
             recipients = [u['email'] for u in admins if u.get('email')]
+        app.logger.info(f'Director interest notification to: {recipients}')
         if recipients:
             areas = ', '.join(d.get('experience_areas') or []) or 'Not specified'
             html = (
@@ -3209,9 +3214,9 @@ def submit_director_interest():
                 '<p style="color:#9ca3af;font-size:12px">View full response in RoleCall under Directors.</p>'
                 '</div>'
             )
-            send_email(recipients, f'Director Interest: {name}', html)
+            send_email(recipients, 'Director Interest: ' + name, html)
     except Exception as e:
-        app.logger.warning(f'Director interest notify failed: {e}')
+        app.logger.error(f'Director interest notify failed: {e}')
     conn.close()
     return jsonify({'ok': True})
 
@@ -3312,6 +3317,63 @@ def import_director_submissions():
         imported += 1
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'imported': imported, 'skipped': skipped})
+
+
+
+@app.route('/api/director-interest/pending-volunteers', methods=['GET'])
+def get_pending_director_volunteers():
+    """Volunteers with Director interest who have not submitted the director form."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Get all emails that have submitted the director form
+    submitted = fetchall(conn, 'SELECT LOWER(email) as email FROM director_interest_submissions')
+    submitted_emails = {r['email'] for r in submitted}
+    # Get volunteers with Director in their interests
+    vols = fetchall(conn, """SELECT id, name, email, phone, interests, created_at
+        FROM volunteers WHERE status='active' AND interests IS NOT NULL AND interests != '[]'
+        ORDER BY name""")
+    pending = []
+    for v in vols:
+        try:
+            interests = json.loads(v.get('interests') or '[]')
+        except Exception:
+            interests = []
+        has_director = any('director' in str(i).lower() for i in interests)
+        if has_director and v.get('email','').lower() not in submitted_emails:
+            v['interests_parsed'] = interests
+            pending.append(v)
+    conn.close()
+    return jsonify(pending)
+
+
+
+@app.route('/api/director-interest/send-form-email', methods=['POST'])
+def send_director_form_email():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name  = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip()
+    if not email:
+        return jsonify({'error': 'Email required'}), 400
+    form_url = f'https://rolecall.hwtco.org/director-interest?email={email}&name={name}'
+    html = (
+        '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+        '<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
+        f'<p>Hi {name},</p>'
+        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+        '<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form:</p>'
+        f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
+        '<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
+        '<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out at info@hwtco.org.</p>'
+        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company</p>'
+        '</div>'
+    )
+    ok, msg = send_email([email], 'HWTC Director Interest Form', html)
+    if not ok:
+        return jsonify({'error': msg or 'Failed to send email'}), 500
+    return jsonify({'ok': True})
 
 
 # ─────────────────────────────────────────────

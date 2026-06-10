@@ -711,6 +711,28 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
+        """CREATE TABLE IF NOT EXISTS director_interest_submissions (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            hwtc_experience TEXT,
+            previous_experience TEXT,
+            years_experience TEXT,
+            experience_areas TEXT DEFAULT '[]',
+            shows_refuse TEXT,
+            role_description TEXT,
+            most_rewarding TEXT,
+            challenges TEXT,
+            three_qualities TEXT,
+            budget_management TEXT,
+            dream_shows TEXT,
+            admin_notes TEXT,
+            status TEXT DEFAULT 'new',
+            imported BOOLEAN DEFAULT FALSE,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
@@ -3107,6 +3129,158 @@ def get_cast_list(context_type, context_id):
     resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+
+
+# ─────────────────────────────────────────────────────────────
+#  DIRECTOR INTEREST
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/director-interest')
+def director_interest_page():
+    return send_from_directory('static', 'director-interest.html')
+
+
+@app.route('/api/director-interest/submit', methods=['POST'])
+def submit_director_interest():
+    d = request.json or {}
+    name  = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    conn = get_db()
+    # Check for existing submission
+    existing = fetchone(conn, 'SELECT id FROM director_interest_submissions WHERE email=%s', (email,))
+    if existing:
+        conn.close()
+        return jsonify({'already_submitted': True})
+    # Link to volunteer if exists
+    vol = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=%s', (email,))
+    vol_id = vol['id'] if vol else None
+    sid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO director_interest_submissions
+        (id, volunteer_id, name, email, phone, hwtc_experience, previous_experience,
+         years_experience, experience_areas, shows_refuse, role_description,
+         most_rewarding, challenges, three_qualities, budget_management, dream_shows)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        sid, vol_id, name, email,
+        (d.get('phone') or '').strip() or None,
+        (d.get('hwtc_experience') or '').strip() or None,
+        (d.get('previous_experience') or '').strip() or None,
+        (d.get('years_experience') or '').strip() or None,
+        json.dumps(d.get('experience_areas') or []),
+        (d.get('shows_refuse') or '').strip() or None,
+        (d.get('role_description') or '').strip() or None,
+        (d.get('most_rewarding') or '').strip() or None,
+        (d.get('challenges') or '').strip() or None,
+        (d.get('three_qualities') or '').strip() or None,
+        (d.get('budget_management') or '').strip() or None,
+        (d.get('dream_shows') or '').strip() or None,
+    ))
+    conn.commit()
+    # Notify admin
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if not recipients:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        if recipients:
+            areas = ', '.join(d.get('experience_areas') or []) or 'Not specified'
+            html = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">New Director Interest Submission</h2>'
+                '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:180px">Name</td><td style="padding:8px 12px">{name}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Years Experience</td><td style="padding:8px 12px">{d.get("years_experience") or "Not specified"}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Experience Areas</td><td style="padding:8px 12px">{areas}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Dream Shows</td><td style="padding:8px 12px">{(d.get("dream_shows") or "Not specified")[:200]}</td></tr>'
+                '</table>'
+                '<p style="color:#9ca3af;font-size:12px">View full response in RoleCall under Directors.</p>'
+                '</div>'
+            )
+            send_email(recipients, f'Director Interest: {name}', html)
+    except Exception as e:
+        app.logger.warning(f'Director interest notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/director-interest/submissions', methods=['GET'])
+def get_director_submissions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT d.*, v.name as volunteer_name, v.id as matched_volunteer_id
+        FROM director_interest_submissions d
+        LEFT JOIN volunteers v ON LOWER(v.email)=d.email
+        ORDER BY d.submitted_at DESC""")
+    conn.close()
+    for r in rows:
+        try: r['experience_areas'] = json.loads(r.get('experience_areas') or '[]')
+        except Exception: r['experience_areas'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/director-interest/submissions/<sid>', methods=['PUT'])
+def update_director_submission(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, """UPDATE director_interest_submissions
+        SET status=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s""",
+        (d.get('status', 'new'), d.get('admin_notes', ''), sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/director-interest/import', methods=['POST'])
+def import_director_submissions():
+    """One-time import of existing director interest data."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    submissions = d.get('submissions', [])
+    conn = get_db()
+    imported = 0
+    skipped = 0
+    for s in submissions:
+        email = (s.get('email') or '').strip().lower()
+        if not email: continue
+        existing = fetchone(conn, 'SELECT id FROM director_interest_submissions WHERE email=%s', (email,))
+        if existing: skipped += 1; continue
+        vol = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=%s', (email,))
+        vol_id = vol['id'] if vol else None
+        sid = str(uuid.uuid4())
+        execute(conn, """INSERT INTO director_interest_submissions
+            (id, volunteer_id, name, email, phone, hwtc_experience, previous_experience,
+             years_experience, experience_areas, shows_refuse, role_description,
+             most_rewarding, challenges, three_qualities, budget_management, dream_shows,
+             admin_notes, status, imported)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)""", (
+            sid, vol_id,
+            (s.get('name') or '').strip(),
+            email,
+            (s.get('phone') or '').strip() or None,
+            s.get('hwtc_experience') or None,
+            s.get('previous_experience') or None,
+            s.get('years_experience') or None,
+            json.dumps(s.get('experience_areas') or []),
+            s.get('shows_refuse') or None,
+            s.get('role_description') or None,
+            s.get('most_rewarding') or None,
+            s.get('challenges') or None,
+            s.get('three_qualities') or None,
+            s.get('budget_management') or None,
+            s.get('dream_shows') or None,
+            s.get('admin_notes') or None,
+            s.get('status') or 'new',
+        ))
+        imported += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'imported': imported, 'skipped': skipped})
 
 
 # ─────────────────────────────────────────────
@@ -6401,6 +6575,29 @@ def join_submit():
             send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
     except Exception:
         pass
+    # If Director is selected, send director interest form email
+    try:
+        interests = d.get('interests', [])
+        if any('director' in i.lower() for i in interests):
+            applicant_email = (d.get('email') or '').strip()
+            applicant_name  = (d.get('name') or '').strip()
+            if applicant_email:
+                form_url = f'https://rolecall.hwtco.org/director-interest?email={applicant_email}&name={applicant_name}'
+                dir_html = (
+                    f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                    f'<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
+                    f'<p>Hi {applicant_name},</p>'
+                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+                    f'<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form using the link below:</p>'
+                    f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
+                    f'<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
+                    f'<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out to us at info@hwtco.org.</p>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company &mdash; rolecall.hwtco.org</p>'
+                    f'</div>'
+                )
+                send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
+    except Exception as e:
+        app.logger.warning(f'Director interest email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'id': aid})
 

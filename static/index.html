@@ -7904,6 +7904,7 @@ function renderDirectorList(rows){
             ${Object.entries(DIR_STATUS_LABELS).map(([k,l])=>`<option value="${k}" ${d.status===k?'selected':''}>${l}</option>`).join('')}
           </select>
           <button onclick="openDirectorResponse('${d.id}')" class="btn btn-secondary btn-sm">View Full Response</button>
+          <button onclick="openDirectorEdit('${d.id}')" class="btn btn-secondary btn-sm">Edit Response</button>
           <button onclick="openDirectorNotes('${d.id}')" class="btn btn-secondary btn-sm">${d.admin_notes?'Edit Notes':'+ Add Notes'}</button>
         </div>
       </div>
@@ -8003,6 +8004,125 @@ function openVolunteerById(vid){
   if(vol) openVolunteerProfile(vol)
   else toast('Volunteer profile not found','error')
 }
+
+function openDirectorEdit(id){
+  const d = _allDirectors.find(r=>r.id===id)
+  if(!d) return
+  const areas = Array.isArray(d.experience_areas) ? d.experience_areas : []
+  const areaOpts = ['MainStage Musicals','MainStage Plays','Kids / Youth Productions','Teen Productions','Community Theatre','Educational / School','Professional Theatre']
+  const existing = document.getElementById('dir-edit-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'dir-edit-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div style="font-size:16px;font-weight:700">Edit Response — ${escHtml(d.name)}</div>
+      <button onclick="document.getElementById('dir-edit-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Name</label>
+        <input type="text" id="de-name" value="${escHtml(d.name||'')}" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Phone</label>
+        <input type="text" id="de-phone" value="${escHtml(d.phone||'')}" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">HWTC Experience</label>
+        <textarea id="de-hwtc" rows="2" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.hwtc_experience||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Previous Directing Experience</label>
+        <textarea id="de-prev" rows="2" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.previous_experience||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Years of Experience</label>
+        <select id="de-years" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+          <option value="">Select...</option>
+          ${['None yet — looking to learn','Less than 1 year','1 - 2 years','3 - 5 years','6 - 10 years','More than 10 years']
+            .map(y=>`<option value="${y}" ${d.years_experience===y?'selected':''}>${y}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Experience Areas</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${areaOpts.map(a=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" class="de-area" value="${a}" ${areas.includes(a)?'checked':''} style="accent-color:var(--teal)"/> ${a}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Shows They Prefer Not to Direct</label>
+        <textarea id="de-refuses" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.shows_refuse||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Dream Shows</label>
+        <textarea id="de-dreams" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box" placeholder="One show per line for best parsing...">${escHtml(d.dream_shows||'')}</textarea>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Put each show on its own line for the most accurate Show Interests analysis</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role Description</label>
+        <textarea id="de-role" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.role_description||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Most Rewarding Experience</label>
+        <textarea id="de-rewarding" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.most_rewarding||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Challenges</label>
+        <textarea id="de-challenges" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.challenges||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Three Qualities</label>
+        <textarea id="de-qualities" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.three_qualities||'')}</textarea>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Budget Management</label>
+        <textarea id="de-budget" rows="3" style="width:100%;padding:8px 11px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;resize:vertical;box-sizing:border-box">${escHtml(d.budget_management||'')}</textarea>
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="document.getElementById('dir-edit-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDirectorEdit('${id}')">Save Changes</button>
+    </div>
+  </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveDirectorEdit(id){
+  const d = _allDirectors.find(r=>r.id===id)
+  if(!d) return
+  const expAreas = [...document.querySelectorAll('.de-area:checked')].map(c=>c.value)
+  const payload = {
+    full: true,
+    status:              d.status,
+    admin_notes:         d.admin_notes||'',
+    name:                document.getElementById('de-name')?.value.trim()||d.name,
+    phone:               document.getElementById('de-phone')?.value.trim()||'',
+    hwtc_experience:     document.getElementById('de-hwtc')?.value.trim()||'',
+    previous_experience: document.getElementById('de-prev')?.value.trim()||'',
+    years_experience:    document.getElementById('de-years')?.value||'',
+    experience_areas:    expAreas,
+    shows_refuse:        document.getElementById('de-refuses')?.value.trim()||'',
+    dream_shows:         document.getElementById('de-dreams')?.value.trim()||'',
+    role_description:    document.getElementById('de-role')?.value.trim()||'',
+    most_rewarding:      document.getElementById('de-rewarding')?.value.trim()||'',
+    challenges:          document.getElementById('de-challenges')?.value.trim()||'',
+    three_qualities:     document.getElementById('de-qualities')?.value.trim()||'',
+    budget_management:   document.getElementById('de-budget')?.value.trim()||'',
+  }
+  const res = await api(`/api/director-interest/submissions/${id}`, 'PUT', payload)
+  if(res?.error){ toast(res.error,'error'); return }
+  // Update local cache
+  Object.assign(d, payload)
+  document.getElementById('dir-edit-overlay')?.remove()
+  toast('Response saved', 'success')
+  filterDirectors()
+}
+
 
 function openDirectorImportModal(){
   const overlay = document.createElement('div')

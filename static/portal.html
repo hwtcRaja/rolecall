@@ -408,7 +408,7 @@ async function doInstructorLogin(){
  const email = document.getElementById('login-email').value.trim()
  const password = document.getElementById('login-password').value
  if(!email||!password){ showError('Email and password required'); return }
- const btn = document.querySelector('#tab-instructor.login-btn')
+ const btn = document.querySelector('#tab-instructor .login-btn')
  btn.disabled=true; btn.textContent='Signing in…'
  try{
  const r = await fetch('/api/portal/instructor-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})})
@@ -1150,9 +1150,9 @@ async function submitCallout(productionId, yid, status){
 }
 
 function switchDetailTab(id, btn){
- document.querySelectorAll('#detail-tabs.tab-btn').forEach(b=>b.classList.remove('active'))
+ document.querySelectorAll('#detail-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
  btn.classList.add('active')
- document.querySelectorAll('#detail-tab-contents.tab-content').forEach(c=>{
+ document.querySelectorAll('#detail-tab-contents .tab-content').forEach(c=>{
  c.classList.remove('active')
  c.style.display = 'none'
  })
@@ -1990,7 +1990,7 @@ function enterInstructorPortal(d){
 
  if(d.programs.length) {
  const first = d.programs[0]
- document.querySelector('#instructor-program-list.item')?.click()
+ document.querySelector('#instructor-program-list .item')?.click()
  }
 }
 
@@ -2084,9 +2084,9 @@ async function selectInstructorContext(type, id, name, el){
 }
 
 function switchInstrTab(id, btn){
- document.querySelectorAll('#instr-tabs.tab-btn').forEach(b=>b.classList.remove('active'))
+ document.querySelectorAll('#instr-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
  btn.classList.add('active')
- document.querySelectorAll('#instructor-main.tab-content').forEach(c=>c.classList.remove('active'))
+ document.querySelectorAll('#instructor-main .tab-content').forEach(c=>c.classList.remove('active'))
  document.getElementById('itab-'+id)?.classList.add('active')
 }
 

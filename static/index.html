@@ -5970,7 +5970,7 @@ function toggleCheckTag(el){
 }
 function getCheckedInterests(){return[...document.querySelectorAll('#interests-checkboxes input:checked')].map(c=>c.value)}
 function setCheckedInterests(interests){
- document.querySelectorAll('#interests-checkboxes.checkbox-tag').forEach(el=>{
+ document.querySelectorAll('#interests-checkboxes .checkbox-tag').forEach(el=>{
  const cb=el.querySelector('input');const checked=interests.includes(cb.value);cb.checked=checked;el.classList.toggle('checked',checked)
  })
 }

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Director Interest Form - HWTC</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8f9fa;color:#1a2332;min-height:100vh}
+.header{background:#145466;padding:20px 24px;display:flex;align-items:center;gap:14px}
+.header img{height:40px}
+.header-text{color:#fff}
+.header-text h1{font-size:18px;font-weight:800;letter-spacing:-0.3px}
+.header-text p{font-size:12px;opacity:0.75;margin-top:2px}
+.container{max-width:680px;margin:0 auto;padding:28px 20px 60px}
+.intro{background:#fff;border-radius:12px;padding:24px;margin-bottom:24px;border:1px solid #e5e7eb}
+.intro h2{font-size:20px;font-weight:800;color:#145466;margin-bottom:8px}
+.intro p{font-size:14px;color:#4b5563;line-height:1.6}
+.card{background:#fff;border-radius:12px;padding:24px;margin-bottom:16px;border:1px solid #e5e7eb}
+.section-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#145466;margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #e8f5f5}
+.form-group{margin-bottom:18px}
+.form-group label{display:block;font-size:13px;font-weight:700;color:#374151;margin-bottom:6px}
+.form-group label .req{color:#dc2626;margin-left:2px}
+.form-group input[type=text],
+.form-group input[type=email],
+.form-group input[type=tel],
+.form-group textarea,
+.form-group select{width:100%;padding:10px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;color:#1a2332;outline:none;transition:border-color .15s}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{border-color:#145466}
+.form-group textarea{resize:vertical;min-height:90px;line-height:1.5}
+.form-group .hint{font-size:11px;color:#9ca3af;margin-top:4px}
+.cb-group{display:flex;flex-direction:column;gap:8px}
+.cb-item{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:14px;color:#374151}
+.cb-item input{width:16px;height:16px;accent-color:#145466;flex-shrink:0;cursor:pointer}
+.submit-area{margin-top:24px}
+.submit-btn{width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:15px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;transition:background .15s}
+.submit-btn:hover{background:#0f3d4d}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.field-err{border-color:#dc2626!important}
+.err-msg{color:#dc2626;font-size:12px;margin-top:4px;display:none}
+.success{display:none;text-align:center;padding:48px 24px;background:#fff;border-radius:12px;border:1px solid #e5e7eb}
+.success h2{font-size:22px;font-weight:800;color:#145466;margin-bottom:10px}
+.success p{font-size:14px;color:#4b5563;line-height:1.6;max-width:400px;margin:0 auto}
+.success .check{font-size:48px;margin-bottom:16px}
+.already{display:none;text-align:center;padding:40px 24px;background:#fff;border-radius:12px;border:1px solid #e5e7eb}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <div class="header-text">
+    <h1>Horizon West Theatre Company</h1>
+    <p>Director Interest Form</p>
+  </div>
+</div>
+
+<div class="container">
+  <div id="form-wrap">
+    <div class="intro">
+      <h2>Tell us about your directing vision</h2>
+      <p>You indicated interest in directing with HWTC — we would love to learn more about you. Please take a few minutes to complete this form. Your responses help us understand your experience, style, and goals so we can find the right fit for you and our productions.</p>
+    </div>
+
+    <form id="dir-form" onsubmit="submitDirectorForm(event)">
+
+      <div class="card">
+        <div class="section-label">Contact Information</div>
+        <div class="form-group">
+          <label>Full Name <span class="req">*</span></label>
+          <input type="text" id="d-name" placeholder="Your full name"/>
+          <div class="err-msg" id="err-name">Please enter your name.</div>
+        </div>
+        <div class="form-group">
+          <label>Email Address <span class="req">*</span></label>
+          <input type="email" id="d-email" placeholder="your@email.com"/>
+          <div class="err-msg" id="err-email">Please enter a valid email.</div>
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="d-phone" placeholder="(407) 555-0000"/>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">HWTC Experience</div>
+        <div class="form-group">
+          <label>Have you worked with HWTC in the past? If so, which productions and in what capacity?</label>
+          <textarea id="d-hwtc-exp" placeholder="e.g. Stage manager on Cinderella, Actor in Bye Bye Birdie..."></textarea>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">Directing Background</div>
+        <div class="form-group">
+          <label>Please list any previous directing experience.</label>
+          <textarea id="d-prev-exp" placeholder="Productions you have directed, co-directed, or assistant directed..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>How many years of directing experience have you had?</label>
+          <select id="d-years">
+            <option value="">Select...</option>
+            <option>None yet — looking to learn</option>
+            <option>Less than 1 year</option>
+            <option>1 - 2 years</option>
+            <option>3 - 5 years</option>
+            <option>6 - 10 years</option>
+            <option>More than 10 years</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Please indicate the areas you have had directing experience. (Select all that apply)</label>
+          <div class="cb-group">
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="MainStage Musicals"/> MainStage Musicals</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="MainStage Plays"/> MainStage Plays</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="Kids / Youth Productions"/> Kids / Youth Productions</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="Teen Productions"/> Teen Productions</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="Community Theatre"/> Community Theatre</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="Educational / School"/> Educational / School</label>
+            <label class="cb-item"><input type="checkbox" class="exp-area" value="Professional Theatre"/> Professional Theatre</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">Preferences & Philosophy</div>
+        <div class="form-group">
+          <label>Are there any shows you would prefer not to direct? This could be specific titles or content types you are not comfortable with.</label>
+          <textarea id="d-refuses" placeholder="Specific titles, genres, or content types..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>How would you best describe the role of a director? <span class="req">*</span></label>
+          <textarea id="d-role-desc" placeholder="In your own words..."></textarea>
+          <div class="err-msg" id="err-role">Please share your perspective on this.</div>
+        </div>
+        <div class="form-group">
+          <label>What has been your most rewarding directing experience?</label>
+          <textarea id="d-rewarding" placeholder="A specific moment, production, or realization..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>What challenges have you faced as a director, and how did you overcome them?</label>
+          <textarea id="d-challenges" placeholder="Be as specific as you like..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Please list three qualities you feel a theatre director needs to be successful.</label>
+          <textarea id="d-qualities" placeholder="1. ...
+2. ...
+3. ..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>How do you manage a production budget?</label>
+          <textarea id="d-budget" placeholder="Your approach to planning and managing production finances..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Are there any shows you have always wanted to direct?</label>
+          <textarea id="d-dream-shows" placeholder="Dream productions, bucket list titles..."></textarea>
+        </div>
+      </div>
+
+      <div class="submit-area">
+        <div class="err-msg" id="err-general" style="margin-bottom:10px;font-size:13px"></div>
+        <button type="submit" class="submit-btn" id="dir-submit-btn">Submit Director Interest Form</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="success" id="success-screen">
+    <div class="check">✓</div>
+    <h2>Thank you!</h2>
+    <p>We received your Director Interest Form. Our team will review your responses and be in touch. We appreciate your interest in directing with HWTC!</p>
+  </div>
+
+  <div class="already" id="already-screen">
+    <div style="font-size:36px;margin-bottom:12px">✓</div>
+    <h2 style="color:#145466;font-size:20px;font-weight:800;margin-bottom:8px">Already submitted</h2>
+    <p style="font-size:14px;color:#6b7280">We already have a director interest form on file for this email address. If you need to update your information, please contact us directly.</p>
+  </div>
+</div>
+
+<script>
+// Pre-fill from URL token if present
+const urlParams = new URLSearchParams(window.location.search)
+const tokenEmail = urlParams.get('email')
+const tokenName  = urlParams.get('name')
+if(tokenEmail) document.getElementById('d-email').value = decodeURIComponent(tokenEmail)
+if(tokenName)  document.getElementById('d-name').value  = decodeURIComponent(tokenName)
+
+async function submitDirectorForm(e){
+  e.preventDefault()
+  const name      = document.getElementById('d-name').value.trim()
+  const email     = document.getElementById('d-email').value.trim()
+  const phone     = document.getElementById('d-phone').value.trim()
+  const hwtcExp   = document.getElementById('d-hwtc-exp').value.trim()
+  const prevExp   = document.getElementById('d-prev-exp').value.trim()
+  const years     = document.getElementById('d-years').value
+  const expAreas  = [...document.querySelectorAll('.exp-area:checked')].map(c=>c.value)
+  const refuses   = document.getElementById('d-refuses').value.trim()
+  const roleDesc  = document.getElementById('d-role-desc').value.trim()
+  const rewarding = document.getElementById('d-rewarding').value.trim()
+  const challenges= document.getElementById('d-challenges').value.trim()
+  const qualities = document.getElementById('d-qualities').value.trim()
+  const budget    = document.getElementById('d-budget').value.trim()
+  const dreamShows= document.getElementById('d-dream-shows').value.trim()
+
+  // Clear errors
+  document.querySelectorAll('.err-msg').forEach(el=>el.style.display='none')
+  document.querySelectorAll('.field-err').forEach(el=>el.classList.remove('field-err'))
+
+  let valid = true
+  const fail = (errId, inputId) => {
+    document.getElementById(errId).style.display = 'block'
+    if(inputId) document.getElementById(inputId).classList.add('field-err')
+    valid = false
+  }
+  if(!name)              fail('err-name','d-name')
+  if(!email||!email.includes('@')) fail('err-email','d-email')
+  if(!roleDesc)          fail('err-role','d-role-desc')
+  if(!valid){ document.querySelector('.field-err')?.scrollIntoView({behavior:'smooth',block:'center'}); return }
+
+  const btn = document.getElementById('dir-submit-btn')
+  btn.disabled = true; btn.textContent = 'Submitting...'
+
+  try {
+    const res = await fetch('/api/director-interest/submit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name,email,phone,hwtc_experience:hwtcExp,
+        previous_experience:prevExp, years_experience:years,
+        experience_areas:expAreas, shows_refuse:refuses,
+        role_description:roleDesc, most_rewarding:rewarding,
+        challenges, three_qualities:qualities,
+        budget_management:budget, dream_shows:dreamShows})
+    })
+    const data = await res.json()
+    if(data.already_submitted){
+      document.getElementById('form-wrap').style.display='none'
+      document.getElementById('already-screen').style.display='block'
+      return
+    }
+    if(data.ok){
+      document.getElementById('form-wrap').style.display='none'
+      document.getElementById('success-screen').style.display='block'
+      return
+    }
+    document.getElementById('err-general').textContent = data.error || 'Submission failed. Please try again.'
+    document.getElementById('err-general').style.display = 'block'
+    btn.disabled = false; btn.textContent = 'Submit Director Interest Form'
+  } catch(err){
+    document.getElementById('err-general').textContent = 'Network error. Please check your connection and try again.'
+    document.getElementById('err-general').style.display = 'block'
+    btn.disabled = false; btn.textContent = 'Submit Director Interest Form'
+  }
+}
+</script>
+</body>
+</html>

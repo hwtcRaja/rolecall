@@ -15017,7 +15017,8 @@ async function openProgramDetail(programId){
  </div>
  <div style="display:flex;gap:8px">
  <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId)">Save Draft</button>
- <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true)">Save & Publish</button>
+ <button class="btn btn-secondary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true,false)">Publish</button>
+ <button class="btn btn-primary btn-sm" onclick="saveProgramAnnouncementDraft(window._currentProgramDetailId,true,true)">Publish & Email</button>
  <button id="prog-ann-cancel-current" class="btn btn-secondary btn-sm" style="display:none" onclick="cancelEditProgramAnnouncement(window._currentProgramDetailId)">Cancel</button>
  </div>
  </div>
@@ -16245,8 +16246,9 @@ function renderProgramFiles(pid, files, folders){
  </div>`).join('')
 }
 
-async function saveProgramAnnouncementDraft(pid, publishNow){
+async function saveProgramAnnouncementDraft(pid, publishNow, sendEmail){
  publishNow = publishNow || false
+ sendEmail = sendEmail || false
  const title = document.getElementById('prog-ann-title-current') ? document.getElementById('prog-ann-title-current').value.trim(): ''
  const body = document.getElementById('prog-ann-body-current') ? document.getElementById('prog-ann-body-current').value.trim(): ''
  const editId = document.getElementById('prog-ann-edit-id-current') ? document.getElementById('prog-ann-edit-id-current').value: ''
@@ -16260,16 +16262,26 @@ async function saveProgramAnnouncementDraft(pid, publishNow){
  }
  if(!res||res.error){toast('Error: '+(res ? res.error: 'Failed'),'error');return}
  const aid = res.id || editId
- if(publishNow && aid){
- const pushRes = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST')
+ if(publishNow && sendEmail && aid){
+ const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+ const pushRes = await api('/api/youth-programs/'+pid+'/announcements/'+aid+'/push','POST',{from_identity:_fi})
  const sent = pushRes && pushRes.sent_to ? pushRes.sent_to: 0
  const warn = pushRes && pushRes.warning ? pushRes.warning: ''
  toast(sent>0 ? 'Published & emailed '+sent+' recipient'+(sent!==1?'s':'')+'!': (warn || 'Published! (No email addresses on file)'))
+ } else if(publishNow){
+ toast('Published to portal!')
  } else {
  toast('Draft saved!')
  }
  cancelEditProgramAnnouncement(pid)
  await loadProgramPortalContent(pid)
+}
+
+async function publishProgAnnOnly(pid, aid){
+  const res = await api('/api/portal/announcements/'+aid,'PUT',{status:'published'})
+  if(res && res.error){toast(res.error,'error');return}
+  toast('Published to portal!')
+  await loadProgramPortalContent(pid)
 }
 
 async function publishAndEmailProgramAnn(pid, aid){

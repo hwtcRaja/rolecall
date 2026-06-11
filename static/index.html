@@ -7818,9 +7818,6 @@ function previewDirectorFormEmail(name, email){
           <a href="${escHtml(formUrl)}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block">Complete Director Interest Form</a>
         </p>
         <p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes.</p>
-        </br> 
-        <p style="color:#6b7280;font-size:13px"> <i> Please Note: Submission of a Director Interest Form does not guarantee selection for a directing position. Directors are chosen based on a variety of factors, including the needs of the organization, individual qualifications and experience, and the artistic and production requirements of each season.
-          All submitted forms will be kept on file, and applicants may be considered for future directing opportunities as they become available. </i> </p>
         <p style="color:#6b7280;font-size:13px">If you have any questions, reach out at info@hwtco.org.</p>
         <p style="color:#9ca3af;font-size:12px;margin-top:20px">Horizon West Theatre Company</p>
       </div>
@@ -15587,13 +15584,14 @@ async function openProgramDetail(programId){
  <div class="card" style="padding:16px">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Participants (${enrolled.length})</div>
  ${!enrolled.length?'<div style="font-size:13px;color:var(--text-muted)">No participants enrolled yet</div>':
- enrolled.map(y=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openYouthProfile('${y.id}')">
+ enrolled.map(y=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
  ${avatarHTML(y.first_name+' '+y.last_name,28)}
- <div>
+ <div style="flex:1;min-width:0">
  <div style="font-size:13px;font-weight:500">${y.first_name} ${y.last_name}</div>
  ${y.dob?`<div style="font-size:11px;color:var(--text-muted)">Age ${calcAge(y.dob)||'?'}</div>`:''}
  </div>
- ${isAdmin?`<button class="btn btn-danger btn-sm" style="margin-left:auto;padding:2px 6px;font-size:10px" onclick="event.stopPropagation();unenrollYouth('${y.enrollment_id}','${y.id}').then(()=>openProgramDetail('${programId}'))"></button>`:''}
+ <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" onclick="openYouthProfile('${y.youth_id}')">View</button>
+ ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:11px" onclick="unenrollYouth('${y.id}','${y.youth_id}').then(()=>openProgramDetail('${programId}'))">Unenroll</button>`:''}
  </div>`).join('')}
  </div>
  </div>

@@ -8829,7 +8829,9 @@ def get_program_enrolled(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT ype.*, y.first_name, y.last_name
+    rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
+        ype.enrolled_date, ype.notes, ype.created_at,
+        y.first_name, y.last_name, y.dob
         FROM youth_program_enrollments ype
         JOIN youth_participants y ON ype.youth_id=y.id
         WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))

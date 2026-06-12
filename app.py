@@ -3388,7 +3388,7 @@ def export_program_roster(pid):
         y.first_name, y.last_name, y.dob, y.shirt_size,
         ype.enrolled_date, ype.notes as enrollment_notes,
         f.name as family_name, f.passphrase,
-        f.portal_last_login,
+        y.portal_last_login,
         g.first_name as g1_first, g.last_name as g1_last,
         g.email as g1_email, g.phone as g1_phone, g.relationship as g1_rel,
         g2.first_name as g2_first, g2.last_name as g2_last,
@@ -7784,10 +7784,10 @@ def kiosk_get_youth():
     youth = fetchall(conn, '''
         SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at,
-               f.passphrase as family_passphrase
+               (SELECT f.passphrase FROM youth_family_links yfl
+                JOIN families f ON f.id=yfl.family_id
+                WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase
         FROM youth_participants yp
-        LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-        LEFT JOIN families f ON f.id=yfl.family_id
         LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
             AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
             AND ysi.signed_out_at IS NULL
@@ -7819,14 +7819,15 @@ def kiosk_youth_for_event(event_id):
         # Rising Stars production  -  get enrolled cast
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   ypm.role, f.passphrase as family_passphrase,
+                   ypm.role,
+                   (SELECT f.passphrase FROM youth_family_links yfl
+                    JOIN families f ON f.id=yfl.family_id
+                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_production_members ypm
             JOIN youth_participants yp ON ypm.youth_id=yp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
                 AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
-            LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ypm.production_id=%s
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
@@ -7834,14 +7835,15 @@ def kiosk_youth_for_event(event_id):
         # Youth program  -  get enrolled participants
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   NULL as role, f.passphrase as family_passphrase,
+                   NULL as role,
+                   (SELECT f.passphrase FROM youth_family_links yfl
+                    JOIN families f ON f.id=yfl.family_id
+                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_program_enrollments ype
             JOIN youth_participants yp ON ype.youth_id=yp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
                 AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
-            LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ype.program_id=%s
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['program_id']))
 
@@ -8913,13 +8915,11 @@ def get_program_enrolled(pid):
     rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
         ype.enrolled_date, ype.notes, ype.created_at,
         y.first_name, y.last_name, y.dob, y.shirt_size,
-        f.portal_last_login, f.passphrase as family_passphrase,
-        f.name as family_name
+        y.portal_last_login,
+        (SELECT f.passphrase FROM youth_family_links yfl JOIN families f ON f.id=yfl.family_id WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
+        (SELECT f.name FROM youth_family_links yfl JOIN families f ON f.id=yfl.family_id WHERE yfl.youth_id=y.id LIMIT 1) as family_name
         FROM youth_program_enrollments ype
         JOIN youth_participants y ON ype.youth_id=y.id
-        LEFT JOIN families f ON f.id = (
-            SELECT yf.family_id FROM youth_family_links yf
-            WHERE yf.youth_id=y.id LIMIT 1)
         WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
     conn.close()
     return jsonify(rows)

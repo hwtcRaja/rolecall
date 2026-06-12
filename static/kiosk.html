@@ -1773,7 +1773,7 @@ function filterEysRoster(){
       card+='</div>'
       card+='<div style="display:flex;gap:8px">'
       if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||'')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
       card+='</div></div>'
       return card
     }).join('')
@@ -1789,7 +1789,7 @@ function filterEysRoster(){
       if(isIn) row+='<div style="font-size:11px;color:var(--green)">Dropped off by '+(rec.signed_in_by||'—')+'</div>'
       row+='</div>'
       if(!isIn) row+='<button style="padding:8px 14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||'')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
       row+='</div>'
       return row
     }).join('')
@@ -1817,8 +1817,18 @@ async function eysStartPickUp(btn){
   const rid=btn.getAttribute('data-rid')
   const yid=btn.getAttribute('data-yid')
   const yname=btn.getAttribute('data-yname')
+  const passphrase=btn.getAttribute('data-passphrase')||''
   eysSignOutTarget=rid
   eysDropOffTarget={yid,yname}
+  // Show passphrase block if available
+  const pblock = document.getElementById('eys-passphrase-block')
+  const pdisplay = document.getElementById('eys-passphrase-display')
+  if(passphrase && pblock && pdisplay){
+    pdisplay.textContent = passphrase
+    pblock.style.display = ''
+  } else if(pblock){
+    pblock.style.display = 'none'
+  }
   const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
   eysAuthPickups=await r.json()
   eysAuthAction='pickup'
@@ -2109,6 +2119,11 @@ function showConfirm(icon,title,sub,note,onBack){
   </div>
   <div style="background:var(--surface);border-radius:var(--radius-lg);padding:32px;max-width:520px;width:100%;box-shadow:var(--shadow-lg)">
     <div id="eys-auth-list" style="margin-bottom:16px"></div>
+    <div id="eys-passphrase-block" style="display:none;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.15);border-radius:12px;padding:14px 18px;margin-bottom:16px;text-align:center">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.5);margin-bottom:6px">Portal Sign-Out Password</div>
+      <div id="eys-passphrase-display" style="font-size:28px;font-weight:800;letter-spacing:4px;color:#fff;font-family:monospace"></div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px">Show this to the person picking up</div>
+    </div>
     <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px" id="eys-auth-label">Dropped Off By</div>
     <input type="text" id="eys-auth-name" placeholder="Name" style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none;margin-bottom:16px"/>
     <div id="eys-auth-warn" style="font-size:13px;color:var(--amber-600);margin-bottom:16px;display:none">⚠️ Not on authorized list. Admin will be notified to update.</div>

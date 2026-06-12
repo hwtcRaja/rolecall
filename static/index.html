@@ -15576,6 +15576,7 @@ async function openProgramDetail(programId){
  </div>
  ${isAdmin?`<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
  <button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\'")}')">+ Enroll Participant</button>
+ <a href="/api/youth-programs/${p.id}/roster-export" download class="btn btn-secondary btn-sm">Export Roster</a>\n'
  <button class="btn btn-secondary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>
  </div>`:''}
  </div>
@@ -15589,6 +15590,7 @@ async function openProgramDetail(programId){
  <div style="flex:1;min-width:0">
  <div style="font-size:13px;font-weight:500">${y.first_name} ${y.last_name}</div>
  ${y.dob?`<div style="font-size:11px;color:var(--text-muted)">Age ${calcAge(y.dob)||'?'}</div>`:''}
+ ${y.portal_last_login?`<div style="font-size:10px;color:var(--text-hint)">Portal: ${formatDateTime(y.portal_last_login)}</div>`:'<div style="font-size:10px;color:var(--text-hint)">Portal: never logged in</div>'}
  </div>
  <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" onclick="openYouthProfile('${y.youth_id}')">View</button>
  ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:11px" onclick="unenrollYouth('${y.id}','${y.youth_id}').then(()=>openProgramDetail('${programId}'))">Unenroll</button>`:''}

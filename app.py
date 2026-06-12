@@ -3376,6 +3376,77 @@ def send_director_form_email():
     return jsonify({'ok': True})
 
 
+
+@app.route('/api/youth-programs/<pid>/roster-export', methods=['GET'])
+def export_program_roster(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (pid,))
+    prog_name = prog['name'] if prog else 'Program'
+    rows = fetchall(conn, '''SELECT
+        y.first_name, y.last_name, y.dob, y.shirt_size,
+        ype.enrolled_date, ype.notes as enrollment_notes,
+        f.name as family_name, f.passphrase,
+        f.portal_last_login,
+        g.first_name as g1_first, g.last_name as g1_last,
+        g.email as g1_email, g.phone as g1_phone, g.relationship as g1_rel,
+        g2.first_name as g2_first, g2.last_name as g2_last,
+        g2.email as g2_email, g2.phone as g2_phone, g2.relationship as g2_rel
+        FROM youth_program_enrollments ype
+        JOIN youth_participants y ON ype.youth_id=y.id
+        LEFT JOIN youth_family_links yfl ON yfl.youth_id=y.id
+        LEFT JOIN families f ON f.id=yfl.family_id
+        LEFT JOIN youth_guardians g ON g.youth_id=y.id AND g.is_primary=TRUE
+        LEFT JOIN youth_guardians g2 ON g2.youth_id=y.id AND g2.is_primary=FALSE
+        WHERE ype.program_id=%s
+        ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    import io, csv
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow([
+        'Last Name','First Name','Date of Birth','Age','T-Shirt Size',
+        'Enrolled Date','Portal Passphrase','Last Portal Login',
+        'Family Name',
+        'Guardian 1 Name','Guardian 1 Relationship','Guardian 1 Email','Guardian 1 Phone',
+        'Guardian 2 Name','Guardian 2 Relationship','Guardian 2 Email','Guardian 2 Phone',
+        'Enrollment Notes'
+    ])
+    from datetime import date as _date
+    today = _date.today()
+    for r in rows:
+        dob = r.get('dob','')
+        age = ''
+        if dob:
+            try:
+                bd = _date.fromisoformat(dob)
+                age = str(today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day)))
+            except Exception: pass
+        last_login = ''
+        if r.get('portal_last_login'):
+            try: last_login = str(r['portal_last_login'])[:16]
+            except Exception: pass
+        g1_name = f"{r.get('g1_first','')} {r.get('g1_last','')}".strip()
+        g2_name = f"{r.get('g2_first','')} {r.get('g2_last','')}".strip()
+        w.writerow([
+            r.get('last_name',''), r.get('first_name',''), dob, age,
+            r.get('shirt_size','') or '',
+            r.get('enrolled_date','') or '',
+            r.get('passphrase','') or '',
+            last_login,
+            r.get('family_name','') or '',
+            g1_name, r.get('g1_rel','') or '', r.get('g1_email','') or '', r.get('g1_phone','') or '',
+            g2_name, r.get('g2_rel','') or '', r.get('g2_email','') or '', r.get('g2_phone','') or '',
+            r.get('enrollment_notes','') or '',
+        ])
+    csv_data = output.getvalue()
+    safe_name = prog_name.replace(' ','_')
+    from flask import Response
+    return Response(csv_data, mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=roster_{safe_name}.csv'})
+
+
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
@@ -7712,8 +7783,11 @@ def kiosk_get_youth():
     # Get all active youth for today's events linked to this kiosk session
     youth = fetchall(conn, '''
         SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-               ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+               ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at,
+               f.passphrase as family_passphrase
         FROM youth_participants yp
+        LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+        LEFT JOIN families f ON f.id=yfl.family_id
         LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
             AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
             AND ysi.signed_out_at IS NULL
@@ -7745,12 +7819,14 @@ def kiosk_youth_for_event(event_id):
         # Rising Stars production  -  get enrolled cast
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   ypm.role,
+                   ypm.role, f.passphrase as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_production_members ypm
             JOIN youth_participants yp ON ypm.youth_id=yp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
                 AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+            LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ypm.production_id=%s
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
@@ -7758,12 +7834,14 @@ def kiosk_youth_for_event(event_id):
         # Youth program  -  get enrolled participants
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   NULL as role,
+                   NULL as role, f.passphrase as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_program_enrollments ype
             JOIN youth_participants yp ON ype.youth_id=yp.id
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
                 AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+            LEFT JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ype.program_id=%s
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['program_id']))
 
@@ -8072,10 +8150,13 @@ def pickup_queue():
     try:
         # Only show kids from OPEN events (or signed in within last 8 hours as fallback)
         individuals = fetchall(conn, """
-            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id,
+            f.passphrase as family_passphrase
             FROM youth_sign_ins ysi
             JOIN youth_participants y ON ysi.youth_id=y.id
             LEFT JOIN events e ON ysi.event_id=e.id
+            LEFT JOIN youth_family_links yfl ON yfl.youth_id=ysi.youth_id
+            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ysi.signed_out_at IS NULL
             AND (
                 (e.status = 'open')
@@ -8831,9 +8912,14 @@ def get_program_enrolled(pid):
     conn = get_db()
     rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
         ype.enrolled_date, ype.notes, ype.created_at,
-        y.first_name, y.last_name, y.dob
+        y.first_name, y.last_name, y.dob, y.shirt_size,
+        f.portal_last_login, f.passphrase as family_passphrase,
+        f.name as family_name
         FROM youth_program_enrollments ype
         JOIN youth_participants y ON ype.youth_id=y.id
+        LEFT JOIN families f ON f.id = (
+            SELECT yf.family_id FROM youth_family_links yf
+            WHERE yf.youth_id=y.id LIMIT 1)
         WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
     conn.close()
     return jsonify(rows)

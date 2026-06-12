@@ -8912,15 +8912,39 @@ def get_program_enrolled(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
-        ype.enrolled_date, ype.notes, ype.created_at,
-        y.first_name, y.last_name, y.dob, y.shirt_size,
-        y.portal_last_login,
-        (SELECT f.passphrase FROM youth_family_links yfl JOIN families f ON f.id=yfl.family_id WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
-        (SELECT f.name FROM youth_family_links yfl JOIN families f ON f.id=yfl.family_id WHERE yfl.youth_id=y.id LIMIT 1) as family_name
-        FROM youth_program_enrollments ype
-        JOIN youth_participants y ON ype.youth_id=y.id
-        WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    try:
+        rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
+            ype.enrolled_date, ype.notes, ype.created_at,
+            y.first_name, y.last_name, y.dob, y.shirt_size,
+            y.portal_last_login,
+            (SELECT f.passphrase FROM youth_family_links yfl
+             JOIN families f ON f.id=yfl.family_id
+             WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
+            (SELECT f.name FROM youth_family_links yfl
+             JOIN families f ON f.id=yfl.family_id
+             WHERE yfl.youth_id=y.id LIMIT 1) as family_name
+            FROM youth_program_enrollments ype
+            JOIN youth_participants y ON ype.youth_id=y.id
+            WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    except Exception as e:
+        app.logger.error(f'get_program_enrolled error: {e}')
+        # Fallback — plain query without new columns
+        try:
+            rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
+                ype.enrolled_date, ype.notes, ype.created_at,
+                y.first_name, y.last_name, y.dob
+                FROM youth_program_enrollments ype
+                JOIN youth_participants y ON ype.youth_id=y.id
+                WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+            for r in rows:
+                r.setdefault('shirt_size', '')
+                r.setdefault('portal_last_login', None)
+                r.setdefault('family_passphrase', None)
+                r.setdefault('family_name', None)
+        except Exception as e2:
+            app.logger.error(f'get_program_enrolled fallback error: {e2}')
+            conn.close()
+            return jsonify([])
     conn.close()
     return jsonify(rows)
 

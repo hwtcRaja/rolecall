@@ -15577,7 +15577,7 @@ async function openProgramDetail(programId){
  </div>
  ${isAdmin?`<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
  <button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\'")}')">+ Enroll Participant</button>
- <a href="/api/youth-programs/${p.id}/roster-export" download class="btn btn-secondary btn-sm">Export Roster</a>\n'
+<a href="/api/youth-programs/${p.id}/roster-export" download class="btn btn-secondary btn-sm">Export Roster</a>
  <button class="btn btn-secondary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>
  </div>`:''}
  </div>

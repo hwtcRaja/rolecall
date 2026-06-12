@@ -15480,7 +15480,8 @@ async function openProgramDetail(programId){
  })
 
  // Load enrolled youth
- const enrolled = await api('/api/youth-programs/'+programId+'/enrolled')
+ const enrolledRaw = await api('/api/youth-programs/'+programId+'/enrolled')
+ const enrolled = Array.isArray(enrolledRaw) ? enrolledRaw : []
 
  // Get events for this program
  const progEvents = allEvents

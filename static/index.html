@@ -12581,7 +12581,7 @@ function renderScheduledReportsList(){
  </div>
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
- <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')"></button>
+ <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')">Edit Schedule</button>
  <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')">Delete</button>
  </div>
  </div>
@@ -16920,7 +16920,7 @@ function renderProgramRequiredWaivers(pid, waivers){
  <div style="font-size:13px;font-weight:600">${escHtml(w.waiver_name)}</div>
  <div style="font-size:11px;color:var(--text-muted)">${w.can_sign_online?' Can sign online':' Must be uploaded'}</div>
  </div>
- ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeProgramRequiredWaiver('${pid}','${w.waiver_type_id}')"></button>`:''}
+ ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeProgramRequiredWaiver('${pid}','${w.waiver_type_id}')">Remove</button>`:''}
  </div>`).join('')
 }
 
@@ -17494,7 +17494,7 @@ async function loadAuthorizedPickups(yid){
  ${p.phone?`<div style="font-size:13px;margin-top:4px"> ${escHtml(p.phone)}</div>`:''}
  </div>
  ${isAdmin?`<div style="display:flex;gap:6px">
- <button class="btn btn-secondary btn-sm" data-pickup-id="${p.id}" data-yid="${yid}" onclick="openAddPickupModal(this.dataset.yid,this.dataset.pickupId,window._pickupCache[this.dataset.pickupId])"></button>
+ <button class="btn btn-secondary btn-sm" data-pickup-id="${p.id}" data-yid="${yid}" onclick="openAddPickupModal(this.dataset.yid,this.dataset.pickupId,window._pickupCache[this.dataset.pickupId])">Edit</button>
  <button class="btn btn-danger btn-sm" onclick="deleteAuthorizedPickup('${yid}','${p.id}')">Delete</button>
  </div>`:''}
  </div>`).join(''))

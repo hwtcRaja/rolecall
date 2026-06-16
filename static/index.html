@@ -3554,7 +3554,7 @@ function renderVolunteers(){
  <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}</td>
  <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
  <td onclick="event.stopPropagation()">
- <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px"></a>
+ <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">Email</a>
  </td>
  </tr>`
  }).join('')
@@ -4737,7 +4737,7 @@ function renderYouth(){
  </div>
  </td>
  <td style="font-size:12px">${loginBadge}</td>
- ${isAdmin?`<td onclick="event.stopPropagation()"><a href="mailto:${primary?.email||''}" class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px;${primary?.email?'':'visibility:hidden'}"></a></td>`:'<td></td>'}
+ ${isAdmin?`<td onclick="event.stopPropagation()"><a href="mailto:${primary?.email||''}" class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px;${primary?.email?'':'visibility:hidden'}">Email</a></td>`:'<td></td>'}
  </tr>`
  }).join('')+`</tbody></table></div>`
 }

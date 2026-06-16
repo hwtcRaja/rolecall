@@ -9011,10 +9011,11 @@ def get_program_enrolled(pid):
     if err: return err
     conn = get_db()
     try:
-        # Core query — only columns guaranteed to exist
+        # Step 1: guaranteed columns only (no optional ones)
         rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
             ype.enrolled_date, ype.notes, ype.created_at,
-            y.first_name, y.last_name, y.dob
+            y.first_name, y.last_name, y.dob,
+            y.portal_last_login
             FROM youth_program_enrollments ype
             JOIN youth_participants y ON ype.youth_id=y.id
             WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))

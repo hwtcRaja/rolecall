@@ -711,6 +711,16 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
+        """CREATE TABLE IF NOT EXISTS volunteer_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS volunteer_group_members (
+            group_id TEXT NOT NULL REFERENCES volunteer_groups(id) ON DELETE CASCADE,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            PRIMARY KEY (group_id, volunteer_id))""",
         """CREATE TABLE IF NOT EXISTS director_interest_submissions (
             id TEXT PRIMARY KEY,
             volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
@@ -3445,6 +3455,94 @@ def export_program_roster(pid):
     from flask import Response
     return Response(csv_data, mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename=roster_{safe_name}.csv'})
+
+
+
+# ─────────────────────────────────────────────────────────────
+#  VOLUNTEER GROUPS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/volunteer-groups', methods=['GET'])
+def get_volunteer_groups():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    groups = fetchall(conn, '''SELECT g.*, COUNT(m.volunteer_id) as member_count
+        FROM volunteer_groups g
+        LEFT JOIN volunteer_group_members m ON m.group_id=g.id
+        GROUP BY g.id ORDER BY g.name''')
+    conn.close()
+    return jsonify(groups)
+
+
+@app.route('/api/volunteer-groups', methods=['POST'])
+def create_volunteer_group():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name: return jsonify({'error': 'Name required'}), 400
+    gid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO volunteer_groups (id, name, description)
+            VALUES (%s, %s, %s)''', (gid, name, d.get('description','').strip() or None))
+        # Add initial members if provided
+        for vid in (d.get('member_ids') or []):
+            try:
+                execute(conn, 'INSERT INTO volunteer_group_members (group_id, volunteer_id) VALUES (%s,%s)',
+                    (gid, vid))
+            except Exception: pass
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 400
+    row = fetchone(conn, 'SELECT * FROM volunteer_groups WHERE id=%s', (gid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/volunteer-groups/<gid>', methods=['PUT'])
+def update_volunteer_group(gid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE volunteer_groups SET name=%s, description=%s, updated_at=NOW()
+        WHERE id=%s''', (d.get('name','').strip(), d.get('description','').strip() or None, gid))
+    # Replace members if provided
+    if 'member_ids' in d:
+        execute(conn, 'DELETE FROM volunteer_group_members WHERE group_id=%s', (gid,))
+        for vid in (d.get('member_ids') or []):
+            try:
+                execute(conn, 'INSERT INTO volunteer_group_members (group_id, volunteer_id) VALUES (%s,%s)',
+                    (gid, vid))
+            except Exception: pass
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/volunteer-groups/<gid>', methods=['DELETE'])
+def delete_volunteer_group(gid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM volunteer_groups WHERE id=%s', (gid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/volunteer-groups/<gid>/members', methods=['GET'])
+def get_group_members(gid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    members = fetchall(conn, '''SELECT v.id, v.name, v.email, v.status
+        FROM volunteer_group_members m
+        JOIN volunteers v ON v.id=m.volunteer_id
+        WHERE m.group_id=%s ORDER BY v.name''', (gid,))
+    conn.close()
+    return jsonify(members)
 
 
 # ─────────────────────────────────────────────

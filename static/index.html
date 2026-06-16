@@ -596,6 +596,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="applications-list"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div></div>
  </div>
+ <!-- Volunteer Groups panel -->
+ <div id="vol-tab-groups" class="page-body" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+   <div>
+    <div style="font-size:15px;font-weight:700">Volunteer Groups</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Create groups to quickly target volunteers when sending event invites</div>
+   </div>
+   <button class="btn btn-primary btn-sm" onclick="openGroupEditModal(null)">+ New Group</button>
+  </div>
+  <div class="card" style="padding:16px 20px">
+   <div id="volunteer-groups-list"><div style="font-size:13px;color:var(--text-muted)">Loading...</div></div>
+  </div>
+ </div>
  </section>
 
  <!-- PROFILE -->
@@ -1268,21 +1281,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <div id="event-logs-list"></div>
  </div>
-  <!-- Volunteer Groups panel -->
-  <div id="vol-tab-groups" style="display:none;padding:20px 0">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div>
-        <div style="font-size:15px;font-weight:700">Volunteer Groups</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Create groups to quickly target volunteers when sending event invites</div>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="openGroupEditModal(null)">+ New Group</button>
-    </div>
-    <div class="card" style="padding:16px 20px">
-      <div id="volunteer-groups-list">
-        <div style="font-size:13px;color:var(--text-muted)">Loading...</div>
-      </div>
-    </div>
-  </div>
  </section>
 
  <!-- PENDING HOURS -->

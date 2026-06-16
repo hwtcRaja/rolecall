@@ -9011,38 +9011,45 @@ def get_program_enrolled(pid):
     if err: return err
     conn = get_db()
     try:
+        # Core query — only columns guaranteed to exist
         rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
             ype.enrolled_date, ype.notes, ype.created_at,
-            y.first_name, y.last_name, y.dob, y.shirt_size,
-            y.portal_last_login,
-            (SELECT f.passphrase FROM youth_family_links yfl
-             JOIN families f ON f.id=yfl.family_id
-             WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
-            (SELECT f.name FROM youth_family_links yfl
-             JOIN families f ON f.id=yfl.family_id
-             WHERE yfl.youth_id=y.id LIMIT 1) as family_name
+            y.first_name, y.last_name, y.dob
             FROM youth_program_enrollments ype
             JOIN youth_participants y ON ype.youth_id=y.id
             WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
-    except Exception as e:
-        app.logger.error(f'get_program_enrolled error: {e}')
-        # Fallback — plain query without new columns
+        # Try to add optional columns one at a time
+        for row in rows:
+            row.setdefault('shirt_size', '')
+            row.setdefault('portal_last_login', None)
+            row.setdefault('family_passphrase', None)
+            row.setdefault('family_name', None)
+            row.setdefault('youth_id', row.get('youth_id'))
+        # Attempt to enrich with shirt_size and portal_last_login
         try:
-            rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
-                ype.enrolled_date, ype.notes, ype.created_at,
-                y.first_name, y.last_name, y.dob
+            enriched = fetchall(conn, '''SELECT ype.id as enrollment_id,
+                y.shirt_size, y.portal_last_login,
+                (SELECT f.passphrase FROM youth_family_links yfl
+                 JOIN families f ON f.id=yfl.family_id
+                 WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
+                (SELECT f.name FROM youth_family_links yfl
+                 JOIN families f ON f.id=yfl.family_id
+                 WHERE yfl.youth_id=y.id LIMIT 1) as family_name
                 FROM youth_program_enrollments ype
                 JOIN youth_participants y ON ype.youth_id=y.id
-                WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
-            for r in rows:
-                r.setdefault('shirt_size', '')
-                r.setdefault('portal_last_login', None)
-                r.setdefault('family_passphrase', None)
-                r.setdefault('family_name', None)
-        except Exception as e2:
-            app.logger.error(f'get_program_enrolled fallback error: {e2}')
-            conn.close()
-            return jsonify([])
+                WHERE ype.program_id=%s''', (pid,))
+            enriched_map = {r['enrollment_id']: r for r in enriched}
+            for row in rows:
+                extra = enriched_map.get(row['enrollment_id'], {})
+                row['shirt_size'] = extra.get('shirt_size') or ''
+                row['portal_last_login'] = extra.get('portal_last_login')
+                row['family_passphrase'] = extra.get('family_passphrase')
+                row['family_name'] = extra.get('family_name')
+        except Exception as enrich_err:
+            app.logger.warning(f'get_program_enrolled enrich failed (non-fatal): {enrich_err}')
+    except Exception as e:
+        app.logger.error(f'get_program_enrolled error: {e}')
+        rows = []
     conn.close()
     return jsonify(rows)
 

@@ -555,6 +555,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0;padding:0 0 0 0">
  <button id="vol-tab-btn-list" onclick="switchVolTab('list')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid var(--teal-400);margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:700;color:var(--teal-dark);cursor:pointer">Volunteers</button>
  <button id="vol-tab-btn-applications" onclick="switchVolTab('applications')" style="padding:10px 20px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:14px;font-weight:600;color:var(--text-muted);cursor:pointer">New Interests <span id="app-pending-badge" style="display:none;background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">0</span></button>
+  <button id="vol-tab-btn-groups" onclick="switchVolTab('groups')" style="padding:10px 20px;background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted)">Groups</button>
  </div>
  <!-- Volunteers list tab -->
  <div id="vol-tab-list" class="page-body">
@@ -1267,6 +1268,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <div id="event-logs-list"></div>
  </div>
+  <!-- Volunteer Groups panel -->
+  <div id="vol-tab-groups" style="display:none;padding:20px 0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <div style="font-size:15px;font-weight:700">Volunteer Groups</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Create groups to quickly target volunteers when sending event invites</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openGroupEditModal(null)">+ New Group</button>
+    </div>
+    <div class="card" style="padding:16px 20px">
+      <div id="volunteer-groups-list">
+        <div style="font-size:13px;color:var(--text-muted)">Loading...</div>
+      </div>
+    </div>
+  </div>
  </section>
 
  <!-- PENDING HOURS -->
@@ -3258,7 +3274,8 @@ function populateInterestFilter(){
 }
 
 function switchVolTab(tab){
- ;['list','applications'].forEach(t=>{
+ if(tab==='groups') loadVolunteerGroups()
+ ;['list','applications','groups'].forEach(t=>{
  const panel = document.getElementById('vol-tab-'+t)
  const btn = document.getElementById('vol-tab-btn-'+t)
  if(panel) panel.style.display = t===tab ? '': 'none'
@@ -8297,6 +8314,145 @@ async function runDirectorImport(btn){
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  VOLUNTEER GROUPS
+// ═══════════════════════════════════════════════════════════════
+
+let _volunteerGroups = []
+window._volunteerGroups = []
+window._volunteerGroupMembers = {}
+
+async function loadVolunteerGroups(){
+  const rows = await api('/api/volunteer-groups')
+  _volunteerGroups = Array.isArray(rows) ? rows : []
+  window._volunteerGroups = _volunteerGroups
+  renderVolunteerGroups()
+}
+
+function renderVolunteerGroups(){
+  const el = document.getElementById('volunteer-groups-list')
+  if(!el) return
+  if(!_volunteerGroups.length){
+    el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:12px 0">No groups yet. Create one to quickly select volunteers when sending event invites.</div>'
+    return
+  }
+  el.innerHTML = _volunteerGroups.map(g=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700">${escHtml(g.name)}</div>
+        ${g.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(g.description)}</div>`:''}
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${g.member_count} member${g.member_count!==1?'s':''}</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="openGroupEditModal('${g.id}')">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteVolunteerGroup('${g.id}','${escHtml(g.name)}')">Delete</button>
+    </div>`).join('')
+}
+
+async function openGroupEditModal(gid){
+  const group = gid ? _volunteerGroups.find(g=>g.id===gid) : null
+  let members = []
+  if(gid){
+    const m = await api(`/api/volunteer-groups/${gid}/members`)
+    members = Array.isArray(m) ? m : []
+    window._volunteerGroupMembers[gid] = members.map(v=>v.id)
+  }
+  const memberSet = new Set(members.map(v=>v.id))
+  const overlay = document.createElement('div')
+  overlay.id = 'group-edit-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div style="font-size:15px;font-weight:700">${gid ? 'Edit Group' : 'New Group'}</div>
+      <button onclick="document.getElementById('group-edit-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
+    </div>
+    <div style="padding:16px 20px;flex:1;overflow-y:auto">
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Group Name *</label>
+        <input type="text" id="grp-name" value="${escHtml(group?.name||'')}" placeholder="e.g. Board Members, Stage Crew, Instructors"
+          style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Description (optional)</label>
+        <input type="text" id="grp-desc" value="${escHtml(group?.description||'')}" placeholder="Brief description of this group"
+          style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+      </div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Members</div>
+      <input type="text" placeholder="Search volunteers..." oninput="filterGroupMemberList(this.value)"
+        style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box;margin-bottom:8px"/>
+      <div id="grp-member-list" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:220px;overflow-y:auto">
+        ${[...volunteers].filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`
+          <label class="grp-vol-row" data-name="${escHtml(v.name.toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border)">
+            <input type="checkbox" class="grp-member-cb" value="${v.id}" ${memberSet.has(v.id)?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(v.name)}</div>
+              ${v.email?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}</div>`:''}
+            </div>
+          </label>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.grp-member-cb').forEach(c=>c.checked=true)">Select All</button>
+        <button class="btn btn-secondary btn-sm" onclick="document.querySelectorAll('.grp-member-cb').forEach(c=>c.checked=false)">Clear All</button>
+      </div>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+      <button class="btn btn-secondary" onclick="document.getElementById('group-edit-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveVolunteerGroup('${gid||''}')">Save Group</button>
+    </div>
+  </div>`
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+function filterGroupMemberList(q){
+  q = q.toLowerCase()
+  document.querySelectorAll('.grp-vol-row').forEach(row=>{
+    row.style.display = !q || row.dataset.name.includes(q) ? '' : 'none'
+  })
+}
+
+async function saveVolunteerGroup(gid){
+  const name = document.getElementById('grp-name')?.value.trim()
+  if(!name){ toast('Group name required','error'); return }
+  const memberIds = [...document.querySelectorAll('.grp-member-cb:checked')].map(c=>c.value)
+  const payload = {
+    name,
+    description: document.getElementById('grp-desc')?.value.trim() || '',
+    member_ids: memberIds
+  }
+  let res
+  if(gid){
+    res = await api(`/api/volunteer-groups/${gid}`, 'PUT', payload)
+  } else {
+    res = await api('/api/volunteer-groups', 'POST', payload)
+  }
+  if(res?.error){ toast(res.error,'error'); return }
+  document.getElementById('group-edit-overlay')?.remove()
+  toast(gid ? 'Group updated' : 'Group created', 'success')
+  // Update member cache
+  const actualGid = gid || res?.id
+  if(actualGid) window._volunteerGroupMembers[actualGid] = memberIds
+  await loadVolunteerGroups()
+}
+
+async function deleteVolunteerGroup(gid, name){
+  if(!confirm(`Delete group "${name}"? This cannot be undone.`)) return
+  await api(`/api/volunteer-groups/${gid}`, 'DELETE')
+  delete window._volunteerGroupMembers[gid]
+  toast('Group deleted')
+  await loadVolunteerGroups()
+}
+
+// Load group members when selected in RSVP modal
+async function onRsvpGroupSelect(eid, gid){
+  if(!gid) return
+  if(!window._volunteerGroupMembers[gid]){
+    const members = await api(`/api/volunteer-groups/${gid}/members`)
+    window._volunteerGroupMembers[gid] = Array.isArray(members) ? members.map(v=>v.id) : []
+  }
+  updateRsvpPreview(eid)
+}
+
+
 // Youth Programs
 function populateProgramsDropdown(){
  const sel=document.getElementById('youth-program')
@@ -13070,7 +13226,8 @@ function renderEventDetailPage(eid){
  ['all', ' All active volunteers'],
  ['interest', ' Filter by interest'],
  ['event', ' Volunteered at past event'],
- ['manual', ' Choose manually'],
+ ['group', ' Volunteer group'],
+  ['manual', ' Choose manually'],
  ].map(([val,label])=>`
  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
@@ -13106,6 +13263,12 @@ function renderEventDetailPage(eid){
  </div>
  </div>
 
+  <div id="rsvp-sub-group" style="display:none;margin-bottom:12px">
+  <select id="rsvp-group-val" onchange="onRsvpGroupSelect('${e.id}',this.value)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+  <option value="">— Select a group —</option>
+  ${(window._volunteerGroups||[]).map(g=>`<option value="${escHtml(g.id)}">${escHtml(g.name)} (${g.member_count} members)</option>`).join('')}
+  </select>
+  </div>
  <!-- Recipient preview -->
  <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:6px;text-align:center">
  Calculating…
@@ -13870,6 +14033,7 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-sub-interest').style.display = type==='interest' ? '': 'none'
  document.getElementById('rsvp-sub-event').style.display = type==='event' ? '': 'none'
  document.getElementById('rsvp-sub-manual').style.display = type==='manual' ? '': 'none'
+ document.getElementById('rsvp-sub-group')?.style && (document.getElementById('rsvp-sub-group').style.display = type==='group' ? '': 'none')
  updateRsvpPreview(eid)
 }
 
@@ -13887,6 +14051,14 @@ function getRsvpTargetVolunteers(){
  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
  const active = volunteers.filter(v=>v.status==='active' && v.email)
  if(type==='all') return active
+ if(type==='group'){
+   const gid = document.getElementById('rsvp-group-val')?.value
+   if(!gid) return active
+   const group = window._volunteerGroups?.find(g=>g.id===gid)
+   if(!group) return active
+   const memberIds = new Set(window._volunteerGroupMembers?.[gid] || [])
+   return active.filter(v=>memberIds.has(v.id))
+ }
  if(type==='interest'){
  const val = document.getElementById('rsvp-interest-val')?.value
  if(!val) return active

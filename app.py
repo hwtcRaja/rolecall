@@ -5980,6 +5980,22 @@ def portal_contact_production():
             f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
     return jsonify({'ok': True})
 
+
+@app.route('/api/portal/program/<pid>/instructor', methods=['GET'])
+def portal_program_instructor(pid):
+    """Return instructor bio/photo for a program - called by portal when viewing a program."""
+    conn = get_db()
+    row = fetchone(conn, '''SELECT v.name as instructor_name, v.bio as instructor_bio,
+        v.photo_url as instructor_photo
+        FROM youth_programs yp
+        LEFT JOIN volunteers v ON v.id=yp.instructor_id
+        WHERE yp.id=%s''', (pid,))
+    conn.close()
+    if not row:
+        return jsonify({})
+    return jsonify(row)
+
+
 @app.route('/api/portal/participant/<yid>')
 def portal_get_participant(yid):
     conn = get_db()

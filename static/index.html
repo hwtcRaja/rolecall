@@ -7028,7 +7028,7 @@ function emailTemplateCard(t){
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
  <button class="btn btn-secondary btn-sm" onclick="openEmailTemplateEditor('${t.id}')">Edit</button>
- ${isSystem?`<button onclick="resetSystemTemplate('${t.template_key}')" class="btn btn-secondary btn-sm" title="Reset to default content">Reset</button>`:''}
+ ${isSystem?`<button onclick="resetSystemTemplate('${t.template_key||''}','${t.id}')" class="btn btn-secondary btn-sm" title="Reset to default content">Reset</button>`:''}
  ${!isSystem?`<button onclick="deleteEmailTemplateById('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text-muted);padding:2px 4px" title="Delete">×</button>`:''}
  </div>
  </div>
@@ -7063,6 +7063,14 @@ async function saveEmailTemplate(){
 }
 
 // Override deleteEmailTemplateById to refresh full page too
+async function resetSystemTemplate(key, id){
+  if(!confirm('Reset this template to its default content? Any customizations will be overwritten.')) return
+  const useKey = key && key !== 'null' && key !== 'undefined' ? key : id
+  const res = await api('/api/email-templates/reset/'+useKey, 'POST')
+  if(res?.ok){ toast('Template reset to default', 'success'); loadEmailTemplatesPage() }
+  else toast(res?.error||'Reset failed', 'error')
+}
+
 async function deleteEmailTemplateById(tid){
  if(!confirm('Delete this template?')) return
  await api(`/api/email-templates/${tid}`,'DELETE')

@@ -132,25 +132,105 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
 
-        ('universal_reminder', '🎬 Reminder: Submit Your Volunteer Hours  -  Universal Giving', 'universal_reminder',
+        ('universal_reminder', 'Reminder: Submit Your Volunteer Hours - Universal Giving', 'universal_reminder',
          'Sent to Universal Team Members who have logged hours, reminding them to submit to Universal Giving.',
-         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+         '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
-    <div style="font-size:48px;margin-bottom:8px">🎬</div>
     <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
+    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
-    <p>As a <strong>Universal Team Member</strong>, you may be eligible to submit your volunteer hours through <strong>Universal Giving</strong>, which can result in a donation to our organization at no cost to you!</p>
-    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
-      <strong>To submit your hours:</strong><br/>
-      Visit <a href="https://universalgiving.org" style="color:#145466;font-weight:600">Universal Giving</a> and log your hours for Horizon West Theatre Company.
+    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
+    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>
+
+    <div style="margin:20px 0">
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">1</div>
+          <strong>Go to the Team Universal site</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">2</div>
+          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">3</div>
+          <strong>Select the company you work for &amp; log in with your SSO</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">4</div>
+          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">5</div>
+          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">6</div>
+          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>
+        </div>
+        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">7</div>
+          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">8</div>
+          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">9</div>
+          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>
+        </div>
+        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      </div>
+
     </div>
-    <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
-    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+
+    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
+      <strong style="color:#145466">Did you know?</strong>
+      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>
+    </div>
+
+    {{hours_section}}
+
+    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
+    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>
   </div>
-</div>'''),
+</div>''')
 
         ('temp_password', 'Your RoleCall Temporary Password', 'temp_password',
          'Sent to users when an admin generates a temporary password for them.',
@@ -187,6 +267,12 @@ def seed_system_email_templates(conn):
 
     for key, subject, _, description, body in templates:
         existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
+        if existing:
+            # Update system templates so content changes deploy automatically
+            try:
+                execute(conn, 'UPDATE email_templates SET subject=%s, body=%s, description=%s WHERE template_key=%s AND is_system=TRUE',
+                    (subject, body, description, key))
+            except Exception: pass
         if not existing:
             try:
                 execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)

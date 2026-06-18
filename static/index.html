@@ -15796,7 +15796,6 @@ async function openProgramDetail(programId){
  <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">Messages</button>
  <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')">Auditions</button>
  ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">Portal Content</button>`:''}
-${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('registrations','${p.id}')">Registrations</button>`:''}
  </div>
 
  <!-- Events tab -->
@@ -15913,12 +15912,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  </div>
  </div>
 
- <!-- Registrations tab -->
- <div id="pdtab-registrations" style="display:none">
-  <div id="prog-registrations-content">
-   <div style="text-align:center;padding:30px;color:var(--text-muted)">Loading registrations...</div>
-  </div>
- </div>
+
  </div>`
 
  window._currentProgramDetailId = programId
@@ -16850,8 +16844,7 @@ async function submitAddConflict(pid){
 // ── Enhanced program portal tab: add folder support ──
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
-function switchProgramDetailTab(tab){
- ['events','messages','portal','auditions','registrations'].forEach(t=>{
+ ['events','messages','portal','auditions'].forEach(t=>{
  const btn = document.getElementById('pdtab-btn-'+t)
  if(el) el.style.display = tab===t ? '': 'none'
  if(btn){ btn.style.borderBottomColor = tab===t ? 'var(--teal-mid)': 'transparent'; btn.style.color = tab===t ? 'var(--teal-dark)': 'var(--text-muted)' }
@@ -16863,217 +16856,6 @@ function switchProgramDetailTab(tab){
  const el = document.getElementById('prog-auditions-content')
  if(el) loadAuditionsTab('program', pid, 'prog-auditions-content')
  }
- if(tab==='registrations' && pid) loadProgramRegistrations(pid)
-}
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  REGISTRATION MANAGEMENT
-// ═══════════════════════════════════════════════════════════════════
-
-async function loadProgramRegistrations(pid){
-  const el = document.getElementById('prog-registrations-content')
-  if(!el) return
-  el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div>'
-  const prog = allPrograms.find(p=>p.id===pid) || {}
-  const data = await api(`/api/programs/${pid}/registrations`)
-  const regs = data?.registrations || []
-  const interest = data?.interest_list || []
-  const counts = data?.counts || {}
-  const regStatus = prog.registration_status || 'draft'
-  const price = prog.price || 0
-  const slug = prog.slug || pid
-
-  const statusColors = {
-    confirmed:'background:#dcfce7;color:#166534',
-    pending_payment:'background:#fef3c7;color:#92400e',
-    waitlisted:'background:#ede9fe;color:#6d28d9',
-    cancelled:'background:#fee2e2;color:#991b1b',
-  }
-  const regStatusLabels = {draft:'Draft',interest_list:'Interest List',open:'Open',closed:'Closed',cancelled:'Cancelled'}
-  const regStatusColors = {draft:'#6b7280',interest_list:'#92400e',open:'#166534',closed:'#991b1b',cancelled:'#991b1b'}
-
-  el.innerHTML = `
-    <div class="card" style="padding:16px 20px;margin-bottom:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-        <div>
-          <div style="font-size:15px;font-weight:700">Registration Settings</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-            Status: <strong style="color:${regStatusColors[regStatus]||'#6b7280'}">${regStatusLabels[regStatus]||regStatus}</strong>
-            ${prog.capacity ? ` &nbsp;·&nbsp; Capacity: ${counts.confirmed||0} / ${prog.capacity}` : ''}
-            ${prog.price ? ` &nbsp;·&nbsp; Price: $${(prog.price/100).toFixed(2)}` : ' &nbsp;·&nbsp; Free'}
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-secondary btn-sm" onclick="openRegistrationSettingsModal('${pid}')">Settings</button>
-          ${slug ? `<a href="/register/${slug}" target="_blank" class="btn btn-secondary btn-sm">View Public Page</a>` : ''}
-          ${regStatus==='open' && interest.length ? `<button class="btn btn-primary btn-sm" onclick="notifyInterestList('${pid}')">Notify Interest List (${interest.length})</button>` : ''}
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-        ${[['Confirmed',counts.confirmed||0,'#dcfce7','#166534'],['Pending Payment',counts.pending_payment||0,'#fef3c7','#92400e'],['Waitlisted',counts.waitlisted||0,'#ede9fe','#6d28d9'],['Interest List',counts.interest||0,'#f0f8fa','#145466']]
-          .map(([lbl,n,bg,col])=>`<div style="background:${bg};border-radius:10px;padding:12px;text-align:center">
-            <div style="font-size:22px;font-weight:800;color:${col}">${n}</div>
-            <div style="font-size:11px;font-weight:600;color:${col}">${lbl}</div>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    ${regs.length ? `
-    <div class="card" style="padding:16px 20px;margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:12px">Registrations</div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead>
-            <tr style="border-bottom:2px solid var(--border)">
-              <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:700">Child</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:700">Guardian</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:700">Email</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:700">Status</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:700">Date</th>
-              <th style="padding:6px 8px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${regs.map(r=>`<tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:8px">${r.child_first_name||''} ${r.child_last_name||''}</td>
-              <td style="padding:8px">${r.guardian_name||''}</td>
-              <td style="padding:8px"><a href="mailto:${r.guardian_email}" style="color:var(--teal)">${r.guardian_email}</a></td>
-              <td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;${statusColors[r.status]||''}">${r.status}</span>
-                ${r.status==='waitlisted'?`<div style="font-size:10px;color:var(--text-muted)">#${r.waitlist_position}</div>`:''}
-              </td>
-              <td style="padding:8px;color:var(--text-muted)">${r.created_at?r.created_at.slice(0,10):''}</td>
-              <td style="padding:8px;white-space:nowrap">
-                ${r.status==='waitlisted'?`<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:11px" onclick="promoteWaitlist('${pid}','${r.id}')">Promote</button>`:''}
-              </td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>` : ''}
-
-    ${interest.length ? `
-    <div class="card" style="padding:16px 20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:14px;font-weight:700">Interest List</div>
-        ${regStatus==='open' ? `<button class="btn btn-primary btn-sm" onclick="notifyInterestList('${pid}')">Email All — Registrations Open</button>` : ''}
-      </div>
-      ${interest.map(e=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div>
-          <div style="font-size:13px;font-weight:600">${e.name}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${e.email}${e.child_name?' · '+e.child_name+' (age '+e.child_age+')':''}</div>
-        </div>
-        ${e.notified_at ? '<span style="font-size:11px;color:var(--green-600);font-weight:600">Notified</span>' : '<span style="font-size:11px;color:var(--text-muted)">Not notified</span>'}
-      </div>`).join('')}
-    </div>` : ''}
-
-    ${!regs.length && !interest.length ? `<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No registrations yet. ${regStatus==='draft'?'Set the registration status to Open or Interest List to start accepting signups.':''}</div>` : ''}
-  `
-}
-
-async function promoteWaitlist(pid, rid){
-  if(!confirm('Promote this person from the waitlist? They will receive an email with a payment link (if applicable).')) return
-  const res = await api(`/api/programs/${pid}/registrations/${rid}/promote-waitlist`, 'POST')
-  if(res?.ok){
-    toast(res.type==='confirmed_free' ? 'Promoted and confirmed!' : 'Payment link sent!', 'success')
-    loadProgramRegistrations(pid)
-  } else toast(res?.error||'Error', 'error')
-}
-
-async function notifyInterestList(pid){
-  if(!confirm('Email everyone on the interest list that registrations are now open?')) return
-  const res = await api(`/api/programs/${pid}/notify-interest-list`, 'POST')
-  if(res?.ok) toast(`Sent to ${res.sent} people`, 'success')
-  else toast(res?.error||'Error', 'error')
-}
-
-function openRegistrationSettingsModal(pid){
-  const prog = allPrograms.find(p=>p.id===pid) || {}
-  const existing = document.getElementById('reg-settings-overlay')
-  if(existing) existing.remove()
-  const overlay = document.createElement('div')
-  overlay.id = 'reg-settings-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
-  overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
-      <div style="font-size:15px;font-weight:700">Registration Settings</div>
-      <button onclick="document.getElementById('reg-settings-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
-    </div>
-    <div style="padding:20px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px">
-      <div class="form-group">
-        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Status</label>
-        <select id="rs-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
-          <option value="draft" ${(prog.registration_status||'draft')==='draft'?'selected':''}>Draft (not visible)</option>
-          <option value="interest_list" ${prog.registration_status==='interest_list'?'selected':''}>Interest List (collect emails)</option>
-          <option value="open" ${prog.registration_status==='open'?'selected':''}>Open (accepting registrations)</option>
-          <option value="closed" ${prog.registration_status==='closed'?'selected':''}>Closed</option>
-          <option value="cancelled" ${prog.registration_status==='cancelled'?'selected':''}>Cancelled</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Public URL Slug</label>
-        <input type="text" id="rs-slug" value="${prog.slug||''}" placeholder="e.g. summer-camp-2026"
-          style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Public URL: rolecall.hwtco.org/register/<strong id="slug-preview">${prog.slug||'...'}</strong></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Capacity</label>
-          <input type="number" id="rs-capacity" value="${prog.capacity||''}" placeholder="Unlimited" min="1"
-            style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-        </div>
-        <div class="form-group">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (USD)</label>
-          <input type="number" id="rs-price" value="${prog.price ? (prog.price/100).toFixed(2) : ''}" placeholder="0.00" min="0" step="0.01"
-            style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Opens</label>
-          <input type="date" id="rs-open-date" value="${prog.registration_open_date||''}"
-            style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-        </div>
-        <div class="form-group">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Closes</label>
-          <input type="date" id="rs-close-date" value="${prog.registration_close_date||''}"
-            style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-        </div>
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-        <input type="checkbox" id="rs-auto-charge" ${prog.waitlist_auto_charge!==false?'checked':''} style="accent-color:var(--teal)"/>
-        Automatically send payment link when promoting from waitlist
-      </label>
-    </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
-      <button class="btn btn-secondary" onclick="document.getElementById('reg-settings-overlay').remove()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveRegistrationSettings('${pid}')">Save Settings</button>
-    </div>
-  </div>`
-  document.getElementById('rs-slug')?.addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
-  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
-  document.body.appendChild(overlay)
-}
-
-async function saveRegistrationSettings(pid){
-  const payload = {
-    registration_status: document.getElementById('rs-status')?.value || 'draft',
-    slug: document.getElementById('rs-slug')?.value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'-') || null,
-    capacity: parseInt(document.getElementById('rs-capacity')?.value) || null,
-    price_cents: Math.round((parseFloat(document.getElementById('rs-price')?.value)||0)*100),
-    registration_open_date: document.getElementById('rs-open-date')?.value || null,
-    registration_close_date: document.getElementById('rs-close-date')?.value || null,
-    waitlist_auto_charge: document.getElementById('rs-auto-charge')?.checked !== false,
-  }
-  const res = await api(`/api/programs/${pid}/registration-settings`, 'PUT', payload)
-  if(res?.ok){
-    toast('Registration settings saved', 'success')
-    document.getElementById('reg-settings-overlay')?.remove()
-    // Refresh programs list
-    const progs = await api('/api/youth-programs')
-    if(Array.isArray(progs)){ allPrograms = progs }
-    loadProgramRegistrations(pid)
-  } else toast(res?.error||'Error saving', 'error')
 }
 
 

@@ -2162,6 +2162,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
  <div id="vol-sub-selections-wrap" style="display:none">
  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;margin-top:4px">Sub-selections</div>
+ <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin:14px 0 10px;padding-top:14px;border-top:1px solid var(--border)">Portal / Instructor Profile</div>
+ <div class="form-group"><label>Photo URL <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><input type="text" id="vol-photo-url" placeholder="https://..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+ <div class="form-group"><label>Bio <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><textarea id="vol-bio" rows="3" placeholder="A short bio shown to enrolled families..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
  <div id="vol-sub-selections-panels"></div>
  </div>
  </div>
@@ -6174,6 +6177,8 @@ function openEditVolModal(volId){
  if(bgdEl) bgdEl.value=v.background_check_date||''
  var epEl=document.getElementById('vol-employer-program')
  if(epEl) epEl.value=v.employer_program||''
+ const bioEl=document.getElementById('vol-bio'); if(bioEl) bioEl.value=v.bio||''
+ const photoEl=document.getElementById('vol-photo-url'); if(photoEl) photoEl.value=v.photo_url||''
 
  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
  try{
@@ -6197,7 +6202,9 @@ async function saveVolunteer(){
  sub_selections:getVolSubSelections(),
  background_check_status:document.getElementById('vol-bgcheck').value,
  background_check_date:document.getElementById('vol-bgcheck-date').value||null,
- employer_program:document.getElementById('vol-employer-program')?.value||''
+ employer_program:document.getElementById('vol-employer-program')?.value||'',
+ bio:document.getElementById('vol-bio')?.value.trim()||'',
+ photo_url:document.getElementById('vol-photo-url')?.value.trim()||''
  }
  const res = editId
  ? await api(`/api/volunteers/${editId}`,'PUT',data)

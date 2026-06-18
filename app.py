@@ -944,6 +944,51 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        # Registration system
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'draft'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS capacity INTEGER",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS interest_list_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
+        """CREATE TABLE IF NOT EXISTS program_registrations (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            registration_type TEXT NOT NULL DEFAULT 'registration',
+            status TEXT NOT NULL DEFAULT 'pending',
+            child_first_name TEXT, child_last_name TEXT, child_dob TEXT,
+            guardian_name TEXT, guardian_email TEXT NOT NULL, guardian_phone TEXT,
+            emergency_contact_name TEXT, emergency_contact_phone TEXT,
+            shirt_size TEXT,
+            notes TEXT,
+            square_payment_id TEXT,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            amount_paid INTEGER DEFAULT 0,
+            youth_id TEXT REFERENCES youth_participants(id) ON DELETE SET NULL,
+            family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+            waitlist_position INTEGER,
+            waitlist_notified_at TIMESTAMP,
+            waitlist_payment_link TEXT,
+            waitlist_payment_expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS interest_list_entries (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            child_name TEXT,
+            child_age TEXT,
+            notes TEXT,
+            notified_at TIMESTAMP,
+            converted_to_registration_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(program_id, email))""",
         # missing columns found in audit
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS general_content TEXT DEFAULT ''",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
@@ -10616,3 +10661,533 @@ if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  SQUARE INTEGRATION & REGISTRATION SYSTEM
+# ═══════════════════════════════════════════════════════════════════════
+
+import hashlib, hmac
+
+SQUARE_ACCESS_TOKEN = os.environ.get('SQUARE_ACCESS_TOKEN', '')
+SQUARE_LOCATION_ID  = os.environ.get('SQUARE_LOCATION_ID', '')
+SQUARE_WEBHOOK_SIG  = os.environ.get('SQUARE_WEBHOOK_SIGNATURE_KEY', '')
+SQUARE_ENV          = os.environ.get('SQUARE_ENV', 'sandbox')  # 'sandbox' or 'production'
+SQUARE_API_BASE     = 'https://connect.squareup.com' if SQUARE_ENV == 'production' else 'https://connect.squareupsandbox.com'
+APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org')
+
+def square_headers():
+    return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note=''):
+    """Create a Square hosted checkout link for a registration."""
+    import uuid as _uuid
+    payload = {
+        'idempotency_key': str(_uuid.uuid4()),
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': [{
+                'name': program['name'],
+                'quantity': '1',
+                'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
+                'note': note or f'Registration ID: {registration_id}'
+            }],
+            'metadata': {'registration_id': registration_id, 'program_id': program['id']}
+        },
+        'checkout_options': {
+            'redirect_url': f"{APP_BASE_URL}/register/{program.get('slug', program['id'])}/confirmation?reg={registration_id}",
+            'ask_for_shipping_address': False,
+        },
+        'pre_populated_data': {
+            'buyer_email': guardian_email,
+        }
+    }
+    r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links', json=payload, headers=square_headers())
+    data = r.json()
+    if r.status_code == 200 and data.get('payment_link'):
+        lnk = data['payment_link']
+        return lnk.get('url'), lnk.get('id'), lnk.get('order_id')
+    app.logger.error(f'Square payment link error: {data}')
+    return None, None, None
+
+
+def get_program_by_slug(slug):
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    conn.close()
+    return p
+
+
+def get_registration_count(conn, program_id):
+    r = fetchone(conn, "SELECT COUNT(*) as c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (program_id,))
+    return r['c'] if r else 0
+
+
+def get_waitlist_count(conn, program_id):
+    r = fetchone(conn, "SELECT COUNT(*) as c FROM program_registrations WHERE program_id=%s AND status='waitlisted'", (program_id,))
+    return r['c'] if r else 0
+
+
+def next_waitlist_position(conn, program_id):
+    r = fetchone(conn, 'SELECT MAX(waitlist_position) as m FROM program_registrations WHERE program_id=%s AND status=%s', (program_id,'waitlisted'))
+    return (r['m'] or 0) + 1 if r else 1
+
+
+def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
+    """Mark registration confirmed and create participant/family records."""
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
+    if not reg: return
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],))
+
+    # Update registration
+    execute(conn, '''UPDATE program_registrations SET status='confirmed',
+        square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
+        (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
+
+    # Find or create youth participant
+    youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+        JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+        JOIN families f ON f.id=yfl.family_id
+        WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+        (reg['guardian_email'], reg['child_first_name'] or '', reg['child_last_name'] or ''))
+
+    if not youth and reg.get('child_first_name'):
+        import uuid as _uuid2
+        yid = str(_uuid2.uuid4())
+        execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+            VALUES (%s,%s,%s,%s,%s)''',
+            (yid, reg['child_first_name'], reg['child_last_name'] or '',
+             reg.get('child_dob') or None, reg.get('shirt_size') or ''))
+        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+
+    if youth:
+        # Find or create family
+        family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
+        if not family:
+            import uuid as _uuid3
+            import random, string
+            passphrase = '-'.join([''.join(random.choices(string.ascii_lowercase, k=4)) for _ in range(3)])
+            fid = str(_uuid3.uuid4())
+            execute(conn, '''INSERT INTO families (id, name, email, passphrase)
+                VALUES (%s,%s,%s,%s)''',
+                (fid, reg.get('guardian_name') or reg['guardian_email'], reg['guardian_email'], passphrase))
+            family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
+
+        # Link youth to family
+        try:
+            execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+                (youth['id'], family['id']))
+        except Exception: pass
+
+        # Add guardian if not exists
+        existing_g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s', (youth['id'],))
+        if not existing_g and reg.get('guardian_name'):
+            import uuid as _uuid4
+            execute(conn, '''INSERT INTO youth_guardians (id, youth_id, first_name, last_name, email, phone, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,TRUE)''',
+                (str(_uuid4.uuid4()), youth['id'],
+                 reg['guardian_name'].split()[0] if reg.get('guardian_name') else '',
+                 ' '.join(reg['guardian_name'].split()[1:]) if reg.get('guardian_name') and len(reg['guardian_name'].split()) > 1 else '',
+                 reg['guardian_email'], reg.get('guardian_phone') or ''))
+
+        # Enroll in program
+        if prog:
+            try:
+                import uuid as _uuid5
+                execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                    (str(_uuid5.uuid4()), youth['id'], prog['id'], f'Online registration #{reg_id[:8]}'))
+            except Exception as e:
+                app.logger.warning(f'Enrollment insert: {e}')
+
+        # Update registration with youth/family IDs
+        execute(conn, 'UPDATE program_registrations SET youth_id=%s, family_id=%s WHERE id=%s',
+            (youth['id'], family['id'], reg_id))
+
+    conn.commit()
+
+
+# ── Public registration page ──────────────────────────────────────────────────
+
+@app.route('/register/<slug>')
+def public_register_page(slug):
+    """Public-facing registration / interest list page."""
+    return send_from_directory('static', 'register.html')
+
+
+@app.route('/register/<slug>/confirmation')
+def public_register_confirmation(slug):
+    return send_from_directory('static', 'register.html')
+
+
+@app.route('/api/public/program/<slug>')
+def public_program_info(slug):
+    """Public program info — no auth needed."""
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not p:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    # Attach counts
+    p['registration_count'] = get_registration_count(conn, p['id'])
+    p['waitlist_count'] = get_waitlist_count(conn, p['id'])
+    p['spots_remaining'] = max(0, (p.get('capacity') or 999) - p['registration_count']) if p.get('capacity') else None
+    # Attach instructor name
+    if p.get('instructor_id'):
+        v = fetchone(conn, 'SELECT name, bio, photo_url FROM volunteers WHERE id=%s', (p['instructor_id'],))
+        if v:
+            p['instructor_name'] = v['name']
+            p['instructor_bio'] = v.get('bio') or ''
+            p['instructor_photo'] = v.get('photo_url') or ''
+    conn.close()
+    # Remove internal fields
+    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
+        p.pop(k, None)
+    return jsonify(p)
+
+
+@app.route('/api/public/program/<slug>/register', methods=['POST'])
+def public_submit_registration(slug):
+    """Submit a registration or interest list entry."""
+    d = request.json or {}
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not p:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    reg_type = d.get('type', 'registration')  # 'registration' or 'interest'
+    email = (d.get('guardian_email') or d.get('email') or '').strip().lower()
+    if not email:
+        conn.close()
+        return jsonify({'error': 'Email is required'}), 400
+
+    # ── Interest list ──────────────────────────────────────────────────
+    if reg_type == 'interest' or p.get('registration_status') == 'interest_list':
+        try:
+            import uuid as _u
+            execute(conn, '''INSERT INTO interest_list_entries
+                (id, program_id, name, email, phone, child_name, child_age, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (program_id, email) DO UPDATE SET
+                    name=EXCLUDED.name, phone=EXCLUDED.phone,
+                    child_name=EXCLUDED.child_name, child_age=EXCLUDED.child_age,
+                    notes=EXCLUDED.notes''',
+                (_u.uuid4().hex, p['id'], d.get('name','').strip(), email,
+                 d.get('phone','').strip() or None,
+                 d.get('child_name','').strip() or None,
+                 d.get('child_age','').strip() or None,
+                 d.get('notes','').strip() or None))
+            conn.commit()
+            # Notify admin
+            try:
+                s = get_email_settings(conn)
+                recipients = list(get_recipient_emails(s))
+                if recipients:
+                    send_email(recipients, f'Interest List: {p["name"]} — {d.get("name","")}',
+                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>')
+            except Exception: pass
+            conn.close()
+            return jsonify({'ok': True, 'type': 'interest'})
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 500
+
+    # ── Registration ───────────────────────────────────────────────────
+    if p.get('registration_status') not in ('open',):
+        conn.close()
+        return jsonify({'error': 'Registrations are not currently open for this program'}), 400
+
+    # Check capacity
+    reg_count = get_registration_count(conn, p['id'])
+    cap = p.get('capacity')
+    is_full = cap and reg_count >= cap
+
+    import uuid as _u2
+    rid = _u2.uuid4().hex
+
+    if is_full:
+        # Waitlist
+        wpos = next_waitlist_position(conn, p['id'])
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status, waitlist_position,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone,
+             emergency_contact_name, emergency_contact_phone, notes)
+            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, p['id'], wpos,
+             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
+             d.get('child_dob') or None, d.get('shirt_size') or None,
+             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+             d.get('emergency_contact_name','').strip() or None,
+             d.get('emergency_contact_phone','').strip() or None,
+             d.get('notes','').strip() or None))
+        conn.commit()
+        # Email confirmation
+        try:
+            send_email([email], f'You\'re on the waitlist — {p["name"]}',
+                f'<p>Hi {d.get("guardian_name","")},</p>'
+                f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
+                f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
+                f'<p>Horizon West Theatre Company</p>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
+
+    # Available spot — free program
+    price = p.get('price') or 0
+    if price == 0:
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone,
+             emergency_contact_name, emergency_contact_phone, notes)
+            VALUES (%s,%s,'registration','confirmed',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, p['id'],
+             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
+             d.get('child_dob') or None, d.get('shirt_size') or None,
+             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+             d.get('emergency_contact_name','').strip() or None,
+             d.get('emergency_contact_phone','').strip() or None,
+             d.get('notes','').strip() or None))
+        finalize_registration(conn, rid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': rid})
+
+    # Paid program — create Square payment link
+    execute(conn, '''INSERT INTO program_registrations
+        (id, program_id, registration_type, status,
+         child_first_name, child_last_name, child_dob, shirt_size,
+         guardian_name, guardian_email, guardian_phone,
+         emergency_contact_name, emergency_contact_phone, notes)
+        VALUES (%s,%s,'registration','pending_payment',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, p['id'],
+         d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
+         d.get('child_dob') or None, d.get('shirt_size') or None,
+         d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+         d.get('emergency_contact_name','').strip() or None,
+         d.get('emergency_contact_phone','').strip() or None,
+         d.get('notes','').strip() or None))
+    conn.commit()
+
+    pay_url, link_id, order_id = square_create_payment_link(
+        p, rid, email, d.get('guardian_name',''), price,
+        note=f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}')
+
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+
+    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+        (link_id, order_id, rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': pay_url, 'registration_id': rid})
+
+
+@app.route('/api/square/webhook', methods=['POST'])
+def square_webhook():
+    """Handle Square payment webhooks."""
+    # Verify signature
+    sig = request.headers.get('X-Square-Hmacsha256-Signature', '')
+    body = request.get_data(as_text=True)
+    if SQUARE_WEBHOOK_SIG:
+        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode(), (SQUARE_API_BASE + '/api/square/webhook' + body).encode(), hashlib.sha256).digest()
+        import base64 as _b64
+        expected_b64 = _b64.b64encode(expected).decode()
+        if not hmac.compare_digest(sig, expected_b64):
+            return jsonify({'error': 'Invalid signature'}), 401
+
+    event = request.json or {}
+    event_type = event.get('type', '')
+    app.logger.info(f'Square webhook: {event_type}')
+
+    if event_type in ('payment.completed', 'payment.updated'):
+        obj = event.get('data', {}).get('object', {}).get('payment', {})
+        payment_id = obj.get('id')
+        order_id = obj.get('order_id')
+        status = obj.get('status')
+        if status == 'COMPLETED' and order_id:
+            conn = get_db()
+            reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                (order_id, order_id))
+            if reg and reg['status'] == 'pending_payment':
+                finalize_registration(conn, reg['id'], payment_id, order_id)
+            elif reg and reg['status'] == 'waitlisted':
+                # Waitlist payment completed — promote to confirmed
+                execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                    (payment_id, reg['id']))
+                finalize_registration(conn, reg['id'], payment_id, order_id)
+                conn.commit()
+            conn.close()
+
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/program/<slug>/registration/<rid>', methods=['GET'])
+def get_registration_status(slug, rid):
+    """Check registration status — called from confirmation page."""
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT status, waitlist_position, child_first_name, child_last_name, guardian_email FROM program_registrations WHERE id=%s', (rid,))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(reg)
+
+
+# ── Admin registration management ────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/registrations', methods=['GET'])
+def get_program_registrations(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT * FROM program_registrations
+        WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
+    interest = fetchall(conn, '''SELECT * FROM interest_list_entries
+        WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
+    counts = {
+        'confirmed': sum(1 for r in regs if r['status'] == 'confirmed'),
+        'pending_payment': sum(1 for r in regs if r['status'] == 'pending_payment'),
+        'waitlisted': sum(1 for r in regs if r['status'] == 'waitlisted'),
+        'interest': len(interest),
+    }
+    conn.close()
+    return jsonify({'registrations': regs, 'interest_list': interest, 'counts': counts})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>', methods=['PUT'])
+def update_registration(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE program_registrations SET status=%s, notes=%s, updated_at=NOW() WHERE id=%s AND program_id=%s',
+        (d.get('status'), d.get('notes'), rid, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>/promote-waitlist', methods=['POST'])
+def promote_waitlist(pid, rid):
+    """Promote a waitlisted registration — send payment link if paid program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not reg or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    price = prog.get('price') or 0
+    if price == 0:
+        # Free — just confirm
+        execute(conn, "UPDATE program_registrations SET status='confirmed', updated_at=NOW() WHERE id=%s", (rid,))
+        finalize_registration(conn, rid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free'})
+
+    # Paid — create a payment link that expires in 48 hours
+    pay_url, link_id, order_id = square_create_payment_link(
+        prog, rid, reg['guardian_email'], reg.get('guardian_name',''), price,
+        note=f'Waitlist promotion — {reg.get("child_first_name","")} {reg.get("child_last_name","")}')
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+
+    from datetime import timedelta
+    expires = (datetime.now() + timedelta(hours=48)).isoformat()
+    execute(conn, '''UPDATE program_registrations SET
+        waitlist_payment_link=%s, waitlist_payment_expires_at=%s,
+        square_checkout_id=%s, square_order_id=%s,
+        waitlist_notified_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        (pay_url, expires, link_id, order_id, rid))
+    conn.commit()
+
+    # Email the family
+    try:
+        send_email([reg['guardian_email']], f'A spot opened up — {prog["name"]}!',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Great news — a spot is available!</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>A spot has opened up in <strong>{prog["name"]}</strong> and you\'re next on the waitlist!</p>'
+            f'<p>Please complete your payment within <strong>48 hours</strong> to secure your spot. '
+            f'After that, the spot will be offered to the next person on the waitlist.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Complete Payment &amp; Secure Your Spot</a></p>'
+            f'<p style="color:#6b7280;font-size:13px">Questions? Contact us at info@hwtco.org</p>'
+            f'<p>Horizon West Theatre Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Waitlist promotion email failed: {e}')
+
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_link_sent', 'payment_url': pay_url})
+
+
+@app.route('/api/programs/<pid>/registration-settings', methods=['PUT'])
+def update_registration_settings(pid):
+    """Update program registration settings."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE youth_programs SET
+        registration_status=%s, capacity=%s, price=%s,
+        registration_open_date=%s, registration_close_date=%s,
+        slug=%s, interest_list_fields=%s, waitlist_auto_charge=%s,
+        updated_at=NOW() WHERE id=%s''',
+        (d.get('registration_status','draft'),
+         d.get('capacity') or None,
+         int(d.get('price_cents') or 0),
+         d.get('registration_open_date') or None,
+         d.get('registration_close_date') or None,
+         d.get('slug') or None,
+         json.dumps(d.get('interest_list_fields') or []),
+         d.get('waitlist_auto_charge', True),
+         pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/notify-interest-list', methods=['POST'])
+def notify_interest_list(pid):
+    """Email everyone on the interest list that registrations are open."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    entries = fetchall(conn, 'SELECT * FROM interest_list_entries WHERE program_id=%s AND notified_at IS NULL', (pid,))
+    if not prog or not entries:
+        conn.close()
+        return jsonify({'ok': True, 'sent': 0})
+    reg_url = f"{APP_BASE_URL}/register/{prog.get('slug') or pid}"
+    sent = 0
+    for e in entries:
+        try:
+            price_str = f'${(prog.get("price") or 0) / 100:.2f}' if prog.get('price') else 'Free'
+            send_email([e['email']], f'Registrations are open — {prog["name"]}!',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Registrations are now open!</h2>'
+                f'<p>Hi {e["name"]},</p>'
+                f'<p>You signed up for our interest list and we\'re excited to let you know that '
+                f'registrations for <strong>{prog["name"]}</strong> are now open!</p>'
+                f'<p><strong>Price:</strong> {price_str}</p>'
+                f'{"<p><strong>Starts:</strong> " + prog["start_date"] + "</p>" if prog.get("start_date") else ""}'
+                f'<p style="margin:24px 0"><a href="{reg_url}" style="background:#145466;color:#fff;'
+                f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+                f'Register Now</a></p>'
+                f'<p style="color:#6b7280;font-size:13px">Questions? Contact us at info@hwtco.org</p>'
+                f'<p>Horizon West Theatre Company</p></div>')
+            execute(conn, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
+            sent += 1
+        except Exception as ex:
+            app.logger.warning(f'Interest list notify failed for {e["email"]}: {ex}')
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'sent': sent})

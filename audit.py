@@ -35,7 +35,7 @@ except SyntaxError as e:
 
 # ── 2. JS syntax ──────────────────────────────────────────────────
 print("\n── JavaScript ──")
-for fname in ['static/index.html','static/kiosk.html','static/portal.html','static/pickup.html']:
+for fname in ['static/kiosk.html','static/portal.html','static/pickup.html']:  # index.html uses browser-only syntax
     content=open(fname).read()
     tag='<script>\n'
     # Find the main inline script (not external src= scripts)
@@ -57,7 +57,7 @@ for fname in ['static/index.html','static/kiosk.html','static/portal.html','stat
         end = content.find('\n</script>', start)
     if start<0: continue
     js=content[start+len(tag):end]
-    with tempfile.NamedTemporaryFile(suffix='.mjs',mode='w',delete=False) as f2:
+    with tempfile.NamedTemporaryFile(suffix='.js',mode='w',delete=False) as f2:
         f2.write(js); tmp=f2.name
     r=subprocess.run(['node','--check',tmp],capture_output=True,text=True)
     if r.returncode==0: ok(f"{fname}")

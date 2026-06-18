@@ -15796,6 +15796,7 @@ async function openProgramDetail(programId){
  <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">Messages</button>
  <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')">Auditions</button>
  ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">Portal Content</button>`:''}
+${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('registrations')">Registrations</button>`:''}
  </div>
 
  <!-- Events tab -->
@@ -15913,6 +15914,9 @@ async function openProgramDetail(programId){
  </div>
 
 
+ <div id="pdtab-registrations" style="display:none">
+  <div id="prog-registrations-content"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div></div>
+ </div>
  </div>`
 
  window._currentProgramDetailId = programId
@@ -16844,18 +16848,203 @@ async function submitAddConflict(pid){
 // ── Enhanced program portal tab: add folder support ──
 // ── PROGRAM PORTAL CONTENT ──
 function switchProgramDetailTab(tab){
- ['events','messages','portal','auditions'].forEach(t=>{
- const btn = document.getElementById('pdtab-btn-'+t)
- if(el) el.style.display = tab===t ? '': 'none'
- if(btn){ btn.style.borderBottomColor = tab===t ? 'var(--teal-mid)': 'transparent'; btn.style.color = tab===t ? 'var(--teal-dark)': 'var(--text-muted)' }
+ ['events','messages','portal','auditions','registrations'].forEach(t=>{
+  const el = document.getElementById('pdtab-'+t)
+  const btn = document.getElementById('pdtab-btn-'+t)
+  if(el) el.style.display = t===tab ? '': 'none'
+  if(btn){ btn.style.borderBottomColor = t===tab ? 'var(--teal-mid)': 'transparent'; btn.style.color = t===tab ? 'var(--teal-dark)': 'var(--text-muted)' }
  })
  const pid = window._currentProgramDetailId
  if(tab==='portal') loadProgramPortalContent(pid)
  if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-current')
  if(tab==='auditions' && pid){
- const el = document.getElementById('prog-auditions-content')
- if(el) loadAuditionsTab('program', pid, 'prog-auditions-content')
+  const el2 = document.getElementById('prog-auditions-content')
+  if(el2) loadAuditionsTab('program', pid, 'prog-auditions-content')
  }
+ if(tab==='registrations' && pid) loadProgramRegistrations(pid)
+}
+
+
+
+// ─────────────────────────────────────────────
+//  REGISTRATION MANAGEMENT
+// ─────────────────────────────────────────────
+
+async function loadProgramRegistrations(pid){
+  const el = document.getElementById('prog-registrations-content')
+  if(!el) return
+  el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div>'
+  const prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+  const data = await api('/api/programs/'+pid+'/registrations')
+  const regs = data && data.registrations ? data.registrations : []
+  const interest = data && data.interest_list ? data.interest_list : []
+  const counts = data && data.counts ? data.counts : {}
+  const regStatus = prog.registration_status || 'draft'
+  const statusMap = {confirmed:'background:#dcfce7;color:#166534',pending_payment:'background:#fef3c7;color:#92400e',waitlisted:'background:#ede9fe;color:#6d28d9',cancelled:'background:#fee2e2;color:#991b1b'}
+  const statusLbl = {draft:'Draft',interest_list:'Interest List',open:'Open',closed:'Closed',cancelled:'Cancelled'}
+  const statusCol = {draft:'#6b7280',interest_list:'#92400e',open:'#166534',closed:'#991b1b',cancelled:'#991b1b'}
+
+  var html = '<div class="card" style="padding:16px 20px;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
+    + '<div><div style="font-size:15px;font-weight:700">Registration Settings</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">Status: <strong style="color:'+(statusCol[regStatus]||'#6b7280')+'">'+(statusLbl[regStatus]||regStatus)+'</strong>'
+    + (prog.capacity ? ' &nbsp;&middot;&nbsp; Capacity: '+(counts.confirmed||0)+' / '+prog.capacity : '')
+    + (!prog.price ? ' &nbsp;&middot;&nbsp; Free' : ' &nbsp;&middot;&nbsp; $'+((prog.price||0)/100).toFixed(2))
+    + '</div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<button class="btn btn-secondary btn-sm" id="reg-settings-btn">Settings</button>'
+    + (prog.slug ? '<a href="/register/'+prog.slug+'" target="_blank" class="btn btn-secondary btn-sm">View Public Page</a>' : '')
+    + (regStatus==='open' && interest.length ? '<button class="btn btn-primary btn-sm" id="reg-notify-btn">Notify Interest List ('+interest.length+')</button>' : '')
+    + '</div></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
+    + [['Confirmed',counts.confirmed||0,'#dcfce7','#166534'],['Pending Payment',counts.pending_payment||0,'#fef3c7','#92400e'],['Waitlisted',counts.waitlisted||0,'#ede9fe','#6d28d9'],['Interest List',counts.interest||0,'#f0f8fa','#145466']]
+      .map(function(x){ return '<div style="background:'+x[2]+';border-radius:10px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:'+x[3]+'">'+x[1]+'</div><div style="font-size:11px;font-weight:600;color:'+x[3]+'">'+x[0]+'</div></div>' }).join('')
+    + '</div></div>'
+
+  if(regs.length){
+    html += '<div class="card" style="padding:16px 20px;margin-bottom:12px"><div style="font-size:14px;font-weight:700;margin-bottom:12px">Registrations</div>'
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Child</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Guardian</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Email</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Date</th><th></th></tr></thead>'
+      + '<tbody>'
+      + regs.map(function(r){
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px">'+escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))+'</td>'
+            + '<td style="padding:8px">'+escHtml(r.guardian_name||'')+'</td>'
+            + '<td style="padding:8px"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
+            + '<td style="padding:8px">'+(r.status==='waitlisted'?'<button class="btn btn-primary btn-sm promote-btn" style="padding:2px 8px;font-size:11px" data-rid="'+r.id+'">Promote</button>':'')+'</td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table></div></div>'
+  }
+
+  if(interest.length){
+    html += '<div class="card" style="padding:16px 20px">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+      + '<div style="font-size:14px;font-weight:700">Interest List</div>'
+      + (regStatus==='open' ? '<button class="btn btn-primary btn-sm" id="reg-notify-btn2">Email All</button>' : '')
+      + '</div>'
+      + interest.map(function(e){
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+            + '<div><div style="font-size:13px;font-weight:600">'+escHtml(e.name)+'</div><div style="font-size:12px;color:var(--text-muted)">'+escHtml(e.email)+(e.child_name?' &middot; '+escHtml(e.child_name):'')+'</div></div>'
+            + (e.notified_at ? '<span style="font-size:11px;color:var(--green-600);font-weight:600">Notified</span>' : '<span style="font-size:11px;color:var(--text-muted)">Not notified</span>')
+            + '</div>'
+        }).join('')
+      + '</div>'
+  }
+
+  if(!regs.length && !interest.length){
+    html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No registrations yet.'+(regStatus==='draft'?' Set status to Open to start accepting signups.':'')+'</div>'
+  }
+
+  el.innerHTML = html
+
+  // Wire up buttons using event listeners (no onclick in HTML strings)
+  var settingsBtn = document.getElementById('reg-settings-btn')
+  if(settingsBtn) settingsBtn.addEventListener('click', function(){ openRegistrationSettingsModal(pid) })
+
+  var notifyBtn = document.getElementById('reg-notify-btn')
+  if(notifyBtn) notifyBtn.addEventListener('click', function(){ notifyInterestList(pid) })
+
+  var notifyBtn2 = document.getElementById('reg-notify-btn2')
+  if(notifyBtn2) notifyBtn2.addEventListener('click', function(){ notifyInterestList(pid) })
+
+  el.querySelectorAll('.promote-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ promoteWaitlist(pid, btn.dataset.rid) })
+  })
+}
+
+async function promoteWaitlist(pid, rid){
+  if(!confirm('Promote this person from the waitlist? They will receive a payment link if applicable.')) return
+  const res = await api('/api/programs/'+pid+'/registrations/'+rid+'/promote-waitlist', 'POST')
+  if(res && res.ok){ toast(res.type==='confirmed_free' ? 'Promoted and confirmed!' : 'Payment link sent!', 'success'); loadProgramRegistrations(pid) }
+  else toast((res && res.error)||'Error', 'error')
+}
+
+async function notifyInterestList(pid){
+  if(!confirm('Email everyone on the interest list that registrations are now open?')) return
+  const res = await api('/api/programs/'+pid+'/notify-interest-list', 'POST')
+  if(res && res.ok) toast('Sent to '+res.sent+' people', 'success')
+  else toast((res && res.error)||'Error', 'error')
+}
+
+function openRegistrationSettingsModal(pid){
+  const prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+  const existing = document.getElementById('reg-settings-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'reg-settings-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
+
+  var opts = [
+    ['draft','Draft (not visible)'],
+    ['interest_list','Interest List (collect emails)'],
+    ['open','Open (accepting registrations)'],
+    ['closed','Closed'],
+    ['cancelled','Cancelled']
+  ].map(function(o){ return '<option value="'+o[0]+'"'+(prog.registration_status===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
+
+  var form = document.createElement('div')
+  form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)'
+  form.innerHTML =
+    '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
+    + '<div style="font-size:15px;font-weight:700">Registration Settings</div>'
+    + '<button id="rs-close-btn" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+    + '</div>'
+    + '<div style="padding:20px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+    + '<select id="rs-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+opts+'</select></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Public URL Slug</label>'
+    + '<input type="text" id="rs-slug" value="'+(prog.slug||'')+'" placeholder="e.g. summer-camp-2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">rolecall.hwtco.org/register/<span id="slug-preview">'+(prog.slug||'...')+'</span></div></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Capacity</label>'
+    + '<input type="number" id="rs-capacity" value="'+(prog.capacity||'')+'" placeholder="Unlimited" min="1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (USD)</label>'
+    + '<input type="number" id="rs-price" value="'+(prog.price ? (prog.price/100).toFixed(2) : '')+'" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Opens</label>'
+    + '<input type="date" id="rs-open-date" value="'+(prog.registration_open_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Closes</label>'
+    + '<input type="date" id="rs-close-date" value="'+(prog.registration_close_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+    + '<input type="checkbox" id="rs-auto-charge" '+(prog.waitlist_auto_charge!==false?'checked':'')+' style="accent-color:var(--teal)"/> Auto-send payment link when promoting from waitlist</label>'
+    + '</div>'
+    + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">'
+    + '<button id="rs-cancel-btn" class="btn btn-secondary">Cancel</button>'
+    + '<button id="rs-save-btn" class="btn btn-primary">Save Settings</button>'
+    + '</div>'
+
+  overlay.appendChild(form)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+
+  document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid) })
+  document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value || '...' })
+}
+
+async function saveRegistrationSettings(pid){
+  const payload = {
+    registration_status: document.getElementById('rs-status').value || 'draft',
+    slug: (document.getElementById('rs-slug').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'-') || null,
+    capacity: parseInt(document.getElementById('rs-capacity').value) || null,
+    price_cents: Math.round((parseFloat(document.getElementById('rs-price').value)||0)*100),
+    registration_open_date: document.getElementById('rs-open-date').value || null,
+    registration_close_date: document.getElementById('rs-close-date').value || null,
+    waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
+  }
+  const res = await api('/api/programs/'+pid+'/registration-settings', 'PUT', payload)
+  if(res && res.ok){
+    toast('Settings saved', 'success')
+    document.getElementById('reg-settings-overlay').remove()
+    api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+    loadProgramRegistrations(pid)
+  } else toast((res && res.error)||'Error saving', 'error')
 }
 
 

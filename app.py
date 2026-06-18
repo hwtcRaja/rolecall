@@ -1942,8 +1942,8 @@ def create_volunteer():
     d = request.json or {}
     vid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-            (vid, d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None))
+    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date,bio,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (vid, d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, d.get('bio','') or '', d.get('photo_url','') or ''))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
     vol['total_hours'] = 0; vol['waiver_status'] = 'none'; vol['waivers'] = []
@@ -1964,14 +1964,25 @@ def update_volunteer(vol_id):
         try: conn.rollback()
         except Exception: pass
     sub_selections = json.dumps(d.get('sub_selections') or {})
+    # Ensure bio/photo columns exist
+    try:
+        execute(conn, "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''")
+        execute(conn, "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except: pass
     execute(conn, '''UPDATE volunteers SET name=%s,email=%s,phone=%s,pronouns=%s,birthday=%s,status=%s,
-        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s,employer_program=%s
+        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s,employer_program=%s,
+        bio=%s,photo_url=%s
         WHERE id=%s''',
         (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('pronouns',''),
          d.get('birthday') or None, d.get('status','active'),
          json.dumps(d.get('interests',[])), sub_selections,
          d.get('background_check_status','none'), d.get('background_check_date') or None,
-         d.get('employer_program','') or '', vol_id))
+         d.get('employer_program','') or '',
+         d.get('bio','') or '', d.get('photo_url','') or '',
+         vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()

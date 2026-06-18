@@ -11163,12 +11163,14 @@ async function saveEnrollment(){
 }
 
 async function unenrollYouth(eid,yid){
+ if(!eid||eid==='undefined'){toast('Could not unenroll: missing enrollment ID','error');return}
  if(!confirm('Remove from this program?')) return
- await api(`/api/youth/enrollments/${eid}`,'DELETE')
+ const res = await api(`/api/youth/enrollments/${eid}`,'DELETE')
+ if(res&&res.error){toast('Error: '+res.error,'error');return}
  const y=allYouth.find(y=>y.id===yid)
- if(y) y.enrollments=y.enrollments.filter(e=>e.id!==eid)
- toast('Removed from program')
- openYouthProfile(yid)
+ if(y) y.enrollments=(y.enrollments||[]).filter(e=>e.id!==eid)
+ toast('Removed from program','success')
+ if(yid&&yid!=='undefined') openYouthProfile(yid)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -15615,8 +15617,10 @@ async function submitProgramEnrollment(programId){
 }
 
 async function unenrollFromProgram(enrollmentId, programId, name, btn){
+ if(!enrollmentId||enrollmentId==='undefined'){toast('Could not unenroll: missing enrollment ID','error');return}
  if(!confirm(`Remove ${name} from this program?`)) return
- await api(`/api/youth-enrollments/${enrollmentId}`,'DELETE')
+ const res2 = await api(`/api/youth-enrollments/${enrollmentId}`,'DELETE')
+ if(res2&&res2.error){toast('Error: '+res2.error,'error');return}
  toast(`${name} removed`,'success')
  // Re-open the modal refreshed
  const modal = document.getElementById('modal-enroll-program')

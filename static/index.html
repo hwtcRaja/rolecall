@@ -15764,7 +15764,7 @@ async function openProgramDetail(programId){
  ${y.portal_last_login?`<div style="font-size:10px;color:var(--text-hint)">Portal: ${formatDateTime(y.portal_last_login)}</div>`:'<div style="font-size:10px;color:#dc2626;font-weight:600">Portal: never logged in</div>'}
  </div>
  <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" onclick="openYouthProfile('${y.youth_id}')">View</button>
- ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:11px" onclick="unenrollYouth('${y.id}','${y.youth_id}').then(()=>openProgramDetail('${programId}'))">Unenroll</button>`:''}
+ ${isAdmin?`<button class="btn btn-danger btn-sm" style="padding:2px 8px;font-size:11px" onclick="unenrollYouth('${y.enrollment_id}','${y.youth_id}').then(()=>openProgramDetail('${programId}'))">Unenroll</button>`:''}
  </div>`).join('')}
  </div>
  </div>

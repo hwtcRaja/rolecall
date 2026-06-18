@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register — Horizon West Theatre Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:24px;text-align:center}
+.header img{height:48px;mix-blend-mode:screen;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto}
+.header h1{color:#fff;font-size:20px;font-weight:700;margin-bottom:4px}
+.header p{color:rgba(255,255,255,0.75);font-size:13px}
+.container{max-width:560px;margin:0 auto;padding:24px 16px 48px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;margin-bottom:16px}
+.card-header{padding:18px 22px;border-bottom:1px solid #e5e7eb}
+.card-header h2{font-size:17px;font-weight:700;color:#0d3d4d}
+.card-body{padding:20px 22px}
+.meta-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#6b7280;margin-bottom:8px}
+.meta-row strong{color:#1a2332}
+.badge{display:inline-flex;align-items:center;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px}
+.badge-open{background:#dcfce7;color:#166534}
+.badge-interest{background:#fef3c7;color:#92400e}
+.badge-closed{background:#fee2e2;color:#991b1b}
+.badge-draft{background:#f3f4f6;color:#6b7280}
+.capacity-bar{background:#e5e7eb;border-radius:20px;height:8px;margin:8px 0 4px;overflow:hidden}
+.capacity-fill{height:100%;border-radius:20px;background:#145466;transition:width 0.3s}
+.capacity-fill.near-full{background:#f59e0b}
+.capacity-fill.full{background:#dc2626}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:6px}
+.form-group input,.form-group select,.form-group textarea{
+  width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;
+  font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s;background:#fff}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#145466}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 24px;border-radius:10px;
+  font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;width:100%}
+.btn-primary{background:#145466;color:#fff}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{opacity:0.6;cursor:not-allowed}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#145466;
+  margin:20px 0 14px;padding-top:16px;border-top:1px solid #e5e7eb}
+.price-tag{font-size:28px;font-weight:800;color:#0d3d4d;margin:8px 0}
+.price-tag span{font-size:14px;font-weight:400;color:#6b7280}
+.alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
+.alert-success{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.alert-info{background:#e0f2fe;color:#075985;border:1px solid #bae6fd}
+.alert-waitlist{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+#loading{text-align:center;padding:60px 20px;color:#6b7280;font-size:15px}
+.spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#145466;
+  border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.instructor-card{display:flex;gap:14px;align-items:flex-start;padding:14px 0;margin-bottom:4px}
+.instructor-avatar{width:56px;height:56px;border-radius:50%;background:#e0f2fe;display:flex;
+  align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#145466;flex-shrink:0}
+.required{color:#dc2626;margin-left:2px}
+.hint{font-size:11px;color:#9ca3af;margin-top:3px}
+.step-indicator{display:flex;gap:8px;margin-bottom:20px}
+.step{flex:1;height:4px;border-radius:2px;background:#e5e7eb}
+.step.active{background:#145466}
+.step.done{background:#145466;opacity:0.4}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <h1 id="page-title">Program Registration</h1>
+  <p id="page-sub">Horizon West Theatre Company</p>
+</div>
+
+<div class="container">
+  <div id="loading">
+    <div class="spinner"></div>
+    Loading program info...
+  </div>
+  <div id="app" style="display:none"></div>
+</div>
+
+<script>
+const slug = location.pathname.split('/').filter(Boolean)[1] || ''
+const urlParams = new URLSearchParams(location.search)
+const regId = urlParams.get('reg')
+let program = null
+
+async function api(path, method='GET', body=null){
+  const opts = {method, headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  const r = await fetch(path, opts)
+  return r.json()
+}
+
+function fmtDate(d){ if(!d) return ''; const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) }
+function fmtPrice(cents){ if(!cents) return 'Free'; return '$'+(cents/100).toFixed(2) }
+
+async function init(){
+  // Confirmation page
+  if(regId && location.pathname.includes('/confirmation')){
+    showConfirmation(regId)
+    return
+  }
+  // Load program
+  const data = await api('/api/public/program/'+slug)
+  if(data.error){ showError(data.error); return }
+  program = data
+  document.getElementById('page-title').textContent = program.name
+  renderProgramPage()
+}
+
+function showError(msg){
+  document.getElementById('loading').style.display='none'
+  document.getElementById('app').style.display=''
+  document.getElementById('app').innerHTML = `<div class="alert alert-error">${msg}</div>`
+}
+
+function renderProgramPage(){
+  const el = document.getElementById('app')
+  document.getElementById('loading').style.display='none'
+  el.style.display=''
+
+  const status = program.registration_status || 'draft'
+  const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
+  const labelMap = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Coming Soon'}
+  const spotsLeft = program.spots_remaining
+
+  let capacityHTML = ''
+  if(program.capacity){
+    const pct = Math.round((program.registration_count / program.capacity)*100)
+    const fillClass = pct >= 90 ? 'full' : pct >= 70 ? 'near-full' : ''
+    capacityHTML = `
+      <div class="capacity-bar"><div class="capacity-fill ${fillClass}" style="width:${Math.min(pct,100)}%"></div></div>
+      <div style="font-size:12px;color:#6b7280">${program.registration_count} / ${program.capacity} spots filled
+        ${spotsLeft === 0 ? '<strong style="color:#dc2626"> · Full</strong>' : spotsLeft <= 3 ? `<strong style="color:#f59e0b"> · Only ${spotsLeft} left!</strong>` : ''}
+      </div>`
+  }
+
+  let instructorHTML = ''
+  if(program.instructor_name){
+    const photo = program.instructor_photo
+      ? `<img src="${program.instructor_photo}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+      : `<div class="instructor-avatar">${program.instructor_name.charAt(0)}</div>`
+    instructorHTML = `
+      <div class="section-title">Your Instructor</div>
+      <div class="instructor-card">
+        ${photo}
+        <div>
+          <div style="font-weight:700;font-size:15px">${program.instructor_name}</div>
+          ${program.instructor_bio ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;line-height:1.5">${program.instructor_bio}</div>` : ''}
+        </div>
+      </div>`
+  }
+
+  let actionHTML = ''
+  if(status === 'open' && spotsLeft !== 0){
+    actionHTML = renderRegistrationForm()
+  } else if(status === 'open' && spotsLeft === 0){
+    actionHTML = renderWaitlistForm()
+  } else if(status === 'interest_list'){
+    actionHTML = renderInterestForm()
+  } else {
+    actionHTML = `<div class="alert alert-info">Registrations are not currently open. Check back soon!</div>`
+  }
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <h2>${program.name}</h2>
+          <span class="badge ${badgeMap[status]||'badge-draft'}">${labelMap[status]||status}</span>
+        </div>
+      </div>
+      <div class="card-body">
+        ${program.description ? `<p style="font-size:14px;color:#374151;margin-bottom:14px;line-height:1.6">${program.description}</p>` : ''}
+        ${program.start_date ? `<div class="meta-row"><strong>Dates:</strong> ${fmtDate(program.start_date)}${program.end_date&&program.end_date!==program.start_date?' → '+fmtDate(program.end_date):''}</div>` : ''}
+        ${capacityHTML}
+        ${program.price ? `<div class="price-tag">${fmtPrice(program.price)} <span>per participant</span></div>` : '<div style="margin:8px 0;font-size:14px;font-weight:600;color:#166534">Free</div>'}
+        ${instructorHTML}
+      </div>
+    </div>
+    ${actionHTML}`
+}
+
+function renderRegistrationForm(){
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Register</h2></div>
+      <div class="card-body">
+        <div id="form-alert"></div>
+        <div class="section-title">Child Information</div>
+        <div class="form-row">
+          <div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-child-first" placeholder="First name"/></div>
+          <div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-child-last" placeholder="Last name"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-child-dob" type="date"/></div>
+          <div class="form-group"><label>T-Shirt Size</label>
+            <select id="f-shirt">
+              <option value="">Select...</option>
+              <option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option>
+              <option>AS</option><option>AM</option><option>AL</option><option>AXL</option>
+            </select>
+          </div>
+        </div>
+        <div class="section-title">Parent / Guardian Information</div>
+        <div class="form-group"><label>Full Name <span class="required">*</span></label><input id="f-guardian-name" placeholder="Parent or guardian name"/></div>
+        <div class="form-row">
+          <div class="form-group"><label>Email <span class="required">*</span></label><input id="f-guardian-email" type="email" placeholder="your@email.com"/></div>
+          <div class="form-group"><label>Phone</label><input id="f-guardian-phone" type="tel" placeholder="(555) 555-5555"/></div>
+        </div>
+        <div class="section-title">Emergency Contact</div>
+        <div class="form-row">
+          <div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact name"/></div>
+          <div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div>
+        </div>
+        <div class="form-group" style="margin-top:8px"><label>Notes / Allergies / Special Needs</label><textarea id="f-notes" rows="2" placeholder="Anything we should know..."></textarea></div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="submitRegistration()" id="reg-btn">
+          ${program.price ? 'Continue to Payment →' : 'Complete Registration'}
+        </button>
+      </div>
+    </div>`
+}
+
+function renderWaitlistForm(){
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Join the Waitlist</h2></div>
+      <div class="card-body">
+        <div class="alert alert-waitlist" style="margin-bottom:16px">This program is currently full. Join the waitlist and we will contact you if a spot opens up.</div>
+        <div id="form-alert"></div>
+        <div class="form-row">
+          <div class="form-group"><label>Child First Name <span class="required">*</span></label><input id="f-child-first" placeholder="First name"/></div>
+          <div class="form-group"><label>Child Last Name <span class="required">*</span></label><input id="f-child-last" placeholder="Last name"/></div>
+        </div>
+        <div class="form-group"><label>Parent / Guardian Name <span class="required">*</span></label><input id="f-guardian-name" placeholder="Your name"/></div>
+        <div class="form-row">
+          <div class="form-group"><label>Email <span class="required">*</span></label><input id="f-guardian-email" type="email" placeholder="your@email.com"/></div>
+          <div class="form-group"><label>Phone</label><input id="f-guardian-phone" type="tel" placeholder="(555) 555-5555"/></div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="submitRegistration()" id="reg-btn">Join Waitlist</button>
+      </div>
+    </div>`
+}
+
+function renderInterestForm(){
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Join the Interest List</h2></div>
+      <div class="card-body">
+        <p style="font-size:13px;color:#6b7280;margin-bottom:16px">Registrations are not open yet. Add yourself to the interest list and we will notify you when they open.</p>
+        <div id="form-alert"></div>
+        <div class="form-group"><label>Your Name <span class="required">*</span></label><input id="f-name" placeholder="Your name"/></div>
+        <div class="form-group"><label>Email <span class="required">*</span></label><input id="f-guardian-email" type="email" placeholder="your@email.com"/></div>
+        <div class="form-row">
+          <div class="form-group"><label>Phone</label><input id="f-guardian-phone" type="tel" placeholder="(555) 555-5555"/></div>
+          <div class="form-group"><label>Child Name</label><input id="f-child-name" placeholder="Child's name"/></div>
+        </div>
+        <div class="form-group"><label>Child Age</label><input id="f-child-age" placeholder="e.g. 8"/></div>
+        <button class="btn btn-primary" style="margin-top:8px" onclick="submitInterest()" id="reg-btn">Join Interest List</button>
+      </div>
+    </div>`
+}
+
+async function submitRegistration(){
+  const btn = document.getElementById('reg-btn')
+  const alert = document.getElementById('form-alert')
+  const email = document.getElementById('f-guardian-email')?.value.trim()
+  const childFirst = document.getElementById('f-child-first')?.value.trim()
+  const guardianName = document.getElementById('f-guardian-name')?.value.trim()
+
+  if(!email || !guardianName){ showAlert('error','Please fill in all required fields.'); return }
+
+  btn.disabled = true
+  btn.textContent = 'Submitting...'
+  alert.innerHTML = ''
+
+  const payload = {
+    type: 'registration',
+    guardian_name: guardianName,
+    guardian_email: email,
+    guardian_phone: document.getElementById('f-guardian-phone')?.value.trim() || '',
+    child_first_name: document.getElementById('f-child-first')?.value.trim() || '',
+    child_last_name: document.getElementById('f-child-last')?.value.trim() || '',
+    child_dob: document.getElementById('f-child-dob')?.value || '',
+    shirt_size: document.getElementById('f-shirt')?.value || '',
+    emergency_contact_name: document.getElementById('f-ec-name')?.value.trim() || '',
+    emergency_contact_phone: document.getElementById('f-ec-phone')?.value.trim() || '',
+    notes: document.getElementById('f-notes')?.value.trim() || '',
+  }
+
+  const res = await api('/api/public/program/'+slug+'/register', 'POST', payload)
+  if(res.error){ showAlert('error', res.error); btn.disabled=false; btn.textContent='Try Again'; return }
+
+  if(res.type === 'payment_required'){
+    window.location.href = res.payment_url
+  } else if(res.type === 'waitlisted'){
+    showSuccess(`You are #${res.position} on the waitlist! We will email you at ${email} if a spot opens.`)
+  } else {
+    showSuccess(`Registration confirmed! A confirmation will be sent to ${email}.`)
+  }
+}
+
+async function submitInterest(){
+  const btn = document.getElementById('reg-btn')
+  const email = document.getElementById('f-guardian-email')?.value.trim()
+  const name = document.getElementById('f-name')?.value.trim()
+  if(!email || !name){ showAlert('error','Name and email are required.'); return }
+  btn.disabled=true; btn.textContent='Submitting...'
+  const payload = {
+    type:'interest', name, email,
+    phone: document.getElementById('f-guardian-phone')?.value.trim()||'',
+    child_name: document.getElementById('f-child-name')?.value.trim()||'',
+    child_age: document.getElementById('f-child-age')?.value.trim()||'',
+  }
+  const res = await api('/api/public/program/'+slug+'/register','POST',payload)
+  if(res.error){ showAlert('error',res.error); btn.disabled=false; btn.textContent='Try Again'; return }
+  showSuccess(`You're on the interest list! We'll email ${email} when registrations open.`)
+}
+
+async function showConfirmation(rid){
+  document.getElementById('loading').style.display='none'
+  const el = document.getElementById('app')
+  el.style.display=''
+  const reg = await api(`/api/public/program/${slug}/registration/${rid}`)
+  const pData = await api('/api/public/program/'+slug)
+  const pName = pData.name || 'the program'
+  if(reg.status === 'confirmed'){
+    el.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">
+      <div style="font-size:48px;margin-bottom:16px">✓</div>
+      <h2 style="color:#166534;margin-bottom:8px">Registration Confirmed!</h2>
+      <p style="color:#6b7280;font-size:14px">Thank you, ${reg.guardian_email}!</p>
+      <p style="color:#374151;font-size:14px;margin-top:12px">${reg.child_first_name} is registered for <strong>${pName}</strong>.</p>
+    </div></div>`
+  } else if(reg.status === 'pending_payment'){
+    el.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">
+      <div style="font-size:48px;margin-bottom:16px">⏳</div>
+      <h2 style="color:#92400e;margin-bottom:8px">Payment Pending</h2>
+      <p style="color:#6b7280;font-size:14px">We are waiting to confirm your payment. Check your email for a receipt.</p>
+    </div></div>`
+  } else {
+    el.innerHTML = `<div class="card"><div class="card-body"><div class="alert alert-info">Registration status: ${reg.status}</div></div></div>`
+  }
+}
+
+function showAlert(type, msg){
+  const a = document.getElementById('form-alert')
+  if(a) a.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:12px">${msg}</div>`
+}
+
+function showSuccess(msg){
+  document.getElementById('app').innerHTML = `<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">
+    <div style="font-size:48px;margin-bottom:16px">✓</div>
+    <p style="font-size:15px;color:#374151;line-height:1.6">${msg}</p>
+  </div></div>`
+}
+
+init()
+</script>
+</body>
+</html>

@@ -272,7 +272,9 @@ def seed_system_email_templates(conn):
             try:
                 execute(conn, 'UPDATE email_templates SET subject=%s, body=%s, description=%s WHERE template_key=%s AND is_system=TRUE',
                     (subject, body, description, key))
-            except Exception: pass
+                conn.commit()
+            except Exception as e:
+                import traceback; traceback.print_exc()
         if not existing:
             try:
                 execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)
@@ -3645,6 +3647,17 @@ def get_email_templates():
     templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name')
     conn.close()
     return jsonify(templates)
+
+
+@app.route('/api/email-templates/reset/<key>', methods=['POST'])
+def reset_system_template(key):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    seed_system_email_templates(conn)
+    conn.close()
+    return jsonify({'ok': True})
+
 
 @app.route('/api/email-templates/<tid>', methods=['PUT'])
 def update_email_template(tid):

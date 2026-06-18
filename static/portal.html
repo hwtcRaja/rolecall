@@ -637,7 +637,46 @@ async function selectContext(type, id, name, color){
  let ctxName=name, instructor='', dateStr='', castRole='', prodVenue='', prodPerfDates='', prodPerfLocation=''
  if(type==='program'){
  const e = activeChildData.enrollments?.find(e=>e.program_id===id)
- if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):'' }
+ if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):''
+      // Store instructor details for About section (from cached data)
+      window._ctxInstructorBio = e.instructor_bio||''
+      window._ctxInstructorPhoto = e.instructor_photo||''
+      window._ctxInstructorName = e.instructor_name||''
+      // Also fetch fresh instructor data in case cache is stale
+      fetch('/api/portal/program/'+id+'/instructor')
+        .then(r=>r.json()).then(info=>{
+          if(info && (info.instructor_bio || info.instructor_photo)){
+            window._ctxInstructorBio = info.instructor_bio||''
+            window._ctxInstructorPhoto = info.instructor_photo||''
+            window._ctxInstructorName = info.instructor_name||window._ctxInstructorName
+            // Re-inject the card with fresh data
+            const existingAbout = document.getElementById('portal-instructor-about')
+            if(existingAbout) existingAbout.remove()
+            const tabStrip = document.getElementById('detail-tabs')
+            if(tabStrip && tabStrip.parentNode && (window._ctxInstructorBio || window._ctxInstructorPhoto)){
+              const freshPhoto = window._ctxInstructorPhoto
+                ? '<img src="'+window._ctxInstructorPhoto+'" alt="'+window._ctxInstructorName+'" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">'
+                : '<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">'+window._ctxInstructorName.charAt(0)+'</div>'
+              const d2 = document.createElement('div')
+              d2.id = 'portal-instructor-about'
+              d2.style.cssText = 'padding:16px 20px 0'
+              const bioHtml = window._ctxInstructorBio
+                ? '<div style="font-size:13px;color:var(--text-muted);line-height:1.6">'+window._ctxInstructorBio.replace(/\n/g,'<br>')+'</div>'
+                : ''
+              d2.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);'
+                + 'border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">'
+                + freshPhoto
+                + '<div style="flex:1;min-width:0">'
+                + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;'
+                + 'letter-spacing:0.6px;color:var(--text-muted);margin-bottom:4px">Your Instructor</div>'
+                + '<div style="font-size:15px;font-weight:700;margin-bottom:6px">'+window._ctxInstructorName+'</div>'
+                + bioHtml
+                + '</div></div>'
+              tabStrip.parentNode.insertBefore(d2, tabStrip)
+            }
+          }
+        }).catch(()=>{})
+    }
  // Check if cast in this program's audition
  const pp = portalSession?.passphrase||''
  if(pp){
@@ -817,6 +856,34 @@ async function selectContext(type, id, name, color){
 
  document.getElementById('detail-tab-contents').innerHTML = tabHTML
  panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+
+  // Inject "About Your Instructor" section for programs
+  if(type==='program' && (window._ctxInstructorBio || window._ctxInstructorPhoto) && window._ctxInstructorName){
+    const existingAbout = document.getElementById('portal-instructor-about')
+    if(existingAbout) existingAbout.remove()
+    const aboutDiv = document.createElement('div')
+    aboutDiv.id = 'portal-instructor-about'
+    aboutDiv.style.cssText = 'padding:16px 20px 0'
+    const photoHTML = window._ctxInstructorPhoto
+      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">`
+      : `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
+    aboutDiv.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">
+      ${photoHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:4px">Your Instructor</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">${window._ctxInstructorName}</div>
+        ${window._ctxInstructorBio ? `<div style="font-size:13px;color:var(--text-muted);line-height:1.6">${window._ctxInstructorBio.replace(/\n/g,'<br>')}</div>` : ''}
+      </div>
+    </div>`
+    // Insert before the tab strip
+    const tabStrip = document.getElementById('detail-tabs')
+    if(tabStrip && tabStrip.parentNode){
+      tabStrip.parentNode.insertBefore(aboutDiv, tabStrip)
+    }
+  } else {
+    const existingAbout = document.getElementById('portal-instructor-about')
+    if(existingAbout) existingAbout.remove()
+  }
  } catch(err) {
  console.error('[Portal] selectContext error:', err)
  document.getElementById('detail-tab-contents').innerHTML =

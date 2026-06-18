@@ -859,6 +859,8 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "UPDATE volunteers SET pronouns='' WHERE pronouns IS NULL",
         # Backfill pronouns from approved applications for existing volunteers
         """UPDATE volunteers v SET pronouns=a.pronouns
@@ -5851,9 +5853,12 @@ def portal_get_participant(yid):
     # Program enrollments
     try:
         enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name, yp.description,
-            yp.status as program_status
+            yp.status as program_status, yp.instructor_id,
+            v.name as instructor_name, v.bio as instructor_bio,
+            v.photo_url as instructor_photo
             FROM youth_program_enrollments ype
             JOIN youth_programs yp ON ype.program_id=yp.id
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id
             WHERE ype.youth_id=%s ORDER BY ype.created_at DESC''', (yid,))
     except Exception as e:
         enrollments = []; errors.append(f'enrollments: {e}')

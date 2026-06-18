@@ -1,0 +1,2449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>HWTC Participant Portal</title>
+<style>
+:root{
+ --teal:#0d6e6e;--teal-dark:#0a5555;--teal-mid:#1b8a8a;--teal-light:#e8f5f5;--teal-50:#f0fafa;--teal-100:#c8e8e8;--teal-600:#0d6e6e;
+ --amber:#d97706;--amber-light:#fef3c7;
+ --text:#1a2332;--text-muted:#5a6a7a;--text-hint:#9aabb8;
+ --bg:#f4f7f9;--surface:#ffffff;--border:#e2e8ed;--border-md:#cdd5dc;
+ --radius:10px;--radius-lg:16px;--radius-xl:24px;
+ --shadow:0 2px 8px rgba(0,0,0,0.07);--shadow-lg:0 8px 24px rgba(0,0,0,0.12);
+ --green:#16a34a;--green-light:#dcfce7;
+ --purple:#7c3aed;--purple-light:#ede9fe;
+ --red:#dc2626;--red-light:#fee2e2;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── LAYOUT ── */
+.portal-shell{min-height:100vh;display:flex;flex-direction:column}
+.portal-header{background:linear-gradient(135deg,#0d3d4d 0%,#1b708d 100%);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.2)}
+.portal-header-logo{display:flex;align-items:center;gap:10px}
+.portal-header-logo img{height:32px;border-radius:6px}
+.portal-header-title{color:#fff;font-size:16px;font-weight:700;line-height:1.2}
+.portal-header-sub{color:rgba(255,255,255,0.7);font-size:11px}
+.portal-header-right{display:flex;align-items:center;gap:8px}
+.header-badge{background:rgba(255,255,255,0.15);color:#fff;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.logout-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
+.logout-btn:hover{background:rgba(255,255,255,0.2)}
+.portal-body{flex:1;padding:20px;max-width:960px;margin:0 auto;width:100%}
+
+/* ── SCREENS ── */
+.screen{display:none}
+.screen.active{display:block}
+
+/* ── LOGIN ── */
+.login-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:linear-gradient(160deg,#0d3d4d 0%,#1b708d 50%,#0d3d4d 100%)}
+.login-card{background:#fff;border-radius:var(--radius-xl);padding:40px 36px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.25)}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo img{height:48px;border-radius:8px;margin-bottom:12px}
+.login-logo h1{font-size:22px;font-weight:800;color:var(--teal-dark);line-height:1.2}
+.login-logo p{color:var(--text-muted);font-size:13px;margin-top:4px}
+.login-tabs{display:flex;gap:0;margin-bottom:24px;border:1.5px solid var(--border-md);border-radius:var(--radius);overflow:hidden}
+.login-tab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted);background:var(--bg);transition:all 0.15s;border:none;font-family:inherit}
+.login-tab.active{background:var(--teal);color:#fff}
+.login-field{margin-bottom:16px}
+.login-field label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px}
+.login-field input{width:100%;padding:12px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:15px;outline:none;transition:border 0.15s}
+.login-field input:focus{border-color:var(--teal-mid)}
+.login-btn{width:100%;padding:13px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:background 0.15s;margin-top:4px}
+.login-btn:hover{background:var(--teal-dark)}
+.login-btn:disabled{opacity:0.6;cursor:not-allowed}
+.login-error{background:var(--red-light);color:var(--red);border-radius:var(--radius);padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+.login-hint{font-size:12px;color:var(--text-hint);text-align:center;margin-top:16px;line-height:1.5}
+
+/* ── CHILD SWITCHER ── */
+.child-switcher{background:var(--teal-light);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.child-switcher label{font-size:13px;font-weight:700;color:var(--teal-dark);white-space:nowrap}
+.child-select{flex:1;min-width:180px;padding:8px 12px;border:1.5px solid var(--teal-mid);border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;color:var(--teal-dark);background:#fff;outline:none;cursor:pointer}
+
+/* ── CARDS ── */
+.card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);box-shadow:var(--shadow)}
+.card-header{padding:18px 20px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-title{font-size:16px;font-weight:700}
+.card-body{padding:16px 20px 20px}
+.section-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:12px}
+
+/* ── PROGRAM CARDS ── */
+.program-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+.program-card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:box-shadow 0.15s,transform 0.15s}
+.program-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
+.program-card.active-card{border-color:var(--teal-mid);box-shadow:0 0 0 3px var(--teal-light)}
+.program-card-bar{height:5px}
+.program-card-body{padding:16px}
+.program-card-name{font-size:15px;font-weight:700;margin-bottom:4px}
+.program-card-meta{font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:3px}
+.program-badge{display:inline-flex;align-items:center;gap:4px;background:var(--teal-light);color:var(--teal-dark);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:6px}
+
+/* ── DETAIL PANEL ── */
+.detail-panel{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;margin-bottom:20px}
+.detail-hero{background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:20px 24px;color:#fff}
+.detail-hero-name{font-size:20px;font-weight:800;margin-bottom:4px}
+.detail-hero-meta{font-size:13px;opacity:0.85;display:flex;flex-wrap:wrap;gap:12px}
+
+/* ── TABS ── */
+.tab-strip{display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.tab-strip::-webkit-scrollbar{display:none}
+.tab-btn{padding:12px 20px;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer;border:none;background:none;border-bottom:3px solid transparent;white-space:nowrap;font-family:inherit;transition:all 0.15s}
+.tab-btn.active{color:var(--teal-dark);border-bottom-color:var(--teal-mid)}
+.tab-content{display:none;padding:20px}
+.tab-content.active{display:block}
+
+/* ── ANNOUNCEMENTS ── */
+.announcement{border-left:3px solid var(--teal-mid);padding:12px 16px;margin-bottom:12px;background:var(--teal-50);border-radius:0 var(--radius) var(--radius) 0}
+.announcement-title{font-size:14px;font-weight:700;margin-bottom:4px}
+.announcement-body{font-size:13px;color:var(--text-muted);line-height:1.6;white-space:pre-wrap}
+.announcement-meta{font-size:11px;color:var(--text-hint);margin-top:6px}
+
+/* ── FILES ── */
+.file-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.file-item:last-child{border-bottom:none}
+.file-icon{width:40px;height:40px;background:var(--teal-light);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:14px;font-weight:600;margin-bottom:2px}
+.file-desc{font-size:12px;color:var(--text-muted)}
+.file-link{background:var(--teal);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0}
+.file-link:hover{background:var(--teal-dark)}
+
+/* ── CALENDAR / EVENTS ── */
+.event-item{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border)}
+.event-item:last-child{border-bottom:none}
+.event-date-block{width:48px;text-align:center;flex-shrink:0}
+.event-date-day{font-size:24px;font-weight:800;color:var(--teal-dark);line-height:1}
+.event-date-mon{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted)}
+.event-info{flex:1}
+.event-name{font-size:14px;font-weight:700;margin-bottom:3px}
+.event-meta{font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px}
+.event-today{background:var(--amber-light);border-radius:var(--radius);padding:2px 8px;font-size:10px;font-weight:800;color:var(--amber);text-transform:uppercase}
+
+/* ── INSTRUCTOR PANEL ── */
+.instructor-grid{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
+.instructor-sidebar.item{padding:10px 14px;border-radius:var(--radius);cursor:pointer;font-size:14px;font-weight:500;transition:background 0.1s;margin-bottom:4px}
+.instructor-sidebar.item:hover{background:var(--teal-light)}
+.instructor-sidebar.item.active{background:var(--teal);color:#fff;font-weight:700}
+.instructor-sidebar.item-sub{font-size:11px;opacity:0.75;margin-top:2px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:5px}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;transition:border 0.15s}
+.form-group input:focus,.form-group textarea:focus{border-color:var(--teal-mid)}
+.form-group textarea{min-height:90px;resize:vertical}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;border:none;transition:all 0.15s}
+.btn-primary{background:var(--teal);color:#fff}.btn-primary:hover{background:var(--teal-dark)}
+.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}.btn-secondary:hover{background:var(--border)}
+.btn-danger{background:var(--red-light);color:var(--red)}.btn-danger:hover{background:#fecaca}
+.btn-sm{padding:5px 10px;font-size:12px}
+.empty-state{text-align:center;padding:32px 20px;color:var(--text-muted)}
+.portal-edit-btn{background:var(--bg);border:1.5px solid var(--border-md);color:var(--text-muted);padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0}
+.portal-edit-btn:hover{background:var(--teal-light);color:var(--teal-dark);border-color:var(--teal-mid)}
+.empty-state.icon{font-size:40px;margin-bottom:10px}
+
+/* ── ROSTER ── */
+.roster-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.roster-item:last-child{border-bottom:none}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.roster-name{font-size:14px;font-weight:600}
+.roster-meta{font-size:12px;color:var(--text-muted)}
+
+/* ── LOADING ── */
+.loading{text-align:center;padding:40px;color:var(--text-muted)}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--teal-mid);border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── TOAST ── */
+#portal-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1a2332;color:#fff;padding:12px 20px;border-radius:var(--radius-lg);font-size:14px;font-weight:600;z-index:9999;opacity:0;transition:all 0.3s;pointer-events:none;white-space:nowrap;max-width:90vw}
+#portal-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:640px){
+.program-grid{grid-template-columns:1fr}
+.instructor-grid{grid-template-columns:1fr}
+.form-row{grid-template-columns:1fr}
+.login-card{padding:28px 20px}
+.portal-body{padding:12px}
+}
+</style>
+</head>
+<body>
+
+<div id="portal-toast"></div>
+
+<!-- ── LOGIN SCREEN ── -->
+<div id="screen-login" class="login-wrap">
+ <div class="login-card">
+ <div class="login-logo">
+ <img src="/static/images/logo.jpg" alt="HWTC" onerror="this.style.display='none'"/>
+ <h1>Participant Portal</h1>
+ <p>Horizon West Theater Company</p>
+ </div>
+ <div class="login-tabs">
+ <button class="login-tab active" onclick="switchLoginTab('family')">‍‍ Family / Participant</button>
+ <button class="login-tab" onclick="switchLoginTab('instructor')">Instructor</button>
+ </div>
+ <div id="error-msg" class="login-error"></div>
+
+ <!-- Family tab -->
+ <div id="tab-family">
+ <div class="login-field">
+ <label>Family / Participant Passphrase</label>
+ <input type="text" id="login-passphrase" placeholder="Enter your family passphrase…" autocomplete="off" autocapitalize="off" onkeydown="if(event.key==='Enter')doLogin()"/>
+ </div>
+ <button class="login-btn" onclick="doLogin()">Enter Portal →</button>
+ <div class="login-hint">Enter the passphrase given to you by HWTC staff.<br>Families share one passphrase · Individual participants have their own.</div>
+ </div>
+
+ <!-- Instructor tab -->
+ <div id="tab-instructor" style="display:none">
+ <div class="login-field">
+ <label>Email</label>
+ <input type="email" id="login-email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doInstructorLogin()"/>
+ </div>
+ <div class="login-field">
+ <label>Password</label>
+ <input type="password" id="login-password" placeholder="Password" onkeydown="if(event.key==='Enter')doInstructorLogin()"/>
+ </div>
+ <button class="login-btn" onclick="doInstructorLogin()">Sign In →</button>
+ <div class="login-hint">Instructors and admins can log in here using their RoleCall email and password.</div>
+ </div>
+ </div>
+</div>
+
+<!-- ── PORTAL SHELL (after login) ── -->
+<div id="screen-portal" class="portal-shell" style="display:none">
+ <header class="portal-header">
+ <div class="portal-header-logo">
+ <img src="/static/images/logo.jpg" alt="HWTC" onerror="this.style.display='none'"/>
+ <div>
+ <div class="portal-header-title">Participant Portal</div>
+ <div class="portal-header-sub">Horizon West Theater Company</div>
+ </div>
+ </div>
+ <div class="portal-header-right">
+ <span class="header-badge" id="header-badge"></span>
+ <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+ </div>
+ </header>
+
+ <!-- FAMILY / PARTICIPANT VIEW -->
+ <div id="view-family" class="portal-body" style="display:none">
+ <!-- Child switcher (shown if multiple children) -->
+ <div id="child-switcher" class="child-switcher" style="display:none">
+ <label>Viewing:</label>
+ <select class="child-select" id="child-select" onchange="switchChild()"></select>
+ </div>
+
+ <!-- Loading -->
+ <div id="family-loading" class="loading">
+ <div class="spinner"></div>
+ Loading your programs…
+ </div>
+
+ <!-- Content -->
+ <div id="family-content" style="display:none">
+ <!-- Waiver alert banner - shown when there are unsigned waivers -->
+ <div id="waiver-alert-banner" style="display:none;background:#fef2f2;border:2px solid #fca5a5;border-radius:12px;padding:16px 20px;margin-bottom:20px;cursor:pointer" onclick="switchPortalMainTab('profile',document.getElementById('portal-tab-btn-profile'))">
+ <div style="display:flex;align-items:center;gap:12px">
+ <div style="font-size:28px;flex-shrink:0"></div>
+ <div style="flex:1">
+ <div style="font-size:15px;font-weight:800;color:#dc2626;margin-bottom:2px">Action Required — Waivers Need to Be Signed</div>
+ <div id="waiver-alert-detail" style="font-size:13px;color:#7f1d1d"></div>
+ </div>
+ <div style="font-size:13px;font-weight:700;color:#dc2626;white-space:nowrap">Sign Now →</div>
+ </div>
+ </div>
+ <!-- Top-level tabs: Programs vs Profile -->
+ <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+ <button id="portal-tab-btn-programs" class="tab-btn active" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('programs',this)">Programs & Productions</button>
+ <button id="portal-tab-btn-carpools" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('carpools',this)">Carpools</button>
+ <button id="portal-tab-btn-profile" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('profile',this)">My Profile</button>
+ </div>
+
+ <!-- Programs tab -->
+ <div id="portal-main-programs">
+ <div class="program-grid" id="program-cards"></div>
+ <!-- Detail panel for selected program -->
+ <div id="program-detail" style="display:none">
+ <div class="detail-panel">
+ <div class="detail-hero" id="detail-hero"></div>
+ <div class="tab-strip" id="detail-tabs"></div>
+ <div id="detail-tab-contents"></div>
+ </div>
+ </div>
+ </div>
+
+ <!-- Profile tab -->
+ <div id="portal-main-carpools" style="display:none">
+ <div style="max-width:600px;margin:0 auto;padding:16px 0">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+ <div style="font-size:20px;font-weight:800"> Carpools</div>
+ <button onclick="openCreateCarpoolForm()" class="btn btn-primary btn-sm">+ Create Carpool</button>
+ </div>
+ <div style="font-size:14px;color:var(--text-muted);margin-bottom:20px">
+ Join an existing carpool or create one for an upcoming event.
+ </div>
+ <!-- Create form (hidden by default) -->
+ <div id="create-carpool-form" style="display:none;background:var(--surface);border:1.5px solid var(--teal-light);border-radius:12px;padding:20px;margin-bottom:20px">
+ <div style="font-size:16px;font-weight:700;margin-bottom:14px">Create a Carpool</div>
+ <div class="form-group" style="margin-bottom:12px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Event *</label>
+ <select id="cp-event-id" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="">Loading events…</option>
+ </select>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Driver Name *</label>
+ <input type="text" id="cp-driver-name" placeholder="Your name" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Driver Phone</label>
+ <input type="tel" id="cp-driver-phone" placeholder="(555) 000-0000" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Carpool Name</label>
+ <input type="text" id="cp-name" placeholder="e.g. Smith Family Carpool" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Available Seats</label>
+ <select id="cp-seats" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="2">2</option><option value="3">3</option><option value="4" selected>4</option>
+ <option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
+ </select>
+ </div>
+ </div>
+ <div class="form-group" style="margin-bottom:14px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Notes (optional)</label>
+ <input type="text" id="cp-notes" placeholder="e.g. Pickup at 5:45pm from community center" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div id="cp-create-result" style="font-size:13px;margin-bottom:10px"></div>
+ <div style="display:flex;gap:8px">
+ <button onclick="submitCreateCarpool()" class="btn btn-primary" style="flex:1">Create Carpool</button>
+ <button onclick="closeCreateCarpoolForm()" class="btn btn-secondary">Cancel</button>
+ </div>
+ </div>
+ <div id="portal-carpools-loading" style="text-align:center;padding:32px;color:var(--text-muted)">
+ <div class="spinner"></div>
+ </div>
+ <div id="portal-carpools-list" style="display:none"></div>
+ <div id="cp-join-result" style="margin-top:12px;font-size:14px;text-align:center"></div>
+ </div>
+ </div>
+ <div id="portal-main-profile" style="display:none">
+ <div id="portal-profile-content">
+ <div class="loading"><div class="spinner"></div>Loading profile…</div>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <!-- INSTRUCTOR VIEW -->
+ <div id="view-instructor" class="portal-body" style="display:none">
+ <div style="margin-bottom:20px">
+ <div style="font-size:20px;font-weight:800;margin-bottom:4px">Instructor Dashboard</div>
+ <div style="font-size:14px;color:var(--text-muted)" id="instructor-subtitle"></div>
+ </div>
+ <div class="instructor-grid">
+ <!-- Sidebar: program list -->
+ <div>
+ <div class="card" style="padding:16px">
+ <div class="section-label" style="margin-bottom:10px">Your Programs</div>
+ <div id="instructor-program-list"></div>
+ <div class="section-label" style="margin-top:16px;margin-bottom:10px">Rising Stars</div>
+ <div id="instructor-production-list"></div>
+ </div>
+ </div>
+ <!-- Main: manage selected -->
+ <div id="instructor-main">
+ <div class="empty-state card" style="padding:40px">
+ <div class="icon"></div>
+ <div>Select a program or production from the left to manage it</div>
+ </div>
+ </div>
+ </div>
+ </div>
+</div>
+
+<script>
+// ── STATE ──
+let portalSession = null // {type, family/participant/user, members, programs, productions}
+let activeChildId = null
+let activeChildData = null // {enrollments, productions, announcements, files}
+let activeContextId = null // currently selected program/production id
+let activeContextType = null
+let instructorContextId = null
+let instructorContextType = null
+let instructorData = null
+
+// ── LOGIN ──
+function switchLoginTab(tab){
+ document.querySelectorAll('.login-tab').forEach((t,i)=>{
+ t.classList.toggle('active', (i===0&&tab==='family')||(i===1&&tab==='instructor'))
+ })
+ document.getElementById('tab-family').style.display = tab==='family'?'':'none'
+ document.getElementById('tab-instructor').style.display = tab==='instructor'?'':'none'
+ document.getElementById('error-msg').style.display = 'none'
+}
+
+async function doLogin(){
+ const pass = document.getElementById('login-passphrase').value.trim()
+ if(!pass){ showError('Please enter a passphrase'); return }
+ const btn = document.querySelector('#tab-family .login-btn')
+ if(btn){ btn.disabled = true; btn.textContent = 'Checking...' }
+ try{
+ const r = await fetch('/api/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass})})
+ const d = await r.json()
+ if(!r.ok){ showError(d.error||'Passphrase not found'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' }; return }
+ portalSession = d
+ if(d.type==='family') enterFamilyPortal(d)
+ else enterParticipantPortal(d)
+ }catch(e){ showError('Connection error'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' } }
+}
+
+async function doInstructorLogin(){
+ const email = document.getElementById('login-email').value.trim()
+ const password = document.getElementById('login-password').value
+ if(!email||!password){ showError('Email and password required'); return }
+ const btn = document.querySelector('#tab-instructor .login-btn')
+ btn.disabled=true; btn.textContent='Signing in…'
+ try{
+ const r = await fetch('/api/portal/instructor-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})})
+ const d = await r.json()
+ if(!r.ok){ showError(d.error||'Invalid credentials'); btn.disabled=false; btn.textContent='Sign In →'; return }
+ portalSession = d
+ enterInstructorPortal(d)
+ }catch(e){ showError('Connection error'); btn.disabled=false; btn.textContent='Sign In →' }
+}
+
+function showError(msg){
+ const el = document.getElementById('error-msg')
+ el.textContent = msg; el.style.display = ''
+}
+
+function doLogout(){
+ portalSession = null; activeChildId = null; activeChildData = null
+ document.getElementById('screen-login').style.display = 'flex'
+ document.getElementById('screen-portal').style.display = 'none'
+ document.getElementById('login-passphrase').value = ''
+ document.getElementById('login-email').value = ''
+ document.getElementById('login-password').value = ''
+ document.getElementById('error-msg').style.display = 'none'
+ document.querySelectorAll('.login-tab')[0].click()
+}
+
+// ── FAMILY PORTAL ──
+function enterFamilyPortal(d){
+ showPortal()
+ document.getElementById('view-family').style.display = ''
+ document.getElementById('view-instructor').style.display = 'none'
+ const members = d.members || []
+ const name = d.family?.name || 'Family'
+ document.getElementById('header-badge').textContent = name
+ // Child switcher
+ if(members.length > 1){
+ const sel = document.getElementById('child-select')
+ sel.innerHTML = members.map(m=>`<option value="${m.id}">${m.first_name} ${m.last_name}</option>`).join('')
+ document.getElementById('child-switcher').style.display = 'flex'
+ }
+ if(members.length === 0){
+ document.getElementById('family-loading').innerHTML = '<div class="empty-state"><div class="icon"></div>No participants linked to this family yet. Contact HWTC staff.</div>'
+ return
+ }
+ activeChildId = members[0].id
+ loadChildData(activeChildId)
+}
+
+function enterParticipantPortal(d){
+ showPortal()
+ document.getElementById('view-family').style.display = ''
+ document.getElementById('view-instructor').style.display = 'none'
+ const p = d.participant
+ document.getElementById('header-badge').textContent = p.first_name+' '+p.last_name
+ document.getElementById('child-switcher').style.display = 'none'
+ activeChildId = p.id
+ loadChildData(p.id)
+}
+
+function switchChild(){
+ activeChildId = document.getElementById('child-select').value
+ activeChildData = null
+ activeContextId = null
+ document.getElementById('program-detail').style.display = 'none'
+ document.getElementById('family-content').style.display = 'none'
+ document.getElementById('family-loading').style.display = ''
+ document.getElementById('family-loading').innerHTML = '<div class="spinner"></div>Loading…'
+ loadChildData(activeChildId)
+}
+
+async function loadChildData(yid){
+ document.getElementById('family-loading').style.display = ''
+ document.getElementById('family-loading').innerHTML = '<div class="spinner"></div>Loading your programs…'
+ document.getElementById('family-content').style.display = 'none'
+ try{
+ const [d, profile] = await Promise.all([
+ fetch('/api/portal/participant/'+yid).then(r=>r.json()),
+ fetch('/api/portal/youth/'+yid+'/profile').then(r=>r.json()).catch(()=>null)
+ ])
+ if(d._errors) console.warn('[Portal] DB errors:', d._errors)
+ activeChildData = d
+ renderFamilyContent()
+ // Show waiver banner if there are unsigned required waivers
+ const banner = document.getElementById('waiver-alert-banner')
+ const detail = document.getElementById('waiver-alert-detail')
+ const signable = profile && profile.signable_waivers ? profile.signable_waivers: []
+ if(banner && signable.length){
+ banner.style.display = ''
+ const names = signable.map(w=>w.name).join(', ')
+ if(detail) detail.textContent = signable.length===1
+ ? `"${names}" needs to be signed before camp begins.`
+: `${signable.length} waivers need to be signed: ${names}`
+ } else if(banner){
+ banner.style.display = 'none'
+ }
+ }catch(e){
+ console.error('[Portal] loadChildData error:', e)
+ document.getElementById('family-loading').innerHTML = '<div class="empty-state"><div class="icon"></div>Could not load data. Please try again.</div>'
+ }
+}
+
+function renderFamilyContent(){
+ document.getElementById('family-loading').style.display = 'none'
+ document.getElementById('family-content').style.display = ''
+ const {enrollments=[], productions=[]} = activeChildData
+ console.log('[Portal] renderFamilyContent — enrollments:', enrollments.length, 'productions:', productions.length, 'raw:', activeChildData)
+ const cards = document.getElementById('program-cards')
+ if(!enrollments.length &&!productions.length){
+ cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon"></div>No programs or productions enrolled yet.</div>'
+ return
+ }
+ const colors = ['#0d6e6e','#7c3aed','#d97706','#16a34a','#dc2626','#0369a1']
+ cards.innerHTML = ''
+ let html = ''
+ enrollments.forEach((e,i)=>{
+ const col = colors[i%colors.length]
+ const isActive = activeContextId===e.program_id && activeContextType==='program'
+ const card = document.createElement('div')
+ card.className = 'program-card'+(isActive?' active-card':'')
+ card.dataset.ctxType = 'program'
+ card.dataset.ctxId = e.program_id
+ card.dataset.ctxName = e.program_name
+ card.dataset.ctxColor = col
+ card.onclick = ()=>selectContext('program',e.program_id,e.program_name,col)
+ card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
+ +'<div class="program-card-body">'
+ +'<div class="program-card-name">'+e.program_name+'</div>'
+ +'<div class="program-card-meta">'
+ +(e.instructor_name?'<span> '+e.instructor_name+'</span>':'')
+ +(e.start_date?'<span> '+fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):'')+'</span>':'')
+ +'</div></div>'
+ cards.appendChild(card)
+ })
+ productions.forEach(p=>{
+ const col = '#7c3aed'
+ const isActive = activeContextId===p.id && activeContextType==='production'
+ const card = document.createElement('div')
+ card.className = 'program-card'+(isActive?' active-card':'')
+ card.dataset.ctxType = 'production'
+ card.dataset.ctxId = p.id
+ card.onclick = ()=>selectContext('production',p.id,p.name,col)
+ card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
+ +'<div class="program-card-body">'
+ +'<div class="program-card-name">⭐ '+p.name+'</div>'
+ +'<div class="program-card-meta"><span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars</span>'
+ +(p.cast_role?'<span> Role: '+p.cast_role+'</span>':'')
+ +'</div></div>'
+ cards.appendChild(card)
+ })
+}
+
+
+function switchPortalMainTab(tab, btn){
+ document.querySelectorAll('[id^="portal-tab-btn-"]').forEach(b=>{
+ b.classList.remove('active')
+ b.style.borderBottomColor='transparent'
+ b.style.color='var(--text-muted)'
+ })
+ if(btn){ btn.classList.add('active'); btn.style.borderBottomColor='var(--teal-mid)'; btn.style.color='var(--teal-dark)' }
+ document.getElementById('portal-main-programs').style.display = tab==='programs'?'':'none'
+ document.getElementById('portal-main-carpools').style.display = tab==='carpools'?'':'none'
+ document.getElementById('portal-main-profile').style.display = tab==='profile'?'':'none'
+ if(tab==='profile') loadPortalProfile()
+ if(tab==='carpools') loadPortalCarpools()
+}
+
+async function loadPortalProfile(){
+ const el = document.getElementById('portal-profile-content')
+ if(!el) return
+ if(!activeChildId){ el.innerHTML='<div class="empty-state"><div class="icon"></div>No participant selected.</div>'; return }
+ el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+ try{
+ const data = await fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json())
+ console.log('[Portal] profile data:', data)
+ window._portalProfileData = {y:data, yid:activeChildId}
+ window._portalYid = activeChildId
+ window._portalY = data
+ el.innerHTML = '<div class="card" style="padding:20px">'+buildProfileTab(data, activeChildId)+'</div>'
+ }catch(e){
+ el.innerHTML='<div class="empty-state"><div class="icon"></div>Could not load profile.</div>'
+ }
+}
+
+let _selectLock = false
+async function selectContext(type, id, name, color){
+ if(_selectLock) return
+ _selectLock = true
+ try {
+ activeContextId = id; activeContextType = type
+ // Highlight the active card without full re-render
+ document.querySelectorAll('.program-card').forEach(c=>{
+ c.classList.remove('active-card')
+ if(c.dataset.ctxId===id) c.classList.add('active-card')
+ })
+
+ // Show detail panel with loading state
+ const panel = document.getElementById('program-detail')
+ panel.style.display = ''
+ document.getElementById('detail-hero').innerHTML = '<div class="detail-hero-name">'+name+'</div><div class="detail-hero-meta" id="detail-hero-meta">Loading…</div>'
+ document.getElementById('detail-hero').style.background = '' // reset any previous production branding
+ document.getElementById('detail-tabs').innerHTML = ''
+ document.getElementById('detail-tab-contents').innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading…</div>'
+
+ // Fetch everything in parallel
+ const endpoint = type==='program'?'/api/portal/program/'+id+'/events':'/api/portal/production/'+id+'/events'
+ const conflictsUrl = type==='production' ? '/api/portal/production/'+id+'/conflicts'+(activeChildId?'?youth_id='+activeChildId:''): null
+ const teamUrl = type==='production' ? '/api/productions/'+id+'/team': null
+ const generalUrl = type==='production' ? '/api/productions/'+id+'/general-content': null
+ const [events, profileData, conflicts, teamMembers, generalContent] = await Promise.all([
+ fetch(endpoint).then(r=>r.json()).catch(()=>[]),
+ activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null): Promise.resolve(null),
+ conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
+ teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
+ generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null): Promise.resolve(null)
+ ])
+ // Build conflict lookup by event_id
+ const conflictByEvent = {}
+ ;(conflicts||[]).forEach(c=>{ if(c.event_id){ if(!conflictByEvent[c.event_id]) conflictByEvent[c.event_id]=[]; conflictByEvent[c.event_id].push(c) } })
+
+ // Filter announcements/files
+ const {announcements=[], files=[]} = activeChildData
+ const contextAnnouncements = announcements.filter(a=> type==='program'?a.program_id===id:a.production_id===id)
+ const contextFiles = files.filter(f=> type==='program'?f.program_id===id:f.production_id===id)
+
+ // Fill hero
+ let ctxName=name, instructor='', dateStr='', castRole='', prodVenue='', prodPerfDates='', prodPerfLocation=''
+ if(type==='program'){
+ const e = activeChildData.enrollments?.find(e=>e.program_id===id)
+ if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):''
+      // Store instructor details for About section
+      window._ctxInstructorBio = e.instructor_bio||''
+      window._ctxInstructorPhoto = e.instructor_photo||''
+      window._ctxInstructorName = e.instructor_name||''
+    }
+ // Check if cast in this program's audition
+ const pp = portalSession?.passphrase||''
+ if(pp){
+ // Only show cast role badge if cast list is published
+ Promise.all([
+ fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(pp)}&context_type=program&context_id=${id}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+ fetch(`/api/auditions/cast-list/program/${id}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+ ]).then(([sub, castData])=>{
+ if(sub?.status==='cast' && sub?.cast_role && castData?.published){
+ castRole = sub.cast_role
+ // Re-render hero with cast role
+ const heroEl = document.getElementById('detail-hero')
+ if(heroEl){
+ const badge = '<div style="margin-top:5px"><span style="background:rgba(255,255,255,0.18);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">'+sub.cast_role+'</span></div>'
+ const nameEl = heroEl.querySelector('.detail-hero-name')
+ if(nameEl &&!heroEl.querySelector('.cast-role-badge')){
+ const div = document.createElement('div')
+ div.className = 'cast-role-badge'
+ div.innerHTML = badge
+ nameEl.after(div)
+ }
+ }
+ }
+ }).catch(()=>{})
+ }
+ } else {
+ const p = activeChildData.productions?.find(p=>p.id===id)
+ if(p){
+ ctxName=p.name; castRole=p.cast_role||''
+ prodVenue = p.venue||''
+ prodPerfLocation = p.performance_location||''
+ prodPerfDates = p.start_date ? fmtDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' – '+fmtDate(p.end_date):''): ''
+ // Apply portal branding to hero
+ const hero = document.getElementById('detail-hero')
+ if(hero){
+ if(p.portal_image_url){
+ hero.style.background = 'linear-gradient(rgba(0,0,0,0.45),rgba(0,0,0,0.55)), url('+p.portal_image_url+') center/cover no-repeat'
+ } else if(p.portal_color){
+ hero.style.background = 'linear-gradient(135deg,'+p.portal_color+','+p.portal_color+'bb)'
+ } else {
+ hero.style.background = '' // fallback to CSS class default
+ }
+ }
+ }
+ }
+
+ // Build production detail line: "Performance Venue · Location · Dates"
+ const heroParts = []
+ if(prodVenue) heroParts.push(prodVenue+(prodPerfLocation?' · '+prodPerfLocation:''))
+ else if(prodPerfLocation) heroParts.push(prodPerfLocation)
+ if(prodPerfDates) heroParts.push(prodPerfDates)
+ if(instructor) heroParts.push(' '+instructor)
+ const heroDetailLine = heroParts.join(' &nbsp;·&nbsp; ')
+
+ document.getElementById('detail-hero').innerHTML =
+ '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">'
+ // Left column
+ +'<div style="flex:1;min-width:0">'
+ +'<div class="detail-hero-name">'+ctxName+'</div>'
+ +(castRole?'<div style="margin-top:5px"><span style="background:rgba(255,255,255,0.18);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">'+castRole+'</span></div>':'')
+ +(heroDetailLine?'<div style="margin-top:8px;font-size:12px;opacity:0.75;line-height:1.5">'+heroDetailLine+'</div>':'')
+ +(type==='production'?'<div style="margin-top:6px"><span style="background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.3px">⭐ Rising Stars</span></div>':'')
+ +'</div>'
+ // Right column — today's date
+ +'<div style="text-align:right;flex-shrink:0;padding-top:2px">'
+ +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;opacity:0.55;margin-bottom:3px">Today</div>'
+ +'<div style="font-size:14px;font-weight:700;opacity:0.95">'+new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+'</div>'
+ +'</div>'
+ +'</div>'
+ +(type==='production'?buildCalloutBar(id, activeChildId):'')
+
+ // Build tabs
+ const today = new Date().toISOString().split('T')[0]
+ const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+ const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
+
+ const isProduction = type==='production'
+ const tabDefs = [
+ {id:'schedule', label:'Schedule'+(events.length?' ('+events.length+')':'')},
+ {id:'announcements', label:'Announcements'+(contextAnnouncements.length?' ('+contextAnnouncements.length+')':'')},
+ {id:'files', label: isProduction ? 'Rehearsal Materials': 'Files'},
+ ]
+ if(isProduction){
+ const rsCheck = activeChildData.productions?.find(p=>p.id===id)
+ if(!rsCheck || rsCheck.stage==='rising_stars' || isProduction){
+ tabDefs.unshift({id:'general', label:'Info'})
+ tabDefs.unshift({id:'overview', label:'Overview'})
+ }
+ }
+ if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
+ if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
+ // Add Auditions tab if open (loaded async — add as placeholder, fill when clicked)
+ tabDefs.push({id:'auditions', label:' Auditions'})
+ tabDefs.push({id:'messages', label:' Messages'})
+ // Profile tab removed — shown at top of page instead
+
+ document.getElementById('detail-tabs').innerHTML = ''
+ tabDefs.forEach((t,i)=>{
+ const btn = document.createElement('button')
+ btn.className = 'tab-btn'+(i===0?' active':'')
+ btn.dataset.tab = t.id
+ btn.textContent = t.label
+ btn.onclick = function(){ switchDetailTab(t.id, this) }
+ document.getElementById('detail-tabs').appendChild(btn)
+ })
+
+ // Build schedule HTML — pass conflicts so each event row can show callout status
+ const schedHTML =!events.length
+ ? '<div class="empty-state"><div class="icon"></div>No events scheduled yet.</div>'
+: '<div style="margin-bottom:8px;font-weight:700;font-size:13px;color:var(--teal-dark)">Upcoming</div>'
+ +(upcoming.length?upcoming.map(e=>eventRow(e,today,conflictByEvent)).join(''):'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No upcoming events</div>')
+ +(past.length?'<div style="margin-top:16px;margin-bottom:8px;font-weight:700;font-size:13px;color:var(--text-muted)">Past</div>'+past.map(e=>eventRow(e,today,{})).join(''):'')
+
+ // Build announcements HTML
+ const annHTML =!contextAnnouncements.length
+ ? '<div class="empty-state"><div class="icon"></div>No announcements yet.</div>'
+: contextAnnouncements.map(a=>
+ '<div class="announcement">'
+ +'<div class="announcement-title">'+a.title+'</div>'
+ +'<div class="announcement-body">'+escHtml(a.body)+'</div>'
+ +'<div class="announcement-meta">'+(a.author_name?'From '+a.author_name+' · ':'')+fmtDateTime(a.created_at)+'</div>'
+ +'</div>').join('')
+
+ // Build files HTML (grouped by folder)
+ let filesHTML
+ if(!contextFiles.length){
+ filesHTML = '<div class="empty-state"><div class="icon"></div>No files shared yet.</div>'
+ } else {
+ const folders={}
+ contextFiles.forEach(f=>{ const folder=f.folder&&f.folder!=='null'?f.folder:'General'; if(!folders[folder])folders[folder]=[]; folders[folder].push(f) })
+ filesHTML = Object.entries(folders).map(([folder,fls])=>
+ '<div style="margin-bottom:16px">'
+ +'<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px"> '+folder+'</div>'
+ +fls.map(f=>
+ '<div class="file-item">'
+ +'<div class="file-icon"></div>'
+ +'<div class="file-info"><div class="file-name">'+f.title+'</div>'
+ +(f.description&&!f.description.startsWith('__folder__')?'<div class="file-desc">'+f.description+'</div>':'')
+ +'</div>'
+ +'<a href="'+f.drive_url+'" target="_blank" class="file-link">Open →</a>'
+ +'</div>').join('')
+ +'</div>'
+ ).join('')
+ }
+
+ // Build profile HTML
+ let profileHTML = ''
+ if(profileData){
+ const y = profileData
+ profileHTML = buildProfileTab(y, activeChildId)
+ }
+
+ // Build Overview HTML
+ const overviewHTML = buildProductionOverviewHTML(activeChildData.productions?.find(p=>p.id===id), events, contextAnnouncements, conflicts, activeChildId, id)
+
+ // Build General Info HTML
+ const generalHTML = buildGeneralInfoHTML(generalContent)
+
+ // Build Meet the Team HTML
+ const teamHTML = buildTeamHTML(teamMembers)
+
+ // Build Conflicts HTML
+ const conflictsHTML = buildPortalConflictsHTML(conflicts, activeChildId, id, events)
+
+ // Set all tab content at once — overview is default for productions, schedule for programs
+ const firstTab = type==='production' ? 'overview': 'schedule'
+ const tabHTML =
+ '<div class="tab-content '+(firstTab==='schedule'?'active':'')+'" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
+ +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
+ +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
+ +(type==='production'?'<div class="tab-content '+(firstTab==='overview'?'active':'')+'" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
+ +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
+ +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
+ +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
+ // profile tab removed
+ +'<div class="tab-content" id="dtab-auditions" style="padding:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>' +'<div class="tab-content" id="dtab-messages" style="padding:20px">' +'<div id="portal-inline-messages" style="min-height:120px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>' +'</div>'
+
+ document.getElementById('detail-tab-contents').innerHTML = tabHTML
+ panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+
+  // Inject "About Your Instructor" section for programs
+  if(type==='program' && (window._ctxInstructorBio || window._ctxInstructorPhoto) && window._ctxInstructorName){
+    const existingAbout = document.getElementById('portal-instructor-about')
+    if(existingAbout) existingAbout.remove()
+    const aboutDiv = document.createElement('div')
+    aboutDiv.id = 'portal-instructor-about'
+    aboutDiv.style.cssText = 'padding:16px 20px 0'
+    const photoHTML = window._ctxInstructorPhoto
+      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">`
+      : `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
+    aboutDiv.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">
+      ${photoHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:4px">Your Instructor</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">${window._ctxInstructorName}</div>
+        ${window._ctxInstructorBio ? `<div style="font-size:13px;color:var(--text-muted);line-height:1.6">${window._ctxInstructorBio.replace(/\n/g,'<br>')}</div>` : ''}
+      </div>
+    </div>`
+    // Insert before the tab strip
+    const tabStrip = document.getElementById('detail-tabs')
+    if(tabStrip && tabStrip.parentNode){
+      tabStrip.parentNode.insertBefore(aboutDiv, tabStrip)
+    }
+  } else {
+    const existingAbout = document.getElementById('portal-instructor-about')
+    if(existingAbout) existingAbout.remove()
+  }
+ } catch(err) {
+ console.error('[Portal] selectContext error:', err)
+ document.getElementById('detail-tab-contents').innerHTML =
+ '<div class="empty-state"><div class="icon"></div>'
+ +'<div style="font-weight:600;margin-bottom:8px">Could not load content</div>'
+ +'<div style="font-size:13px;color:var(--text-muted)">'+err.message+'</div>'
+ +'</div>'
+ } finally {
+ _selectLock = false
+ }
+}
+
+function buildProfileTab(y, yid){
+ // Store for handler access
+ window._portalYid = yid
+ window._portalY = y
+
+ function field(label, key, val){
+ const display = val || ''
+ return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">'
+ +'<div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">'+label+'</div>'
+ +'<div style="font-size:14px;margin-top:2px">'+(display||'<span style="color:var(--text-hint)">Not set</span>')+'</div></div>'
+ +'<button class="portal-edit-btn" data-field-key="'+key+'" data-field-label="'+label+'" data-field-val="'+display.replace(/"/g,"'").replace(/[\r\n]/g," ")+'" onclick="portalFieldClick(this)">Edit</button>'
+ +'</div>'
+ }
+
+ let html = '<div style="margin-bottom:20px">'
+ +'<div style="font-size:15px;font-weight:700;margin-bottom:4px">Personal Information</div>'
+ +'<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">To request a change, click Edit next to any field. Changes go to HWTC staff for approval.</div>'
+ +field('First Name','first_name',y.first_name||'')
+ +field('Last Name','last_name',y.last_name||'')
+ +field('Date of Birth','dob',y.dob?fmtDate(y.dob):'')
+ +field('Allergies','allergies',y.allergies||'')
+ +field('Medical Notes','medical_notes',y.medical_notes||'')
+ +'<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">'
+ +'<div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">T-Shirt Size</div>'
+ +'<div style="font-size:14px;margin-top:2px" id="portal-shirt-display">'+(y.shirt_size||'<span style="color:var(--text-hint)">Not set</span>')+'</div></div>'
+ +'<div style="display:flex;align-items:center;gap:8px">'
+ +'<select id="portal-shirt-select" onchange="savePortalShirtSize(\''+yid+'\')" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;cursor:pointer">'
+ +'<option value="">— Select —</option>'
+ +'<option value="YXS"'+(y.shirt_size==='YXS'?' selected':'')+'>Youth XS</option>'
+ +'<option value="YS"'+(y.shirt_size==='YS'?' selected':'')+'>Youth S</option>'
+ +'<option value="YM"'+(y.shirt_size==='YM'?' selected':'')+'>Youth M</option>'
+ +'<option value="YL"'+(y.shirt_size==='YL'?' selected':'')+'>Youth L</option>'
+ +'<option value="YXL"'+(y.shirt_size==='YXL'?' selected':'')+'>Youth XL</option>'
+ +'<option value="AS"'+(y.shirt_size==='AS'?' selected':'')+'>Adult S</option>'
+ +'<option value="AM"'+(y.shirt_size==='AM'?' selected':'')+'>Adult M</option>'
+ +'<option value="AL"'+(y.shirt_size==='AL'?' selected':'')+'>Adult L</option>'
+ +'<option value="AXL"'+(y.shirt_size==='AXL'?' selected':'')+'>Adult XL</option>'
+ +'<option value="A2XL"'+(y.shirt_size==='A2XL'?' selected':'')+'>Adult 2XL</option>'
+ +'</select>'
+ +'<span id="portal-shirt-saved" style="font-size:12px;color:var(--green);display:none"> Saved</span>'
+ +'</div>'
+ +'</div>'
+ +'</div>'
+
+ html += '<div style="margin-bottom:20px">'
+ +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Guardians</div>'
+ if(!y.guardians||!y.guardians.length){
+ html += '<div style="font-size:13px;color:var(--text-muted)">No guardians on file. Contact HWTC to add guardians.</div>'
+ } else {
+ y.guardians.forEach(function(g){
+ html += '<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:8px">'
+ +'<div style="font-size:14px;font-weight:600">'+(g.is_primary?'Primary: ':'')+escHtml(g.name||'')+'</div>'
+ +'<div style="font-size:12px;color:var(--text-muted);margin-top:4px">'
+ +escHtml(g.relationship||'')+' | '+escHtml(g.phone||'')+' | '+escHtml(g.email||'')
+ +'</div>'
+ +'<button class="portal-edit-btn" data-field-key="guardian_'+g.id+'" data-field-label="Guardian info for '+escHtml(g.name||'')+'" data-field-val="Name: '+escHtml(g.name||'')+', Phone: '+escHtml(g.phone||'')+', Email: '+escHtml(g.email||'')+'" onclick="portalFieldClick(this)" style="margin-top:8px">Request Change to Guardian Info</button>'
+ +'</div>'
+ })
+ }
+ html += '</div>'
+
+ html += '<div style="margin-bottom:20px">'
+ +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Emergency Contacts</div>'
+ if(!y.emergency||!y.emergency.length){
+ html += '<div style="font-size:13px;color:var(--text-muted)">No emergency contacts on file.</div>'
+ } else {
+ y.emergency.forEach(function(ec){
+ html += '<div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:8px">'
+ +'<div style="font-size:14px;font-weight:600">'+escHtml(ec.name||'')+'</div>'
+ +'<div style="font-size:12px;color:var(--text-muted);margin-top:4px">'
+ +escHtml(ec.relationship||'')+' | '+escHtml(ec.phone||'')
+ +'</div></div>'
+ })
+ }
+ html += '</div>'
+
+ html += '<div style="margin-top:24px">'
+ +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Waivers</div>'
+
+ // Signed waivers
+ if(y.waivers && y.waivers.length){
+ y.waivers.forEach(function(w){
+ html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">'
+ +'<div><div style="font-size:14px;font-weight:600">'+escHtml(w.type_name||'')+'</div>'
+ +(w.signed_date?'<div style="font-size:12px;color:var(--text-muted)">Signed '+fmtDate(w.signed_date)+(w.signed_via==='portal'?' · Online':w.signed_via==='upload'?' · On file':'')+'</div>':'')
+ +'</div>'
+ +'<span style="font-size:11px;font-weight:700;background:#dcfce7;color:#16a34a;padding:3px 10px;border-radius:10px"> Signed</span>'
+ +'</div>'
+ })
+ }
+
+ // Signable waivers not yet signed
+ if(y.signable_waivers && y.signable_waivers.length){
+ y.signable_waivers.forEach(function(wt){
+ html += '<div style="border:1.5px solid #fde047;border-radius:10px;padding:14px;margin-top:12px;background:#fefce8">'
+ +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px">'
+ +'<div>'
+ +'<div style="font-size:14px;font-weight:700">'+escHtml(wt.name)+'</div>'
+ +'<div style="font-size:11px;font-weight:700;background:#fef9c3;color:#854d0e;border:1px solid #fde047;padding:2px 8px;border-radius:10px;display:inline-block;margin-top:4px">ACTION REQUIRED</div>'
+ +'</div>'
+ +'</div>'
+ +(wt.template_body?'<div style="font-size:13px;line-height:1.7;color:var(--text);background:white;border:1px solid #fde047;border-radius:8px;padding:14px;margin-bottom:12px;max-height:220px;overflow-y:auto;white-space:pre-wrap">'+escHtml(wt.template_body)+'</div>':'')
+ +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">By signing below, I confirm I have read and agree to the terms above on behalf of <strong>'+escHtml(y.first_name+' '+y.last_name)+'</strong>.</div>'
+ +'<div style="display:flex;gap:8px;align-items:flex-end">'
+ +'<div style="flex:1">'
+ +'<label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Your Full Name (Signature)</label>'
+ +'<input type="text" id="waiver-sig-'+wt.id+'" placeholder="Type your full name to sign" style="width:100%;padding:10px 14px;border:1.5px solid #fde047;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>'
+ +'</div>'
+ +'<button onclick="submitPortalWaiver(\''+yid+'\',\''+wt.id+'\')" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">Sign Waiver</button>'
+ +'</div>'
+ +'<div id="waiver-result-'+wt.id+'" style="margin-top:8px;font-size:13px"></div>'
+ +'</div>'
+ })
+ }
+
+ if((!y.waivers||!y.waivers.length) && (!y.signable_waivers||!y.signable_waivers.length)){
+ html += '<div style="font-size:13px;color:var(--text-muted)">No waivers required at this time.</div>'
+ }
+
+ html += '</div>'
+
+ // Change passphrase section
+ html += '<div style="margin-top:28px;padding-top:20px;border-top:2px solid var(--border)">'
+ +'<div style="font-size:15px;font-weight:700;margin-bottom:4px"> Change Passphrase</div>'
+ +'<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Update the passphrases used to log into this portal.</div>'
+
+ var inFamily = portalSession && portalSession.type === 'family'
+ if(inFamily){
+ html += '<div style="display:flex;gap:8px;margin-bottom:16px">'
+ +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">‍‍ Family Passphrase</button>'
+ +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Individual Passphrase</button>'
+ +'</div>'
+ +'<div id="pp-panel-family" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>all children</strong> in your family at once.</div>'
+ +'<div id="pp-panel-individual" style="display:none;font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>just this child</strong>.</div>'
+ }
+
+ html += '<div style="display:flex;flex-direction:column;gap:10px;max-width:400px">'
+ +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Current Passphrase</label>'
+ +'<input type="password" id="pp-current" placeholder="Your current passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+ +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">New Passphrase</label>'
+ +'<input type="password" id="pp-new" placeholder="Choose a new passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+ +'<div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Confirm New Passphrase</label>'
+ +'<input type="password" id="pp-confirm" placeholder="Confirm new passphrase" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/></div>'
+ +'<div id="pp-result" style="font-size:13px"></div>'
+ +'<button onclick="changePortalPassphrase()" style="background:var(--teal);color:white;border:none;border-radius:8px;padding:11px 20px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;width:fit-content">Update Passphrase</button>'
+ +'</div>'
+
+ html += '</div>' // close change passphrase section
+
+ return html
+}
+
+var _ppTabMode = 'family' // 'family' or 'individual'
+
+function switchPPTab(tab){
+ _ppTabMode = tab
+ var fBtn = document.getElementById('pp-tab-family')
+ var iBtn = document.getElementById('pp-tab-individual')
+ var fPanel = document.getElementById('pp-panel-family')
+ var iPanel = document.getElementById('pp-panel-individual')
+ if(fBtn) fBtn.style.background = tab==='family'?'var(--teal)':'var(--surface)'
+ if(fBtn) fBtn.style.color = tab==='family'?'#fff':'var(--text)'
+ if(fBtn) fBtn.style.borderColor = tab==='family'?'var(--teal)':'var(--border-md)'
+ if(iBtn) iBtn.style.background = tab==='individual'?'var(--teal)':'var(--surface)'
+ if(iBtn) iBtn.style.color = tab==='individual'?'#fff':'var(--text)'
+ if(iBtn) iBtn.style.borderColor = tab==='individual'?'var(--teal)':'var(--border-md)'
+ if(fPanel) fPanel.style.display = tab==='family'?'':'none'
+ if(iPanel) iPanel.style.display = tab==='individual'?'':'none'
+ // Clear fields
+ ;['pp-current','pp-new','pp-confirm'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='' })
+ var r=document.getElementById('pp-result'); if(r) r.innerHTML=''
+}
+
+async function changePortalPassphrase(){
+ var current = document.getElementById('pp-current')?.value.trim()
+ var newPP = document.getElementById('pp-new')?.value.trim()
+ var confirm = document.getElementById('pp-confirm')?.value.trim()
+ var result = document.getElementById('pp-result')
+ if(!current||!newPP||!confirm){
+ if(result) result.innerHTML='<span style="color:#dc2626">Please fill in all three fields.</span>'; return
+ }
+ if(newPP!== confirm){
+ if(result) result.innerHTML='<span style="color:#dc2626">New passphrases do not match.</span>'; return
+ }
+ if(newPP.length < 4){
+ if(result) result.innerHTML='<span style="color:#dc2626">New passphrase must be at least 4 characters.</span>'; return
+ }
+ // If family mode and logged in as family, change family passphrase
+ // If individual mode, change just this child's passphrase
+ var inFamily = portalSession && portalSession.type === 'family'
+ var changeFamily = inFamily && _ppTabMode === 'family'
+ if(result) result.innerHTML='<span style="color:var(--text-muted)">Updating…</span>'
+ try {
+ var r = await fetch('/api/portal/change-passphrase',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({
+ current_passphrase: current,
+ new_passphrase: newPP,
+ change_type: changeFamily ? 'family': 'individual',
+ youth_id: activeChildId
+ })
+ })
+ var d = await r.json()
+ if(d.error){
+ if(result) result.innerHTML='<span style="color:#dc2626">'+escHtml(d.error)+'</span>'; return
+ }
+ if(portalSession) portalSession.passphrase = newPP
+ ;['pp-current','pp-new','pp-confirm'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='' })
+ if(result) result.innerHTML='<span style="color:#16a34a;font-weight:600"> Passphrase updated successfully!</span>'
+ toast('Passphrase updated!')
+ setTimeout(function(){ if(result) result.innerHTML='' }, 4000)
+ } catch(e){
+ if(result) result.innerHTML='<span style="color:#dc2626">Error updating passphrase. Please try again.</span>'
+ }
+}
+
+async function submitPortalWaiver(yid, waiverId){
+ var sig = document.getElementById('waiver-sig-'+waiverId)
+ var result = document.getElementById('waiver-result-'+waiverId)
+ var name = sig ? sig.value.trim(): ''
+ if(!name){ if(result) result.innerHTML='<span style="color:#dc2626">Please type your full name to sign.</span>'; return }
+ if(result) result.innerHTML='<span style="color:var(--text-muted)">Signing…</span>'
+ try {
+ var r = await fetch('/api/portal/youth/'+yid+'/sign-waiver',{
+ method:'POST',
+ headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({waiver_type_id:waiverId, signed_name:name})
+ })
+ var d = await r.json()
+ if(d.error){
+ if(result) result.innerHTML='<span style="color:#dc2626">'+escHtml(d.error)+'</span>'
+ return
+ }
+ // Refresh the profile tab to show updated waivers
+ toast('Waiver signed successfully!')
+ if(typeof switchPortalMainTab === 'function') switchPortalMainTab('profile', document.getElementById('portal-tab-btn-profile'))
+ } catch(e) {
+ if(result) result.innerHTML='<span style="color:#dc2626">Error signing waiver. Please try again.</span>'
+ }
+}
+
+async function savePortalShirtSize(yid){
+ const sel = document.getElementById('portal-shirt-select')
+ const display = document.getElementById('portal-shirt-display')
+ const saved = document.getElementById('portal-shirt-saved')
+ if(!sel) return
+ const size = sel.value
+ try {
+ const r = await fetch('/api/portal/youth/'+yid+'/shirt-size', {
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({shirt_size: size})
+ })
+ const d = await r.json()
+ if(d.error){ toast(d.error,'error'); return }
+ if(display) display.innerHTML = size || '<span style="color:var(--text-hint)">Not set</span>'
+ if(saved){ saved.style.display=''; setTimeout(()=>{ saved.style.display='none' }, 2000) }
+ } catch(e) {
+ toast('Could not save shirt size','error')
+ }
+}
+
+function portalFieldClick(btn){
+ var key = btn.getAttribute('data-field-key')
+ var label = btn.getAttribute('data-field-label')
+ var val = btn.getAttribute('data-field-val')
+ var yid = window._portalYid
+ if(!yid) return
+ var newVal = prompt('Request change to "'+label+'":\nCurrent: '+(val||'(not set)')+'\n\nNew value:')
+ if(newVal===null||newVal.trim()==='') return
+ fetch('/api/portal/youth/'+yid+'/request-update',{
+ method:'POST',
+ headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({field_name:key, old_value:val||'', new_value:newVal.trim()})
+ }).then(function(r){return r.json()}).then(function(d){
+ if(d.ok) toast('Change request submitted! HWTC staff will review it.')
+ else toast('Error submitting request','error')
+ })
+}
+
+
+function buildCalloutBar(productionId, yid){
+ if(!yid) return ''
+ window._calloutProdId = productionId
+ window._calloutYid = yid
+ return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
+ +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to today\'s event in the Schedule tab.</div>'
+ +'</div>'
+}
+
+function handleCalloutBtn(btn){
+ var status = btn.getAttribute('data-callout')
+ var productionId = window._calloutProdId
+ var yid = window._calloutYid
+ submitCallout(productionId, yid, status)
+}
+
+
+async function submitCallout(productionId, yid, status){
+ const labels = {absent:'Absent',sick:'Sick',late:'Running Late',leaving_early:'Leaving Early'}
+ if(!confirm('Mark '+labels[status]+' for today? This will notify the production team.')) return
+ const notes = status==='late'||status==='leaving_early' ? (prompt('Any notes? (optional)','') || ''): ''
+ const r = await fetch('/api/portal/callout',{
+ method:'POST',
+ headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({production_id:productionId, youth_id:yid, status, notes})
+ })
+ const d = await r.json()
+ if(d.ok){
+ toast('Callout submitted! The production team has been notified.')
+ // Re-render the detail hero to show confirmation state
+ const heroEl = document.getElementById('detail-hero')
+ if(heroEl){
+ const bar = heroEl.querySelector('[data-callout-bar]')
+ if(bar) bar.innerHTML = '<div style="font-size:13px;color:rgba(255,255,255,0.9);margin-top:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,0.2)"> Callout submitted — the team has been notified.</div>'
+ }
+ } else {
+ toast(d.error||'Error submitting callout','error')
+ }
+}
+
+function switchDetailTab(id, btn){
+ document.querySelectorAll('#detail-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
+ btn.classList.add('active')
+ document.querySelectorAll('#detail-tab-contents .tab-content').forEach(c=>{
+ c.classList.remove('active')
+ c.style.display = 'none'
+ })
+ if(id === 'messages'){
+ const passphrase = portalSession?.passphrase || ''
+ loadInlineMessages(passphrase, activeContextType, activeContextId)
+ }
+ if(id === 'auditions'){
+ const passphrase = portalSession?.passphrase || ''
+ const participant = activeChildData?.members?.find(m=>String(m.id)===String(activeChildId))
+ || portalSession?.participant
+ const pName = participant ? (participant.first_name+' '+(participant.last_name||'')).trim(): ''
+ loadPortalAuditionsTab(activeContextType, activeContextId, passphrase, activeChildId, pName)
+ }
+ const target = document.getElementById('dtab-'+id)
+ if(target){ target.classList.add('active'); target.style.display = 'block' }
+}
+
+const CONFLICT_LABELS = {absent:' Absent',sick:' Sick',late:' Running Late',leaving_early:' Leaving Early'}
+const CONFLICT_COLORS = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
+const CONFLICT_BG = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
+
+function eventRow(e, today, conflictByEvent){
+ const d = e.event_date ? new Date(e.event_date+'T00:00:00'): null
+ const day = d ? d.getDate(): '?'
+ const mon = d ? d.toLocaleDateString('en-US',{month:'short'}): ''
+ const isToday = e.event_date===today
+ const timeStr = e.start_time?(e.end_time?fmtTime(e.start_time)+' – '+fmtTime(e.end_time):fmtTime(e.start_time)):'Time TBD'
+
+ // Check for conflicts on this event
+ const eventConflicts = (conflictByEvent&&conflictByEvent[e.id])||[]
+ const myConflict = eventConflicts.find(c=>c.is_mine)
+ const othersCount = eventConflicts.filter(c=>!c.is_mine).length
+
+ let conflictBadge = ''
+ if(myConflict){
+ const col = CONFLICT_COLORS[myConflict.status]||'#dc2626'
+ const bg = CONFLICT_BG[myConflict.status]||'#fef2f2'
+ conflictBadge = '<div style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:'+bg+';color:'+col+';padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600">'
+ +CONFLICT_LABELS[myConflict.status]
+ +(myConflict.notes?' — '+myConflict.notes:'')
+ +(myConflict.source==='portal'?' (you reported this)':'')
+ +'</div>'
+ }
+ const othersNote = othersCount>0&&!myConflict ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+othersCount+' other'+(othersCount>1?'s':'')+' have reported a conflict</div>': ''
+
+ const row = '<div class="event-item" style="'+(myConflict?'opacity:0.75;':'')+(isToday?'border-left:3px solid var(--teal-mid);padding-left:8px;':'')+'">'
+ +'<div class="event-date-block">'
+ +'<div class="event-date-day">'+day+'</div>'
+ +'<div class="event-date-mon">'+mon+'</div>'
+ +'</div>'
+ +'<div class="event-info" style="flex:1">'
+ +'<div class="event-name">'+e.name+(isToday?' <span class="event-today">Today</span>':'')+'</div>'
+ +'<div class="event-meta"><span> '+timeStr+'</span>'+(e.location?'<span> '+e.location+(e.room?' · '+e.room:'')+'</span>':'')+'</div>'
+ +conflictBadge
+ +othersNote
+ +'</div>'
+ +(conflictByEvent&&!myConflict&&e.event_date===today
+ ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Call Out</button>'
+: '')
+ +'</div>'
+ return row
+}
+
+function showCalloutForEvent(eventId, eventName){
+ const productionId = window._calloutProdId
+ const yid = window._calloutYid
+ if(!productionId||!yid) return
+ const status = prompt('Calling out for: '+eventName+'\n\nSelect status:\n1 = Absent\n2 = Sick\n3 = Running Late\n4 = Leaving Early\n\nEnter 1-4:')
+ const map = {'1':'absent','2':'sick','3':'late','4':'leaving_early'}
+ const s = map[status]
+ if(!s){ return }
+ const notes = s==='late'||s==='leaving_early' ? (prompt('Any notes? (optional, press Cancel to skip)','') || ''): ''
+ fetch('/api/portal/callout',{
+ method:'POST',
+ headers:{'Content-Type':'application/json'},
+ body:JSON.stringify({production_id:productionId, youth_id:yid, event_id:eventId, status:s, notes})
+ }).then(r=>r.json()).then(d=>{
+ if(d.ok){ toast(CONFLICT_LABELS[s]+' for '+eventName+' — the team has been notified.'); selectContext(activeContextType, activeContextId, '', '') }
+ else toast(d.error||'Error submitting callout','error')
+ })
+}
+
+function buildGeneralInfoHTML(content){
+ const html = content && content.html_content ? content.html_content: ''
+ if(!html || html==='<p><br></p>' || html.trim()===''){
+ return '<div class="empty-state"><div class="icon">\uD83D\uDCCB</div>No general info posted yet.</div>'
+ }
+ return '<div style="line-height:1.7;font-size:14px;color:var(--text)">'+html+'</div>'
+}
+
+function buildProductionOverviewHTML(prod, events, announcements, conflicts, childId, prodId){
+ if(!prod) return '<div class="empty-state"><div class="icon"></div>Production info loading…</div>'
+ const today = new Date().toISOString().split('T')[0]
+ const now = new Date()
+ const upcoming = (events||[]).filter(e=>e.event_date&&e.event_date>=today).sort((a,b)=>a.event_date.localeCompare(b.event_date)||(a.start_time||'').localeCompare(b.start_time||''))
+ const todayEvts = (events||[]).filter(e=>e.event_date===today)
+ const recentAnns = (announcements||[]).slice(0,3)
+ const myConflicts = (conflicts||[]).filter(c=>c.is_mine)
+ const castRole = prod.cast_role || null
+
+ // Get child first name
+ const childSel = document.getElementById('child-select')
+ const selectedText = childSel && childSel.selectedIndex >= 0 ? childSel.options[childSel.selectedIndex]?.text: ''
+ const childFirstName = selectedText ? selectedText.split(' ')[0]: (portalSession?.members?.find(m=>String(m.id)===String(activeChildId))?.first_name || '')
+
+ let html = ''
+
+
+
+ // ── Cast list published banner ──
+ const overviewCastEl = document.getElementById('overview-cast-section-'+prodId)
+ if(prodId &&!overviewCastEl){
+ fetch(`/api/auditions/cast-list/production/${prodId}`,{cache:'no-store'})
+.then(r=>r.json())
+.then(data=>{
+ if(data?.published && data.cast?.length){
+ const container = document.getElementById('dtab-overview')
+ if(container){
+ const div = document.createElement('div')
+ div.id = 'overview-cast-section-'+prodId
+ div.style.cssText = 'margin-bottom:20px;padding:0 20px'
+ div.innerHTML = `<div style="background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;margin-bottom:4px">
+ <div style="font-size:11px;opacity:0.7;margin-bottom:4px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Cast Announcement</div>
+ <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+ ${data.cast.map(c=>`<span style="background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600">
+ ${escHtml(c.submitter_name)}${c.cast_role?' — '+escHtml(c.cast_role):''}
+ </span>`).join('')}
+ </div>
+ </div>`
+ container.insertBefore(div, container.firstChild)
+ }
+ }
+ }).catch(()=>{})
+ }
+
+ // ── Role banner (if cast) ──
+ if(castRole){
+ html += '<div style="background:#334155;border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">'
+ html += '<div style="font-size:12px;color:rgba(255,255,255,0.65);font-weight:600">'+(childFirstName?childFirstName+"'s Role":'Role')+'</div>'
+ html += '<div style="font-size:16px;font-weight:800;color:#fff">'+castRole+'</div>'
+ html += '</div>'
+ }
+
+ // ── Next upcoming event — big and prominent ──
+ const nextEvt = upcoming[0]
+ if(nextEvt){
+ const isToday = nextEvt.event_date===today
+ const eventTypeName = nextEvt.event_type_name || 'Event'
+ // Countdown
+ let countdown = ''
+ if(nextEvt.start_time){
+ const [hh,mm] = nextEvt.start_time.toString().split(':')
+ const evtDate = new Date(nextEvt.event_date+'T'+hh.padStart(2,'0')+':'+mm.padStart(2,'0')+':00')
+ const diffMs = evtDate - now
+ if(diffMs > 0){
+ const secs = Math.floor(diffMs/1000)
+ const d = Math.floor(secs/86400), h = Math.floor((secs%86400)/3600), m = Math.floor((secs%3600)/60)
+ if(d>0) countdown = d+' day'+(d!==1?'s':'')+' away'
+ else if(h>0) countdown = h+'h '+m+'m away'
+ else countdown = m+' min away'
+ } else if(isToday) countdown = 'Happening now'
+ } else if(isToday) countdown = 'Today'
+
+ html += '<div style="border:1.5px solid '+(isToday?'#fde047':'var(--teal-100)')+';border-radius:var(--radius);overflow:hidden;margin-bottom:20px">'
+ html += '<div style="background:'+(isToday?'#fef9c3':'var(--teal-50)')+';padding:8px 14px;display:flex;align-items:center;justify-content:space-between">'
+ html += '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:'+(isToday?'#92400e':'var(--teal-dark)')+'">Upcoming: '+eventTypeName+'</div>'
+ html += (countdown?'<div style="font-size:11px;font-weight:700;color:'+(isToday?'#d97706':'var(--teal-dark)')+'">'+countdown+'</div>':'')
+ html += '</div>'
+ html += '<div style="padding:12px 14px;background:var(--surface)">'
+ html += '<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+nextEvt.name+'</div>'
+ html += '<div style="font-size:13px;color:var(--text-muted)">'+fmtDate(nextEvt.event_date)+(nextEvt.start_time?' &nbsp;·&nbsp; '+fmtTime(nextEvt.start_time):'')+(nextEvt.end_time?' – '+fmtTime(nextEvt.end_time):'')+(nextEvt.location?' &nbsp;·&nbsp; '+nextEvt.location:'')+'</div>'
+ html += '</div></div>'
+ }
+
+ // ── Conflict alert ──
+ const upcomingConflicts = myConflicts.filter(c=>!c.event_date||c.event_date>=today)
+ if(upcomingConflicts.length){
+ html += '<div onclick="switchDetailTab(\'conflicts\',document.querySelector(\'.tab-btn[data-tab=conflicts]\'))" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:var(--radius);padding:12px 14px;margin-bottom:20px;cursor:pointer;display:flex;align-items:center;justify-content:space-between">'
+ html += '<div style="font-size:13px;font-weight:700;color:#dc2626"> '+upcomingConflicts.length+' Upcoming Conflict'+(upcomingConflicts.length!==1?'s':'')+' on File</div>'
+ html += '<span style="color:#dc2626;font-size:16px">›</span></div>'
+ }
+
+ // ── Recent announcements ──
+ if(recentAnns.length){
+ html += '<div style="margin-bottom:20px">'
+ html += '<div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:10px">Recent Announcements</div>'
+ html += recentAnns.map(a=>
+ '<div onclick="switchDetailTab(\'announcements\',document.querySelector(\'.tab-btn[data-tab=announcements]\'))" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;gap:12px">'
+ +'<div style="flex:1;min-width:0">'
+ +'<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+a.title+'</div>'
+ +'<div style="font-size:11px;color:var(--text-hint);margin-top:2px">'+fmtDateTime(a.created_at)+'</div>'
+ +'</div>'
+ +'<span style="font-size:16px;color:var(--teal-mid);flex-shrink:0">›</span>'
+ +'</div>'
+ ).join('')
+ html += '</div>'
+ }
+
+ if(!upcoming.length &&!recentAnns.length &&!castRole){
+ html = '<div class="empty-state"><div class="icon"></div>No info available yet.</div>'
+ }
+
+ return html
+}
+
+// ── Contact Production Team modal ──
+function loadInlineMessages(passphrase, contextType, contextId){
+ const el = document.getElementById('portal-inline-messages')
+ if(!el) return
+ const senderName = (() => {
+ const g = activeChildData?.guardians?.[0]
+ if(g?.name) return g.name
+ const p = portalSession?.participant
+ return p ? (p.first_name+' '+(p.last_name||'')).trim(): 'Family'
+ })()
+ const prodId = contextType === 'production' ? contextId: null
+ const progId = contextType === 'program' ? contextId: null
+ const ctxLabel = contextType === 'program' ? 'Class / Program Team': 'Production Team'
+
+ // Show thread list
+ showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel)
+}
+
+async function showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel){
+ const el = document.getElementById('portal-inline-messages')
+ if(!el) return
+ el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+ const r = await fetch(`/api/portal/messages/family?passphrase=${encodeURIComponent(passphrase)}`)
+ const threads = await r.json().catch(()=>[])
+ const encPass = encodeURIComponent(passphrase)
+
+ let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+ <div style="font-size:13px;font-weight:700">Messages with ${escHtml(ctxLabel)}</div>
+ <button onclick="showInlineNewMessage('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="background:#334155;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">+ New Message</button>
+ </div>`
+
+ if(!threads.length){
+ html += `<div style="text-align:center;padding:28px 16px;background:var(--bg);border-radius:var(--radius)">
+ <div style="font-size:28px;margin-bottom:8px"></div>
+ <div style="font-size:13px;color:var(--text-muted)">No messages yet.<br/>Start a conversation with the team!</div>
+ </div>`
+ } else {
+ html += threads.map(t=>`
+ <div onclick="showInlineThread('${t.id}','${encPass}','${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="padding:12px 14px;border:1.5px solid ${t.unread_family>0?'#334155':'var(--border)'};border-radius:var(--radius);margin-bottom:8px;cursor:pointer;background:${t.unread_family>0?'var(--teal-50)':'var(--surface)'}">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
+ <div style="font-size:13px;font-weight:${t.unread_family>0?'800':'600'}">${escHtml(t.subject)}</div>
+ ${t.unread_family>0?`<span style="background:#334155;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;flex-shrink:0">${t.unread_family} new</span>`:''}
+ </div>
+ <div style="font-size:11px;color:var(--text-muted)">${t.message_count} message${t.message_count!==1?'s':''} · ${t.status==='closed'?'Closed · ':''}${t.last_at?portalTimeAgo(t.last_at):''}</div>
+ ${t.last_body?`<div style="font-size:12px;color:var(--text-hint);margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml((t.last_body||'').substring(0,80))}</div>`:''}
+ </div>`).join('')
+ }
+ el.innerHTML = html
+}
+
+async function showInlineThread(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel){
+ const el = document.getElementById('portal-inline-messages')
+ if(!el) return
+ el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
+ const r = await fetch(`/api/portal/messages/thread/${tid}?passphrase=${encodeURIComponent(passphrase)}`)
+ const thread = await r.json().catch(()=>null)
+ if(!thread||thread.error){ el.innerHTML='<div style="color:#dc2626;font-size:13px">Could not load conversation.</div>'; return }
+ const msgs = thread.messages || []
+
+ const msgHtml = msgs.map(m=>{
+ const isAdmin = m.sender_side === 'admin'
+ return `<div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-start':'flex-end'};margin-bottom:10px">
+ <div style="max-width:84%;background:${isAdmin?'var(--bg)':'#334155'};color:${isAdmin?'var(--text)':'#fff'};padding:10px 14px;border-radius:${isAdmin?'12px 12px 12px 2px':'12px 12px 2px 12px'};font-size:13px;line-height:1.5">
+ ${escHtml(m.body)}</div>
+ <div style="font-size:10px;color:var(--text-muted);margin-top:3px">${escHtml(m.sender_name||'')} · ${m.sent_at?portalTimeAgo(m.sent_at):''}</div>
+ </div>`
+ }).join('')
+
+ el.innerHTML = `
+ <button onclick="showInlineThreadList('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="background:none;border:none;cursor:pointer;font-size:13px;color:#334155;font-weight:600;margin-bottom:12px;padding:0;display:flex;align-items:center;gap:4px">&larr; Back</button>
+ <div style="font-size:14px;font-weight:700;margin-bottom:2px">${escHtml(thread.subject)}</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">${thread.message_count} message${thread.message_count!==1?'s':''} · ${thread.status==='closed'?'Closed':'Open'}</div>
+ <div style="max-height:280px;overflow-y:auto;margin-bottom:12px;padding-right:4px" id="inline-thread-msgs">${msgHtml}</div>
+ ${thread.status==='open'?`
+ <textarea id="inline-reply-body" placeholder="Type your reply…" rows="3"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+ <button onclick="sendInlineReply('${tid}','${encPass}','${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="width:100%;margin-top:8px;background:#334155;color:#fff;border:none;border-radius:var(--radius);padding:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Reply</button>`
+:'<div style="text-align:center;font-size:13px;color:var(--text-muted);padding:8px;background:var(--bg);border-radius:var(--radius)">This conversation has been closed.</div>'}`
+
+ requestAnimationFrame(()=>{ const d=document.getElementById('inline-thread-msgs'); if(d) d.scrollTop=d.scrollHeight })
+}
+
+async function sendInlineReply(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel){
+ const body = document.getElementById('inline-reply-body')?.value.trim()
+ if(!body){ return }
+ const btn = document.querySelector('#portal-inline-messages button:last-of-type')
+ if(btn){ btn.disabled=true; btn.textContent='Sending…' }
+ const r = await fetch(`/api/portal/messages/thread/${tid}/reply`,{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({body, passphrase, sender_name: senderName})
+ })
+ const d = await r.json().catch(()=>({}))
+ if(!d.ok){ if(btn){btn.disabled=false;btn.textContent='Send Reply'} return }
+ showInlineThread(tid, encPass, passphrase, senderName, prodId, progId, ctxLabel)
+}
+
+function showInlineNewMessage(passphrase, senderName, prodId, progId, ctxLabel){
+ const el = document.getElementById('portal-inline-messages')
+ if(!el) return
+ el.innerHTML = `
+ <button onclick="showInlineThreadList('${escHtml(passphrase)}','${escHtml(senderName)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="background:none;border:none;cursor:pointer;font-size:13px;color:#334155;font-weight:600;margin-bottom:14px;padding:0">&larr; Back</button>
+ <div style="font-size:14px;font-weight:700;margin-bottom:14px">New Message to ${escHtml(ctxLabel)}</div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Your Name</label>
+ <input type="text" id="inm-name" value="${escHtml(senderName)}"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Subject</label>
+ <input type="text" id="inm-subject" placeholder="e.g. Question about rehearsal schedule"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:14px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Message</label>
+ <textarea id="inm-body" placeholder="Write your message…" rows="4"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+ </div>
+ <div id="inm-status" style="font-size:13px;margin-bottom:8px"></div>
+ <button onclick="submitInlineNewMessage('${escHtml(passphrase)}','${prodId||''}','${progId||''}','${escHtml(ctxLabel)}')"
+ style="width:100%;background:#334155;color:#fff;border:none;border-radius:var(--radius);padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Message</button>`
+}
+
+async function submitInlineNewMessage(passphrase, prodId, progId, ctxLabel){
+ const senderName = document.getElementById('inm-name')?.value.trim()
+ const subject = document.getElementById('inm-subject')?.value.trim()
+ const body = document.getElementById('inm-body')?.value.trim()
+ const status = document.getElementById('inm-status')
+ if(!subject||!body){
+ if(status) status.innerHTML = '<span style="color:#dc2626">Subject and message are required.</span>'
+ return
+ }
+ const payload = { passphrase, sender_name: senderName, subject, body }
+ if(prodId) payload.production_id = prodId
+ if(progId) payload.program_id = progId
+ const r = await fetch('/api/portal/messages/start',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify(payload)
+ })
+ const d = await r.json().catch(()=>({}))
+ if(!d.ok){
+ if(status) status.innerHTML = `<span style="color:#dc2626">${escHtml(d.error||'Failed. Please try again.')}</span>`
+ return
+ }
+ if(status) status.innerHTML = '<span style="color:#16a34a"> Message sent!</span>'
+ setTimeout(()=>{
+ showInlineThreadList(passphrase, senderName, prodId, progId, ctxLabel)
+ }, 1000)
+}
+
+
+
+// ── Auditions tab (portal family side) ───────────────────────────────────────
+
+async function loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName){
+ const el = document.getElementById('dtab-auditions')
+ if(!el){ console.error('[Auditions] dtab-auditions not found!'); return }
+
+ // Fetch everything in parallel
+ const [settings, existingSub, castData] = await Promise.all([
+ fetch(`/api/auditions/settings/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+ passphrase ? fetch(`/api/auditions/my-submission?passphrase=${encodeURIComponent(passphrase)}&context_type=${contextType}&context_id=${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
+ fetch(`/api/auditions/cast-list/${contextType}/${contextId}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+ ])
+
+ // 1. Cast list published — show it (highest priority)
+ if(castData?.published && castData.cast?.length){
+ el.innerHTML = buildCastListHTML(castData)
+ return
+ }
+
+ // 2. Already submitted — show confirmation card
+ if(existingSub && existingSub.id){
+ let roleList = []
+ try { roleList = JSON.parse(existingSub.roles_requested||'[]') } catch(e){}
+ if(!roleList.length && existingSub.role_requested) roleList = [existingSub.role_requested]
+ el.innerHTML = `<div style='max-width:480px'>
+ <div style='background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center'>
+ <div style='font-size:32px;margin-bottom:8px'></div>
+ <div style='font-size:16px;font-weight:700;color:#15803d;margin-bottom:6px'>Audition Submitted</div>
+ <div style='font-size:13px;color:#6b7280'>We received your audition for <strong>${escHtml(settings?.title||'this production')}</strong>.</div>
+ ${roleList.length?`<div style='display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:10px'>`+roleList.map(r=>`<span style='background:#145466;color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600'>${escHtml(r)}</span>`).join('')+'</div>':''}
+ <div style='font-size:12px;color:#9ca3af;margin-top:8px'>Submitted ${existingSub.submitted_at ? new Date(existingSub.submitted_at).toLocaleDateString(): ''}</div>
+ ${existingSub.status==='cast'&&existingSub.cast_role?`<div style='margin-top:14px;background:#145466;color:#fff;border-radius:8px;padding:14px 16px;text-align:left'><div style='font-size:13px;font-weight:800;margin-bottom:6px'>${escHtml(settings?.title||'')}</div><div style='font-size:12px;opacity:0.8;margin-bottom:2px'>Role</div><div style='font-size:22px;font-weight:800'>${escHtml(existingSub.cast_role)}</div></div>`:''}
+ </div>
+ <button id='aud-refresh-btn' style='width:100%;margin-top:10px;background:none;border:1.5px solid #d1d5db;border-radius:8px;padding:10px;font-family:inherit;font-size:13px;color:#6b7280;cursor:pointer'>↻ Not right? Tap to refresh</button>
+ </div>`
+ document.getElementById('aud-refresh-btn')?.addEventListener('click', ()=>{
+ loadPortalAuditionsTab(contextType, contextId, passphrase, participantId, participantName)
+ })
+ return
+ }
+
+ // 3. Auditions closed and no cast list
+ if(!settings ||!settings.is_open){
+ el.innerHTML = `<div style="text-align:center;padding:36px 20px;color:var(--text-muted)">
+ <div style="font-size:36px;margin-bottom:12px"></div>
+ <div style="font-weight:700;font-size:15px;margin-bottom:6px">Auditions Not Currently Open</div>
+ <div style="font-size:13px">Check back soon or contact us for more information.</div>
+ </div>`
+ return
+ }
+
+
+ const emailAddr = settings.email_submissions || 'info@hwtco.org'
+ const roles = settings.roles || []
+ el.innerHTML = `
+ <div style="max-width:560px">
+ ${settings.title?`<div style="font-size:18px;font-weight:800;margin-bottom:6px"> ${escHtml(settings.title)}</div>`:'<div style="font-size:18px;font-weight:800;margin-bottom:6px"> Auditions</div>'}
+ ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px"> ${settings.audition_date}${settings.audition_time?' at '+settings.audition_time:''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
+ ${settings.description?`<div style="font-size:13px;margin:10px 0;padding:12px 14px;background:var(--bg);border-radius:var(--radius);line-height:1.6">${escHtml(settings.description)}</div>`:''}
+ ${settings.instructions?`<div style="font-size:13px;margin-bottom:14px;color:var(--text-muted)">${escHtml(settings.instructions)}</div>`:''}
+
+ <div id="aud-portal-form" style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px">
+ <div style="font-size:14px;font-weight:700;margin-bottom:14px">Submit Your Audition</div>
+
+ <div style="display:flex;flex-direction:column;gap:12px">
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Your Name *</label>
+ <input type="text" id="aud-name" value="${escHtml(participantName||'')}" placeholder="Full name"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Email (for confirmation)</label>
+ <input type="email" id="aud-email" placeholder="your@email.com"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ ${roles.length?`<div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Roles Interested In <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(select all that apply)</span></label>
+ <div style="display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--bg)">
+ ${roles.map(r=>`<label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px">
+ <input type="checkbox" class="aud-role-cb" value="${escHtml(r)}" style="width:16px;height:16px;accent-color:#145466;flex-shrink:0">
+ <span>${escHtml(r)}</span>
+ </label>`).join('')}
+ <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;border-top:1px solid var(--border);padding-top:8px;margin-top:2px">
+ <input type="checkbox" class="aud-role-cb" value="Other / Not sure yet" style="width:16px;height:16px;accent-color:#145466;flex-shrink:0">
+ <span style="color:var(--text-muted)">Other / Not sure yet</span>
+ </label>
+ </div>
+ </div>`:`<div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Roles Interested In</label>
+ <input type="text" id="aud-role-text" placeholder="e.g. Lead, Ensemble, Crew…"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>`}
+
+ ${settings.allow_video_link!==false?`<div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px"> Video Link</label>
+ <input type="url" id="aud-video" placeholder="YouTube, Google Drive, Vimeo…"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Paste a link to your audition video. Can't share a link? Email the file to <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal)">${escHtml(emailAddr)}</a></div>
+ </div>`:''}
+
+ ${settings.allow_resume_link!==false?`<div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px"> Resume Link</label>
+ <input type="url" id="aud-resume" placeholder="Google Drive or Dropbox link to resume/PDF…"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>`:''}
+
+ ${settings.allow_headshot_link!==false?`<div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px"> Headshot Link</label>
+ <input type="url" id="aud-headshot" placeholder="Google Drive or Dropbox link to headshot…"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Can't share a link? Email to <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal)">${escHtml(emailAddr)}</a></div>
+ </div>`:''}
+
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Additional Notes</label>
+ <textarea id="aud-notes" rows="3" placeholder="Anything else you'd like us to know…"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+ </div>
+
+ <div id="aud-submit-status" style="font-size:13px"></div>
+ <button onclick="submitPortalAudition('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}')"
+ style="width:100%;background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:13px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
+ Submit Audition</button>
+ </div>
+ </div>
+
+ <div style="margin-top:16px;font-size:12px;color:var(--text-muted);text-align:center">
+ Can't use links? Email files directly to
+ <a href="mailto:${escHtml(emailAddr)}" style="color:var(--teal);font-weight:600">${escHtml(emailAddr)}</a>
+ with your name and the production in the subject line.
+ </div>
+ </div>`
+}
+
+async function submitPortalAudition(contextType, contextId, passphrase, participantId){
+ const name = document.getElementById('aud-name')?.value.trim()
+ const email = document.getElementById('aud-email')?.value.trim()
+ // Collect multiple checked roles
+ const checkedRoles = [...document.querySelectorAll('.aud-role-cb:checked')].map(cb=>cb.value)
+ const roleTextEl = document.getElementById('aud-role-text')
+ const roleTextVal = roleTextEl?.value?.trim() || ''
+ const roles_requested = checkedRoles.length ? checkedRoles: (roleTextVal ? roleTextVal.split(',').map(r=>r.trim()).filter(Boolean): [])
+ const role = roles_requested.join(', ') // keep for display
+ const video = document.getElementById('aud-video')?.value.trim()||''
+ const resume = document.getElementById('aud-resume')?.value.trim()||''
+ const headshot= document.getElementById('aud-headshot')?.value.trim()||''
+ const notes = document.getElementById('aud-notes')?.value.trim()||''
+ const status = document.getElementById('aud-submit-status')
+
+ if(!name){ if(status) status.innerHTML='<span style="color:#dc2626">Please enter your name.</span>'; return }
+
+ const btn = document.querySelector('#aud-portal-form button:last-of-type')
+ if(btn){ btn.disabled=true; btn.textContent='Submitting…' }
+
+ const payload = {
+ context_type: contextType, context_id: contextId,
+ passphrase, participant_id: participantId||null,
+ submitter_name: name, submitter_email: email||null,
+ roles_requested: roles_requested,
+ role_requested: role||null,
+ video_url: video||null, resume_url: resume||null,
+ headshot_url: headshot||null, notes: notes||null
+ }
+ const r = await fetch('/api/auditions/submit',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify(payload)
+ })
+ const d = await r.json().catch(()=>({}))
+ if(btn){ btn.disabled=false; btn.textContent='Submit Audition' }
+ if(!d.ok){
+ if(status) status.innerHTML=`<span style="color:#dc2626">${escHtml(d.error||'Submission failed. Please try again.')}</span>`
+ return
+ }
+ // Show success
+ document.getElementById('aud-portal-form').innerHTML = `
+ <div style="text-align:center;padding:28px 16px">
+ <div style="font-size:40px;margin-bottom:12px"></div>
+ <div style="font-size:16px;font-weight:700;margin-bottom:6px">Audition Submitted!</div>
+ <div style="font-size:13px;color:var(--text-muted)">
+ Thanks, ${escHtml(name)}. We received your submission and will be in touch.
+ ${email?'A confirmation was sent to '+escHtml(email)+'.':''}
+ </div>
+ </div>`
+}
+
+function buildCastListHTML(castData){
+ const cast = castData.cast || []
+ // Group by role
+ const byRole = {}
+ cast.forEach(c=>{
+ const r = c.cast_role || 'Ensemble'
+ if(!byRole[r]) byRole[r] = []
+ byRole[r].push(c.submitter_name)
+ })
+ const displayTitle = castData.context_name || castData.title || 'Cast List'
+ return `<div style="max-width:480px">
+ <div style="font-size:20px;font-weight:800;margin-bottom:4px"> Cast Announcement</div>
+ <div style="font-size:15px;font-weight:700;color:var(--teal-dark);margin-bottom:16px">${escHtml(displayTitle)}</div>
+ <div style="display:flex;flex-direction:column;gap:12px">
+ ${Object.entries(byRole).map(([role, names])=>`
+ <div style="border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden">
+ <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(role)}</div>
+ <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+ ${names.map(n=>`<div style="font-size:14px;font-weight:600"> ${escHtml(n)}</div>`).join('')}
+ </div>
+ </div>`).join('')}
+ </div>
+ </div>`
+}
+
+
+function openContactModal(){
+ openMessagesPanel()
+}
+
+function openMessagesPanel(){
+ const passphrase = portalSession?.passphrase || ''
+ const isProgram = activeContextType === 'program'
+ const prodId = isProgram ? null: activeContextId
+ const progId = isProgram ? activeContextId: null
+ const guardian = activeChildData?.guardians?.[0] || {}
+ const senderName = guardian.name || (portalSession?.participant ? (portalSession.participant.first_name+' '+(portalSession.participant.last_name||'')): 'Family')
+ // Build a context label for the panel header
+ const ctxName = isProgram
+ ? (activeChildData?.enrollments?.find(e=>e.program_id===activeContextId)?.program_name || 'Program')
+: (activeChildData?.productions?.find(p=>p.id===activeContextId)?.name || 'Production')
+ const ctxLabel = isProgram ? 'Class / Program Team': 'Production Team'
+
+ const existing = document.getElementById('messages-panel-overlay')
+ if(existing) existing.remove()
+
+ const overlay = document.createElement('div')
+ overlay.id = 'messages-panel-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+ overlay.onclick = e => { if(e.target===overlay) overlay.remove() }
+
+ overlay.innerHTML = `<div style="background:#fff;border-radius:16px;width:100%;max-width:500px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+ <div style="padding:18px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
+ <div>
+ <div style="font-size:16px;font-weight:800"> Messages</div>
+ <div style="font-size:11px;color:#9ca3af;margin-top:1px">${escHtml(ctxName)} — ${escHtml(ctxLabel)}</div>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center">
+ <button onclick="showNewMessageForm('${escHtml(senderName)}','${escHtml(passphrase)}','${prodId||''}','${progId||''}')"
+ style="background:#145466;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">+ New Message</button>
+ <button onclick="document.getElementById('messages-panel-overlay').remove()"
+ style="background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;line-height:1">×</button>
+ </div>
+ </div>
+ <div id="portal-thread-list" style="flex:1;overflow-y:auto;padding:14px 16px">
+ <div style="color:#9ca3af;font-size:13px">Loading…</div>
+ </div>
+ </div>`
+
+ document.body.appendChild(overlay)
+ loadFamilyThreads(passphrase)
+}
+
+async function loadFamilyThreads(passphrase){
+ const el = document.getElementById('portal-thread-list')
+ if(!el) return
+ const r = await fetch(`/api/portal/messages/family?passphrase=${encodeURIComponent(passphrase)}`)
+ const threads = await r.json().catch(()=>[])
+ if(!threads.length){
+ el.innerHTML = '<div style="text-align:center;padding:28px 16px;color:#9ca3af"><div style="font-size:32px;margin-bottom:10px"></div><div style="font-size:13px;margin-bottom:14px">No messages yet. Start a conversation with the HWTC team!</div></div>'
+ return
+ }
+ el.innerHTML = threads.map(t=>`
+ <div onclick="openFamilyThread('${t.id}','${encodeURIComponent(passphrase)}')"
+ style="padding:12px 14px;border:1.5px solid ${t.unread_family>0?'#145466':'#e5e7eb'};border-radius:10px;margin-bottom:8px;cursor:pointer;background:${t.unread_family>0?'#f0f9f8':'#fff'}">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
+ <div style="font-size:13px;font-weight:${t.unread_family>0?'800':'600'}">${escHtml(t.subject)}</div>
+ ${t.unread_family>0?`<span style="background:#145466;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;flex-shrink:0">${t.unread_family} new</span>`:''}
+ </div>
+ <div style="font-size:11px;color:#9ca3af">${t.message_count} message${t.message_count!==1?'s':''} · ${t.status==='closed'?'Closed · ':''}${t.last_at?portalTimeAgo(t.last_at):''}</div>
+ ${t.last_body?`<div style="font-size:12px;color:#6b7280;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escHtml((t.last_body||'').substring(0,80))}</div>`:''}
+ </div>`).join('')
+}
+
+async function openFamilyThread(tid, passphraseEnc){
+ const passphrase = decodeURIComponent(passphraseEnc)
+ const r = await fetch(`/api/portal/messages/thread/${tid}?passphrase=${encodeURIComponent(passphrase)}`)
+ const thread = await r.json().catch(()=>null)
+ if(!thread||thread.error){ alert('Could not load conversation.'); return }
+
+ const el = document.getElementById('portal-thread-list')
+ const msgs = thread.messages || []
+
+ const msgHtml = msgs.map(m=>{
+ const isAdmin = m.sender_side === 'admin'
+ return `<div style="display:flex;flex-direction:column;align-items:${isAdmin?'flex-start':'flex-end'};margin-bottom:12px">
+ <div style="max-width:82%;background:${isAdmin?'#f3f4f6':'#145466'};color:${isAdmin?'#1a1a17':'#fff'};padding:10px 14px;border-radius:${isAdmin?'12px 12px 12px 2px':'12px 12px 2px 12px'};font-size:13px;line-height:1.5">
+ ${escHtml(m.body)}</div>
+ <div style="font-size:10px;color:#9ca3af;margin-top:3px">${escHtml(m.sender_name||'')} · ${m.sent_at?portalTimeAgo(m.sent_at):''}</div>
+ </div>`
+ }).join('')
+
+ el.innerHTML = `
+ <button onclick="loadFamilyThreads('${escHtml(passphrase)}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:#145466;font-weight:600;margin-bottom:12px;padding:0">&larr; Back to messages</button>
+ <div style="font-size:14px;font-weight:700;margin-bottom:4px">${escHtml(thread.subject)}</div>
+ <div style="font-size:11px;color:#9ca3af;margin-bottom:14px">${thread.message_count} message${thread.message_count!==1?'s':''}</div>
+ <div style="max-height:320px;overflow-y:auto;margin-bottom:12px" id="family-thread-msgs">${msgHtml}</div>
+ ${thread.status==='open'?`
+ <textarea id="family-reply-body" placeholder="Type your reply…" rows="3"
+ style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;resize:none;box-sizing:border-box;outline:none"></textarea>
+ <button onclick="sendFamilyReply('${tid}','${encHtml(passphrase)}')"
+ style="width:100%;margin-top:8px;background:#145466;color:#fff;border:none;border-radius:8px;padding:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Reply</button>`
+:'<div style="text-align:center;font-size:13px;color:#9ca3af;padding:8px">This conversation has been closed.</div>'}`
+
+ requestAnimationFrame(()=>{ const d=document.getElementById('family-thread-msgs'); if(d) d.scrollTop=d.scrollHeight })
+}
+
+function encHtml(s){ return encodeURIComponent(s) }
+
+async function sendFamilyReply(tid, passphraseEnc){
+ const passphrase = decodeURIComponent(passphraseEnc)
+ const body = document.getElementById('family-reply-body')?.value.trim()
+ if(!body){ alert('Please enter a message.'); return }
+ const r = await fetch(`/api/portal/messages/thread/${tid}/reply`,{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({body, passphrase})
+ })
+ const d = await r.json().catch(()=>({}))
+ if(!d.ok){ alert(d.error||'Failed to send reply.'); return }
+ openFamilyThread(tid, passphraseEnc)
+}
+
+function showNewMessageForm(senderName, passphrase, prodId, progId){
+ const el = document.getElementById('portal-thread-list')
+ if(!el) return
+ el.innerHTML = `
+ <button onclick="loadFamilyThreads('${escHtml(passphrase)}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:#145466;font-weight:600;margin-bottom:14px;padding:0">&larr; Back to messages</button>
+ <div style="font-size:14px;font-weight:700;margin-bottom:14px">New Message to HWTC</div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Your Name</label>
+ <input type="text" id="nm-name" value="${escHtml(senderName)}" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Subject</label>
+ <input type="text" id="nm-subject" placeholder="e.g. Question about rehearsal schedule"
+ style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:14px">
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Message</label>
+ <textarea id="nm-body" placeholder="Write your message here…" rows="5"
+ style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>
+ </div>
+ <div id="nm-status" style="font-size:13px;margin-bottom:8px"></div>
+ <button onclick="submitNewMessage('${escHtml(passphrase)}','${prodId||''}','${progId||''}')"
+ style="width:100%;background:#145466;color:#fff;border:none;border-radius:8px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Send Message</button>`
+}
+
+async function submitNewMessage(passphrase, prodId, progId){
+ const senderName = document.getElementById('nm-name')?.value.trim()
+ const subject = document.getElementById('nm-subject')?.value.trim()
+ const body = document.getElementById('nm-body')?.value.trim()
+ const status = document.getElementById('nm-status')
+ if(!subject||!body){
+ if(status) status.innerHTML = '<span style="color:#dc2626">Subject and message are required.</span>'
+ return
+ }
+ const payload = { passphrase, sender_name:senderName, subject, body }
+ if(prodId) payload.production_id = prodId
+ if(progId) payload.program_id = progId
+ const r = await fetch('/api/portal/messages/start',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify(payload)
+ })
+ const d = await r.json().catch(()=>({}))
+ if(!d.ok){
+ if(status) status.innerHTML = `<span style="color:#dc2626">${escHtml(d.error||'Failed to send. Please try again.')}</span>`
+ return
+ }
+ if(status) status.innerHTML = '<span style="color:#16a34a"> Message sent!</span>'
+ setTimeout(()=>{ loadFamilyThreads(passphrase) }, 1200)
+}
+
+function portalTimeAgo(ts){
+ if(!ts) return ''
+ const d = new Date(ts), diff = (Date.now()-d)/1000
+ if(diff<60) return 'just now'
+ if(diff<3600) return Math.floor(diff/60)+'m ago'
+ if(diff<86400) return Math.floor(diff/3600)+'h ago'
+ return d.toLocaleDateString()
+}
+
+function buildTeamHTML(members){
+ if(!members||!members.length) return '<div class="empty-state"><div class="icon"></div>No team info yet.</div>'
+ return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">'
+ +members.map(m=>
+ '<div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;text-align:center">'
+ +(m.headshot_url
+ ?'<div style="height:150px;overflow:hidden"><img src="'+m.headshot_url+'" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML=\'<div style=&quot;height:150px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:48px&quot;></div>\'"/></div>'
+:'<div style="height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:40px"></div>')
+ +'<div style="padding:12px">'
+ +'<div style="font-size:14px;font-weight:700">'+m.name+'</div>'
+ +(m.role?'<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:2px">'+m.role+'</div>':'')
+ +(m.bio?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4">'+m.bio+'</div>':'')
+ +'</div></div>'
+ ).join('')
+ +'</div>'
+}
+
+function buildPortalConflictsHTML(conflicts, yid, prodId, events){
+ // My confirmed conflicts
+ const mine = (conflicts||[]).filter(c=>c.is_mine)
+ // Others (anonymised)
+ const others = (conflicts||[]).filter(c=>!c.is_mine)
+
+ let html = ''
+ if(!mine.length &&!others.length){
+ return '<div class="empty-state"><div class="icon"></div>No conflicts on record for upcoming events.</div>'
+ }
+ if(mine.length){
+ html += '<div style="margin-bottom:20px">'
+ html += '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Your Reported Conflicts</div>'
+ html += mine.map(c=>{
+ const col = CONFLICT_COLORS[c.status]||'#dc2626'
+ const bg = CONFLICT_BG[c.status]||'#fef2f2'
+ return '<div style="background:'+bg+';border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+ +'<div>'
+ +'<div style="font-size:14px;font-weight:600;color:'+col+'">'+CONFLICT_LABELS[c.status]+'</div>'
+ +(c.event_name?'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+c.event_name+(c.event_date?' · '+fmtDate(c.event_date):'')+'</div>':'')
+ +(c.notes?'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+c.notes+'</div>':'')
+ +'</div>'
+ +'<span style="font-size:11px;background:rgba(0,0,0,0.06);color:var(--text-muted);padding:3px 8px;border-radius:8px;white-space:nowrap">'+(c.source==='portal'?'Self-reported':'Staff entered')+'</span>'
+ +'</div>'
+ }).join('')
+ html += '</div>'
+ }
+ if(others.length){
+ // Group by event
+ const byEvt = {}
+ others.forEach(c=>{ const k=c.event_name||'General'; if(!byEvt[k]) byEvt[k]=0; byEvt[k]++ })
+ html += '<div style="margin-bottom:20px">'
+ html += '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Other Known Conflicts</div>'
+ html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Names are kept private. This shows how many cast members have reported conflicts per event.</div>'
+ html += Object.entries(byEvt).map(([evt,count])=>
+ '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">'
+ +'<span style="font-size:13px">'+evt+'</span>'
+ +'<span style="font-size:12px;font-weight:600;color:var(--red-600)">'+count+' conflict'+(count>1?'s':'')+'</span>'
+ +'</div>'
+ ).join('')
+ html += '</div>'
+ }
+ return html
+}
+
+// ── INSTRUCTOR PORTAL ──
+function enterInstructorPortal(d){
+ showPortal()
+ document.getElementById('view-family').style.display = 'none'
+ document.getElementById('view-instructor').style.display = ''
+ instructorData = d
+ document.getElementById('header-badge').textContent = d.user.name
+ document.getElementById('instructor-subtitle').textContent = `Logged in as ${d.user.name} · ${d.programs.length} program${d.programs.length!==1?'s':''}, ${d.productions.length} production${d.productions.length!==1?'s':''}`
+
+ const progList = document.getElementById('instructor-program-list')
+ const prodList = document.getElementById('instructor-production-list')
+
+ if(!d.programs.length) progList.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No programs assigned</div>'
+ else progList.innerHTML = d.programs.map(p=>`
+ <div class="item" onclick="selectInstructorContext('program','${p.id}','${p.name.replace(/'/g,"\\'")}',this)">
+ <div>${p.name}</div>
+ <div class="item-sub">${p.program_type||'class'}</div>
+ </div>`).join('')
+
+ if(!d.productions.length) prodList.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No productions assigned</div>'
+ else prodList.innerHTML = d.productions.map(p=>`
+ <div class="item" onclick="selectInstructorContext('production','${p.id}','${p.name.replace(/'/g,"\\'")}',this)">
+ <div>⭐ ${p.name}</div>
+ </div>`).join('')
+
+ if(d.programs.length) {
+ const first = d.programs[0]
+ document.querySelector('#instructor-program-list .item')?.click()
+ }
+}
+
+async function selectInstructorContext(type, id, name, el){
+ instructorContextId = id; instructorContextType = type
+ document.querySelectorAll('.instructor-sidebar.item').forEach(i=>i.classList.remove('active'))
+ el?.classList.add('active')
+ document.getElementById('instructor-main').innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+
+ const [rawContent, events] = await Promise.all([
+ fetch(`/api/portal/instructor/content/${type}/${id}`).then(r=>r.json()).catch(()=>({announcements:[],files:[]})),
+ fetch(type==='program'?`/api/portal/program/${id}/events`:`/api/portal/production/${id}/events`).then(r=>r.json()).catch(()=>[])
+ ])
+ // Handle both old array response and new {files,announcements} object
+ const content = Array.isArray(rawContent)
+ ? {files: rawContent, announcements: []}
+: {files: rawContent.files||[], announcements: rawContent.announcements||[]}
+
+ const today = new Date().toISOString().split('T')[0]
+ const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
+
+ document.getElementById('instructor-main').innerHTML = `
+ <div class="card" style="margin-bottom:16px">
+ <div class="card-header">
+ <div class="card-title">${name}</div>
+ ${type==='production'?'<span style="background:#ede9fe;color:#7c3aed;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⭐ Rising Stars</span>':''}
+ </div>
+ <div class="card-body">
+ <!-- TABS -->
+ <div class="tab-strip" id="instr-tabs" style="margin:-4px -4px 16px">
+ <button class="tab-btn active" onclick="switchInstrTab('announcements',this)">Announcements</button>
+ <button class="tab-btn" onclick="switchInstrTab('files',this)">Files</button>
+ <button class="tab-btn" onclick="switchInstrTab('schedule',this)">Schedule</button>
+ </div>
+
+ <!-- Announcements tab -->
+ <div class="tab-content active" id="itab-announcements">
+ <div style="background:var(--bg);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+ <div class="section-label" style="margin-bottom:10px">Post Announcement</div>
+ <div class="form-group"><label>Title</label><input type="text" id="ann-title" placeholder="e.g. Rehearsal reminder"/></div>
+ <div class="form-group"><label>Message</label><textarea id="ann-body" placeholder="Write your message here…"></textarea></div>
+ <button class="btn btn-primary" onclick="postAnnouncement()">Post Announcement</button>
+ </div>
+ <div id="ann-list">
+ ${!content.announcements.length?'<div class="empty-state"><div class="icon"></div>No announcements yet</div>':
+ content.announcements.map(a=>`
+ <div class="announcement" id="ann-${a.id}" style="position:relative">
+ <button onclick="deleteAnnouncement('${a.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
+ <div class="announcement-title">${a.title}</div>
+ <div class="announcement-body">${escHtml(a.body)}</div>
+ <div class="announcement-meta">${fmtDateTime(a.created_at)}</div>
+ </div>`).join('')}
+ </div>
+ </div>
+
+ <!-- Files tab -->
+ <div class="tab-content" id="itab-files">
+ <div style="background:var(--bg);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+ <div class="section-label" style="margin-bottom:10px">Add File (Google Drive Link)</div>
+ <div class="form-row">
+ <div class="form-group"><label>Title</label><input type="text" id="file-title" placeholder="e.g. Costume Guide"/></div>
+ <div class="form-group"><label>Google Drive URL</label><input type="url" id="file-url" placeholder="https://drive.google.com/…"/></div>
+ </div>
+ <div class="form-group"><label>Description (optional)</label><input type="text" id="file-desc" placeholder="Brief description…"/></div>
+ <button class="btn btn-primary" onclick="addFile()">Add File</button>
+ </div>
+ <div id="file-list">
+ ${!content.files.length?'<div class="empty-state"><div class="icon"></div>No files yet</div>':
+ content.files.map(f=>`
+ <div class="file-item" id="file-${f.id}">
+ <div class="file-icon"></div>
+ <div class="file-info">
+ <div class="file-name">${f.title}</div>
+ ${f.description?`<div class="file-desc">${f.description}</div>`:''}
+ <div class="file-desc">${fmtDateTime(f.created_at)}</div>
+ </div>
+ <a href="${f.drive_url}" target="_blank" class="file-link" style="margin-right:6px">Open</a>
+ <button onclick="deleteFile('${f.id}')" class="btn btn-danger btn-sm"></button>
+ </div>`).join('')}
+ </div>
+ </div>
+
+ <!-- Schedule tab -->
+ <div class="tab-content" id="itab-schedule">
+ ${!events.length?'<div class="empty-state"><div class="icon"></div>No events yet. Add events in the main admin panel.</div>':
+ '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Events are managed in the main RoleCall admin panel.</div>'+
+ events.map(e=>eventRow(e,today)).join('')}
+ </div>
+ </div>
+ </div>`
+}
+
+function switchInstrTab(id, btn){
+ document.querySelectorAll('#instr-tabs .tab-btn').forEach(b=>b.classList.remove('active'))
+ btn.classList.add('active')
+ document.querySelectorAll('#instructor-main .tab-content').forEach(c=>c.classList.remove('active'))
+ document.getElementById('itab-'+id)?.classList.add('active')
+}
+
+async function postAnnouncement(){
+ const title = document.getElementById('ann-title').value.trim()
+ const body = document.getElementById('ann-body').value.trim()
+ if(!title||!body){ toast('Title and message required','error'); return }
+ const payload = {title, body}
+ if(instructorContextType==='program') payload.program_id = instructorContextId
+ else payload.production_id = instructorContextId
+ const r = await fetch('/api/portal/announcements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+ const d = await r.json()
+ if(d.error){ toast(d.error,'error'); return }
+ document.getElementById('ann-title').value = ''
+ document.getElementById('ann-body').value = ''
+ const list = document.getElementById('ann-list')
+ if(list.querySelector('.empty-state')) list.innerHTML = ''
+ list.insertAdjacentHTML('afterbegin',`
+ <div class="announcement" id="ann-${d.id}" style="position:relative">
+ <button onclick="deleteAnnouncement('${d.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-hint)">×</button>
+ <div class="announcement-title">${d.title}</div>
+ <div class="announcement-body">${escHtml(d.body)}</div>
+ <div class="announcement-meta">${fmtDateTime(d.created_at)}</div>
+ </div>`)
+ toast('Announcement posted!')
+}
+
+async function deleteAnnouncement(aid){
+ if(!confirm('Delete this announcement?')) return
+ await fetch(`/api/portal/announcements/${aid}`,{method:'DELETE'})
+ document.getElementById('ann-'+aid)?.remove()
+ toast('Deleted')
+}
+
+async function addFile(){
+ const title = document.getElementById('file-title').value.trim()
+ const url = document.getElementById('file-url').value.trim()
+ const desc = document.getElementById('file-desc').value.trim()
+ if(!title||!url){ toast('Title and URL required','error'); return }
+ const payload = {title, drive_url:url, description:desc}
+ if(instructorContextType==='program') payload.program_id = instructorContextId
+ else payload.production_id = instructorContextId
+ const r = await fetch('/api/portal/files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+ const d = await r.json()
+ if(d.error){ toast(d.error,'error'); return }
+ document.getElementById('file-title').value = ''
+ document.getElementById('file-url').value = ''
+ document.getElementById('file-desc').value = ''
+ const list = document.getElementById('file-list')
+ if(list.querySelector('.empty-state')) list.innerHTML = ''
+ list.insertAdjacentHTML('afterbegin',`
+ <div class="file-item" id="file-${d.id}">
+ <div class="file-icon"></div>
+ <div class="file-info">
+ <div class="file-name">${d.title}</div>
+ ${d.description?`<div class="file-desc">${d.description}</div>`:''}
+ <div class="file-desc">${fmtDateTime(d.created_at)}</div>
+ </div>
+ <a href="${d.drive_url}" target="_blank" class="file-link" style="margin-right:6px">Open</a>
+ <button onclick="deleteFile('${d.id}')" class="btn btn-danger btn-sm"></button>
+ </div>`)
+ toast('File added!')
+}
+
+async function deleteFile(fid){
+ if(!confirm('Remove this file?')) return
+ await fetch(`/api/portal/files/${fid}`,{method:'DELETE'})
+ document.getElementById('file-'+fid)?.remove()
+ toast('Removed')
+}
+
+// ── HELPERS ──
+function showPortal(){
+ document.getElementById('screen-login').style.display = 'none'
+ document.getElementById('screen-portal').style.display = 'flex'
+}
+
+function fmtDate(s){
+ if(!s) return ''
+ try{
+ const d=new Date(s+'T00:00:00')
+ return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+ }catch{return s}
+}
+
+function fmtTime(t){
+ if(!t) return ''
+ try{
+ const[h,m]=t.split(':'); const hr=parseInt(h)
+ return`${hr>12?hr-12:hr||12}:${m}${hr>=12?'pm':'am'}`
+ }catch{return t}
+}
+
+function fmtDateTime(ts){
+ if(!ts) return ''
+ try{
+ return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true,timeZone:'America/New_York'})
+ }catch{return ts}
+}
+
+function escHtml(s){
+ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+let toastTimer = null
+function toast(msg, type){
+ const el = document.getElementById('portal-toast')
+ el.textContent = msg
+ el.style.background = type==='error'?'#dc2626':'#1a2332'
+ el.classList.add('show')
+ clearTimeout(toastTimer)
+ toastTimer = setTimeout(()=>el.classList.remove('show'), 3000)
+}
+
+// ── Carpool Functions ──
+async function loadPortalCarpools(){
+ const loadingEl = document.getElementById('portal-carpools-loading')
+ const listEl = document.getElementById('portal-carpools-list')
+ if(loadingEl) loadingEl.style.display = ''
+ if(listEl) listEl.style.display = 'none'
+ const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant]: [])
+ const carpools = await fetch('/api/portal/carpools').then(r=>r.json()).catch(()=>[])
+ if(loadingEl) loadingEl.style.display = 'none'
+ if(listEl) listEl.style.display = ''
+ renderPortalCarpoolList(Array.isArray(carpools) ? carpools: [], kids)
+}
+
+function renderPortalCarpoolList(carpools, kids){
+ const el = document.getElementById('portal-carpools-list')
+ if(!el) return
+ if(!carpools.length){
+ el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-muted)">
+ <div style="font-size:36px;margin-bottom:12px"></div>
+ <div style="font-weight:600;margin-bottom:6px">No carpools yet for upcoming events</div>
+ <div style="font-size:13px;margin-bottom:16px">Be the first to offer a ride!</div>
+ <button onclick="openCreateCarpoolForm()" class="btn btn-primary btn-sm">+ Create a Carpool</button>
+ </div>`
+ return
+ }
+ const myKidIds = kids.map(k=>k.id)
+ el.innerHTML = carpools.map(cp=>{
+ const allMembers = cp.members || []
+ const myKidsInThis = allMembers.filter(m=>myKidIds.includes(m.youth_id||m.id))
+ const alreadyJoined = myKidsInThis.length > 0
+ const full = cp.max_seats && allMembers.length >= cp.max_seats
+ const spots = cp.max_seats ? cp.max_seats - allMembers.length: null
+
+ return `<div class="card" style="padding:20px;margin-bottom:14px;border-left:4px solid ${alreadyJoined?'var(--green-600)':'#3b82f6'}">
+ <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+ <div style="flex:1">
+ <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+ <div style="font-size:16px;font-weight:700"> ${cp.name}</div>
+ ${alreadyJoined?'<span style="background:var(--green-50);color:var(--green-600);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px"> Joined</span>':''}
+ ${full&&!alreadyJoined?'<span style="background:var(--bg);color:var(--text-muted);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Full</span>':''}
+ </div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
+ Driver: <strong style="color:var(--text)">${cp.driver_name}</strong>
+ ${cp.driver_phone?` · <a href="tel:${cp.driver_phone}" style="color:var(--teal-600)">${cp.driver_phone}</a>`:''}
+ </div>
+ ${cp.event_name?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:6px"> ${cp.event_name}</div>`:''}
+ ${spots!==null?`<div style="font-size:12px;color:var(--text-hint);margin-bottom:8px">${spots > 0 ? spots+' spot'+(spots!==1?'s':'')+' remaining': 'Full'}</div>`:''}
+ ${cp.code&&alreadyJoined?`<div style="font-size:12px;font-weight:700;color:var(--teal-600);margin-bottom:8px">Share code: <span style="font-family:monospace;background:var(--teal-50);padding:2px 8px;border-radius:6px">${cp.code}</span></div>`:''}
+ ${allMembers.length ? `
+ <div style="margin-top:4px">
+ <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px">Kids in this carpool</div>
+ <div style="display:flex;flex-wrap:wrap;gap:6px">
+ ${allMembers.map(m=>{
+ const isMyKid = myKidIds.includes(m.youth_id||m.id)
+ return `<span style="background:${isMyKid?'var(--green-50)':'var(--bg)'};color:${isMyKid?'var(--green-600)':'var(--text-muted)'};border:1px solid ${isMyKid?'var(--green-200)':'var(--border)'};border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600">
+ ${isMyKid?' ':''}${m.first_name} ${(m.last_name||'')[0]||''}.
+ </span>`
+ }).join('')}
+ </div>
+ </div>`: ''}
+ </div>
+ <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:flex-end">
+ ${!alreadyJoined &&!full && kids.length ? `
+ <button onclick="portalJoinCarpoolById('${cp.id}')"
+ class="btn btn-primary btn-sm" style="white-space:nowrap">
+ + Join
+</button>`: ''}
+ ${alreadyJoined ? `
+ <button onclick="portalLeaveCarpool('${cp.id}')"
+ style="background:none;border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap">
+ Leave
+</button>`: ''}
+ </div>
+ </div>
+ </div>`
+ }).join('')
+}
+
+async function portalJoinCarpoolById(carpoolId){
+ const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant]: [])
+ let youthIds = kids.map(k=>k.id)
+ if(kids.length > 1){
+ youthIds = await showKidPicker(kids)
+ if(!youthIds ||!youthIds.length) return
+ }
+ const res = await fetch('/api/portal/carpools/join',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({carpool_id: carpoolId, youth_ids: youthIds, passphrase: portalSession?.passphrase||''})
+ }).then(r=>r.json()).catch(()=>({error:'Network error'}))
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Joined carpool!','success')
+ await loadPortalCarpools()
+}
+
+async function portalLeaveCarpool(carpoolId){
+ if(!confirm('Remove your child from this carpool?')) return
+ const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant]: [])
+ const youthIds = kids.map(k=>k.id)
+ const res = await fetch('/api/portal/carpools/leave',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({carpool_id: carpoolId, youth_ids: youthIds})
+ }).then(r=>r.json()).catch(()=>({error:'Network error'}))
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Left carpool')
+ await loadPortalCarpools()
+}
+
+async function openCreateCarpoolForm(){
+ const form = document.getElementById('create-carpool-form')
+ if(!form) return
+ form.style.display = ''
+ // Load upcoming events into dropdown
+ const sel = document.getElementById('cp-event-id')
+ sel.innerHTML = '<option value="">Loading…</option>'
+ const events = await fetch('/api/portal/events-for-carpools').then(r=>r.json()).catch(()=>[])
+ if(!events.length){
+ sel.innerHTML = '<option value="">No events with carpools enabled</option>'
+ const result = document.getElementById('cp-create-result')
+ if(result) result.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-top:8px">No upcoming events have carpools enabled yet. Contact HWTC staff to set one up.</div>'
+ return
+ }
+ sel.innerHTML = '<option value="">— Select an event —</option>'
+ + events.map(e=>`<option value="${e.id}">${escHtml(e.name)}${e.event_date?' · '+fmtDate(e.event_date):''}</option>`).join('')
+ // Pre-fill driver name from session
+ const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant]: [])
+ const driverInput = document.getElementById('cp-driver-name')
+ if(driverInput &&!driverInput.value && kids.length){
+ const primary = kids[0]
+ const guardians = activeChildData?.guardians || []
+ if(guardians.length) driverInput.value = guardians[0].name || ''
+ }
+ form.scrollIntoView({behavior:'smooth', block:'start'})
+}
+
+function closeCreateCarpoolForm(){
+ const form = document.getElementById('create-carpool-form')
+ if(form) form.style.display = 'none'
+ const result = document.getElementById('cp-create-result')
+ if(result) result.innerHTML = ''
+}
+
+async function submitCreateCarpool(){
+ const event_id = document.getElementById('cp-event-id')?.value
+ const driver_name = document.getElementById('cp-driver-name')?.value.trim()
+ const driver_phone = document.getElementById('cp-driver-phone')?.value.trim()
+ const name = document.getElementById('cp-name')?.value.trim()
+ const max_seats = parseInt(document.getElementById('cp-seats')?.value || '4')
+ const notes = document.getElementById('cp-notes')?.value.trim()
+ const result = document.getElementById('cp-create-result')
+
+ if(!event_id){ if(result) result.innerHTML='<span style="color:#dc2626">Please select an event.</span>'; return }
+ if(!driver_name){ if(result) result.innerHTML='<span style="color:#dc2626">Driver name is required.</span>'; return }
+
+ if(result) result.innerHTML='<span style="color:var(--text-muted)">Creating…</span>'
+
+ const kids = portalSession?.members || (portalSession?.participant ? [portalSession.participant]: [])
+ let youth_ids = kids.map(k=>k.id)
+ if(kids.length > 1){
+ youth_ids = await showKidPicker(kids)
+ if(!youth_ids ||!youth_ids.length){ if(result) result.innerHTML=''; return }
+ }
+
+ const res = await fetch('/api/portal/carpools/create',{
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({event_id, driver_name, driver_phone, name, max_seats, notes, youth_ids})
+ }).then(r=>r.json()).catch(()=>({error:'Network error'}))
+
+ if(res.error){ if(result) result.innerHTML=`<span style="color:#dc2626">${escHtml(res.error)}</span>`; return }
+
+ closeCreateCarpoolForm()
+ toast(`Carpool created! Code: ${res.code}`)
+ await loadPortalCarpools()
+}
+
+
+function showKidPicker(kids){
+ return new Promise(resolve=>{
+ const existing = document.getElementById('kid-picker-modal')
+ if(existing) existing.remove()
+ const overlay = document.createElement('div')
+ overlay.id = 'kid-picker-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `
+ <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:380px;box-shadow:var(--shadow-lg)">
+ <div style="padding:18px 24px;border-bottom:1px solid var(--border)">
+ <div style="font-size:16px;font-weight:700">Which child(ren) are joining?</div>
+ </div>
+ <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px">
+ ${kids.map(k=>`
+ <label style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg);border-radius:10px;cursor:pointer">
+ <input type="checkbox" value="${k.id}" class="kp-cb" checked style="accent-color:var(--teal);width:18px;height:18px"/>
+ <span style="font-weight:600;font-size:15px">${k.first_name} ${k.last_name}</span>
+ </label>`).join('')}
+ </div>
+ <div style="padding:0 24px 20px;display:flex;gap:10px">
+ <button class="btn btn-primary" style="flex:1" onclick="
+ const ids=[...(document.querySelectorAll('.kp-cb:checked'))].map(c=>c.value);
+ document.getElementById('kid-picker-modal').remove();
+ window._kp_resolve(ids)">Join Carpool</button>
+ <button class="btn btn-secondary" onclick="document.getElementById('kid-picker-modal').remove();window._kp_resolve(null)">Cancel</button>
+ </div>
+ </div>`
+ window._kp_resolve = val => resolve(val)
+ overlay.addEventListener('click', e=>{ if(e.target===overlay){ overlay.remove(); resolve(null) }})
+ document.body.appendChild(overlay)
+ })
+}
+
+async function portalJoinCarpool(){ /* legacy stub */ }
+
+</script>
+</body>
+</html>

@@ -16978,40 +16978,78 @@ function openRegistrationSettingsModal(pid){
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
 
   var opts = [
-    ['draft','Draft (not visible)'],
-    ['interest_list','Interest List (collect emails)'],
-    ['open','Open (accepting registrations)'],
-    ['closed','Closed'],
-    ['cancelled','Cancelled']
+    ['draft','Draft (not visible)'],['interest_list','Interest List'],
+    ['open','Open'],['closed','Closed'],['cancelled','Cancelled']
   ].map(function(o){ return '<option value="'+o[0]+'"'+(prog.registration_status===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
 
+  var formTypeOpts = [
+    ['youth','Youth program (child + parent/guardian)'],
+    ['adult','Adult / open age (participant only)']
+  ].map(function(o){ return '<option value="'+o[0]+'"'+((prog.registration_form_type||'youth')===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
+
+  var customFields = []
+  try{ customFields = JSON.parse(prog.custom_fields||'[]') }catch(e){}
+  var images = []
+  try{ images = JSON.parse(prog.program_images||'[]') }catch(e){}
+
   var form = document.createElement('div')
-  form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:520px;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)'
+  form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:600px;max-height:92vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)'
   form.innerHTML =
     '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">'
     + '<div style="font-size:15px;font-weight:700">Registration Settings</div>'
     + '<button id="rs-close-btn" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
     + '</div>'
-    + '<div style="padding:20px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px">'
-    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+    + '<div style="padding:20px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
+
+    // Status + form type
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Status</label>'
     + '<select id="rs-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+opts+'</select></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Form Type</label>'
+    + '<select id="rs-form-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+formTypeOpts+'</select></div>'
+    + '</div>'
+
+    // Slug
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Public URL Slug</label>'
     + '<input type="text" id="rs-slug" value="'+(prog.slug||'')+'" placeholder="e.g. summer-camp-2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
     + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">rolecall.hwtco.org/register/<span id="slug-preview">'+(prog.slug||'...')+'</span></div></div>'
+
+    // Capacity + price
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Capacity</label>'
     + '<input type="number" id="rs-capacity" value="'+(prog.capacity||'')+'" placeholder="Unlimited" min="1" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (USD)</label>'
-    + '<input type="number" id="rs-price" value="'+(prog.price ? (prog.price/100).toFixed(2) : '')+'" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<input type="number" id="rs-price" value="'+(prog.price?(prog.price/100).toFixed(2):'')+'" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '</div>'
+
+    // Dates
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
-    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Opens</label>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Opens</label>'
     + '<input type="date" id="rs-open-date" value="'+(prog.registration_open_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
-    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Closes</label>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Closes</label>'
     + '<input type="date" id="rs-close-date" value="'+(prog.registration_close_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '</div>'
+
+    // Waitlist auto-charge
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
     + '<input type="checkbox" id="rs-auto-charge" '+(prog.waitlist_auto_charge!==false?'checked':'')+' style="accent-color:var(--teal)"/> Auto-send payment link when promoting from waitlist</label>'
+
+    // Program info / about
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info & Photos</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
+    + '<textarea id="rs-program-info" rows="4" placeholder="Describe the program — what participants will learn, what to expect, etc. Basic HTML supported (bold, links)..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(prog.program_info||'')+'</textarea></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Photo URLs</label>'
+    + '<textarea id="rs-images" rows="3" placeholder="One URL per line..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(images.join('\n'))+'</textarea>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">One image URL per line. Photos appear on the public registration page.</div></div>'
+
+    // Custom fields
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Custom Form Fields</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px">Add extra questions to the registration form (e.g. dance experience, dietary needs, medical info).</div>'
+    + '<div id="rs-custom-fields">'
+    + customFields.map(function(f,i){ return renderCustomFieldRow(f,i) }).join('')
+    + '</div>'
+    + '<button id="rs-add-field-btn" class="btn btn-secondary" style="font-size:13px;padding:8px 14px">+ Add Field</button>'
+
     + '</div>'
     + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">'
     + '<button id="rs-cancel-btn" class="btn btn-secondary">Cancel</button>'
@@ -17025,18 +17063,80 @@ function openRegistrationSettingsModal(pid){
   document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid) })
-  document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value || '...' })
+  document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
+  document.getElementById('rs-add-field-btn').addEventListener('click', function(){
+    var container = document.getElementById('rs-custom-fields')
+    var idx = container.querySelectorAll('.cf-row').length
+    var div = document.createElement('div')
+    div.innerHTML = renderCustomFieldRow({name:'',type:'text',required:false,placeholder:'',hint:''},idx)
+    container.appendChild(div.firstElementChild)
+    wireCustomFieldRow(idx)
+  })
+  customFields.forEach(function(_,i){ wireCustomFieldRow(i) })
 }
 
+function renderCustomFieldRow(f, i){
+  return '<div class="cf-row" data-idx="'+i+'" style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:center;padding:10px;background:var(--bg);border-radius:var(--radius);margin-bottom:8px">'
+    + '<div style="display:flex;flex-direction:column;gap:6px">'
+    + '<input class="cf-name" placeholder="Field label (e.g. Dance Experience)" value="'+escHtml(f.name||'')+'" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"/>'
+    + '<div style="display:flex;gap:6px">'
+    + '<select class="cf-type" style="padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    + ['text','textarea','select','number','checkbox'].map(function(t){ return '<option value="'+t+'"'+(f.type===t?' selected':'')+'>'+t+'</option>' }).join('')
+    + '</select>'
+    + '<input class="cf-placeholder" placeholder="Placeholder / hint" value="'+escHtml(f.placeholder||f.hint||'')+'" style="flex:1;padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"/>'
+    + '<input class="cf-options" placeholder="Options (comma-sep)" value="'+escHtml(Array.isArray(f.options)?f.options.join(', '):'')+'" style="flex:1;padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"'+(f.type==='select'?'':' style="display:none"')+'/>'
+    + '</div></div>'
+    + '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="cf-required"'+(f.required?' checked':'')+' style="accent-color:var(--teal)"/> Req</label>'
+    + '<button class="cf-remove-btn btn btn-danger btn-sm" style="padding:4px 8px;font-size:12px">Remove</button>'
+    + '</div>'
+}
+
+function wireCustomFieldRow(i){
+  var rows = document.querySelectorAll('.cf-row')
+  var row = rows[i]
+  if(!row) return
+  var typeEl = row.querySelector('.cf-type')
+  var optionsEl = row.querySelector('.cf-options')
+  if(typeEl && optionsEl){
+    typeEl.addEventListener('change', function(){ optionsEl.style.display = this.value==='select' ? '' : 'none' })
+    optionsEl.style.display = typeEl.value==='select' ? '' : 'none'
+  }
+  var removeBtn = row.querySelector('.cf-remove-btn')
+  if(removeBtn) removeBtn.addEventListener('click', function(){ row.remove() })
+}
+
+function getCustomFieldsFromModal(){
+  var fields = []
+  document.querySelectorAll('.cf-row').forEach(function(row){
+    var name = (row.querySelector('.cf-name')||{}).value||''
+    if(!name.trim()) return
+    var type = (row.querySelector('.cf-type')||{}).value||'text'
+    var placeholder = (row.querySelector('.cf-placeholder')||{}).value||''
+    var required = (row.querySelector('.cf-required')||{}).checked||false
+    var optionsRaw = (row.querySelector('.cf-options')||{}).value||''
+    var field = {name:name.trim(),type:type,placeholder:placeholder,required:required}
+    if(type==='select' && optionsRaw) field.options = optionsRaw.split(',').map(function(o){ return o.trim() }).filter(Boolean)
+    fields.push(field)
+  })
+  return fields
+}
+
+
 async function saveRegistrationSettings(pid){
+  var imagesRaw = (document.getElementById('rs-images')||{}).value||''
+  var images = imagesRaw.split('\n').map(function(u){ return u.trim() }).filter(Boolean)
   const payload = {
     registration_status: document.getElementById('rs-status').value || 'draft',
+    registration_form_type: (document.getElementById('rs-form-type')||{}).value || 'youth',
     slug: (document.getElementById('rs-slug').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'-') || null,
     capacity: parseInt(document.getElementById('rs-capacity').value) || null,
     price_cents: Math.round((parseFloat(document.getElementById('rs-price').value)||0)*100),
     registration_open_date: document.getElementById('rs-open-date').value || null,
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
+    program_info: (document.getElementById('rs-program-info')||{}).value || '',
+    program_images: images,
+    custom_fields: getCustomFieldsFromModal(),
   }
   const res = await api('/api/programs/'+pid+'/registration-settings', 'PUT', payload)
   if(res && res.ok){

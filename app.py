@@ -954,6 +954,10 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS interest_list_fields TEXT DEFAULT '[]'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS custom_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
         """CREATE TABLE IF NOT EXISTS program_registrations (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -10667,8 +10671,6 @@ if __name__ == '__main__':
 #  SQUARE INTEGRATION & REGISTRATION SYSTEM
 # ═══════════════════════════════════════════════════════════════════════
 
-import hashlib, hmac
-
 SQUARE_ACCESS_TOKEN = os.environ.get('SQUARE_ACCESS_TOKEN', '')
 SQUARE_LOCATION_ID  = os.environ.get('SQUARE_LOCATION_ID', '')
 SQUARE_WEBHOOK_SIG  = os.environ.get('SQUARE_WEBHOOK_SIGNATURE_KEY', '')
@@ -10682,33 +10684,44 @@ def square_headers():
 def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note=''):
     """Create a Square hosted checkout link for a registration."""
     import uuid as _uuid
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        app.logger.error('Square not configured: SQUARE_ACCESS_TOKEN or SQUARE_LOCATION_ID missing')
+        return None, None, None
+    redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
         'order': {
             'location_id': SQUARE_LOCATION_ID,
             'line_items': [{
-                'name': program['name'],
+                'name': program['name'][:191],
                 'quantity': '1',
                 'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
-                'note': note or f'Registration ID: {registration_id}'
             }],
-            'metadata': {'registration_id': registration_id, 'program_id': program['id']}
+            'reference_id': registration_id[:40],
         },
         'checkout_options': {
-            'redirect_url': f"{APP_BASE_URL}/register/{program.get('slug', program['id'])}/confirmation?reg={registration_id}",
+            'redirect_url': redirect_url,
             'ask_for_shipping_address': False,
         },
         'pre_populated_data': {
-            'buyer_email': guardian_email,
-        }
+            'buyer_email': guardian_email or '',
+        },
+        'description': (note or f'Registration: {registration_id}')[:255],
     }
-    r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links', json=payload, headers=square_headers())
-    data = r.json()
-    if r.status_code == 200 and data.get('payment_link'):
-        lnk = data['payment_link']
-        return lnk.get('url'), lnk.get('id'), lnk.get('order_id')
-    app.logger.error(f'Square payment link error: {data}')
-    return None, None, None
+    try:
+        r = requests.post(
+            f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        app.logger.info(f'Square payment link response {r.status_code}: {str(data)[:300]}')
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            return lnk.get('url'), lnk.get('id'), lnk.get('order_id')
+        app.logger.error(f'Square payment link failed {r.status_code}: {data}')
+        return None, None, None
+    except Exception as e:
+        app.logger.error(f'Square payment link exception: {e}')
+        return None, None, None
 
 
 def get_program_by_slug(slug):
@@ -10841,6 +10854,11 @@ def public_program_info(slug):
             p['instructor_photo'] = v.get('photo_url') or ''
     conn.close()
     # Remove internal fields
+    # Parse JSON fields
+    for k in ['custom_fields','program_images','interest_list_fields']:
+        if p.get(k):
+            try: p[k] = json.loads(p[k])
+            except: p[k] = []
     for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
         p.pop(k, None)
     return jsonify(p)
@@ -11140,6 +11158,8 @@ def update_registration_settings(pid):
         registration_status=%s, capacity=%s, price=%s,
         registration_open_date=%s, registration_close_date=%s,
         slug=%s, interest_list_fields=%s, waitlist_auto_charge=%s,
+        custom_fields=%s, program_info=%s, program_images=%s,
+        registration_form_type=%s,
         updated_at=NOW() WHERE id=%s''',
         (d.get('registration_status','draft'),
          d.get('capacity') or None,
@@ -11149,6 +11169,10 @@ def update_registration_settings(pid):
          d.get('slug') or None,
          json.dumps(d.get('interest_list_fields') or []),
          d.get('waitlist_auto_charge', True),
+         json.dumps(d.get('custom_fields') or []),
+         d.get('program_info','') or '',
+         json.dumps(d.get('program_images') or []),
+         d.get('registration_form_type','youth'),
          pid))
     conn.commit()
     conn.close()

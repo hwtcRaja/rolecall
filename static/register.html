@@ -245,6 +245,7 @@ function buildRegistrationForm(formType, customFields){
     + participantSection
     + (customFields.length ? '<div class="section-divider">Additional Information</div>'+customFieldInputs(customFields) : '')
     + '<div class="form-group" style="margin-top:8px"><label>Notes / Special Needs</label><textarea id="f-notes" rows="2" placeholder="Anything we should know..."></textarea></div>'
+    + (program.price > 0 ? buildPaymentOptions(program) : '')
     + '<button class="btn btn-primary" style="margin-top:8px" id="submit-btn">'+(program.price ? 'Continue to Payment &rarr;' : 'Complete Registration')+'</button>'
     + '</div></div>'
 }
@@ -280,7 +281,43 @@ function buildInterestForm(){
     + '</div></div>'
 }
 
+function buildPaymentOptions(prog){
+  const price = prog.price || 0
+  const deposit = prog.deposit_amount || 0
+  const hasDeposit = deposit > 0 && deposit < price
+  let html = '<div style="border-top:1px solid #e5e7eb;margin-top:16px;padding-top:16px">'
+  // Discount code
+  html += '<div class="form-group"><label>Discount / Coupon Code</label>'
+    + '<div style="display:flex;gap:8px">'
+    + '<input id="f-discount-code" placeholder="Enter code" style="flex:1;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;text-transform:uppercase"/>'
+    + '<button type="button" id="apply-discount-btn" style="padding:10px 16px;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">Apply</button>'
+    + '</div>'
+    + '<div id="discount-result" style="margin-top:6px;font-size:13px"></div>'
+    + '</div>'
+  // Payment plan
+  if(hasDeposit){
+    html += '<div class="form-group" style="margin-top:4px"><label>Payment Option</label>'
+      + '<div style="display:flex;flex-direction:column;gap:8px">'
+      + '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
+      + '<input type="radio" name="payment-type" value="full" checked style="margin-top:2px;accent-color:#145466"/>'
+      + '<div><div style="font-weight:600;font-size:14px">Pay in full — $'+(price/100).toFixed(2)+'</div>'
+      + '<div style="font-size:12px;color:#6b7280">One payment today</div></div></label>'
+      + '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
+      + '<input type="radio" name="payment-type" value="deposit" style="margin-top:2px;accent-color:#145466"/>'
+      + '<div><div style="font-weight:600;font-size:14px">Pay deposit — $'+(deposit/100).toFixed(2)+' today</div>'
+      + '<div style="font-size:12px;color:#6b7280">Remaining $'+((price-deposit)/100).toFixed(2)+' due before program starts</div></div></label>'
+      + '</div></div>'
+  }
+  html += '</div>'
+  return html
+}
+
 document.addEventListener('click', function(e){
+  if(e.target && e.target.id === 'apply-discount-btn'){
+    applyDiscount()
+    return
+  }
+
   if(e.target && e.target.id==='submit-btn'){
     e.preventDefault()
     const status = program && program.registration_status
@@ -288,6 +325,23 @@ document.addEventListener('click', function(e){
     else submitRegistration()
   }
 })
+
+async function applyDiscount(){
+  const code = (document.getElementById('f-discount-code')||{}).value||''
+  const result = document.getElementById('discount-result')
+  if(!code.trim()){ if(result) result.innerHTML=''; return }
+  if(result) result.innerHTML = '<span style="color:#6b7280">Checking...</span>'
+  const res = await apiFetch('/api/public/program/'+slug+'/validate-discount','POST',{code:code.trim()})
+  if(res.valid){
+    if(result) result.innerHTML = '<span style="color:#166534;font-weight:600">✓ '+res.label+' applied — Final price: $'+(res.final_price/100).toFixed(2)+'</span>'
+    document.getElementById('f-discount-code').style.borderColor = '#86efac'
+    window._discountValid = res
+  } else {
+    if(result) result.innerHTML = '<span style="color:#dc2626">'+(res.error||'Invalid code')+'</span>'
+    document.getElementById('f-discount-code').style.borderColor = '#fca5a5'
+    window._discountValid = null
+  }
+}
 
 async function submitRegistration(){
   const btn = document.getElementById('submit-btn')
@@ -321,6 +375,8 @@ async function submitRegistration(){
     emergency_contact_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),
     notes: ((document.getElementById('f-notes')||{}).value||'').trim(),
     custom_field_values: getCustomFieldValues(customFields),
+    discount_code: (document.getElementById('f-discount-code')||{}).value||'',
+    payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
   }
 
   const res = await apiFetch('/api/public/program/'+slug+'/register','POST',payload)
@@ -328,6 +384,9 @@ async function submitRegistration(){
 
   if(res.type==='payment_required'){
     btn.textContent='Redirecting to payment...'
+    if(res.use_deposit){
+      btn.textContent = 'Redirecting to pay deposit...'
+    }
     window.location.href = res.payment_url
   } else if(res.type==='waitlisted'){
     document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u23f3</div><h2 style="color:#92400e;margin-bottom:8px">You\'re on the waitlist!</h2><p style="color:#6b7280;font-size:14px">You are <strong>#'+res.position+'</strong> on the waitlist. We will email you at '+escHtml(email)+' if a spot opens up.</p></div></div>'

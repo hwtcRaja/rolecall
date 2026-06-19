@@ -17051,6 +17051,16 @@ function openRegistrationSettingsModal(pid){
     + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">One image URL per line. Photos appear on the public registration page.</div></div>'
 
     // Custom fields
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Discount / Coupon Codes</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Codes are created here and synced to Square automatically.</div>'
+    + '<div id="rs-discount-codes-list" style="margin-bottom:8px"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 60px 60px auto;gap:6px;align-items:center">'
+    + '<input type="text" id="rs-new-code" placeholder="CODE" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;text-transform:uppercase;outline:none;width:100%;box-sizing:border-box"/>'
+    + '<select id="rs-code-type" style="padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px"><option value="percent">%</option><option value="fixed">$</option></select>'
+    + '<input type="number" id="rs-code-value" placeholder="10" min="0" style="padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;width:100%;box-sizing:border-box;outline:none"/>'
+    + '<button id="rs-add-code-btn" class="btn btn-secondary" style="padding:7px 12px;font-size:12px;white-space:nowrap">+ Add</button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-bottom:8px">Enter code name, choose % or $, enter value</div>'
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Custom Form Fields</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px">Add extra questions to the registration form (e.g. dance experience, dietary needs, medical info).</div>'
     + '<div id="rs-custom-fields">'
@@ -17075,6 +17085,18 @@ function openRegistrationSettingsModal(pid){
   // Load Square catalog items
   loadSquareCatalogItems(prog.square_catalog_item_id || '')
   document.getElementById('rs-create-item-btn').addEventListener('click', function(){ openCreateCatalogItemModal(pid) })
+  loadDiscountCodes(pid)
+  document.getElementById('rs-add-code-btn').addEventListener('click', async function(){
+    const code = (document.getElementById('rs-new-code')||{}).value||''
+    const type = (document.getElementById('rs-code-type')||{}).value||'percent'
+    const val = parseInt((document.getElementById('rs-code-value')||{}).value)||0
+    if(!code.trim() || !val){ toast('Enter a code and value','error'); return }
+    this.disabled=true; this.textContent='Creating...'
+    const res = await api('/api/programs/'+pid+'/discount-codes','POST',{code:code.trim().toUpperCase(),discount_type:type,discount_value:val})
+    this.disabled=false; this.textContent='+ Add'
+    if(res && res.ok){ toast('Code created in Square!','success'); document.getElementById('rs-new-code').value=''; document.getElementById('rs-code-value').value=''; loadDiscountCodes(pid) }
+    else toast((res && res.error)||'Error','error')
+  })
   document.getElementById('rs-add-field-btn').addEventListener('click', function(){
     var container = document.getElementById('rs-custom-fields')
     var idx = container.querySelectorAll('.cf-row').length
@@ -17205,6 +17227,108 @@ function openCreateCatalogItemModal(pid){
     await loadSquareCatalogItems(res.variation_id||res.id)
     // Also reload programs to update local cache
     api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+  })
+}
+
+
+async function resendPaymentLink(pid, rid){
+  if(!confirm('Resend payment link to this family?')) return
+  const res = await api('/api/programs/'+pid+'/registrations/'+rid+'/send-payment-link','POST')
+  if(res && res.ok) toast('Payment link sent!', 'success')
+  else toast((res && res.error)||'Error', 'error')
+}
+
+async function sendBalanceLink(pid, rid){
+  if(!confirm('Send balance payment link to this family?')) return
+  const res = await api('/api/programs/'+pid+'/registrations/'+rid+'/send-balance-link','POST')
+  if(res && res.ok) toast('Balance payment link sent!', 'success')
+  else toast((res && res.error)||'Error', 'error')
+}
+
+function openEditRegistrationModal(pid, rid, regs){
+  const reg = regs.find(function(r){ return r.id===rid }) || {}
+  const existing = document.getElementById('edit-reg-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'edit-reg-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  var statusOpts = ['confirmed','pending_payment','waitlisted','cancelled'].map(function(s){
+    return '<option value="'+s+'"'+(reg.status===s?' selected':'')+'>'+s+'</option>'
+  }).join('')
+  var form = document.createElement('div')
+  form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
+  form.innerHTML =
+    '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    + '<div style="font-size:15px;font-weight:700">Edit Registration</div>'
+    + '<button id="er-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+    + '</div>'
+    + '<div style="padding:20px;display:flex;flex-direction:column;gap:14px">'
+    + '<div style="font-size:14px;font-weight:600">'+(reg.child_first_name||'')+(reg.child_last_name?' '+reg.child_last_name:'')+'</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+    + '<select id="er-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+statusOpts+'</select></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Guardian Name</label>'
+    + '<input id="er-guardian-name" value="'+escHtml(reg.guardian_name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>'
+    + '<input id="er-email" type="email" value="'+escHtml(reg.guardian_email||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Phone</label>'
+    + '<input id="er-phone" value="'+escHtml(reg.guardian_phone||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">T-Shirt Size</label>'
+    + '<input id="er-shirt" value="'+escHtml(reg.shirt_size||'')+'" placeholder="YS, YM, AM, etc." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Emergency Contact</label>'
+    + '<input id="er-ec-name" value="'+escHtml(reg.emergency_contact_name||'')+'" placeholder="Name" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:6px;box-sizing:border-box"/>'
+    + '<input id="er-ec-phone" value="'+escHtml(reg.emergency_contact_phone||'')+'" placeholder="Phone" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Notes</label>'
+    + '<textarea id="er-notes" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(reg.notes||'')+'</textarea></div>'
+    + '</div>'
+    + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="er-cancel" class="btn btn-secondary">Cancel</button>'
+    + '<button id="er-save" class="btn btn-primary">Save Changes</button>'
+    + '</div>'
+  overlay.appendChild(form)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  document.getElementById('er-close').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('er-cancel').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('er-save').addEventListener('click', async function(){
+    const payload = {
+      status: document.getElementById('er-status').value,
+      guardian_name: document.getElementById('er-guardian-name').value,
+      guardian_email: document.getElementById('er-email').value,
+      guardian_phone: document.getElementById('er-phone').value,
+      shirt_size: document.getElementById('er-shirt').value,
+      emergency_contact_name: document.getElementById('er-ec-name').value,
+      emergency_contact_phone: document.getElementById('er-ec-phone').value,
+      notes: document.getElementById('er-notes').value,
+    }
+    const res = await api('/api/programs/'+pid+'/registrations/'+rid, 'PUT', payload)
+    if(res && res.ok){ toast('Registration updated', 'success'); overlay.remove(); loadProgramRegistrations(pid) }
+    else toast((res && res.error)||'Error', 'error')
+  })
+}
+
+async function loadDiscountCodes(pid){
+  const el = document.getElementById('rs-discount-codes-list')
+  if(!el) return
+  const codes = await api('/api/programs/'+pid+'/discount-codes')
+  if(!Array.isArray(codes) || !codes.length){
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No codes yet</div>'
+    return
+  }
+  el.innerHTML = codes.map(function(c){
+    var label = c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
+    var uses = c.max_uses ? c.uses+'/'+c.max_uses+' uses' : c.uses+' uses'
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
+      + '<div><code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;font-weight:700">'+escHtml(c.code)+'</code>'
+      + ' <span style="font-size:12px;color:var(--text-muted)">'+label+' &middot; '+uses+'</span></div>'
+      + '<button class="dc-delete-btn" data-cid="'+c.id+'" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-muted)" title="Deactivate">×</button>'
+      + '</div>'
+  }).join('')
+  el.querySelectorAll('.dc-delete-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Deactivate this code?')) return
+      const res = await api('/api/programs/'+pid+'/discount-codes/'+btn.dataset.cid,'DELETE')
+      if(res && res.ok){ toast('Code deactivated','success'); loadDiscountCodes(pid) }
+    })
   })
 }
 

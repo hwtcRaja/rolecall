@@ -15751,7 +15751,7 @@ async function openProgramDetail(programId){
  </div>
  </div>
 
- <div id="prog-detail-grid" style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start">
+ <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start">
 
  <!-- LEFT: Program info + participants -->
  <div>
@@ -15796,6 +15796,7 @@ async function openProgramDetail(programId){
  <button id="pdtab-btn-messages" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('messages')">Messages</button>
  <button id="pdtab-btn-auditions" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('auditions')">Auditions</button>
  ${isAdmin?`<button id="pdtab-btn-portal" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('portal')">Portal Content</button>`:''}
+${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;color:var(--text-muted)" onclick="switchProgramDetailTab('registrations')">Registrations</button>`:''}
  </div>
 
  <!-- Events tab -->
@@ -15912,10 +15913,11 @@ async function openProgramDetail(programId){
  </div>
  </div>
 
- <div id="pdtab-registrations" style="display:none;width:100%;box-sizing:border-box">
+
+ <div id="pdtab-registrations" style="display:none">
   <div id="prog-registrations-content"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div></div>
  </div>
-
+ </div>`
 
  window._currentProgramDetailId = programId
  navTo('program-detail')
@@ -16852,9 +16854,6 @@ function switchProgramDetailTab(tab){
   if(el) el.style.display = t===tab ? '': 'none'
   if(btn){ btn.style.borderBottomColor = t===tab ? 'var(--teal-mid)': 'transparent'; btn.style.color = t===tab ? 'var(--teal-dark)': 'var(--text-muted)' }
  })
- // Hide the 2-col grid when showing full-width registrations panel
- const grid = document.getElementById('prog-detail-grid')
- if(grid) grid.style.display = tab==='registrations' ? 'none' : 'grid'
  const pid = window._currentProgramDetailId
  if(tab==='portal') loadProgramPortalContent(pid)
  if(tab==='messages') loadPortalMessages(pid, null, 'prog-messages-current')

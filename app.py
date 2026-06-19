@@ -3697,6 +3697,107 @@ def get_group_members(gid):
     return jsonify(members)
 
 
+
+@app.route('/api/square/catalog-items', methods=['GET'])
+def get_square_catalog_items():
+    """List Square catalog items for linking to programs."""
+    err = require_auth()
+    if err: return err
+    if not SQUARE_ACCESS_TOKEN:
+        return jsonify({'error': 'Square not configured'}), 400
+    try:
+        r = requests.get(
+            f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM',
+            headers=square_headers(), timeout=10)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+        items = []
+        for obj in (data.get('objects') or []):
+            item_data = obj.get('item_data', {})
+            # Get the first variation's price
+            variations = item_data.get('variations', [])
+            price = None
+            variation_id = None
+            if variations:
+                v = variations[0]
+                variation_id = v.get('id')
+                price_money = v.get('item_variation_data', {}).get('price_money', {})
+                price = price_money.get('amount')
+            items.append({
+                'id': obj.get('id'),
+                'variation_id': variation_id,
+                'name': item_data.get('name',''),
+                'description': item_data.get('description',''),
+                'price': price,
+            })
+        items.sort(key=lambda x: x['name'])
+        return jsonify(items)
+    except Exception as e:
+        app.logger.error(f'Square catalog error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/square/catalog-items', methods=['POST'])
+def create_square_catalog_item():
+    """Create a new Square catalog item for a program."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    price_cents = int(d.get('price_cents') or 0)
+    description = (d.get('description') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name required'}), 400
+    import uuid as _uuid
+    item_id = '#item_' + str(_uuid.uuid4()).replace('-','')[:16]
+    var_id  = '#var_'  + str(_uuid.uuid4()).replace('-','')[:16]
+    payload = {
+        'idempotency_key': str(_uuid.uuid4()),
+        'object': {
+            'type': 'ITEM',
+            'id': item_id,
+            'item_data': {
+                'name': name,
+                'description': description or None,
+                'variations': [{
+                    'type': 'ITEM_VARIATION',
+                    'id': var_id,
+                    'item_variation_data': {
+                        'name': 'Regular',
+                        'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
+                        'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
+                    }
+                }]
+            }
+        }
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object',
+            json=payload, headers=square_headers(), timeout=10)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': data.get('errors',[{}])[0].get('detail','Square error')}), 400
+        obj = data.get('catalog_object', {})
+        var = (obj.get('item_data',{}).get('variations') or [{}])[0]
+        return jsonify({'id': obj.get('id'), 'variation_id': var.get('id'), 'name': name, 'price': price_cents})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/programs/<pid>/link-catalog-item', methods=['POST'])
+def link_catalog_item(pid):
+    """Link a Square catalog item (variation ID) to a program."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_programs SET square_catalog_item_id=%s WHERE id=%s',
+        (d.get('catalog_item_id') or None, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
@@ -10692,11 +10793,16 @@ def square_create_payment_link(program, registration_id, guardian_email, guardia
         'idempotency_key': str(_uuid.uuid4()),
         'order': {
             'location_id': SQUARE_LOCATION_ID,
-            'line_items': [{
-                'name': program['name'][:191],
-                'quantity': '1',
-                'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
-            }],
+            'line_items': [
+                {
+                    'catalog_object_id': program.get('square_catalog_item_id'),
+                    'quantity': '1',
+                } if program.get('square_catalog_item_id') else {
+                    'name': program['name'][:191],
+                    'quantity': '1',
+                    'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
+                }
+            ],
             'reference_id': registration_id[:40],
         },
         'checkout_options': {
@@ -11159,7 +11265,7 @@ def update_registration_settings(pid):
         registration_open_date=%s, registration_close_date=%s,
         slug=%s, interest_list_fields=%s, waitlist_auto_charge=%s,
         custom_fields=%s, program_info=%s, program_images=%s,
-        registration_form_type=%s,
+        registration_form_type=%s, square_catalog_item_id=%s,
         updated_at=NOW() WHERE id=%s''',
         (d.get('registration_status','draft'),
          d.get('capacity') or None,
@@ -11173,7 +11279,12 @@ def update_registration_settings(pid):
          d.get('program_info','') or '',
          json.dumps(d.get('program_images') or []),
          d.get('registration_form_type','youth'),
+         d.get('square_catalog_item_id') or None,
          pid))
+    # Update catalog item separately (may not be in the main update)
+    if 'square_catalog_item_id' in d:
+        execute(conn, 'UPDATE youth_programs SET square_catalog_item_id=%s WHERE id=%s',
+            (d.get('square_catalog_item_id') or None, pid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

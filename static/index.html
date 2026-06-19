@@ -15842,9 +15842,6 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  <div><div style="font-size:15px;font-weight:700"> Announcements</div>
  <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Save as draft then publish & email the roster</div></div>
  </div>
- <div id="pdtab-registrations" style="display:none">
-  <div id="prog-registrations-content"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div></div>
- </div>
  <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">
  <input type="hidden" id="prog-ann-edit-id-current"/>
  <div class="form-group" style="margin-bottom:10px">
@@ -15913,6 +15910,9 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Which participants still need to sign required waivers</div>
  <div id="prog-waiver-status-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
+ </div>
+ <div id="pdtab-registrations" style="display:none">
+  <div id="prog-registrations-content"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div></div>
  </div>
  </div>
 
@@ -16851,7 +16851,7 @@ function switchProgramDetailTab(tab){
  ['events','messages','portal','auditions','registrations'].forEach(t=>{
   const el = document.getElementById('pdtab-'+t)
   const btn = document.getElementById('pdtab-btn-'+t)
-  if(el) el.style.display = t===tab ? '': 'none'
+  if(el) el.style.display = t===tab ? (t==='registrations' ? 'block' : '') : 'none'
   if(btn){ btn.style.borderBottomColor = t===tab ? 'var(--teal-mid)': 'transparent'; btn.style.color = t===tab ? 'var(--teal-dark)': 'var(--text-muted)' }
  })
  const pid = window._currentProgramDetailId

@@ -17021,6 +17021,14 @@ function openRegistrationSettingsModal(pid){
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (USD)</label>'
     + '<input type="number" id="rs-price" value="'+(prog.price?(prog.price/100).toFixed(2):'')+'" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '</div>'
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Square Catalog Item</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Link this program to a Square catalog item so payments group correctly in Square reports.</div>'
+    + '<div style="display:flex;gap:8px;align-items:flex-end">'
+    + '<div class="form-group" style="flex:1;margin-bottom:0"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Linked Catalog Item</label>'
+    + '<select id="rs-catalog-item" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">Loading...</option></select></div>'
+    + '<button id="rs-create-item-btn" class="btn btn-secondary" style="padding:9px 14px;font-size:13px;white-space:nowrap;margin-bottom:0">+ New Item</button>'
+    + '</div>'
+    + '<div id="rs-catalog-hint" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>'
 
     // Dates
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
@@ -17064,6 +17072,9 @@ function openRegistrationSettingsModal(pid){
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid) })
   document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
+  // Load Square catalog items
+  loadSquareCatalogItems(prog.square_catalog_item_id || '')
+  document.getElementById('rs-create-item-btn').addEventListener('click', function(){ openCreateCatalogItemModal(pid) })
   document.getElementById('rs-add-field-btn').addEventListener('click', function(){
     var container = document.getElementById('rs-custom-fields')
     var idx = container.querySelectorAll('.cf-row').length
@@ -17122,6 +17133,82 @@ function getCustomFieldsFromModal(){
 }
 
 
+async function loadSquareCatalogItems(selectedId){
+  var sel = document.getElementById('rs-catalog-item')
+  if(!sel) return
+  sel.innerHTML = '<option value="">Loading...</option>'
+  const items = await api('/api/square/catalog-items')
+  if(items && items.error){
+    sel.innerHTML = '<option value="">Could not load catalog items</option>'
+    return
+  }
+  sel.innerHTML = '<option value="">None (use program name as line item)</option>'
+    + (Array.isArray(items) ? items.map(function(item){
+        var price = item.price ? ' — $'+(item.price/100).toFixed(2) : ''
+        return '<option value="'+(item.variation_id||item.id)+'"'+(selectedId===(item.variation_id||item.id)||selectedId===item.id?' selected':'')+'>'+escHtml(item.name)+price+'</option>'
+      }).join('') : '')
+  if(selectedId){
+    var hint = document.getElementById('rs-catalog-hint')
+    if(hint) hint.textContent = 'Linked to Square catalog item'
+  }
+}
+
+function openCreateCatalogItemModal(pid){
+  const prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+  const overlay2 = document.createElement('div')
+  overlay2.id = 'catalog-create-overlay'
+  overlay2.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+  var form2 = document.createElement('div')
+  form2.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:var(--shadow-lg)'
+  form2.innerHTML =
+    '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    + '<div style="font-size:15px;font-weight:700">Create Square Catalog Item</div>'
+    + '<button id="cc-close-btn" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+    + '</div>'
+    + '<div style="padding:20px;display:flex;flex-direction:column;gap:14px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Item Name</label>'
+    + '<input type="text" id="cc-name" value="'+escHtml(prog.name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (USD)</label>'
+    + '<input type="number" id="cc-price" value="'+(prog.price?(prog.price/100).toFixed(2):'')+'" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Description (optional)</label>'
+    + '<textarea id="cc-desc" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(prog.description||'')+'</textarea></div>'
+    + '<div id="cc-error" style="color:#dc2626;font-size:12px;display:none"></div>'
+    + '</div>'
+    + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="cc-cancel-btn" class="btn btn-secondary">Cancel</button>'
+    + '<button id="cc-save-btn" class="btn btn-primary">Create in Square</button>'
+    + '</div>'
+  overlay2.appendChild(form2)
+  document.body.appendChild(overlay2)
+  document.getElementById('cc-close-btn').addEventListener('click', function(){ overlay2.remove() })
+  document.getElementById('cc-cancel-btn').addEventListener('click', function(){ overlay2.remove() })
+  document.getElementById('cc-save-btn').addEventListener('click', async function(){
+    const btn = this
+    btn.disabled=true; btn.textContent='Creating...'
+    const errEl = document.getElementById('cc-error')
+    errEl.style.display='none'
+    const res = await api('/api/square/catalog-items','POST',{
+      name: document.getElementById('cc-name').value.trim(),
+      price_cents: Math.round((parseFloat(document.getElementById('cc-price').value)||0)*100),
+      description: document.getElementById('cc-desc').value.trim(),
+    })
+    if(res && res.error){
+      errEl.textContent = res.error; errEl.style.display=''
+      btn.disabled=false; btn.textContent='Create in Square'
+      return
+    }
+    // Auto-select the new item and link it
+    overlay2.remove()
+    toast('Catalog item created in Square!', 'success')
+    // Reload catalog list and select the new item
+    await api('/api/programs/'+pid+'/link-catalog-item','POST',{catalog_item_id: res.variation_id||res.id})
+    await loadSquareCatalogItems(res.variation_id||res.id)
+    // Also reload programs to update local cache
+    api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+  })
+}
+
+
 async function saveRegistrationSettings(pid){
   var imagesRaw = (document.getElementById('rs-images')||{}).value||''
   var images = imagesRaw.split('\n').map(function(u){ return u.trim() }).filter(Boolean)
@@ -17137,6 +17224,7 @@ async function saveRegistrationSettings(pid){
     program_info: (document.getElementById('rs-program-info')||{}).value || '',
     program_images: images,
     custom_fields: getCustomFieldsFromModal(),
+    square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
   }
   const res = await api('/api/programs/'+pid+'/registration-settings', 'PUT', payload)
   if(res && res.ok){

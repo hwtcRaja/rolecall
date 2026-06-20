@@ -17164,8 +17164,64 @@ function openRegistrationSettingsModal(pid){
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
     + '<input type="checkbox" id="rs-auto-charge" '+(prog.waitlist_auto_charge!==false?'checked':'')+' style="accent-color:var(--teal)"/> Auto-send payment link when promoting from waitlist</label>'
 
-    // Program info / about
-    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info & Photos</div>'
+    // Location & Schedule
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Location &amp; Schedule</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Location / Venue</label>'
+    + '<input type="text" id="rs-location" value="'+escHtml(prog.program_location||'')+'" placeholder="e.g. Windermere Community Center, Room 204" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Schedule Type</label>'
+    + '<select id="rs-schedule-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px" onchange="toggleScheduleFields()">'
+    + '<option value="date_range"'+((!prog.schedule_type||prog.schedule_type==='date_range')?' selected':'')+'>Date range (e.g. June 1 – June 30)</option>'
+    + '<option value="single"'+(prog.schedule_type==='single'?' selected':'')+'>Single date / event</option>'
+    + '<option value="recurring"'+(prog.schedule_type==='recurring'?' selected':'')+'>Recurring (e.g. every Wed &amp; Sat)</option>'
+    + '</select></div>'
+
+    // Date range fields
+    + '<div id="rs-sched-date-range" style="'+(prog.schedule_type&&prog.schedule_type!=='date_range'?'display:none':'')+'">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>'
+    + '<input type="date" id="rs-start-date-field" value="'+(prog.start_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">End Date</label>'
+    + '<input type="date" id="rs-end-date-field" value="'+(prog.end_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div></div>'
+
+    // Single date
+    + '<div id="rs-sched-single" style="'+(prog.schedule_type!=='single'?'display:none':'')+'">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Date</label>'
+    + '<input type="date" id="rs-single-date" value="'+(prog.single_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+
+    // Recurring
+    + '<div id="rs-sched-recurring" style="'+(prog.schedule_type!=='recurring'?'display:none':'')+'">'
+    + (function(){
+        var days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+        var saved = []
+        try{ saved = JSON.parse(prog.meeting_days||'[]') }catch(e){}
+        return '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Days of Week</label>'
+          + '<div style="display:flex;flex-wrap:wrap;gap:6px">'
+          + days.map(function(d){ var on=saved.indexOf(d)!==-1; return '<label style="display:flex;align-items:center;gap:4px;padding:5px 10px;border:1.5px solid '+(on?'#145466':'var(--border-md)')+';border-radius:20px;cursor:pointer;font-size:12px;background:'+(on?'#e0f2fe':'var(--surface)')+'">'
+            + '<input type="checkbox" name="rs-day" value="'+d+'" '+(on?'checked':'')+' style="accent-color:#145466"/>'+d+'</label>' }).join('')
+          + '</div></div>'
+      })()
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">From Date</label>'
+    + '<input type="date" id="rs-recurring-start" value="'+(prog.start_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Through Date</label>'
+    + '<input type="date" id="rs-recurring-end" value="'+(prog.end_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div></div>'
+
+    // Time (shared across schedule types)
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Start Time</label>'
+    + '<input type="time" id="rs-start-time" value="'+(prog.meeting_start_time||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">End Time</label>'
+    + '<input type="time" id="rs-end-time" value="'+(prog.meeting_end_time||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Additional Schedule Notes</label>'
+    + '<input type="text" id="rs-schedule-notes" value="'+escHtml(prog.schedule_notes||'')+'" placeholder="e.g. No class July 4th week" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+
+    // Program Info & Photos section
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info &amp; Photos</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
     + '<textarea id="rs-program-info" rows="4" placeholder="Describe the program — what participants will learn, what to expect, etc. Basic HTML supported (bold, links)..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(prog.program_info||'')+'</textarea></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Cover Image</label>'
@@ -17531,6 +17587,16 @@ async function loadDiscountCodes(pid){
 }
 
 
+function toggleScheduleFields(){
+  var type = (document.getElementById('rs-schedule-type')||{}).value || 'date_range'
+  var dr = document.getElementById('rs-sched-date-range')
+  var si = document.getElementById('rs-sched-single')
+  var re = document.getElementById('rs-sched-recurring')
+  if(dr) dr.style.display = type==='date_range' ? '' : 'none'
+  if(si) si.style.display = type==='single' ? '' : 'none'
+  if(re) re.style.display = type==='recurring' ? '' : 'none'
+}
+
 async function saveRegistrationSettings(pid){
   const payload = {
     registration_status: document.getElementById('rs-status').value || 'draft',
@@ -17548,6 +17614,16 @@ async function saveRegistrationSettings(pid){
     program_info: (document.getElementById('rs-program-info')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
+    program_location: (document.getElementById('rs-location')||{}).value || '',
+    schedule_type: (document.getElementById('rs-schedule-type')||{}).value || 'date_range',
+    meeting_days: Array.from(document.querySelectorAll('input[name="rs-day"]:checked')).map(function(cb){ return cb.value }),
+    meeting_start_time: (document.getElementById('rs-start-time')||{}).value || '',
+    meeting_end_time: (document.getElementById('rs-end-time')||{}).value || '',
+    single_date: (document.getElementById('rs-single-date')||{}).value || '',
+    schedule_notes: (document.getElementById('rs-schedule-notes')||{}).value || '',
+    // Use the appropriate date fields based on schedule type
+    start_date: (document.getElementById('rs-start-date-field')||document.getElementById('rs-recurring-start')||{}).value || null,
+    end_date: (document.getElementById('rs-end-date-field')||document.getElementById('rs-recurring-end')||{}).value || null,
   }
   const res = await api('/api/programs/'+pid+'/registration-settings', 'PUT', payload)
   if(res && res.ok){

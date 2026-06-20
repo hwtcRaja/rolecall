@@ -90,7 +90,45 @@ async function apiFetch(path, method, body){
 }
 
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
-function fmtDate(d){ if(!d) return ''; try{ const dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) } catch(e){ return d } }
+function fmtTime(t){
+  if(!t) return ''
+  try{
+    var parts = t.split(':')
+    var h = parseInt(parts[0]), m = parts[1]
+    var ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12 || 12
+    return h + (m && m!=='00' ? ':'+m : '') + ' ' + ampm
+  }catch(e){ return t }
+}
+
+function fmtDate(d){ if(!d) return ''; try{ var dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) } catch(e){ return d } }
+
+function fmtTime(t){
+  var type = prog.schedule_type || 'date_range'
+  var startTime = prog.meeting_start_time ? fmtTime(prog.meeting_start_time) : ''
+  var endTime = prog.meeting_end_time ? fmtTime(prog.meeting_end_time) : ''
+  var timeStr = startTime ? (startTime + (endTime ? ' – ' + endTime : '')) : ''
+  var lines = []
+
+  if(type === 'single' && prog.single_date){
+    lines.push('📅 ' + fmtDate(prog.single_date))
+  } else if(type === 'recurring'){
+    var days = Array.isArray(prog.meeting_days) ? prog.meeting_days : []
+    if(days.length) lines.push('📅 Every ' + days.join(', '))
+    if(prog.start_date) lines.push('🗓 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' – ' + fmtDate(prog.end_date) : ''))
+  } else {
+    if(prog.start_date) lines.push('📅 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' – ' + fmtDate(prog.end_date) : ''))
+  }
+  if(timeStr) lines.push('🕐 ' + timeStr)
+  if(prog.schedule_notes) lines.push('ℹ️ ' + escHtml(prog.schedule_notes))
+
+  if(!lines.length) return ''
+  return '<div style="font-size:13px;color:#6b7280;margin-bottom:10px;display:flex;flex-direction:column;gap:3px">'
+    + lines.map(function(l){ return '<div>'+l+'</div>' }).join('')
+    + '</div>'
+}
+
+
 function fmtPrice(cents){ if(!cents) return 'Free'; return '$'+(cents/100).toFixed(2) }
 function show(msg, type){ document.getElementById('form-alert').innerHTML = '<div class="alert alert-'+type+'" style="margin-bottom:12px">'+escHtml(msg)+'</div>' }
 
@@ -187,7 +225,8 @@ function renderPage(){
     + '<div class="card-header"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px"><h2>'+escHtml(program.name)+'</h2><span class="badge '+(badgeMap[status]||'badge-draft')+'">'+(labelMap[status]||status)+'</span></div></div>'
     + '<div class="card-body">'
     + (program.description?'<p style="font-size:14px;color:#374151;margin-bottom:14px;line-height:1.6">'+escHtml(program.description)+'</p>':'')
-    + (program.start_date?'<div style="font-size:13px;color:#6b7280;margin-bottom:8px"><strong style="color:#1a2332">Dates:</strong> '+fmtDate(program.start_date)+(program.end_date&&program.end_date!==program.start_date?' &rarr; '+fmtDate(program.end_date):'')+'</div>':'')
+    + buildScheduleHTML(program)
+    + (program.program_location ? '<div style="font-size:13px;color:#6b7280;margin-bottom:8px">📍 '+escHtml(program.program_location)+'</div>' : '')
     + capHTML
     + (program.price?'<div class="price-tag">'+fmtPrice(program.price)+'<span> per participant</span></div>':'<div style="margin:10px 0;font-size:14px;font-weight:700;color:#166534">Free</div>')
     + (images.length > 1 ? imagesHTML : '')

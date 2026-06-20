@@ -12332,7 +12332,7 @@ def notify_interest_list(pid):
             send_email([email], f'Registration is now open — {prog["name"]}',
                 f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;color:#1a2332">'
                 f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
-                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px"/>'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/>'
                 f'</div>'
                 f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
                 f'<h2 style="color:#0d3d4d;font-size:20px;margin:0 0 12px">Registration is now open!</h2>'
@@ -12347,6 +12347,10 @@ def notify_interest_list(pid):
                 f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
                 f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                 f'</div></div>')
+            # Stamp notified_at so the UI reflects the notification
+            conn2 = get_db()
+            execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
+            conn2.commit(); conn2.close()
             sent += 1
         except Exception as ex:
             app.logger.warning(f'Interest list notify failed for {email}: {ex}')

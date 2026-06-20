@@ -977,6 +977,14 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_type TEXT DEFAULT 'full'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_due INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
+        """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS min_spend INTEGER DEFAULT 0""",
+        """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_sibling_discount BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
         """CREATE TABLE IF NOT EXISTS program_registrations (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -3815,6 +3823,173 @@ def link_catalog_item(pid):
         (d.get('catalog_item_id') or None, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  REGISTRATION SETTINGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/registration-settings', methods=['PUT'])
+def save_registration_settings(pid):
+    err = require_permission('youth')
+    if err: return err
+    import json as _json
+    d = request.json or {}
+    conn = get_db()
+    images = d.get('program_images') or []
+    custom_fields = d.get('custom_fields') or []
+    execute(conn, '''UPDATE youth_programs SET
+        registration_status=%s, registration_form_type=%s, slug=%s,
+        capacity=%s, price=%s, deposit_amount=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        program_info=%s, program_images=%s, custom_fields=%s, square_catalog_item_id=%s
+        WHERE id=%s''',
+        (d.get('registration_status') or 'draft',
+         d.get('registration_form_type') or 'youth',
+         (d.get('slug') or '').strip().lower().replace(' ', '-') or None,
+         d.get('capacity') or None,
+         int(d.get('price_cents') or 0),
+         int(d.get('deposit_amount') or 0),
+         bool(d.get('sibling_discount_enabled')),
+         d.get('sibling_discount_type') or 'percent',
+         int(d.get('sibling_discount_value') or 0),
+         d.get('registration_open_date') or None,
+         d.get('registration_close_date') or None,
+         bool(d.get('waitlist_auto_charge', True)),
+         (d.get('program_info') or '').strip(),
+         _json.dumps(images),
+         _json.dumps(custom_fields),
+         d.get('square_catalog_item_id') or None,
+         pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  DISCOUNT CODES
+# ─────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/discount-codes', methods=['GET'])
+def get_discount_codes(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM discount_codes WHERE program_id=%s ORDER BY created_at DESC', (pid,))
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/programs/<pid>/discount-codes', methods=['POST'])
+def create_discount_code(pid):
+    err = require_auth()
+    if err: return err
+    import uuid as _u
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    discount_type = d.get('discount_type', 'percent')
+    discount_value = int(d.get('discount_value') or 0)
+    min_spend = int(d.get('min_spend_cents') or 0)
+    max_uses = d.get('max_uses') or None
+    is_sibling = bool(d.get('is_sibling_discount'))
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    sq_id = None
+    try:
+        sq_id = square_create_discount(f'{prog["name"]} — {code}', discount_type, discount_value)
+    except Exception as e:
+        app.logger.warning(f'Square discount create failed: {e}')
+    try:
+        execute(conn, '''INSERT INTO discount_codes
+            (id, program_id, code, square_discount_id, discount_type, discount_value,
+             min_spend, is_sibling_discount, max_uses, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_u.uuid4().hex, pid, code, sq_id, discount_type, discount_value,
+             min_spend, is_sibling, max_uses))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/programs/<pid>/discount-codes/<cid>', methods=['DELETE'])
+def delete_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE discount_codes SET active=FALSE WHERE id=%s AND program_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
+def validate_discount(slug):
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not prog:
+        conn.close()
+        return jsonify({'valid': False, 'error': 'Program not found'})
+    dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], code))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    price = prog.get('price') or 0
+    num_regs = int(d.get('num_registrations') or 1)
+    basket = price * num_regs
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum spend of ${min_spend/100:.2f}'})
+    is_sib = bool(dc.get('is_sibling_discount'))
+    if is_sib:
+        if num_regs < 2:
+            return jsonify({'valid': False, 'error': 'Sibling discount requires 2+ participants'})
+        per_child = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+        discount_amount = per_child * (num_regs - 1)
+        label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
+    else:
+        if dc['discount_type'] == 'percent':
+            discount_amount = int(basket * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off'
+        else:
+            discount_amount = min(dc['discount_value'] * num_regs, basket)
+            label = f'${dc["discount_value"]/100:.2f} off'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    final_price = max(0, basket - discount_amount)
+    return jsonify({'valid': True, 'discount_amount': discount_amount,
+                    'final_price': final_price, 'is_sibling': is_sib,
+                    'label': label, 'square_discount_id': dc.get('square_discount_id')})
+
+
+def square_create_discount(name, discount_type, value):
+    import uuid as _u
+    if not SQUARE_ACCESS_TOKEN:
+        return None
+    payload = {'idempotency_key': _u.uuid4().hex, 'object': {
+        'type': 'DISCOUNT', 'id': '#discount_' + _u.uuid4().hex[:12],
+        'discount_data': {'name': name, 'discount_type': 'FIXED_AMOUNT' if discount_type == 'fixed' else 'FIXED_PERCENTAGE'}}}
+    if discount_type == 'fixed':
+        payload['object']['discount_data']['amount_money'] = {'amount': value, 'currency': 'USD'}
+    else:
+        payload['object']['discount_data']['percentage'] = str(value)
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', json=payload, headers=square_headers(), timeout=10)
+        data = r.json()
+        return data.get('catalog_object', {}).get('id')
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -11080,25 +11255,48 @@ def public_submit_registration(slug):
     # Available spot
     price = p.get('price') or 0
 
-    # Apply discount code
+    # Siblings (additional children in same order)
+    import json as _json2
+    siblings = d.get('siblings') or []
+    if not isinstance(siblings, list):
+        siblings = []
+    participant_count = 1 + len(siblings)
+    basket = price * participant_count
+
+    # Apply promo discount code
     discount_amount = 0
     discount_code = (d.get('discount_code') or '').strip().upper()
     if discount_code and price > 0:
         dc = fetchone(conn, '''SELECT * FROM discount_codes
             WHERE program_id=%s AND code=%s AND active=TRUE''', (p['id'], discount_code))
-        if dc and (not dc.get('max_uses') or dc.get('uses',0) < dc['max_uses']):
-            if dc['discount_type'] == 'percent':
-                discount_amount = int(price * dc['discount_value'] / 100)
-            else:
-                discount_amount = min(dc['discount_value'], price)
-            execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+        if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+            min_spend = dc.get('min_spend') or 0
+            if not (min_spend > 0 and basket < min_spend):
+                is_sib_code = bool(dc.get('is_sibling_discount'))
+                if is_sib_code and participant_count >= 2:
+                    per_child = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                    discount_amount = per_child * (participant_count - 1)
+                elif not is_sib_code:
+                    if dc['discount_type'] == 'percent':
+                        discount_amount = int(basket * dc['discount_value'] / 100)
+                    else:
+                        discount_amount = min(dc['discount_value'] * participant_count, basket)
+                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
         else:
             discount_code = ''  # invalid, ignore
 
+    # Program-level automatic sibling discount
+    sibling_discount_amount = 0
+    if p.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+        sib_type = p.get('sibling_discount_type') or 'percent'
+        sib_val = p.get('sibling_discount_value') or 0
+        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+        sibling_discount_amount = per_sib * (participant_count - 1)
+
     # Deposit payment plan
     deposit = p.get('deposit_amount') or 0
-    use_deposit = deposit > 0 and price > deposit and d.get('payment_type') == 'deposit'
-    effective_price = max(0, price - discount_amount)
+    effective_price = max(0, basket - discount_amount - sibling_discount_amount)
+    use_deposit = deposit > 0 and effective_price > deposit and d.get('payment_type') == 'deposit'
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
@@ -11108,8 +11306,10 @@ def public_submit_registration(slug):
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
-             discount_code, discount_amount, payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+             discount_code, discount_amount, sibling_discount_amount,
+             participant_count, siblings_json,
+             payment_type, balance_due{', '+extra_cols if extra_cols else ''})
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,
@@ -11117,7 +11317,8 @@ def public_submit_registration(slug):
              d.get('emergency_contact_name','').strip() or None,
              d.get('emergency_contact_phone','').strip() or None,
              d.get('notes','').strip() or None,
-             discount_code or None, discount_amount,
+             discount_code or None, discount_amount, sibling_discount_amount,
+             participant_count, _json2.dumps(siblings),
              'deposit' if use_deposit else 'full', balance_due) + extra_vals)
 
     if charge_now == 0:
@@ -11131,6 +11332,8 @@ def public_submit_registration(slug):
     conn.commit()
 
     note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}'
+    if participant_count > 1:
+        note += f' ({participant_count} participants)'
     if use_deposit:
         note += f' (deposit ${deposit/100:.2f})'
     pay_url, link_id, order_id = square_create_payment_link(

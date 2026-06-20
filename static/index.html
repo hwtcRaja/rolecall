@@ -17060,7 +17060,35 @@ function openRegistrationSettingsModal(pid){
     + '<input type="number" id="rs-code-value" placeholder="10" min="0" style="padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;width:100%;box-sizing:border-box;outline:none"/>'
     + '<button id="rs-add-code-btn" class="btn btn-secondary" style="padding:7px 12px;font-size:12px;white-space:nowrap">+ Add</button>'
     + '</div>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-bottom:8px">Enter code name, choose % or $, enter value</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Min. spend to unlock ($ — leave blank for any)</label>'
+    + '<input type="number" id="rs-min-spend" placeholder="0.00" min="0" step="0.01" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;box-sizing:border-box;outline:none"/></div>'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Max uses (leave blank for unlimited)</label>'
+    + '<input type="number" id="rs-code-max-uses" placeholder="unlimited" min="1" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;box-sizing:border-box;outline:none"/></div>'
+    + '</div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-top:6px"><input type="checkbox" id="rs-sib-code" style="accent-color:var(--teal)"/> This is a sibling discount code (applies per additional participant)</label>'
+
+    // Deposit
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:8px">Deposit / Payment Plan</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">If set, families can pay a deposit now and the balance later.</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Deposit Amount (USD)</label>'
+    + '<input type="number" id="rs-deposit" value="'+(prog.deposit_amount?(prog.deposit_amount/100).toFixed(2):'')+'" placeholder="Leave blank — no deposit option" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+
+    // Automatic sibling discount
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Automatic Sibling Discount</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Automatically discounts each additional child — no code needed. Applied on top of any promo code.</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-sib-enabled" '+(prog.sibling_discount_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable automatic sibling discount</label>'
+    + '<div style="display:grid;grid-template-columns:80px 1fr;gap:8px">'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Type</label>'
+    + '<select id="rs-sib-type" style="width:100%;padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    + '<option value="percent"'+(prog.sibling_discount_type!=='fixed'?' selected':'')+'>% off</option>'
+    + '<option value="fixed"'+(prog.sibling_discount_type==='fixed'?' selected':'')+'>$ off</option>'
+    + '</select></div>'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Amount per additional child</label>'
+    + '<input type="number" id="rs-sib-value" value="'+(prog.sibling_discount_value||'')+'" placeholder="e.g. 10" min="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;box-sizing:border-box;outline:none"/></div>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">e.g. 10% off — 3 children at $100 each = $100 + $90 + $90 = $280</div>'
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Custom Form Fields</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px">Add extra questions to the registration form (e.g. dance experience, dietary needs, medical info).</div>'
     + '<div id="rs-custom-fields">'
@@ -17092,9 +17120,22 @@ function openRegistrationSettingsModal(pid){
     const val = parseInt((document.getElementById('rs-code-value')||{}).value)||0
     if(!code.trim() || !val){ toast('Enter a code and value','error'); return }
     this.disabled=true; this.textContent='Creating...'
-    const res = await api('/api/programs/'+pid+'/discount-codes','POST',{code:code.trim().toUpperCase(),discount_type:type,discount_value:val})
+    const res = await api('/api/programs/'+pid+'/discount-codes','POST',{
+      code:code.trim().toUpperCase(), discount_type:type, discount_value:val,
+      min_spend_cents: Math.round((parseFloat((document.getElementById('rs-min-spend')||{}).value)||0)*100),
+      max_uses: parseInt((document.getElementById('rs-code-max-uses')||{}).value)||null,
+      is_sibling_discount: (document.getElementById('rs-sib-code')||{}).checked||false,
+    })
     this.disabled=false; this.textContent='+ Add'
-    if(res && res.ok){ toast('Code created in Square!','success'); document.getElementById('rs-new-code').value=''; document.getElementById('rs-code-value').value=''; loadDiscountCodes(pid) }
+    if(res && res.ok){
+      toast('Code created!','success')
+      document.getElementById('rs-new-code').value=''
+      document.getElementById('rs-code-value').value=''
+      if(document.getElementById('rs-min-spend')) document.getElementById('rs-min-spend').value=''
+      if(document.getElementById('rs-code-max-uses')) document.getElementById('rs-code-max-uses').value=''
+      if(document.getElementById('rs-sib-code')) document.getElementById('rs-sib-code').checked=false
+      loadDiscountCodes(pid)
+    }
     else toast((res && res.error)||'Error','error')
   })
   document.getElementById('rs-add-field-btn').addEventListener('click', function(){
@@ -17315,7 +17356,9 @@ async function loadDiscountCodes(pid){
     return
   }
   el.innerHTML = codes.map(function(c){
-    var label = c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
+    var label = c.is_sibling_discount ? 'Sibling: ' : ''
+    label += c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
+    if(c.min_spend) label += ' (min $'+(c.min_spend/100).toFixed(2)+')'
     var uses = c.max_uses ? c.uses+'/'+c.max_uses+' uses' : c.uses+' uses'
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">'
       + '<div><code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;font-weight:700">'+escHtml(c.code)+'</code>'
@@ -17342,6 +17385,10 @@ async function saveRegistrationSettings(pid){
     slug: (document.getElementById('rs-slug').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'-') || null,
     capacity: parseInt(document.getElementById('rs-capacity').value) || null,
     price_cents: Math.round((parseFloat(document.getElementById('rs-price').value)||0)*100),
+    deposit_amount: Math.round((parseFloat((document.getElementById('rs-deposit')||{}).value)||0)*100),
+    sibling_discount_enabled: (document.getElementById('rs-sib-enabled')||{}).checked||false,
+    sibling_discount_type: (document.getElementById('rs-sib-type')||{}).value||'percent',
+    sibling_discount_value: parseInt((document.getElementById('rs-sib-value')||{}).value)||0,
     registration_open_date: document.getElementById('rs-open-date').value || null,
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,

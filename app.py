@@ -985,6 +985,13 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_start_time TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_end_time TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS single_date TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS schedule_notes TEXT DEFAULT ''""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -3877,7 +3884,10 @@ def save_registration_settings(pid):
         capacity=%s, price=%s, deposit_amount=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
-        program_info=%s, custom_fields=%s, square_catalog_item_id=%s
+        program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
+        program_location=%s, schedule_type=%s, meeting_days=%s,
+        meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
+        start_date=%s, end_date=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -3894,6 +3904,15 @@ def save_registration_settings(pid):
          (d.get('program_info') or '').strip(),
          _json.dumps(custom_fields),
          d.get('square_catalog_item_id') or None,
+         (d.get('program_location') or '').strip(),
+         d.get('schedule_type') or 'date_range',
+         _json.dumps(d.get('meeting_days') or []),
+         (d.get('meeting_start_time') or '').strip(),
+         (d.get('meeting_end_time') or '').strip(),
+         (d.get('single_date') or '').strip(),
+         (d.get('schedule_notes') or '').strip(),
+         d.get('start_date') or None,
+         d.get('end_date') or None,
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -11232,7 +11251,7 @@ def public_program_info(slug):
     conn.close()
     # Remove internal fields
     # Parse JSON fields
-    for k in ['custom_fields','program_images','interest_list_fields']:
+    for k in ['custom_fields','program_images','interest_list_fields','meeting_days']:
         if p.get(k):
             try: p[k] = json.loads(p[k])
             except: p[k] = []

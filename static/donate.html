@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Support HWTC — Horizon West Theatre Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:32px 24px;text-align:center}
+.header img{height:52px;mix-blend-mode:screen;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto}
+.header h1{color:#fff;font-size:22px;font-weight:800;margin-bottom:6px}
+.header p{color:rgba(255,255,255,0.8);font-size:14px;max-width:440px;margin:0 auto;line-height:1.6}
+.container{max-width:520px;margin:0 auto;padding:28px 16px 60px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;margin-bottom:16px}
+.card-header{padding:18px 24px;border-bottom:1px solid #e5e7eb}
+.card-header h2{font-size:17px;font-weight:700;color:#0d3d4d}
+.card-body{padding:22px 24px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:6px}
+.form-group input,.form-group textarea{width:100%;padding:11px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s;background:#fff}
+.form-group input:focus,.form-group textarea:focus{border-color:#145466}
+.amount-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.amount-btn{padding:12px 8px;border:1.5px solid #d1d5db;border-radius:10px;background:#fff;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;color:#1a2332;transition:all 0.15s;text-align:center}
+.amount-btn:hover{border-color:#145466;color:#145466}
+.amount-btn.selected{border-color:#145466;background:#e0f7f4;color:#0d3d4d}
+.custom-amount-row{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.custom-amount-row span{font-size:18px;font-weight:700;color:#6b7280}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 24px;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;width:100%}
+.btn-primary{background:#145466;color:#fff}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{opacity:0.6;cursor:not-allowed}
+.alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.impact-row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6}
+.impact-row:last-child{border-bottom:none}
+.impact-icon{font-size:22px;flex-shrink:0;margin-top:2px}
+.impact-text{font-size:13px;color:#374151;line-height:1.5}
+.impact-text strong{color:#0d3d4d}
+#form-alert{}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <h1>Support the Arts in Horizon West</h1>
+  <p>Your donation keeps community theatre alive and accessible for everyone in our neighborhood.</p>
+</div>
+<div class="container">
+  <div id="app">
+
+    <div class="card">
+      <div class="card-header"><h2>Make a Donation</h2></div>
+      <div class="card-body">
+        <div id="form-alert"></div>
+
+        <div class="form-group">
+          <label>Choose an Amount</label>
+          <div class="amount-grid">
+            <button class="amount-btn" data-amount="25">$25</button>
+            <button class="amount-btn" data-amount="50">$50</button>
+            <button class="amount-btn" data-amount="100">$100</button>
+            <button class="amount-btn" data-amount="250">$250</button>
+            <button class="amount-btn" data-amount="500">$500</button>
+            <button class="amount-btn" data-amount="custom">Other</button>
+          </div>
+          <div class="custom-amount-row" id="custom-row" style="display:none">
+            <span>$</span>
+            <input type="number" id="f-custom-amount" placeholder="Enter amount" min="1" step="1" style="font-size:18px;font-weight:700"/>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Your Name <span style="color:#dc2626">*</span></label>
+          <input id="f-name" placeholder="First and last name"/>
+        </div>
+        <div class="form-group">
+          <label>Email Address <span style="color:#dc2626">*</span></label>
+          <input id="f-email" type="email" placeholder="your@email.com"/>
+        </div>
+        <div class="form-group">
+          <label>Message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <textarea id="f-message" rows="2" placeholder="A note of support..."></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="donate-btn" disabled>Continue to Payment &rarr;</button>
+        <div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:10px">Payments processed securely via Square. HWTC is a 501(c)(3) organization.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>Your Impact</h2></div>
+      <div class="card-body">
+        <div class="impact-row"><div class="impact-icon">🎭</div><div class="impact-text"><strong>$25</strong> helps cover one performer's costume for a production.</div></div>
+        <div class="impact-row"><div class="impact-icon">🎓</div><div class="impact-text"><strong>$50</strong> sponsors one child in a youth program who might not otherwise afford it.</div></div>
+        <div class="impact-row"><div class="impact-icon">🎤</div><div class="impact-text"><strong>$100</strong> covers microphone rental for a weekend of performances.</div></div>
+        <div class="impact-row"><div class="impact-icon">🌟</div><div class="impact-text"><strong>$250+</strong> helps fund an entire production — sets, lights, and sound.</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+var selectedAmount = 0
+var isConfirmation = location.pathname.includes('/confirmation')
+var urlParams = new URLSearchParams(location.search)
+var donId = urlParams.get('don')
+
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+function showErr(msg){
+  document.getElementById('form-alert').innerHTML = '<div class="alert alert-error">'+escHtml(msg)+'</div>'
+}
+
+function updateDonateBtn(){
+  var btn = document.getElementById('donate-btn')
+  var amt = getAmount()
+  btn.disabled = amt < 1
+  if(amt >= 1) btn.textContent = 'Donate $'+amt.toFixed(2)+' \u2192'
+  else btn.textContent = 'Continue to Payment \u2192'
+}
+
+function getAmount(){
+  if(selectedAmount === 'custom'){
+    return parseFloat(document.getElementById('f-custom-amount').value) || 0
+  }
+  return selectedAmount || 0
+}
+
+document.querySelectorAll('.amount-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('.amount-btn').forEach(function(b){ b.classList.remove('selected') })
+    btn.classList.add('selected')
+    var amt = btn.dataset.amount
+    if(amt === 'custom'){
+      selectedAmount = 'custom'
+      document.getElementById('custom-row').style.display = 'flex'
+      document.getElementById('f-custom-amount').focus()
+    } else {
+      selectedAmount = parseFloat(amt)
+      document.getElementById('custom-row').style.display = 'none'
+    }
+    updateDonateBtn()
+  })
+})
+
+document.getElementById('f-custom-amount').addEventListener('input', updateDonateBtn)
+
+document.getElementById('donate-btn').addEventListener('click', async function(){
+  var btn = this
+  var amt = getAmount()
+  var name = (document.getElementById('f-name').value||'').trim()
+  var email = (document.getElementById('f-email').value||'').trim()
+  var message = (document.getElementById('f-message').value||'').trim()
+
+  if(amt < 1){ showErr('Please select or enter a donation amount.'); return }
+  if(!name){ showErr('Please enter your name.'); return }
+  if(!email || !email.includes('@')){ showErr('Please enter a valid email address.'); return }
+
+  btn.disabled = true; btn.textContent = 'Processing...'
+  document.getElementById('form-alert').innerHTML = ''
+
+  try{
+    var res = await fetch('/api/public/donate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({amount: amt, name: name, email: email, message: message})
+    })
+    var data = await res.json()
+    if(data.ok && data.payment_url){
+      btn.textContent = 'Redirecting to payment...'
+      window.location.href = data.payment_url
+    } else {
+      showErr(data.error || 'Something went wrong. Please try again.')
+      btn.disabled = false
+      updateDonateBtn()
+    }
+  } catch(e){
+    showErr('Network error. Please try again.')
+    btn.disabled = false
+    updateDonateBtn()
+  }
+})
+
+if(isConfirmation && donId){
+  document.getElementById('app').innerHTML =
+    '<div class="card"><div class="card-body" style="text-align:center;padding:48px 24px">'
+    + '<div style="font-size:56px;margin-bottom:16px">💛</div>'
+    + '<h2 style="color:#0d3d4d;font-size:22px;margin-bottom:10px">Thank You!</h2>'
+    + '<p style="color:#6b7280;font-size:15px;line-height:1.6;max-width:360px;margin:0 auto">Your donation is on its way to supporting live theatre in Horizon West. We\'ll send a receipt to your email shortly.</p>'
+    + '<p style="margin-top:20px;font-size:13px;color:#9ca3af">Horizon West Theatre Company &middot; A 501(c)(3) nonprofit</p>'
+    + '</div></div>'
+}
+</script>
+</body>
+</html>

@@ -113,6 +113,9 @@ function renderPage(){
   const el = document.getElementById('app')
   document.getElementById('loading').style.display='none'
   el.style.display=''
+  // Cart badge
+  var badge = getCartBadgeHTML()
+  if(badge) el.innerHTML = badge
   const status = program.registration_status || 'draft'
   const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
   const labelMap = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Coming Soon'}
@@ -250,7 +253,10 @@ function buildRegistrationForm(formType, customFields){
         : '')
     + '<div class="form-group" style="margin-top:8px"><label>Notes / Special Needs</label><textarea id="f-notes" rows="2" placeholder="Anything we should know..."></textarea></div>'
     + (program.price > 0 ? '<div id="payment-options-section">'+buildPaymentOptions(program)+'</div>' : '')
-    + '<button class="btn btn-primary" style="margin-top:8px" id="submit-btn">'+(program.price ? 'Continue to Payment &rarr;' : 'Complete Registration')+'</button>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">'
+    + '<button class="btn btn-primary" id="submit-btn">'+(program.price ? 'Continue to Payment &rarr;' : 'Complete Registration')+'</button>'
+    + '<button class="btn" id="add-to-cart-btn" style="background:#e0f2fe;color:#0d3d4d;border:1.5px solid #145466;font-weight:700">+ Add to Cart &amp; Register More</button>'
+    + '</div>'
     + '</div></div>'
 }
 
@@ -410,6 +416,10 @@ document.addEventListener('click', function(e){
   if(e.target && e.target.id === 'add-sibling-btn'){
     addSiblingBlock(); return
   }
+  if(e.target && e.target.id === 'add-to-cart-btn'){
+    e.preventDefault()
+    addToCart(); return
+  }
   if(e.target && e.target.id==='submit-btn'){
     e.preventDefault()
     const status = program && program.registration_status
@@ -568,6 +578,146 @@ async function showConfirmation(){
   } else {
     el.innerHTML='<div class="card"><div class="card-body"><div class="alert alert-info">Registration status: '+escHtml(reg.status||'')+'</div></div></div>'
   }
+}
+
+// ── Cart helpers ─────────────────────────────────────────────────────────────
+
+function cartGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart')||'[]') }catch(e){ return [] } }
+function cartSave(items){ localStorage.setItem('hwtc_cart', JSON.stringify(items)) }
+function cartCount(){ return cartGet().length }
+function guardianGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart_guardian')||'{}') }catch(e){ return {} } }
+function guardianSave(g){ localStorage.setItem('hwtc_cart_guardian', JSON.stringify(g)) }
+
+function getCartBadgeHTML(){
+  var n = cartCount()
+  if(!n) return ''
+  return '<a href="/register/cart" style="display:inline-flex;align-items:center;gap:6px;background:#0d3d4d;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;margin-bottom:12px">🛒 Cart: '+n+' program'+(n===1?'':'s')+' — Go to Cart &rarr;</a>'
+}
+
+function collectFormData(){
+  var formType = (program && program.registration_form_type) || 'youth'
+  var isYouth = formType === 'youth' || !formType
+  var customFields = (program && program.custom_fields) || []
+  return {
+    program_id: program.id,
+    program_name: program.name,
+    slug: slug,
+    price: program.price || 0,
+    registration_form_type: formType,
+    child_first_name: ((document.getElementById('f-first')||{}).value||'').trim(),
+    child_last_name: ((document.getElementById('f-last')||{}).value||'').trim(),
+    child_dob: (document.getElementById('f-dob')||{}).value||'',
+    shirt_size: (document.getElementById('f-shirt')||{}).value||'',
+    notes: ((document.getElementById('f-notes')||{}).value||'').trim(),
+    custom_field_values: getCustomFieldValues(customFields),
+    siblings: getSiblings(),
+    promo_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
+    payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
+    // guardian (used if cart is otherwise empty)
+    _guardian: {
+      name: isYouth ? ((document.getElementById('f-contact-name')||{}).value||'').trim()
+                    : (((document.getElementById('f-first')||{}).value||'')+' '+((document.getElementById('f-last')||{}).value||'')).trim(),
+      email: ((document.getElementById('f-email')||{}).value||'').trim().toLowerCase(),
+      phone: ((document.getElementById('f-phone')||{}).value||'').trim(),
+      ec_name: ((document.getElementById('f-ec-name')||{}).value||'').trim(),
+      ec_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),
+    }
+  }
+}
+
+function validateForm(){
+  var formType = (program && program.registration_form_type) || 'youth'
+  var isYouth = formType === 'youth' || !formType
+  var email = (document.getElementById('f-email')||{}).value||''
+  var firstName = (document.getElementById('f-first')||{}).value||''
+  var contactName = isYouth ? ((document.getElementById('f-contact-name')||{}).value||'') : firstName
+  if(!email.trim() || !firstName.trim() || (isYouth && !contactName.trim())){
+    show('Please fill in all required fields.','error'); return false
+  }
+  return true
+}
+
+function addToCart(){
+  if(!validateForm()) return
+  var item = collectFormData()
+  var g = item._guardian
+  delete item._guardian
+  // Save guardian for cart pre-fill (only save if first item or overwrite)
+  guardianSave(g)
+  // Add to cart
+  var cart = cartGet()
+  // Remove any existing entry for the same program
+  cart = cart.filter(function(c){ return c.program_id !== item.program_id })
+  cart.push(item)
+  cartSave(cart)
+  showAddedScreen(item, g)
+}
+
+function showAddedScreen(item, guardian){
+  var price = item.price || 0
+  var siblings = item.siblings || []
+  var numParticipants = 1 + siblings.length
+  var basket = price * numParticipants
+  // Rough line total (exact discounts computed server-side)
+  var lineTotal = basket
+  var el = document.getElementById('app')
+  el.innerHTML =
+    '<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">'
+    + '<div style="font-size:48px;margin-bottom:16px">✅</div>'
+    + '<h2 style="color:#145466;font-size:20px;margin-bottom:8px">Added to Cart!</h2>'
+    + '<p style="color:#374151;font-size:14px;margin-bottom:4px"><strong>'+escHtml(item.program_name)+'</strong></p>'
+    + (numParticipants > 1 ? '<p style="color:#6b7280;font-size:13px;margin-bottom:4px">'+numParticipants+' participants</p>' : '')
+    + (price > 0 ? '<p style="color:#6b7280;font-size:13px;margin-bottom:20px">$'+(lineTotal/100).toFixed(2)+'</p>' : '<p style="color:#166534;font-size:13px;font-weight:700;margin-bottom:20px">Free</p>')
+    + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;margin:0 auto">'
+    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none">🛒 Go to Cart &amp; Checkout &rarr;</a>'
+    + '<a href="/api/public/programs" id="browse-more-btn" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">+ Add Another Program</a>'
+    + '</div>'
+    + '<div style="margin-top:16px;font-size:12px;color:#9ca3af">'+cartCount()+' program'+(cartCount()===1?'':'s')+' in your cart</div>'
+    + '</div></div>'
+
+  // Browse more — load program list
+  document.getElementById('browse-more-btn').addEventListener('click', function(e){
+    e.preventDefault()
+    showProgramBrowser()
+  })
+}
+
+async function showProgramBrowser(){
+  var el = document.getElementById('app')
+  el.innerHTML = '<div id="loading" style="text-align:center;padding:40px;color:#6b7280"><div class="spinner"></div>Loading programs...</div>'
+  var programs = await apiFetch('/api/public/programs')
+  if(!Array.isArray(programs) || !programs.length){
+    el.innerHTML = '<div class="card"><div class="card-body"><div class="alert alert-info">No other programs are currently open.</div></div></div>'
+    return
+  }
+  var cartIds = cartGet().map(function(c){ return c.program_id })
+  var html = '<div class="card"><div class="card-header"><h2>Browse Open Programs</h2></div><div class="card-body" style="padding:12px 22px">'
+  programs.forEach(function(p){
+    var inCart = cartIds.indexOf(p.id) !== -1
+    var isCurrent = p.id === (program && program.id)
+    if(isCurrent) return
+    var spotsLeft = p.spots_remaining
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e5e7eb">'
+      + '<div>'
+      + '<div style="font-weight:600;font-size:14px">'+escHtml(p.name)+'</div>'
+      + '<div style="font-size:12px;color:#6b7280;margin-top:2px">'
+      + (p.price ? '$'+(p.price/100).toFixed(2)+'/participant' : 'Free')
+      + (spotsLeft !== null && spotsLeft <= 5 ? ' · <span style="color:#f59e0b;font-weight:600">Only '+spotsLeft+' left</span>' : '')
+      + (spotsLeft === 0 ? ' · <span style="color:#dc2626;font-weight:600">Full</span>' : '')
+      + '</div></div>'
+      + '<div>'
+      + (inCart
+          ? '<span style="font-size:12px;color:#145466;font-weight:600">✓ In cart</span>'
+          : (spotsLeft === 0
+              ? '<span style="font-size:12px;color:#6b7280">Waitlist</span>'
+              : '<a href="/register/'+escHtml(p.slug)+'" class="btn btn-primary btn-sm" style="font-size:12px;padding:6px 14px;text-decoration:none">Register</a>'))
+      + '</div></div>'
+  })
+  html += '</div></div>'
+    + '<div style="text-align:center;margin-top:8px">'
+    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none;display:inline-flex;width:auto;padding:12px 28px">🛒 Go to Cart &rarr;</a>'
+    + '</div>'
+  el.innerHTML = html
 }
 
 init()

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Cart — Horizon West Theatre Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:24px;display:flex;align-items:center;gap:16px}
+.header img{height:40px;mix-blend-mode:screen}
+.header h1{color:#fff;font-size:20px;font-weight:800;margin:0}
+.header-sub{color:rgba(255,255,255,0.7);font-size:13px;margin-top:2px}
+.container{max-width:680px;margin:0 auto;padding:24px 16px 60px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);margin-bottom:16px;overflow:hidden}
+.card-header{padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
+.card-header h2{font-size:15px;font-weight:700;color:#0d3d4d}
+.card-body{padding:20px 22px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:5px}
+.form-group input,.form-group select{width:100%;padding:10px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s;background:#fff}
+.form-group input:focus,.form-group select:focus{border-color:#145466}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 22px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
+.btn-primary{background:#145466;color:#fff;width:100%}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{opacity:0.6;cursor:not-allowed}
+.btn-ghost{background:#f3f4f6;color:#374151;font-size:13px;padding:8px 14px;border-radius:8px;cursor:pointer;border:none;font-family:inherit;font-weight:600}
+.btn-ghost:hover{background:#e5e7eb}
+.item-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:10px;position:relative}
+.item-card:last-child{margin-bottom:0}
+.item-name{font-weight:700;font-size:14px;color:#0d3d4d;margin-bottom:3px}
+.item-detail{font-size:12px;color:#6b7280;margin-bottom:2px}
+.item-price{font-size:15px;font-weight:700;color:#145466;margin-top:6px}
+.remove-item-btn{position:absolute;top:10px;right:10px;background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;line-height:1}
+.remove-item-btn:hover{color:#dc2626}
+.summary-line{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin-bottom:7px}
+.summary-line.total{font-weight:800;font-size:16px;border-top:1.5px solid #e5e7eb;padding-top:10px;margin-top:4px}
+.summary-line.discount{color:#166534}
+.code-row{display:flex;gap:8px}
+.code-input{flex:1;padding:10px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;text-transform:uppercase}
+.code-input:focus{border-color:#145466}
+.apply-btn{padding:10px 16px;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.alert{border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.5;margin-bottom:14px}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.alert-info{background:#e0f2fe;color:#0c4a6e;border:1px solid #bae6fd}
+.empty-state{text-align:center;padding:56px 24px;color:#6b7280}
+.empty-state .icon{font-size:52px;margin-bottom:16px}
+.empty-state h2{font-size:18px;font-weight:700;color:#374151;margin-bottom:8px}
+.step-badge{background:#e0f2fe;color:#145466;border-radius:20px;font-size:11px;font-weight:700;padding:2px 10px;white-space:nowrap}
+@media(max-width:500px){.grid-2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <div><div class="header-sub">Horizon West Theatre Company</div><h1>🛒 Your Cart</h1></div>
+</div>
+<div class="container">
+  <div id="app">
+    <div class="empty-state"><div class="icon">🛒</div><p>Loading your cart...</p></div>
+  </div>
+</div>
+<script>
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function fmtPrice(c){ return c>0 ? '$'+(c/100).toFixed(2) : 'Free' }
+
+var cartItems = []
+var cartPromo = null   // {valid, discount_amount, label, _code}
+var isConfirmation = location.pathname.includes('/confirmation')
+var urlParams = new URLSearchParams(location.search)
+var orderId = urlParams.get('order')
+
+function cartGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart')||'[]') }catch(e){ return [] } }
+function cartSave(items){ localStorage.setItem('hwtc_cart', JSON.stringify(items)) }
+function guardianGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart_guardian')||'{}') }catch(e){ return {} } }
+
+async function apiFetch(path, method, body){
+  const opts = {method:method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  const r = await fetch(path, opts)
+  return r.json()
+}
+
+// ── Totals ────────────────────────────────────────────────────────────────────
+function computeTotals(){
+  var subtotal = 0
+  cartItems.forEach(function(it){
+    var sibs = (it.siblings||[]).length
+    var n = 1 + sibs
+    var basket = (it.price||0) * n
+    // We don't recompute program discounts here — show what was entered
+    subtotal += basket
+  })
+  var promoDiscount = (cartPromo && cartPromo.valid) ? (cartPromo.discount_amount||0) : 0
+  var total = Math.max(0, subtotal - promoDiscount)
+  return {subtotal, promoDiscount, total}
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(){
+  var el = document.getElementById('app')
+  cartItems = cartGet()
+
+  if(!cartItems.length){
+    el.innerHTML = '<div class="empty-state"><div class="icon">🛒</div><h2>Your cart is empty</h2>'
+      + '<p style="margin-bottom:20px">Add programs from any registration page.</p>'
+      + '<a href="/" class="btn btn-primary" style="max-width:240px;text-decoration:none">Back to Home</a></div>'
+    return
+  }
+
+  var g = guardianGet()
+  var t = computeTotals()
+
+  var html = ''
+
+  // ── Cart badge / item count ──
+  html += '<div style="font-size:13px;color:#6b7280;margin-bottom:12px">'+cartItems.length+' program'+(cartItems.length===1?'':'s')+' in your cart</div>'
+
+  // ── Items ──
+  html += '<div class="card"><div class="card-header"><h2>Programs</h2>'
+    + '<a href="/api/public/programs" id="add-more-link" style="font-size:12px;color:#145466;font-weight:600;cursor:pointer;text-decoration:none">+ Add More</a>'
+    + '</div><div class="card-body" style="padding:16px 20px">'
+
+  cartItems.forEach(function(it, idx){
+    var sibs = it.siblings||[]
+    var n = 1 + sibs.length
+    var basket = (it.price||0) * n
+    html += '<div class="item-card">'
+      + '<button class="remove-item-btn" data-idx="'+idx+'">&times;</button>'
+      + '<div class="item-name">'+escHtml(it.program_name)+'</div>'
+      + (n > 1 ? '<div class="item-detail">'+n+' participants: '+escHtml(it.child_first_name||'')+(sibs.map(function(s){ return ', '+escHtml(s.first_name||'') }).join(''))+'</div>' : '<div class="item-detail">'+escHtml(it.child_first_name||'')+' '+escHtml(it.child_last_name||'')+'</div>')
+      + (it.promo_code ? '<div class="item-detail" style="color:#166534;font-weight:600">Code: '+escHtml(it.promo_code)+'</div>' : '')
+      + '<div class="item-price">'+fmtPrice(basket)+'</div>'
+      + '</div>'
+  })
+
+  html += '</div></div>'
+
+  // ── Guardian info ──
+  html += '<div class="card"><div class="card-header"><h2>Your Information <span class="step-badge">Filled once for all programs</span></h2></div><div class="card-body">'
+    + '<div class="grid-2">'
+    + '<div class="form-group"><label>Your Name *</label><input id="g-name" value="'+escHtml(g.name||'')+'" placeholder="First and last name"/></div>'
+    + '<div class="form-group"><label>Email *</label><input id="g-email" type="email" value="'+escHtml(g.email||'')+'" placeholder="your@email.com"/></div>'
+    + '</div>'
+    + '<div class="grid-2">'
+    + '<div class="form-group"><label>Phone</label><input id="g-phone" type="tel" value="'+escHtml(g.phone||'')+'" placeholder="(407) 555-0000"/></div>'
+    + '<div class="form-group"><label>Emergency Contact</label><input id="g-ec-name" value="'+escHtml(g.ec_name||'')+'" placeholder="Name"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Emergency Contact Phone</label><input id="g-ec-phone" type="tel" value="'+escHtml(g.ec_phone||'')+'" placeholder="(407) 555-0000"/></div>'
+    + '</div></div>'
+
+  // ── Cart promo code ──
+  var codeVal = (cartPromo && cartPromo._code) ? cartPromo._code : ''
+  var codeBorder = cartPromo ? (cartPromo.valid ? '#86efac' : '#fca5a5') : '#d1d5db'
+  var codeMsg = cartPromo
+    ? (cartPromo.valid
+        ? '<span style="color:#166534;font-weight:600">✓ '+escHtml(cartPromo.label||'')+'</span>'
+        : '<span style="color:#dc2626">'+escHtml(cartPromo.error||'Invalid code')+'</span>')
+    : ''
+  html += '<div class="card"><div class="card-header"><h2>Cart Promo Code</h2></div><div class="card-body">'
+    + '<div class="form-group"><label>Promo Code (applies to entire cart)</label>'
+    + '<div class="code-row">'
+    + '<input class="code-input" id="cart-code" value="'+escHtml(codeVal)+'" placeholder="CART CODE" style="border-color:'+codeBorder+'"/>'
+    + '<button class="apply-btn" id="apply-cart-code-btn">Apply</button>'
+    + '</div>'
+    + '<div style="margin-top:6px;font-size:13px">'+codeMsg+'</div>'
+    + '</div></div></div>'
+
+  // ── Order summary ──
+  html += '<div class="card"><div class="card-header"><h2>Order Summary</h2></div><div class="card-body">'
+  cartItems.forEach(function(it){
+    var sibs = (it.siblings||[]).length
+    var n = 1 + sibs
+    var basket = (it.price||0) * n
+    html += '<div class="summary-line"><span>'+escHtml(it.program_name)+(n>1?' &times;'+n:'')+'</span><span>'+fmtPrice(basket)+'</span></div>'
+  })
+  if(t.promoDiscount > 0){
+    html += '<div class="summary-line discount"><span>Cart code: '+escHtml((cartPromo&&cartPromo._code)||'')+'</span><span>−$'+(t.promoDiscount/100).toFixed(2)+'</span></div>'
+  }
+  html += '<div class="summary-line total"><span>Total</span><span>'+fmtPrice(t.total)+'</span></div>'
+  html += '</div></div>'
+
+  // ── Alert ──
+  html += '<div id="checkout-alert"></div>'
+
+  // ── Checkout button ──
+  html += '<button class="btn btn-primary" id="checkout-btn">'+( t.total > 0 ? 'Checkout — '+fmtPrice(t.total)+' &rarr;' : 'Complete Registration &rarr;')+'</button>'
+    + '<div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:10px">Secure checkout via Square</div>'
+
+  el.innerHTML = html
+
+  // Wire remove buttons
+  el.querySelectorAll('.remove-item-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var items = cartGet()
+      items.splice(parseInt(btn.dataset.idx), 1)
+      cartSave(items)
+      cartPromo = null
+      render()
+    })
+  })
+
+  // Add more link
+  var addMoreLink = document.getElementById('add-more-link')
+  if(addMoreLink){
+    addMoreLink.addEventListener('click', function(e){
+      e.preventDefault()
+      showBrowserOverlay()
+    })
+  }
+
+  // Apply cart code
+  document.getElementById('apply-cart-code-btn').addEventListener('click', applyCartCode)
+
+  // Checkout
+  document.getElementById('checkout-btn').addEventListener('click', checkout)
+}
+
+async function applyCartCode(){
+  var code = (document.getElementById('cart-code')||{}).value||''
+  if(!code.trim()){
+    cartPromo = null; render(); return
+  }
+  var t = computeTotals()
+  var res = await apiFetch('/api/public/validate-cart-discount','POST',{
+    code: code.trim().toUpperCase(), basket_cents: t.subtotal
+  })
+  res._code = code.trim().toUpperCase()
+  cartPromo = res
+  render()
+  var el = document.getElementById('cart-code')
+  if(el) el.value = res._code
+}
+
+async function checkout(){
+  var btn = document.getElementById('checkout-btn')
+  var alertEl = document.getElementById('checkout-alert')
+  var name = (document.getElementById('g-name')||{}).value||''
+  var email = (document.getElementById('g-email')||{}).value||''
+  var phone = (document.getElementById('g-phone')||{}).value||''
+  var ecName = (document.getElementById('g-ec-name')||{}).value||''
+  var ecPhone = (document.getElementById('g-ec-phone')||{}).value||''
+
+  if(!name.trim() || !email.trim()){
+    alertEl.innerHTML = '<div class="alert alert-error">Please enter your name and email.</div>'
+    return
+  }
+
+  btn.disabled = true
+  btn.textContent = 'Processing...'
+  alertEl.innerHTML = ''
+
+  var items = cartGet().map(function(it){
+    return Object.assign({}, it, {
+      guardian_name: name.trim(),
+      guardian_email: email.trim().toLowerCase(),
+      guardian_phone: phone.trim(),
+      ec_name: ecName.trim(),
+      ec_phone: ecPhone.trim(),
+    })
+  })
+
+  var payload = {
+    guardian_name: name.trim(),
+    guardian_email: email.trim().toLowerCase(),
+    guardian_phone: phone.trim(),
+    items: items,
+    cart_discount_code: (cartPromo && cartPromo.valid && cartPromo._code) ? cartPromo._code : '',
+  }
+
+  try{
+    var res = await apiFetch('/api/public/cart/checkout','POST', payload)
+    if(res.error){
+      alertEl.innerHTML = '<div class="alert alert-error">'+escHtml(res.error)+'</div>'
+      btn.disabled = false
+      var t = computeTotals()
+      btn.textContent = t.total > 0 ? 'Checkout — '+fmtPrice(t.total)+' \u2192' : 'Complete Registration \u2192'
+      return
+    }
+    // Clear cart on success
+    localStorage.removeItem('hwtc_cart')
+    localStorage.removeItem('hwtc_cart_guardian')
+    if(res.type === 'payment_required'){
+      btn.textContent = 'Redirecting to payment...'
+      window.location.href = res.payment_url
+    } else {
+      showConfirmationScreen(res)
+    }
+  } catch(e){
+    alertEl.innerHTML = '<div class="alert alert-error">Network error. Please try again.</div>'
+    btn.disabled = false
+  }
+}
+
+function showConfirmationScreen(res){
+  document.getElementById('app').innerHTML =
+    '<div class="card"><div class="card-body" style="text-align:center;padding:48px 24px">'
+    + '<div style="font-size:56px;margin-bottom:16px">🎭</div>'
+    + '<h2 style="color:#145466;font-size:22px;margin-bottom:10px">You\'re all set!</h2>'
+    + '<p style="color:#6b7280;font-size:14px;line-height:1.6;max-width:380px;margin:0 auto 20px">Your registration is confirmed. Check your email for details.</p>'
+    + '<a href="/" style="font-size:13px;color:#145466;font-weight:600;text-decoration:none">← Back to Home</a>'
+    + '</div></div>'
+}
+
+async function showBrowserOverlay(){
+  var programs = await apiFetch('/api/public/programs')
+  if(!Array.isArray(programs)||!programs.length){ alert('No other programs are currently open.'); return }
+  var cartIds = cartGet().map(function(c){ return c.program_id })
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:flex-end;justify-content:center'
+  var sheet = document.createElement('div')
+  sheet.style.cssText = 'background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:680px;max-height:80vh;overflow-y:auto;padding:20px'
+  var inner = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<div style="font-size:16px;font-weight:800;color:#0d3d4d">Add a Program</div>'
+    + '<button id="close-browser" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280">&times;</button></div>'
+  programs.forEach(function(p){
+    var inCart = cartIds.indexOf(p.id) !== -1
+    var spotsLeft = p.spots_remaining
+    inner += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e5e7eb">'
+      + '<div><div style="font-weight:600;font-size:14px">'+escHtml(p.name)+'</div>'
+      + '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+(p.price ? fmtPrice(p.price)+'/participant' : 'Free')
+      + (spotsLeft!==null && spotsLeft<=5 && spotsLeft>0 ? ' · <span style="color:#f59e0b;font-weight:600">'+spotsLeft+' left</span>' : '')
+      + (spotsLeft===0 ? ' · <span style="color:#dc2626;font-weight:600">Full</span>' : '')+'</div></div>'
+      + '<div>'+(inCart
+          ? '<span style="font-size:12px;color:#145466;font-weight:600">✓ In cart</span>'
+          : (spotsLeft===0
+              ? '<span style="font-size:12px;color:#6b7280">Waitlist only</span>'
+              : '<a href="/register/'+escHtml(p.slug||p.id)+'" class="btn btn-primary" style="font-size:12px;padding:6px 14px;text-decoration:none;width:auto">Register</a>'))
+      + '</div></div>'
+  })
+  sheet.innerHTML = inner
+  overlay.appendChild(sheet)
+  document.body.appendChild(overlay)
+  document.getElementById('close-browser').addEventListener('click', function(){ overlay.remove() })
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+// ── Confirmation screen (after Square redirect) ───────────────────────────────
+async function initConfirmation(){
+  if(!orderId){ document.getElementById('app').innerHTML='<div class="alert alert-error" style="margin:20px">Order not found.</div>'; return }
+  var data = await apiFetch('/api/public/cart/order/'+orderId)
+  if(data.error){ document.getElementById('app').innerHTML='<div class="alert alert-error" style="margin:20px">'+escHtml(data.error)+'</div>'; return }
+  var items = data.items||[]
+  var html = '<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">'
+    + '<div style="font-size:56px;margin-bottom:16px">🎭</div>'
+    + '<h2 style="color:#145466;font-size:22px;margin-bottom:8px">You\'re all set!</h2>'
+    + '<p style="color:#6b7280;font-size:14px;margin-bottom:20px">Registered for '+items.length+' program'+(items.length===1?'':'s')+'. Check your email for details.</p>'
+    + '<div style="text-align:left;max-width:380px;margin:0 auto">'
+    + items.map(function(it){
+        return '<div style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px">'
+          + '<div style="font-weight:700;color:#0d3d4d">'+escHtml(it.program_name)+'</div>'
+          + '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(it.child_first_name||'')+' '+escHtml(it.child_last_name||'')+'</div>'
+          + '</div>'
+      }).join('')
+    + '</div>'
+    + '<div style="margin-top:24px"><a href="/" style="font-size:13px;color:#145466;font-weight:600;text-decoration:none">← Back to Home</a></div>'
+    + '</div></div>'
+  document.getElementById('app').innerHTML = html
+}
+
+if(isConfirmation){ initConfirmation() } else { render() }
+</script>
+</body>
+</html>

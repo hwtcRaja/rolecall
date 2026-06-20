@@ -11117,6 +11117,50 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         execute(conn, 'UPDATE program_registrations SET youth_id=%s, family_id=%s WHERE id=%s',
             (youth['id'], family['id'], reg_id))
 
+    # ── Create profiles for siblings (additional children in same order) ──
+    import json as _json_sib
+    siblings_raw = reg.get('siblings_json') or '[]'
+    try:
+        siblings = _json_sib.loads(siblings_raw)
+    except Exception:
+        siblings = []
+
+    for sib in (siblings or []):
+        sib_first = (sib.get('first_name') or '').strip()
+        sib_last = (sib.get('last_name') or '').strip()
+        if not sib_first:
+            continue
+        # Same family email lookup as primary child
+        sib_youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+            JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+            JOIN families f ON f.id=yfl.family_id
+            WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+            (reg['guardian_email'], sib_first, sib_last))
+        if not sib_youth:
+            import uuid as _uuid_s
+            syid = str(_uuid_s.uuid4())
+            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+                VALUES (%s,%s,%s,%s,%s)''',
+                (syid, sib_first, sib_last,
+                 sib.get('dob') or None, sib.get('shirt_size') or ''))
+            sib_youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (syid,))
+        if sib_youth:
+            # Ensure family exists (will have been created for primary child above)
+            sib_family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
+            if sib_family:
+                try:
+                    execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+                        (sib_youth['id'], sib_family['id']))
+                except Exception: pass
+            if prog:
+                try:
+                    import uuid as _uuid_se
+                    execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
+                        VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                        (str(_uuid_se.uuid4()), sib_youth['id'], prog['id'], f'Online registration (sibling) #{reg_id[:8]}'))
+                except Exception as e:
+                    app.logger.warning(f'Sibling enrollment insert: {e}')
+
     conn.commit()
 
 

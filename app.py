@@ -148,83 +148,56 @@ def seed_system_email_templates(conn=None):
 
     <div style="margin:20px 0">
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>
-          <strong>Go to the Team Universal site</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">1</div>
+        <p style="margin:0;font-size:14px;color:#374151">Go to the <strong>Team Universal site</strong> and scroll down until you find the <strong>Access myImpact</strong> button on the right side of the screen.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>
-          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>
-        </div>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">2</div>
+        <p style="margin:0;font-size:14px;color:#374151">Select the <strong>division of the company</strong> you work for.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>
-          <strong>Select the company you work for &amp; log in with your SSO</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">3</div>
+        <p style="margin:0;font-size:14px;color:#374151">Login using your <strong>SSO</strong>.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>
-          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">4</div>
+        <p style="margin:0;font-size:14px;color:#374151">Click on the <strong>Log Your Hours</strong> page on the top option bar.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>
-          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">5</div>
+        <p style="margin:0;font-size:14px;color:#374151">Click the <strong>Log Individual Hours</strong> button.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>
-          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>
-        </div>
-        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">6</div>
+        <p style="margin:0;font-size:14px;color:#374151">Enter <strong>Horizon West Theater Company</strong> into the organization name and search for the company &mdash; or if you&rsquo;ve entered hours with this organization before, it should show up under <strong>My Recent Organizations</strong>.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>
-          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">7</div>
+        <p style="margin:0;font-size:14px;color:#374151">Once you have selected Horizon West Theater Company as your organization, enter the <strong>date range</strong> you volunteered and <strong>how many hours</strong>. Click <strong>Save and Proceed</strong> once all information is entered.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>
-          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">8</div>
+        <p style="margin:0;font-size:14px;color:#374151">Review your submission and click <strong>Submit</strong>.</p>
       </div>
 
-      <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>
-          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>
-        </div>
-        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">9</div>
+        <p style="margin:0;font-size:14px;color:#374151">A <strong>confirmation page</strong> will then appear saying your submission was successful.</p>
       </div>
 
     </div>
 
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong style="color:#145466">Did you know?</strong>
-      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>
+      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you have completed <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After the completion of <strong>104 hours</strong>, you will reach <strong>Club 52 Elite</strong> status. Club 52 and Club 52 Elite members qualify for the <strong>Universal Orlando Foundation grant</strong> at the end of the calendar year where you can choose a non-profit of your choosing to donate grant money to. <strong>Horizon West Theater Company qualifies</strong> for this event and hopes you will consider donating your grant money to our cause.</p>
     </div>
 
     {{hours_section}}
@@ -12334,6 +12307,53 @@ def promote_waitlist(pid, rid):
     return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
 
 
+@app.route('/api/programs/<pid>/notify-interest-list', methods=['POST'])
+def notify_interest_list(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    entries = fetchall(conn, 'SELECT * FROM interest_list_entries WHERE program_id=%s', (pid,))
+    conn.close()
+    if not entries:
+        return jsonify({'ok': True, 'sent': 0})
+    slug = prog.get('slug') or pid
+    reg_url = f'{APP_BASE_URL}/register/{slug}'
+    sent = 0
+    for e in entries:
+        email = e.get('email')
+        name = (e.get('name') or '').strip().split()[0] or 'there'
+        if not email:
+            continue
+        try:
+            send_email([email], f'Registration is now open — {prog["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;color:#1a2332">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px"/>'
+                f'</div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;font-size:20px;margin:0 0 12px">Registration is now open!</h2>'
+                f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">Hi {name},</p>'
+                f'<p style="color:#374151;line-height:1.6;margin:0 0 20px">'
+                f'Great news — registration for <strong>{prog["name"]}</strong> is now open. '
+                f'You signed up for our interest list and we wanted to make sure you\'re first to know!</p>'
+                f'<p style="margin:0 0 24px;text-align:center">'
+                f'<a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;'
+                f'text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Register Now &rarr;</a></p>'
+                f'<p style="color:#6b7280;font-size:13px;margin:0">Or copy this link: <a href="{reg_url}" style="color:#145466">{reg_url}</a></p>'
+                f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
+                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'</div></div>')
+            sent += 1
+        except Exception as ex:
+            app.logger.warning(f'Interest list notify failed for {email}: {ex}')
+    return jsonify({'ok': True, 'sent': sent})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()

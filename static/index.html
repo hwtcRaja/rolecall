@@ -16907,13 +16907,22 @@ async function loadProgramRegistrations(pid){
       + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Child</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Guardian</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Email</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Date</th><th></th></tr></thead>'
       + '<tbody>'
       + regs.map(function(r){
+          var actions = ''
+          actions += '<button class="btn btn-secondary btn-sm edit-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button> '
+          if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm promote-btn" style="padding:2px 8px;font-size:11px" data-rid="'+r.id+'">Promote</button> '
+          if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend Link</button> '
+          if(r.balance_due>0 && r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm balance-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button> '
+          var sibCount = 0
+          try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
+          var childLabel = escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+          if(sibCount) childLabel += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
           return '<tr style="border-bottom:1px solid var(--border)">'
-            + '<td style="padding:8px">'+escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))+'</td>'
+            + '<td style="padding:8px">'+childLabel+'</td>'
             + '<td style="padding:8px">'+escHtml(r.guardian_name||'')+'</td>'
             + '<td style="padding:8px"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></td>'
             + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
-            + '<td style="padding:8px">'+(r.status==='waitlisted'?'<button class="btn btn-primary btn-sm promote-btn" style="padding:2px 8px;font-size:11px" data-rid="'+r.id+'">Promote</button>':'')+'</td>'
+            + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
         }).join('')
       + '</tbody></table></div></div>'
@@ -16952,6 +16961,27 @@ async function loadProgramRegistrations(pid){
 
   el.querySelectorAll('.promote-btn').forEach(function(btn){
     btn.addEventListener('click', function(){ promoteWaitlist(pid, btn.dataset.rid) })
+  })
+
+  el.querySelectorAll('.edit-reg-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ openEditRegistrationModal(pid, btn.dataset.rid, regs) })
+  })
+
+  el.querySelectorAll('.resend-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
+      if(res && res.ok) toast('Payment link resent','success')
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+
+  el.querySelectorAll('.balance-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Send balance payment link to this family?')) return
+      const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-balance-link','POST')
+      if(res && res.ok) toast('Balance link sent','success')
+      else toast((res&&res.error)||'Error','error')
+    })
   })
 }
 

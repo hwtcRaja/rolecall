@@ -16940,23 +16940,29 @@ async function loadProgramRegistrations(pid){
   if(regs.length){
     html += '<div class="card" style="padding:16px 20px;margin-bottom:12px"><div style="font-size:14px;font-weight:700;margin-bottom:12px">Registrations</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Child</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Guardian</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Email</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Date</th><th></th></tr></thead>'
+      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Participant</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Contact</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Registered</th><th></th></tr></thead>'
       + '<tbody>'
       + regs.map(function(r){
+          var isAdult = r.registration_form_type === 'adult'
           var actions = ''
           actions += '<button class="btn btn-secondary btn-sm edit-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button> '
           if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm promote-btn" style="padding:2px 8px;font-size:11px" data-rid="'+r.id+'">Promote</button> '
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend Link</button> '
           if(r.balance_due>0 && r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm balance-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button> '
+          actions += '<button class="btn btn-sm delete-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
-          var childLabel = escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
-          if(sibCount) childLabel += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
+          var participantName = isAdult
+            ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
+            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+          if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
+          var contactCell = isAdult
+            ? '<span style="color:var(--text-muted);font-size:11px">—</span>'
+            : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></div>'
           return '<tr style="border-bottom:1px solid var(--border)">'
-            + '<td style="padding:8px">'+childLabel+'</td>'
-            + '<td style="padding:8px">'+escHtml(r.guardian_name||'')+'</td>'
-            + '<td style="padding:8px"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
+            + '<td style="padding:8px">'+participantName+'</td>'
+            + '<td style="padding:8px">'+contactCell+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -17016,6 +17022,15 @@ async function loadProgramRegistrations(pid){
       if(!confirm('Send balance payment link to this family?')) return
       const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-balance-link','POST')
       if(res && res.ok) toast('Balance link sent','success')
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+
+  el.querySelectorAll('.delete-reg-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Permanently delete this registration? This cannot be undone.')) return
+      const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid,'DELETE')
+      if(res && res.ok){ toast('Registration deleted','success'); loadProgramRegistrations(pid) }
       else toast((res&&res.error)||'Error','error')
     })
   })
@@ -17112,9 +17127,15 @@ function openRegistrationSettingsModal(pid){
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info & Photos</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
     + '<textarea id="rs-program-info" rows="4" placeholder="Describe the program — what participants will learn, what to expect, etc. Basic HTML supported (bold, links)..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(prog.program_info||'')+'</textarea></div>'
-    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Photo URLs</label>'
-    + '<textarea id="rs-images" rows="3" placeholder="One URL per line..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(images.join('\n'))+'</textarea>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">One image URL per line. Photos appear on the public registration page.</div></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Cover Image</label>'
+    + (images.length ? '<div style="margin-bottom:8px"><img src="'+escHtml(images[0])+'" alt="Cover" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"/></div>' : '<div style="margin-bottom:8px;padding:20px;background:var(--bg);border:1.5px dashed var(--border-md);border-radius:8px;text-align:center;font-size:12px;color:var(--text-muted)">No cover image yet</div>')
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<label for="rs-cover-upload" class="btn btn-secondary" style="padding:8px 14px;font-size:12px;cursor:pointer;margin:0">📷 '+(images.length?'Replace Image':'Upload Image')+'</label>'
+    + '<input type="file" id="rs-cover-upload" accept="image/*" style="display:none"/>'
+    + '<span id="rs-cover-status" style="font-size:12px;color:var(--text-muted)"></span>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">JPG, PNG, GIF or WEBP. Appears at the top of the public registration page.</div>'
+    + '</div>'
 
     // Custom fields
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Discount / Coupon Codes</div>'
@@ -17175,6 +17196,33 @@ function openRegistrationSettingsModal(pid){
   document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid) })
+
+  // Cover image upload
+  var coverInput = document.getElementById('rs-cover-upload')
+  if(coverInput) coverInput.addEventListener('change', async function(){
+    var file = this.files[0]
+    if(!file) return
+    var statusEl = document.getElementById('rs-cover-status')
+    if(statusEl) statusEl.textContent = 'Uploading...'
+    var formData = new FormData()
+    formData.append('file', file)
+    try{
+      var res = await fetch('/api/programs/'+pid+'/upload-cover', {method:'POST', body:formData})
+      var data = await res.json()
+      if(data.ok){
+        if(statusEl) statusEl.textContent = 'Uploaded!'
+        toast('Cover image saved','success')
+        // Refresh the modal to show the new image
+        setTimeout(function(){ openRegistrationSettingsModal(pid) }, 600)
+      } else {
+        if(statusEl) statusEl.textContent = data.error || 'Upload failed'
+        toast(data.error||'Upload failed','error')
+      }
+    } catch(e){
+      if(statusEl) statusEl.textContent = 'Upload error'
+      toast('Upload error','error')
+    }
+  })
   document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
   // Load Square catalog items
   loadSquareCatalogItems(prog.square_catalog_item_id || '')
@@ -17443,8 +17491,6 @@ async function loadDiscountCodes(pid){
 
 
 async function saveRegistrationSettings(pid){
-  var imagesRaw = (document.getElementById('rs-images')||{}).value||''
-  var images = imagesRaw.split('\n').map(function(u){ return u.trim() }).filter(Boolean)
   const payload = {
     registration_status: document.getElementById('rs-status').value || 'draft',
     registration_form_type: (document.getElementById('rs-form-type')||{}).value || 'youth',
@@ -17459,7 +17505,6 @@ async function saveRegistrationSettings(pid){
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
     program_info: (document.getElementById('rs-program-info')||{}).value || '',
-    program_images: images,
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
   }
@@ -19171,6 +19216,7 @@ async function openOrderModal(type, id, pid){
   }
   if(data.square_order_id)
     html += '<a href="https://squareup.com/dashboard/sales/transactions" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;text-decoration:none">View in Square ↗</a>'
+  html += '<button class="btn btn-sm od-delete-btn" style="font-size:12px;background:#fee2e2;color:#991b1b;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit;font-weight:700;margin-left:auto">Delete Order</button>'
   html += '</div>'
 
   modal.innerHTML = html
@@ -19190,6 +19236,24 @@ async function openOrderModal(type, id, pid){
     var res = await api('/api/programs/'+balBtn.dataset.pid+'/registrations/'+balBtn.dataset.rid+'/send-balance-link','POST')
     if(res&&res.ok){ toast('Balance link sent','success'); overlay.remove() }
     else toast((res&&res.error)||'Error','error')
+  })
+
+  var delBtn = modal.querySelector('.od-delete-btn')
+  if(delBtn) delBtn.addEventListener('click', async function(){
+    var msg = type==='cart'
+      ? 'Delete this cart order? All linked registrations will be cancelled.'
+      : 'Permanently delete this registration? This cannot be undone.'
+    if(!confirm(msg)) return
+    var url = type==='cart'
+      ? '/api/marquee/orders/cart/'+id
+      : '/api/programs/'+(pid||'')+'/registrations/'+id
+    var res = await api(url, 'DELETE')
+    if(res&&res.ok){
+      toast('Order deleted','success')
+      overlay.remove()
+      var ordersEl = document.getElementById('marquee-tab-orders')
+      if(ordersEl && ordersEl.style.display!=='none') renderMarqueeOrders(ordersEl)
+    } else toast((res&&res.error)||'Error','error')
   })
 }
 

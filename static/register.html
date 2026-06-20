@@ -264,26 +264,49 @@ function getCustomFieldValues(fields){
 
 function buildRegistrationForm(formType, customFields){
   var isYouth = formType==='youth' || !formType
+  var ff = (program && program.form_fields) || {}
+  function on(key, def){ return ff.hasOwnProperty(key) ? ff[key] : (def !== undefined ? def : false) }
+
   var participantSection = isYouth
     ? '<div class="section-divider">Participant Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + '<div class="form-row"><div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date"/></div>'
-      + '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div></div>'
+      + (on('dob',true)||on('shirt',true) ? '<div class="form-row">'
+          + (on('dob',true) ? '<div class="form-group"><label>Date of Birth</label><input id="f-dob" type="date"/></div>' : '')
+          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
+          + '</div>' : '')
+      + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions we should know about"/></div>' : '')
+      + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for photos/videos of my child to be used in HWTC marketing and social media.</label></div>' : '')
       + '<div class="section-divider">Parent / Guardian Information</div>'
       + '<div class="form-group"><label>Full Name <span class="required">*</span></label><input id="f-contact-name" placeholder="Parent or guardian name"/></div>'
       + '<div class="form-row"><div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
-      + '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
-      + '<div class="section-divider">Emergency Contact</div>'
-      + '<div class="form-row"><div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact"/></div>'
-      + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
+      + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div>' : '')
+      + '</div>'
+      + (on('emergency_contact',true)
+          ? '<div class="section-divider">Emergency Contact</div>'
+            + '<div class="form-row"><div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact name"/></div>'
+            + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
+          : '')
+      + (on('pickup_dropoff',false)
+          ? '<div class="section-divider">Pickup &amp; Drop-off</div>'
+            + '<div class="form-group"><label>Authorized Pickup Contacts</label><textarea id="f-pickup" rows="2" placeholder="List all people authorized to pick up your child (name and relationship)..."></textarea></div>'
+          : '')
     : '<div class="section-divider">Your Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + '<div class="form-row"><div class="form-group"><label>Age</label><input id="f-age" type="number" min="0" max="120" placeholder="Your age"/></div>'
-      + '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div></div>'
+      + (on('age',false)||on('shirt',true) ? '<div class="form-row">'
+          + (on('age',false) ? '<div class="form-group"><label>Age</label><input id="f-age" type="number" min="0" max="120" placeholder="Your age"/></div>' : '')
+          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>' : '')
+          + '</div>' : '')
       + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
-      + '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div>'
+      + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div>' : '')
+      + (on('emergency_contact',true)
+          ? '<div class="section-divider">Emergency Contact</div>'
+            + '<div class="form-row"><div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact name"/></div>'
+            + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
+          : '')
+      + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions"/></div>' : '')
+      + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for my photos/videos to be used in HWTC marketing and social media.</label></div>' : '')
 
   return '<div class="card"><div class="card-header"><h2>Register</h2></div><div class="card-body">'
     + '<div id="form-alert"></div>'
@@ -566,6 +589,9 @@ async function submitRegistration(){
     emergency_contact_name: ((document.getElementById('f-ec-name')||{}).value||'').trim(),
     emergency_contact_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),
     notes: ((document.getElementById('f-notes')||{}).value||'').trim(),
+    allergies: ((document.getElementById('f-allergies')||{}).value||'').trim(),
+    pickup_contacts: ((document.getElementById('f-pickup')||{}).value||'').trim(),
+    photo_consent: !!(document.getElementById('f-photo-consent')||{}).checked,
     custom_field_values: getCustomFieldValues(customFields),
     siblings: getSiblings(),
     discount_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',

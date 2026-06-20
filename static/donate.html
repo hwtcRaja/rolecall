@@ -8,11 +8,11 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
-.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:32px 24px;text-align:center}
-.header img{height:52px;mix-blend-mode:screen;margin-bottom:14px;display:block;margin-left:auto;margin-right:auto}
-.header h1{color:#fff;font-size:22px;font-weight:800;margin-bottom:6px}
-.header p{color:rgba(255,255,255,0.8);font-size:14px;max-width:440px;margin:0 auto;line-height:1.6}
-.container{max-width:520px;margin:0 auto;padding:28px 16px 60px}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:40px 24px 36px;text-align:center}
+.header img{height:56px;mix-blend-mode:screen;margin-bottom:16px;display:block;margin-left:auto;margin-right:auto}
+.header h1{color:#fff;font-size:24px;font-weight:800;margin-bottom:10px}
+.header p{color:rgba(255,255,255,0.85);font-size:14px;max-width:560px;margin:0 auto;line-height:1.7}
+.container{max-width:600px;margin:0 auto;padding:28px 16px 64px}
 .card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;margin-bottom:16px}
 .card-header{padding:18px 24px;border-bottom:1px solid #e5e7eb}
 .card-header h2{font-size:17px;font-weight:700;color:#0d3d4d}
@@ -25,6 +25,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
 .amount-btn{padding:12px 8px;border:1.5px solid #d1d5db;border-radius:10px;background:#fff;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;color:#1a2332;transition:all 0.15s;text-align:center}
 .amount-btn:hover{border-color:#145466;color:#145466}
 .amount-btn.selected{border-color:#145466;background:#e0f7f4;color:#0d3d4d}
+.amount-btn.featured{border-color:#145466;background:#f0f9ff}
 .custom-amount-row{display:flex;align-items:center;gap:10px;margin-bottom:16px}
 .custom-amount-row span{font-size:18px;font-weight:700;color:#6b7280}
 .btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 24px;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;width:100%}
@@ -33,19 +34,23 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
 .btn-primary:disabled{opacity:0.6;cursor:not-allowed}
 .alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
 .alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
-.impact-row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6}
+.why-item{padding:12px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:#374151;line-height:1.6}
+.why-item:last-child{border-bottom:none}
+.why-item strong{color:#0d3d4d;display:block;margin-bottom:2px}
+.impact-row{display:flex;align-items:flex-start;gap:14px;padding:10px 0;border-bottom:1px solid #f3f4f6}
 .impact-row:last-child{border-bottom:none}
-.impact-icon{font-size:22px;flex-shrink:0;margin-top:2px}
-.impact-text{font-size:13px;color:#374151;line-height:1.5}
-.impact-text strong{color:#0d3d4d}
-#form-alert{}
+.impact-amount{font-size:15px;font-weight:800;color:#0d3d4d;min-width:52px}
+.impact-text{font-size:13px;color:#374151;line-height:1.5;padding-top:1px}
+.ways-item{padding:12px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:#374151;line-height:1.6}
+.ways-item:last-child{border-bottom:none}
+.ways-item strong{color:#0d3d4d}
 </style>
 </head>
 <body>
 <div class="header">
   <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
-  <h1>Support the Arts in Horizon West</h1>
-  <p>Your donation keeps community theatre alive and accessible for everyone in our neighborhood.</p>
+  <h1>Support Horizon West Theatre Company</h1>
+  <p>Horizon West Theater Company is dedicated to bringing the magic of live theater to our community. Our mission is to inspire, educate, and entertain through the performing arts. By fostering a creative environment, we provide a platform for local talent to shine and offer audiences of all ages the opportunity to experience the transformative power of theater.</p>
 </div>
 <div class="container">
   <div id="app">
@@ -54,7 +59,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
       <div class="card-header"><h2>Make a Donation</h2></div>
       <div class="card-body">
         <div id="form-alert"></div>
-
         <div class="form-group">
           <label>Choose an Amount</label>
           <div class="amount-grid">
@@ -70,7 +74,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
             <input type="number" id="f-custom-amount" placeholder="Enter amount" min="1" step="1" style="font-size:18px;font-weight:700"/>
           </div>
         </div>
-
         <div class="form-group">
           <label>Your Name <span style="color:#dc2626">*</span></label>
           <input id="f-name" placeholder="First and last name"/>
@@ -83,19 +86,39 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
           <label>Message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
           <textarea id="f-message" rows="2" placeholder="A note of support..."></textarea>
         </div>
-
         <button class="btn btn-primary" id="donate-btn" disabled>Continue to Payment &rarr;</button>
-        <div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:10px">Payments processed securely via Square. HWTC is a 501(c)(3) organization.</div>
+        <div style="text-align:center;font-size:11px;color:#9ca3af;margin-top:10px">Payments processed securely via Square. Horizon West Theater Company is a registered 501(c)(3) nonprofit — your donation is tax-deductible.</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header"><h2>Your Impact</h2></div>
+      <div class="card-header"><h2>Why Donate?</h2></div>
       <div class="card-body">
-        <div class="impact-row"><div class="impact-icon">🎭</div><div class="impact-text"><strong>$25</strong> helps cover one performer's costume for a production.</div></div>
-        <div class="impact-row"><div class="impact-icon">🎓</div><div class="impact-text"><strong>$50</strong> sponsors one child in a youth program who might not otherwise afford it.</div></div>
-        <div class="impact-row"><div class="impact-icon">🎤</div><div class="impact-text"><strong>$100</strong> covers microphone rental for a weekend of performances.</div></div>
-        <div class="impact-row"><div class="impact-icon">🌟</div><div class="impact-text"><strong>$250+</strong> helps fund an entire production — sets, lights, and sound.</div></div>
+        <div class="why-item"><strong>Enhance Productions</strong>Your contributions help us produce a wide range of performances, from classic plays to innovative new works. Horizon West Theater Company is a nonprofit 501(c)(3) organization. We rely entirely on ticket sales and generous donations from our patrons.</div>
+        <div class="why-item"><strong>Community Outreach</strong>Support our efforts to engage with the community through workshops, educational programs, and outreach initiatives.</div>
+        <div class="why-item"><strong>Rental Costs</strong>We rely on renting local venues for our performances and rehearsal spaces. Your donations help us share our artists' talents with the community and offset the significant costs of these rentals.</div>
+        <div class="why-item"><strong>Charitable Contributions</strong>As a registered 501(c)(3) nonprofit, all direct donations to Horizon West Theater Company are tax-deductible.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>How Your Donation Makes a Difference</h2></div>
+      <div class="card-body">
+        <div class="impact-row"><div class="impact-amount">$25</div><div class="impact-text">Covers the cost of scripts for one actor.</div></div>
+        <div class="impact-row"><div class="impact-amount">$50</div><div class="impact-text">Provides materials for set construction.</div></div>
+        <div class="impact-row"><div class="impact-amount">$100</div><div class="impact-text">Supports costumes and props for a production.</div></div>
+        <div class="impact-row"><div class="impact-amount">$250</div><div class="impact-text">Funds a workshop for aspiring young performers.</div></div>
+        <div class="impact-row"><div class="impact-amount">$500</div><div class="impact-text">Helps us secure rights to new and exciting plays.</div></div>
+        <div class="impact-row"><div class="impact-amount">$1,000+</div><div class="impact-text">Major contributions help cover performance venue rental costs and move us closer to our dream of owning a permanent home in Horizon West.</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>Ways to Give</h2></div>
+      <div class="card-body">
+        <div class="ways-item"><strong>One-Time Donation</strong>Every dollar counts! Make a one-time donation to support our current projects.</div>
+        <div class="ways-item"><strong>Production Sponsorship</strong>Partner with us to help bring even more incredible performances to the community — while enjoying the unique benefits of being a sponsor. <a href="mailto:board@hwtco.org" style="color:#145466;font-weight:600">Learn more by clicking here.</a></div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #f3f4f6;font-size:14px;color:#374151;line-height:1.7">Your generosity ensures that Horizon West Theater Company can continue to bring the arts to Horizon West, Florida.<br><br><strong style="color:#0d3d4d">Thank you for your support!</strong></div>
       </div>
     </div>
 
@@ -153,14 +176,11 @@ document.getElementById('donate-btn').addEventListener('click', async function()
   var name = (document.getElementById('f-name').value||'').trim()
   var email = (document.getElementById('f-email').value||'').trim()
   var message = (document.getElementById('f-message').value||'').trim()
-
   if(amt < 1){ showErr('Please select or enter a donation amount.'); return }
   if(!name){ showErr('Please enter your name.'); return }
   if(!email || !email.includes('@')){ showErr('Please enter a valid email address.'); return }
-
   btn.disabled = true; btn.textContent = 'Processing...'
   document.getElementById('form-alert').innerHTML = ''
-
   try{
     var res = await fetch('/api/public/donate', {
       method: 'POST',
@@ -188,8 +208,8 @@ if(isConfirmation && donId){
     '<div class="card"><div class="card-body" style="text-align:center;padding:48px 24px">'
     + '<div style="font-size:56px;margin-bottom:16px">💛</div>'
     + '<h2 style="color:#0d3d4d;font-size:22px;margin-bottom:10px">Thank You!</h2>'
-    + '<p style="color:#6b7280;font-size:15px;line-height:1.6;max-width:360px;margin:0 auto">Your donation is on its way to supporting live theatre in Horizon West. We\'ll send a receipt to your email shortly.</p>'
-    + '<p style="margin-top:20px;font-size:13px;color:#9ca3af">Horizon West Theatre Company &middot; A 501(c)(3) nonprofit</p>'
+    + '<p style="color:#6b7280;font-size:15px;line-height:1.6;max-width:380px;margin:0 auto 16px">Your donation is on its way to supporting live theatre in Horizon West. We\'ll send a receipt to your email shortly.</p>'
+    + '<p style="font-size:13px;color:#9ca3af">Horizon West Theatre Company &middot; A 501(c)(3) nonprofit<br>All donations are tax-deductible.</p>'
     + '</div></div>'
 }
 </script>

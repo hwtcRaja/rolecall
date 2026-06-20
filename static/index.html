@@ -17036,11 +17036,52 @@ async function loadProgramRegistrations(pid){
   })
 }
 
-async function promoteWaitlist(pid, rid){
-  if(!confirm('Promote this person from the waitlist? They will receive a payment link if applicable.')) return
-  const res = await api('/api/programs/'+pid+'/registrations/'+rid+'/promote-waitlist', 'POST')
-  if(res && res.ok){ toast(res.type==='confirmed_free' ? 'Promoted and confirmed!' : 'Payment link sent!', 'success'); loadProgramRegistrations(pid) }
-  else toast((res && res.error)||'Error', 'error')
+function promoteWaitlist(pid, rid){
+  // Find the registration for context
+  var reg = (_marqueeRegs||[]).find(function(r){ return r.id===rid })
+    || {child_first_name:'', child_last_name:'', guardian_email:''}
+  var prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+  var name = (reg.child_first_name||'') + (reg.child_last_name?' '+reg.child_last_name:'') || reg.guardian_email || 'this person'
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  var modal = document.createElement('div')
+  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:400px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.25)'
+  modal.innerHTML = '<div style="font-size:17px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Promote from Waitlist</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:18px">Offering spot to <strong>'+escHtml(name)+'</strong> for <strong>'+escHtml(prog.name||'')+'</strong></div>'
+    + (prog.price > 0
+        ? '<div style="font-size:13px;font-weight:600;margin-bottom:12px">They will receive an email with a payment link to secure their spot.</div>'
+        : '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:#166534">This is a free program — they will be confirmed immediately.</div>')
+    + (prog.price > 0
+        ? '<div style="margin-bottom:16px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Hold spot for</label>'
+          + '<select id="pw-hold-hours" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px">'
+          + '<option value="24">24 hours</option>'
+          + '<option value="48" selected>48 hours (recommended)</option>'
+          + '<option value="72">72 hours</option>'
+          + '<option value="168">1 week</option>'
+          + '<option value="0">No time limit</option>'
+          + '</select>'
+          + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">After this window, you can re-offer the spot to the next person on the waitlist.</div>'
+          + '</div>'
+        : '')
+    + '<div style="display:flex;gap:10px">'
+    + '<button id="pw-cancel" class="btn btn-secondary" style="flex:1">Cancel</button>'
+    + '<button id="pw-confirm" class="btn btn-primary" style="flex:1">Send Offer</button>'
+    + '</div>'
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  modal.querySelector('#pw-cancel').addEventListener('click', function(){ overlay.remove() })
+  modal.querySelector('#pw-confirm').addEventListener('click', async function(){
+    var btn = this
+    var holdHours = parseInt((modal.querySelector('#pw-hold-hours')||{}).value||48)
+    btn.disabled = true; btn.textContent = 'Sending...'
+    var res = await api('/api/programs/'+pid+'/registrations/'+rid+'/promote-waitlist','POST',{hold_hours:holdHours})
+    overlay.remove()
+    if(res && res.ok){
+      toast(res.type==='confirmed_free' ? 'Confirmed!' : 'Offer sent — spot held for '+holdHours+' hours', 'success')
+      loadProgramRegistrations(pid)
+    } else toast((res&&res.error)||'Error','error')
+  })
 }
 
 async function notifyInterestList(pid){

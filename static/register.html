@@ -154,12 +154,19 @@ function renderPage(){
     infoHTML = '<div class="section-divider">About This Program</div><div class="program-info">'+program.program_info+'</div>'
   }
 
-  // Images
+  // Cover image / photo gallery
   var imagesHTML = ''
   if(images.length){
-    imagesHTML = '<div class="program-images">'
-      + images.map(function(url){ return '<img src="'+escHtml(url)+'" alt="Program photo" loading="lazy">' }).join('')
+    var cover = images[0]
+    var rest = images.slice(1)
+    imagesHTML = '<div style="margin:-20px -22px 16px;overflow:hidden;border-radius:0">'
+      + '<img src="'+escHtml(cover)+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:260px;object-fit:cover;display:block">'
       + '</div>'
+    if(rest.length){
+      imagesHTML += '<div class="program-images" style="margin-bottom:8px">'
+        + rest.map(function(url){ return '<img src="'+escHtml(url)+'" alt="Program photo" loading="lazy">' }).join('')
+        + '</div>'
+    }
   }
 
   // Action section
@@ -176,13 +183,14 @@ function renderPage(){
 
   el.innerHTML =
     '<div class="card">'
+    + (images.length ? '<div style="overflow:hidden;border-radius:14px 14px 0 0"><img src="'+escHtml(images[0])+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:260px;object-fit:cover;display:block"></div>' : '')
     + '<div class="card-header"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px"><h2>'+escHtml(program.name)+'</h2><span class="badge '+(badgeMap[status]||'badge-draft')+'">'+(labelMap[status]||status)+'</span></div></div>'
     + '<div class="card-body">'
     + (program.description?'<p style="font-size:14px;color:#374151;margin-bottom:14px;line-height:1.6">'+escHtml(program.description)+'</p>':'')
     + (program.start_date?'<div style="font-size:13px;color:#6b7280;margin-bottom:8px"><strong style="color:#1a2332">Dates:</strong> '+fmtDate(program.start_date)+(program.end_date&&program.end_date!==program.start_date?' &rarr; '+fmtDate(program.end_date):'')+'</div>':'')
     + capHTML
     + (program.price?'<div class="price-tag">'+fmtPrice(program.price)+'<span> per participant</span></div>':'<div style="margin:10px 0;font-size:14px;font-weight:700;color:#166534">Free</div>')
-    + imagesHTML
+    + (images.length > 1 ? imagesHTML : '')
     + infoHTML
     + instrHTML
     + '</div></div>'

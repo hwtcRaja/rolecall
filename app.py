@@ -12196,7 +12196,69 @@ def update_registration(pid, rid):
     return jsonify({'ok': True})
 
 
-@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+@app.route('/api/programs/<pid>/registrations/<rid>/promote-waitlist', methods=['POST'])
+def promote_waitlist(pid, rid):
+    err = require_auth()
+    if err: return err
+    import uuid as _upw
+    d = request.json or {}
+    hold_hours = int(d.get('hold_hours') or 48)
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not reg or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    price = prog.get('price') or 0
+    # If free, just confirm
+    if price == 0:
+        execute(conn, "UPDATE program_registrations SET status='confirmed', waitlist_position=NULL WHERE id=%s", (rid,))
+        conn.commit()
+        try:
+            name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            send_email([reg['guardian_email']], f'Great news — you\'re in! {prog["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">You\'re Confirmed!</h2>'
+                f'<p>Hi {name},</p>'
+                f'<p>Great news — a spot has opened up in <strong>{prog["name"]}</strong> and you\'ve been confirmed!</p>'
+                f'<p>Horizon West Theatre Company</p></div>')
+        except Exception as e:
+            app.logger.warning(f'Waitlist confirm email failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free'})
+    # Paid — send payment link and notify of hold window
+    execute(conn, "UPDATE program_registrations SET status='pending_payment', waitlist_position=NULL WHERE id=%s", (rid,))
+    pay_url, link_id, order_id = square_create_payment_link(
+        prog, rid, reg['guardian_email'], reg.get('guardian_name',''), price,
+        note=f'Waitlist promotion — {reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
+    if pay_url:
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, rid))
+    conn.commit()
+    # Email family
+    try:
+        name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+        child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
+        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
+        send_email([reg['guardian_email']], f'A spot opened up for you — {prog["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">A Spot Has Opened Up!</h2>'
+            f'<p>Hi {name},</p>'
+            f'<p>Great news — a spot has become available in <strong>{prog["name"]}</strong>'
+            f'{" for " + child if child else ""}. You are next on the waitlist!</p>'
+            f'<p>{hold_msg} After that, the spot may be offered to the next person on the waitlist.</p>'
+            + (f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+               f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+               f'Secure My Spot</a></p>'
+               f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+               if pay_url else '')
+            + f'<p>Horizon West Theatre Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Waitlist promote email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
+
+
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()

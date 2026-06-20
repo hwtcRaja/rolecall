@@ -3877,7 +3877,7 @@ def save_registration_settings(pid):
         capacity=%s, price=%s, deposit_amount=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
-        program_info=%s, program_images=%s, custom_fields=%s, square_catalog_item_id=%s
+        program_info=%s, custom_fields=%s, square_catalog_item_id=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -3892,7 +3892,6 @@ def save_registration_settings(pid):
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
          (d.get('program_info') or '').strip(),
-         _json.dumps(images),
          _json.dumps(custom_fields),
          d.get('square_catalog_item_id') or None,
          pid))
@@ -11825,6 +11824,82 @@ def get_cart_order_status(oid):
     except Exception:
         order['items'] = []
     return jsonify(order)
+
+
+# ── Delete order routes ──────────────────────────────────────────────────────
+
+@app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])
+def delete_cart_order(oid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM cart_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    import json as _jd
+    try:
+        items = _jd.loads(order.get('items_json') or '[]')
+    except Exception:
+        items = []
+    for it in items:
+        rid = it.get('registration_id')
+        if rid:
+            execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rid,))
+    execute(conn, 'DELETE FROM cart_orders WHERE id=%s', (oid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>', methods=['DELETE'])
+def delete_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT id FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'DELETE FROM program_registrations WHERE id=%s', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Program cover image upload ────────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/upload-cover', methods=['POST'])
+def upload_program_cover(pid):
+    err = require_permission('youth')
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT name, slug FROM youth_programs WHERE id=%s', (pid,))
+    conn.close()
+    if not prog:
+        return jsonify({'error': 'Program not found'}), 404
+    base = secure_filename((prog.get('slug') or prog.get('name') or pid).replace(' ', '-').lower())
+    filename = f'program-{base}-cover{ext}'
+    save_path = os.path.join(app.static_folder, 'images', filename)
+    f.save(save_path)
+    url = f'/static/images/{filename}'
+    import json as _ji
+    conn2 = get_db()
+    prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
+    try:
+        images = _ji.loads(prog_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
+    execute(conn2, 'UPDATE youth_programs SET program_images=%s WHERE id=%s', (_ji.dumps(images), pid))
+    conn2.commit(); conn2.close()
+    return jsonify({'ok': True, 'url': url})
 
 
 # ── Cart discount code admin routes ─────────────────────────────────────────

@@ -995,6 +995,30 @@ def init_db():
             square_checkout_id TEXT,
             status TEXT DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS cart_discount_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            discount_type TEXT NOT NULL DEFAULT 'percent',
+            discount_value INTEGER NOT NULL DEFAULT 0,
+            min_spend INTEGER DEFAULT 0,
+            max_uses INTEGER,
+            uses INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS cart_orders (
+            id TEXT PRIMARY KEY,
+            guardian_name TEXT NOT NULL,
+            guardian_email TEXT NOT NULL,
+            guardian_phone TEXT,
+            items_json TEXT NOT NULL,
+            cart_discount_code TEXT,
+            cart_discount_amount INTEGER DEFAULT 0,
+            total_cents INTEGER NOT NULL,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS program_registrations (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -11442,11 +11466,29 @@ def square_webhook():
                 finalize_registration(conn, reg['id'], payment_id, order_id)
                 conn.commit()
             else:
-                # Check pending donations
-                don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                # Check cart orders
+                import json as _jw
+                cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                     (order_id, order_id))
-                if don:
-                    finalize_donation(conn, don['id'], payment_id, amount_cents)
+                if cart:
+                    execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                    try:
+                        items = _jw.loads(cart.get('items_json') or '[]')
+                    except Exception:
+                        items = []
+                    for it in items:
+                        rid = it.get('registration_id')
+                        if rid:
+                            reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                            if reg2 and reg2['status'] == 'pending_payment':
+                                finalize_registration(conn, rid, payment_id, order_id)
+                    conn.commit()
+                else:
+                    # Check pending donations
+                    don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                        (order_id, order_id))
+                    if don:
+                        finalize_donation(conn, don['id'], payment_id, amount_cents)
             conn.close()
 
     return jsonify({'ok': True})
@@ -11479,6 +11521,360 @@ def finalize_donation(conn, pending_id, payment_id, amount_cents):
     recalc_donor_totals(conn, donor['id'])
     conn.commit()
     app.logger.info(f'Donation finalized: ${amount:.2f} from {email}')
+
+
+# ── Cart routes ──────────────────────────────────────────────────────────────
+
+@app.route('/register/cart')
+@app.route('/register/cart/confirmation')
+def cart_page():
+    return send_from_directory('static', 'cart.html')
+
+
+@app.route('/api/public/programs')
+def public_programs_list():
+    """All open programs for the browse/add-more experience."""
+    conn = get_db()
+    progs = fetchall(conn, """SELECT id, name, slug, description, price, deposit_amount,
+        capacity, registration_status, registration_form_type,
+        start_date, end_date, sibling_discount_enabled,
+        sibling_discount_type, sibling_discount_value
+        FROM youth_programs WHERE registration_status='open' ORDER BY name""")
+    for p in progs:
+        count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
+        p['registration_count'] = count
+        p['spots_remaining'] = max(0, (p['capacity'] or 999) - count) if p.get('capacity') else None
+    conn.close()
+    return jsonify(progs or [])
+
+
+@app.route('/api/public/validate-cart-discount', methods=['POST'])
+def validate_cart_discount():
+    """Validate a cart-level promo code against the basket total."""
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    basket = int(d.get('basket_cents') or 0)
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    dc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (code,))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum cart total of ${min_spend/100:.2f}'})
+    if dc['discount_type'] == 'percent':
+        discount = int(basket * dc['discount_value'] / 100)
+        label = f'{dc["discount_value"]}% off your cart'
+    else:
+        discount = min(dc['discount_value'], basket)
+        label = f'${dc["discount_value"]/100:.2f} off your cart'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    final = max(0, basket - discount)
+    return jsonify({'valid': True, 'discount_amount': discount, 'final_price': final, 'label': label})
+
+
+@app.route('/api/public/cart/checkout', methods=['POST'])
+def cart_checkout():
+    """Create a single Square payment for a multi-program cart."""
+    import json as _jc, uuid as _uc
+    d = request.json or {}
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    items = d.get('items') or []
+    cart_code = (d.get('cart_discount_code') or '').strip().upper()
+
+    if not guardian_email or not guardian_name:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if not items:
+        return jsonify({'error': 'Cart is empty'}), 400
+
+    conn = get_db()
+
+    # Resolve each item's program and compute pricing
+    line_items = []
+    total_cents = 0
+    free_items = []   # items with price=0 or fully discounted — auto-confirm
+    paid_items = []   # items that need payment
+
+    for item in items:
+        prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s OR slug=%s',
+            (item.get('program_id',''), item.get('slug','')))
+        if not prog:
+            conn.close()
+            return jsonify({'error': f'Program not found: {item.get("program_name","")}'}), 400
+
+        price = prog.get('price') or 0
+        siblings = item.get('siblings') or []
+        participant_count = 1 + len(siblings)
+        basket = price * participant_count
+
+        # Program promo code
+        prog_discount = 0
+        prog_code_used = (item.get('promo_code') or '').strip().upper()
+        if prog_code_used and price > 0:
+            dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], prog_code_used))
+            if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+                min_spend = dc.get('min_spend') or 0
+                if not (min_spend > 0 and basket < min_spend):
+                    is_sib = bool(dc.get('is_sibling_discount'))
+                    if is_sib and participant_count >= 2:
+                        per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                        prog_discount = per * (participant_count - 1)
+                    elif not is_sib:
+                        prog_discount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
+                    execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+            else:
+                prog_code_used = ''
+
+        # Program-level auto sibling discount
+        sib_discount = 0
+        if prog.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+            sib_type = prog.get('sibling_discount_type') or 'percent'
+            sib_val = prog.get('sibling_discount_value') or 0
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sib_discount = per_sib * (participant_count - 1)
+
+        effective = max(0, basket - prog_discount - sib_discount)
+        item_data = {
+            'program_id': prog['id'],
+            'program_name': prog['name'],
+            'slug': prog.get('slug') or '',
+            'price': price,
+            'participant_count': participant_count,
+            'child_first_name': (item.get('child_first_name') or '').strip(),
+            'child_last_name': (item.get('child_last_name') or '').strip(),
+            'child_dob': item.get('child_dob') or '',
+            'shirt_size': item.get('shirt_size') or '',
+            'notes': (item.get('notes') or '').strip(),
+            'custom_field_values': item.get('custom_field_values') or {},
+            'siblings': siblings,
+            'promo_code': prog_code_used or None,
+            'promo_discount': prog_discount,
+            'sibling_discount': sib_discount,
+            'effective_price': effective,
+            'payment_type': item.get('payment_type') or 'full',
+            'deposit_amount': prog.get('deposit_amount') or 0,
+        }
+        line_items.append(item_data)
+        total_cents += effective
+
+    # Cart-level discount code
+    cart_discount_amount = 0
+    cart_code_used = ''
+    if cart_code and total_cents > 0:
+        cdc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (cart_code,))
+        if cdc and (not cdc.get('max_uses') or cdc.get('uses', 0) < cdc['max_uses']):
+            min_spend = cdc.get('min_spend') or 0
+            if not (min_spend > 0 and total_cents < min_spend):
+                if cdc['discount_type'] == 'percent':
+                    cart_discount_amount = int(total_cents * cdc['discount_value'] / 100)
+                else:
+                    cart_discount_amount = min(cdc['discount_value'], total_cents)
+                execute(conn, 'UPDATE cart_discount_codes SET uses=uses+1 WHERE id=%s', (cdc['id'],))
+                cart_code_used = cart_code
+
+    final_total = max(0, total_cents - cart_discount_amount)
+
+    # Apportion cart discount across paid items proportionally
+    if cart_discount_amount > 0 and total_cents > 0:
+        remaining_disc = cart_discount_amount
+        for i, it in enumerate(line_items):
+            if i < len(line_items) - 1:
+                share = int(cart_discount_amount * it['effective_price'] / total_cents)
+            else:
+                share = remaining_disc  # last item gets remainder
+            it['cart_discount_share'] = share
+            it['effective_price'] = max(0, it['effective_price'] - share)
+            remaining_disc -= share
+
+    # Split into free and paid items, create pending registrations for all
+    cart_order_id = _uc.uuid4().hex
+    reg_ids = []
+    for it in line_items:
+        rid = _uc.uuid4().hex
+        it['registration_id'] = rid
+        prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (it['program_id'],))
+        # Check capacity
+        reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (it['program_id'],)) or {}).get('c', 0)
+        cap = prog.get('capacity') if prog else None
+        is_full = cap and reg_count >= cap
+        status = 'waitlisted' if is_full else ('confirmed' if it['effective_price'] == 0 else 'pending_payment')
+        deposit = it['deposit_amount']
+        use_deposit = it['payment_type'] == 'deposit' and deposit > 0 and it['effective_price'] > deposit
+        charge_now = deposit if use_deposit else it['effective_price']
+        balance_due = max(0, it['effective_price'] - deposit) if use_deposit else 0
+        it['charge_now'] = charge_now
+        it['balance_due'] = balance_due
+        it['use_deposit'] = use_deposit
+        wpos = None
+        if is_full:
+            wpos_row = fetchone(conn, 'SELECT MAX(waitlist_position) AS m FROM program_registrations WHERE program_id=%s AND status=%s', (it['program_id'], 'waitlisted'))
+            wpos = ((wpos_row or {}).get('m') or 0) + 1
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone, notes,
+             discount_code, discount_amount, sibling_discount_amount,
+             participant_count, siblings_json,
+             payment_type, balance_due, waitlist_position)
+            VALUES (%s,%s,'registration',%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,
+                    %s,%s,%s)''',
+            (rid, it['program_id'], status,
+             it['child_first_name'], it['child_last_name'],
+             it['child_dob'] or None, it['shirt_size'] or None,
+             guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
+             it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
+             it['participant_count'], _jc.dumps(it['siblings']),
+             'deposit' if use_deposit else 'full', balance_due, wpos))
+        reg_ids.append(rid)
+        if status == 'confirmed':
+            finalize_registration(conn, rid)
+        if is_full:
+            try:
+                send_email([guardian_email], f'You\'re on the waitlist — {it["program_name"]}',
+                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theatre Company</p>')
+            except Exception: pass
+
+    # Save cart order
+    execute(conn, '''INSERT INTO cart_orders
+        (id, guardian_name, guardian_email, guardian_phone, items_json,
+         cart_discount_code, cart_discount_amount, total_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (cart_order_id, guardian_name, guardian_email, guardian_phone or None,
+         _jc.dumps(line_items), cart_code_used or None, cart_discount_amount, final_total))
+    conn.commit()
+
+    # If everything is free/waitlisted, no payment needed
+    paid_line_items = [it for it in line_items if it['charge_now'] > 0]
+    if not paid_line_items:
+        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart_order_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'cart_order_id': cart_order_id,
+                        'registration_ids': reg_ids})
+
+    # Build Square order with one line item per paid program
+    sq_line_items = []
+    for it in paid_line_items:
+        name = it['program_name']
+        if it['participant_count'] > 1:
+            name += f' ({it["participant_count"]} participants)'
+        if it['use_deposit']:
+            name += ' — Deposit'
+        sq_line_items.append({
+            'name': name[:191],
+            'quantity': '1',
+            'base_price_money': {'amount': it['charge_now'], 'currency': 'USD'},
+        })
+
+    import uuid as _uc2
+    redirect_url = f'{APP_BASE_URL}/register/cart/confirmation?order={cart_order_id}'
+    payload = {
+        'idempotency_key': _uc2.uuid4().hex,
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': sq_line_items,
+            'reference_id': cart_order_id[:40],
+        },
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': guardian_email},
+        'description': f'HWTC Registration — {len(paid_line_items)} program(s)',
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE cart_orders SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                (lnk.get('order_id'), lnk.get('id'), cart_order_id))
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True, 'type': 'payment_required',
+                            'payment_url': lnk.get('url'),
+                            'cart_order_id': cart_order_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Cart checkout Square error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/public/cart/order/<oid>')
+def get_cart_order_status(oid):
+    conn = get_db()
+    order = fetchone(conn, 'SELECT id, status, guardian_name, guardian_email, total_cents, items_json FROM cart_orders WHERE id=%s', (oid,))
+    conn.close()
+    if not order:
+        return jsonify({'error': 'Not found'}), 404
+    import json as _jo
+    try:
+        order['items'] = _jo.loads(order.get('items_json') or '[]')
+    except Exception:
+        order['items'] = []
+    return jsonify(order)
+
+
+# ── Cart discount code admin routes ─────────────────────────────────────────
+
+@app.route('/api/marquee/cart-discount-codes', methods=['GET'])
+def get_cart_discount_codes():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM cart_discount_codes ORDER BY created_at DESC')
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/marquee/cart-discount-codes', methods=['POST'])
+def create_cart_discount_code():
+    err = require_permission('marquee')
+    if err: return err
+    import uuid as _ucc
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO cart_discount_codes
+            (id, code, discount_type, discount_value, min_spend, max_uses, description, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_ucc.uuid4().hex, code,
+             d.get('discount_type', 'percent'),
+             int(d.get('discount_value') or 0),
+             int(d.get('min_spend_cents') or 0),
+             d.get('max_uses') or None,
+             (d.get('description') or '').strip()))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/marquee/cart-discount-codes/<cid>', methods=['DELETE'])
+def delete_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE cart_discount_codes SET active=FALSE WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 
 # ── Public donation page routes ──────────────────────────────────────────────

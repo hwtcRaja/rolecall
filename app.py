@@ -11539,7 +11539,8 @@ def public_programs_list():
         capacity, registration_status, registration_form_type,
         start_date, end_date, sibling_discount_enabled,
         sibling_discount_type, sibling_discount_value
-        FROM youth_programs WHERE registration_status='open' ORDER BY name""")
+        FROM youth_programs WHERE registration_status='open'
+        ORDER BY start_date ASC NULLS LAST, name ASC""")
     for p in progs:
         count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
         p['registration_count'] = count
@@ -11951,7 +11952,77 @@ def get_donation_status(did):
 
 # ── Marquee admin routes ─────────────────────────────────────────────────────
 
-@app.route('/api/marquee/overview', methods=['GET'])
+@app.route('/api/marquee/orders', methods=['GET'])
+def marquee_orders():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo
+    conn = get_db()
+    # Cart orders (multi-program)
+    cart_orders = fetchall(conn, '''SELECT id, guardian_name, guardian_email, guardian_phone,
+        items_json, cart_discount_code, cart_discount_amount, total_cents, status, created_at,
+        square_order_id
+        FROM cart_orders ORDER BY created_at DESC LIMIT 100''')
+    for o in (cart_orders or []):
+        try: o['items'] = _jo.loads(o.get('items_json') or '[]')
+        except: o['items'] = []
+    # Single-program orders (have a square_order_id but not from cart_orders)
+    cart_order_ids = set(o['square_order_id'] for o in (cart_orders or []) if o.get('square_order_id'))
+    single_regs = fetchall(conn, '''SELECT pr.*, yp.name AS program_name
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.square_order_id IS NOT NULL
+        AND pr.status != \'waitlisted\'
+        ORDER BY pr.created_at DESC LIMIT 100''')
+    # Filter out regs that belong to a cart order
+    single_regs = [r for r in (single_regs or []) if r.get('square_order_id') not in cart_order_ids]
+    conn.close()
+    return jsonify({'cart_orders': cart_orders or [], 'single_registrations': single_regs or []})
+
+
+@app.route('/api/marquee/orders/cart/<oid>', methods=['GET'])
+def marquee_cart_order_detail(oid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo2
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM cart_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    try: order['items'] = _jo2.loads(order.get('items_json') or '[]')
+    except: order['items'] = []
+    # Fetch registration status for each item
+    for it in order['items']:
+        rid = it.get('registration_id')
+        if rid:
+            reg = fetchone(conn, 'SELECT status, square_order_id, balance_due FROM program_registrations WHERE id=%s', (rid,))
+            if reg:
+                it['reg_status'] = reg['status']
+                it['balance_due'] = reg.get('balance_due') or 0
+    conn.close()
+    return jsonify(order)
+
+
+@app.route('/api/marquee/orders/single/<rid>', methods=['GET'])
+def marquee_single_order_detail(rid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo3
+    conn = get_db()
+    reg = fetchone(conn, '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.id=%s''', (rid,))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Not found'}), 404
+    try: reg['siblings'] = _jo3.loads(reg.get('siblings_json') or '[]')
+    except: reg['siblings'] = []
+    return jsonify(reg)
+
+
+
 def marquee_overview():
     err = require_permission('marquee', 'view')
     if err: return err
@@ -11993,7 +12064,7 @@ def marquee_all_registrations():
         query += ' AND pr.status=%s'; params.append(status)
     query += ' ORDER BY pr.created_at DESC LIMIT 200'
     regs = fetchall(conn, query, params)
-    programs = fetchall(conn, "SELECT id, name FROM youth_programs WHERE registration_status != 'draft' ORDER BY name")
+    programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs})
 

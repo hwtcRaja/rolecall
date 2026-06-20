@@ -992,6 +992,10 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_end_time TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS single_date TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS schedule_notes TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS form_fields TEXT DEFAULT '{}'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -3887,7 +3891,7 @@ def save_registration_settings(pid):
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s
+        start_date=%s, end_date=%s, form_fields=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -3913,6 +3917,7 @@ def save_registration_settings(pid):
          (d.get('schedule_notes') or '').strip(),
          d.get('start_date') or None,
          d.get('end_date') or None,
+         _json.dumps(d.get('form_fields') or {}),
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -11255,6 +11260,9 @@ def public_program_info(slug):
         if p.get(k):
             try: p[k] = json.loads(p[k])
             except: p[k] = []
+    if p.get('form_fields'):
+        try: p['form_fields'] = json.loads(p['form_fields'])
+        except: p['form_fields'] = {}
     for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
         p.pop(k, None)
     return jsonify(p)
@@ -11402,10 +11410,11 @@ def public_submit_registration(slug):
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
+             allergies, pickup_contacts, photo_consent,
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,
@@ -11413,6 +11422,9 @@ def public_submit_registration(slug):
              d.get('emergency_contact_name','').strip() or None,
              d.get('emergency_contact_phone','').strip() or None,
              d.get('notes','').strip() or None,
+             d.get('allergies','').strip() or None,
+             d.get('pickup_contacts','').strip() or None,
+             bool(d.get('photo_consent')),
              discount_code or None, discount_amount, sibling_discount_amount,
              participant_count, _json2.dumps(siblings),
              'deposit' if use_deposit else 'full', balance_due) + extra_vals)

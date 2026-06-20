@@ -19050,6 +19050,7 @@ async function renderMarqueeDonations(el){
 }
 
 
+function auditLine(created_at, created_by_name, updated_at, updated_by_name){
  const parts=[]
  if(created_at) parts.push('Created '+formatDateTimeShort(created_at)+(created_by_name?' by '+created_by_name:''))
  if(updated_at) parts.push('Updated '+formatDateTimeShort(updated_at)+(updated_by_name?' by '+updated_by_name:''))

@@ -90,6 +90,10 @@ async function apiFetch(path, method, body){
 }
 
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function fmtDate(d){ if(!d) return ''; try{ var dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) } catch(e){ return d } }
+function fmtPrice(cents){ if(!cents) return 'Free'; return '$'+(cents/100).toFixed(2) }
+function show(msg, type){ document.getElementById('form-alert').innerHTML = '<div class="alert alert-'+type+'" style="margin-bottom:12px">'+escHtml(msg)+'</div>' }
+
 function fmtTime(t){
   if(!t) return ''
   try{
@@ -101,36 +105,28 @@ function fmtTime(t){
   }catch(e){ return t }
 }
 
-function fmtDate(d){ if(!d) return ''; try{ var dt=new Date(d+'T12:00:00'); return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) } catch(e){ return d } }
-
-function fmtTime(t){
+function buildScheduleHTML(prog){
   var type = prog.schedule_type || 'date_range'
   var startTime = prog.meeting_start_time ? fmtTime(prog.meeting_start_time) : ''
   var endTime = prog.meeting_end_time ? fmtTime(prog.meeting_end_time) : ''
-  var timeStr = startTime ? (startTime + (endTime ? ' – ' + endTime : '')) : ''
+  var timeStr = startTime ? (startTime + (endTime ? ' \u2013 ' + endTime : '')) : ''
   var lines = []
-
   if(type === 'single' && prog.single_date){
-    lines.push('📅 ' + fmtDate(prog.single_date))
+    lines.push('\uD83D\uDCC5 ' + fmtDate(prog.single_date))
   } else if(type === 'recurring'){
     var days = Array.isArray(prog.meeting_days) ? prog.meeting_days : []
-    if(days.length) lines.push('📅 Every ' + days.join(', '))
-    if(prog.start_date) lines.push('🗓 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' – ' + fmtDate(prog.end_date) : ''))
+    if(days.length) lines.push('\uD83D\uDCC5 Every ' + days.join(', '))
+    if(prog.start_date) lines.push('\uD83D\uDDD3 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
   } else {
-    if(prog.start_date) lines.push('📅 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' – ' + fmtDate(prog.end_date) : ''))
+    if(prog.start_date) lines.push('\uD83D\uDCC5 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
   }
-  if(timeStr) lines.push('🕐 ' + timeStr)
-  if(prog.schedule_notes) lines.push('ℹ️ ' + escHtml(prog.schedule_notes))
-
+  if(timeStr) lines.push('\uD83D\uDD50 ' + timeStr)
+  if(prog.schedule_notes) lines.push('\u2139\uFE0F ' + escHtml(prog.schedule_notes))
   if(!lines.length) return ''
   return '<div style="font-size:13px;color:#6b7280;margin-bottom:10px;display:flex;flex-direction:column;gap:3px">'
     + lines.map(function(l){ return '<div>'+l+'</div>' }).join('')
     + '</div>'
 }
-
-
-function fmtPrice(cents){ if(!cents) return 'Free'; return '$'+(cents/100).toFixed(2) }
-function show(msg, type){ document.getElementById('form-alert').innerHTML = '<div class="alert alert-'+type+'" style="margin-bottom:12px">'+escHtml(msg)+'</div>' }
 
 async function init(){
   if(isConfirmation && regId){ showConfirmation(); return }

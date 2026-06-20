@@ -985,6 +985,16 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
+        """CREATE TABLE IF NOT EXISTS pending_donations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            message TEXT,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS program_registrations (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -11418,21 +11428,178 @@ def square_webhook():
         payment_id = obj.get('id')
         order_id = obj.get('order_id')
         status = obj.get('status')
+        amount_cents = obj.get('amount_money', {}).get('amount', 0)
         if status == 'COMPLETED' and order_id:
             conn = get_db()
+            # Check registrations first
             reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
                 (order_id, order_id))
             if reg and reg['status'] == 'pending_payment':
                 finalize_registration(conn, reg['id'], payment_id, order_id)
             elif reg and reg['status'] == 'waitlisted':
-                # Waitlist payment completed — promote to confirmed
                 execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
                     (payment_id, reg['id']))
                 finalize_registration(conn, reg['id'], payment_id, order_id)
                 conn.commit()
+            else:
+                # Check pending donations
+                don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    (order_id, order_id))
+                if don:
+                    finalize_donation(conn, don['id'], payment_id, amount_cents)
             conn.close()
 
     return jsonify({'ok': True})
+
+
+def finalize_donation(conn, pending_id, payment_id, amount_cents):
+    """Convert a pending donation into a donor_donations record."""
+    import uuid as _ud
+    don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (pending_id,))
+    if not don:
+        return
+    execute(conn, "UPDATE pending_donations SET status='completed' WHERE id=%s", (pending_id,))
+    email = (don.get('email') or '').strip().lower()
+    name = (don.get('name') or '').strip()
+    amount = (amount_cents or don.get('amount_cents') or 0) / 100.0
+    today = __import__('datetime').date.today().isoformat()
+    # Find or create donor
+    donor = fetchone(conn, 'SELECT * FROM donors WHERE LOWER(email)=LOWER(%s)', (email,))
+    if not donor:
+        did = str(_ud.uuid4())
+        execute(conn, '''INSERT INTO donors (id, type, display_name, email, status, created_at)
+            VALUES (%s,'individual',%s,%s,'active',NOW())''', (did, name, email))
+        donor = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (did,))
+    # Log donation
+    execute(conn, '''INSERT INTO donor_donations
+        (id, donor_id, amount, donation_date, type, payment_status, notes, created_at)
+        VALUES (%s,%s,%s,%s,'square','received',%s,NOW())''',
+        (str(_ud.uuid4()), donor['id'], amount, today,
+         f'Online donation via Marquee — Square payment {payment_id}' + (f' — {don["message"]}' if don.get('message') else '')))
+    recalc_donor_totals(conn, donor['id'])
+    conn.commit()
+    app.logger.info(f'Donation finalized: ${amount:.2f} from {email}')
+
+
+# ── Public donation page routes ──────────────────────────────────────────────
+
+@app.route('/donate')
+@app.route('/donate/confirmation')
+def donate_page():
+    return send_from_directory('static', 'donate.html')
+
+
+@app.route('/api/public/donate', methods=['POST'])
+def submit_donation():
+    """Create a Square payment link for a public donation."""
+    import uuid as _ud2
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    amount_dollars = float(d.get('amount') or 0)
+    message = (d.get('message') or '').strip()
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if amount_dollars < 1:
+        return jsonify({'error': 'Minimum donation is $1.00'}), 400
+    amount_cents = int(round(amount_dollars * 100))
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        return jsonify({'error': 'Payment system not configured'}), 500
+    pending_id = _ud2.uuid4().hex
+    conn = get_db()
+    execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message)
+        VALUES (%s,%s,%s,%s,%s)''', (pending_id, name, email, amount_cents, message or None))
+    conn.commit()
+    redirect_url = f'{APP_BASE_URL}/donate/confirmation?don={pending_id}'
+    payload = {
+        'idempotency_key': _ud2.uuid4().hex,
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': [{'name': 'Donation — Horizon West Theatre Company',
+                            'quantity': '1',
+                            'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}],
+            'reference_id': pending_id[:40],
+        },
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': email},
+        'description': f'Donation from {name}' + (f': {message[:100]}' if message else ''),
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE pending_donations SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                (lnk.get('order_id'), lnk.get('id'), pending_id))
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True, 'payment_url': lnk.get('url'), 'donation_id': pending_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Donation payment link error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/public/donation/<did>', methods=['GET'])
+def get_donation_status(did):
+    conn = get_db()
+    don = fetchone(conn, 'SELECT id, status, name, amount_cents FROM pending_donations WHERE id=%s', (did,))
+    conn.close()
+    if not don:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(don)
+
+
+# ── Marquee admin routes ─────────────────────────────────────────────────────
+
+@app.route('/api/marquee/overview', methods=['GET'])
+def marquee_overview():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    reg_counts = fetchone(conn, '''SELECT
+        COUNT(*) FILTER (WHERE status='confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE status='pending_payment') AS pending,
+        COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted
+        FROM program_registrations''')
+    recent_regs = fetchall(conn, '''SELECT pr.*, yp.name AS program_name
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        ORDER BY pr.created_at DESC LIMIT 10''')
+    recent_donations = fetchall(conn, '''SELECT pd.*, dd.amount
+        FROM pending_donations pd
+        LEFT JOIN donor_donations dd ON dd.notes LIKE '%'||pd.id||'%'
+        WHERE pd.status='completed'
+        ORDER BY pd.created_at DESC LIMIT 10''')
+    conn.close()
+    return jsonify({'reg_counts': reg_counts, 'recent_regs': recent_regs,
+                    'recent_donations': recent_donations})
+
+
+@app.route('/api/marquee/registrations', methods=['GET'])
+def marquee_all_registrations():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    program_id = request.args.get('program_id')
+    status = request.args.get('status')
+    query = '''SELECT pr.*, yp.name AS program_name
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE 1=1'''
+    params = []
+    if program_id:
+        query += ' AND pr.program_id=%s'; params.append(program_id)
+    if status:
+        query += ' AND pr.status=%s'; params.append(status)
+    query += ' ORDER BY pr.created_at DESC LIMIT 200'
+    regs = fetchall(conn, query, params)
+    programs = fetchall(conn, "SELECT id, name FROM youth_programs WHERE registration_status != 'draft' ORDER BY name")
+    conn.close()
+    return jsonify({'registrations': regs, 'programs': programs})
 
 
 @app.route('/api/public/program/<slug>/registration/<rid>', methods=['GET'])

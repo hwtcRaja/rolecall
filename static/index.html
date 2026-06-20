@@ -15156,6 +15156,11 @@ function renderYouthProgramsPage(){
  if(filterType&&(p.program_type||'class')!==filterType) return false
  if(filterStatus&&(p.status||'active')!==filterStatus) return false
  return true
+ }).sort(function(a,b){
+ if(!a.start_date&&!b.start_date) return (a.name||'').localeCompare(b.name||'')
+ if(!a.start_date) return 1
+ if(!b.start_date) return -1
+ return a.start_date.localeCompare(b.start_date)
  })
  const grid=document.getElementById('youth-programs-grid')
  const isAdmin=canEdit('programs')
@@ -18889,10 +18894,12 @@ async function renderMarqueeTab(tab){
   else if(tab==='donations') await renderMarqueeDonations(el)
 }
 
-async function renderMarqueeRegistrations(el){
-  var progFilter = ''
-  var statusFilter = ''
-  var data = await api('/api/marquee/registrations'+(progFilter||statusFilter ? '?program_id='+progFilter+'&status='+statusFilter : ''))
+async function renderMarqueeRegistrations(el, progFilter, statusFilter){
+  progFilter = progFilter || ''
+  statusFilter = statusFilter || ''
+  var url = '/api/marquee/registrations'
+  if(progFilter||statusFilter) url += '?program_id='+encodeURIComponent(progFilter)+'&status='+encodeURIComponent(statusFilter)
+  var data = await api(url)
   var regs = (data && data.registrations) || []
   var programs = (data && data.programs) || []
   _marqueeRegs = regs
@@ -18955,23 +18962,15 @@ async function renderMarqueeRegistrations(el){
 
   el.innerHTML = html
 
-  document.getElementById('mq-prog-filter').addEventListener('change', async function(){
+  document.getElementById('mq-prog-filter').addEventListener('change', function(){
     var pf = this.value
     var sf = (document.getElementById('mq-status-filter')||{}).value||''
-    var url = '/api/marquee/registrations'
-    if(pf||sf) url += '?program_id='+pf+'&status='+sf
-    var d2 = await api(url)
-    _marqueeRegs = (d2&&d2.registrations)||[]
-    renderMarqueeRegistrations(el)
+    renderMarqueeRegistrations(el, pf, sf)
   })
-  document.getElementById('mq-status-filter').addEventListener('change', async function(){
+  document.getElementById('mq-status-filter').addEventListener('change', function(){
     var sf = this.value
     var pf = (document.getElementById('mq-prog-filter')||{}).value||''
-    var url = '/api/marquee/registrations'
-    if(pf||sf) url += '?program_id='+pf+'&status='+sf
-    var d2 = await api(url)
-    _marqueeRegs = (d2&&d2.registrations)||[]
-    renderMarqueeRegistrations(el)
+    renderMarqueeRegistrations(el, pf, sf)
   })
   el.querySelectorAll('.mq-edit-btn').forEach(function(btn){
     btn.addEventListener('click', function(){ openEditRegistrationModal(btn.dataset.pid, btn.dataset.rid, _marqueeRegs) })

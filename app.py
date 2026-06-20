@@ -2976,6 +2976,21 @@ def portal_reply_thread(tid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/portal/messages/unread-summary')
+def portal_unread_summary():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0") or {}).get('t', 0)
+    by_program = fetchall(conn, """
+        SELECT program_id, COALESCE(SUM(unread_admin),0) AS unread
+        FROM portal_message_threads
+        WHERE unread_admin>0 AND program_id IS NOT NULL
+        GROUP BY program_id""")
+    conn.close()
+    return jsonify({'total': int(total), 'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])}})
+
+
 @app.route('/api/portal/messages/threads')
 def portal_list_threads():
     err = require_auth()
@@ -11309,6 +11324,35 @@ def public_submit_registration(slug):
                     send_email(recipients, f'Interest List: {p["name"]} — {d.get("name","")}',
                         f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>')
             except Exception: pass
+            # Thank-you email to the family
+            try:
+                submitter_name = (d.get('name') or '').strip().split()[0] or 'there'
+                child_name = (d.get('child_name') or '').strip()
+                send_email([email], f'You\'re on the interest list — {p["name"]}',
+                    f'<div style="font-family:-apple-system,\'DM Sans\',sans-serif;max-width:560px;margin:0 auto;color:#1a2332">'
+                    f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                    f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto"/>'
+                    f'</div>'
+                    f'<div style="background:#fff;padding:28px 28px 24px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                    f'<h2 style="color:#0d3d4d;font-size:20px;margin:0 0 12px">You\'re on the list!</h2>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">Hi {submitter_name},</p>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">'
+                    f'Thanks for your interest in <strong>{p["name"]}</strong>{"!" if not child_name else f" for <strong>{child_name}</strong>!"} '
+                    f'We\'ve added you to our interest list and will reach out as soon as registration opens.</p>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 24px">'
+                    f'We\'ll also send you a direct link to register when the time comes, so keep an eye on your inbox.</p>'
+                    f'<div style="background:#f0f9ff;border-left:4px solid #145466;padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:24px">'
+                    f'<div style="font-size:13px;color:#145466;font-weight:700;margin-bottom:4px">Program</div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#0d3d4d">{p["name"]}</div>'
+                    f'</div>'
+                    f'<p style="color:#6b7280;font-size:13px;margin:0">Questions? Reply to this email or visit '
+                    f'<a href="https://hwtco.org" style="color:#145466">hwtco.org</a>.</p>'
+                    f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">'
+                    f'Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                    f'</div></div>')
+            except Exception as e:
+                app.logger.warning(f'Interest list thank-you email failed: {e}')
             conn.close()
             return jsonify({'ok': True, 'type': 'interest'})
         except Exception as e:

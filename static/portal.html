@@ -654,9 +654,15 @@ async function selectContext(type, id, name, color){
             if(existingAbout) existingAbout.remove()
             const tabStrip = document.getElementById('detail-tabs')
             if(tabStrip && tabStrip.parentNode && (window._ctxInstructorBio || window._ctxInstructorPhoto)){
+              const _initials = window._ctxInstructorName.charAt(0)
+              const _avatarStyle = 'width:72px;height:72px;border-radius:50%;background:var(--teal-light);'
+                + 'display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+                + 'font-size:24px;font-weight:800;color:var(--teal-dark)'
               const freshPhoto = window._ctxInstructorPhoto
-                ? '<img src="'+window._ctxInstructorPhoto+'" alt="'+window._ctxInstructorName+'" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">'
-                : '<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">'+window._ctxInstructorName.charAt(0)+'</div>'
+                ? '<img src="'+window._ctxInstructorPhoto+'" id="instr-photo-img"'
+                  + ' style="width:72px;height:72px;border-radius:50%;'
+                  + 'object-fit:cover;flex-shrink:0;border:2px solid var(--border)">'
+                : '<div style="'+_avatarStyle+'">'+_initials+'</div>'
               const d2 = document.createElement('div')
               d2.id = 'portal-instructor-about'
               d2.style.cssText = 'padding:16px 20px 0'
@@ -865,7 +871,8 @@ async function selectContext(type, id, name, color){
     aboutDiv.id = 'portal-instructor-about'
     aboutDiv.style.cssText = 'padding:16px 20px 0'
     const photoHTML = window._ctxInstructorPhoto
-      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">`
+      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        + `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:none;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
       : `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
     aboutDiv.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">
       ${photoHTML}

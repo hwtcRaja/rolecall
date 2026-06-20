@@ -1285,11 +1285,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-body">
     <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content" id="marquee-tabs">
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Registrations</button>
+      <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
       <button class="marquee-tab" data-tab="programs" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Programs</button>
       <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Discount Codes</button>
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
     </div>
     <div id="marquee-tab-registrations"></div>
+    <div id="marquee-tab-orders" style="display:none"></div>
     <div id="marquee-tab-programs" style="display:none"></div>
     <div id="marquee-tab-discounts" style="display:none"></div>
     <div id="marquee-tab-donations" style="display:none"></div>
@@ -1658,6 +1660,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-events" placeholder="calendar" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('events',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-marquee">
+ <span style="font-size:16px">🎟️</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Marquee</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-marquee" placeholder="ticket" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('marquee',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-productions">
@@ -3099,10 +3111,8 @@ async function loadAllData(){
  const tabBadge = document.getElementById('app-pending-badge')
  if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
  }).catch(()=>{})
- // Apply saved nav icons (only if lucide loaded)
- setTimeout(function(){
- api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error && window.lucide) applyNavIcons(icons) }).catch(function(){})
- }, 500)
+ // Apply saved nav icons immediately (Lucide loads synchronously now)
+ api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error) applyNavIcons(icons) }).catch(function(){})
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6319,7 +6329,7 @@ async function loadSettings(){
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
  dashboard:'', volunteers:'', waivers:'', hours:'', email:'',
- events:'', productions:'', 'cast-signin':'', youth:'', programs:'',
+ events:'', marquee:'🎟️', productions:'', 'cast-signin':'', youth:'', programs:'',
  'rising-stars':'⭐', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':'',
@@ -18873,6 +18883,7 @@ async function renderMarqueeTab(tab){
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
   if(tab==='registrations') await renderMarqueeRegistrations(el)
+  else if(tab==='orders') await renderMarqueeOrders(el)
   else if(tab==='programs') await renderMarqueePrograms(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
   else if(tab==='donations') await renderMarqueeDonations(el)
@@ -18891,7 +18902,6 @@ async function renderMarqueeRegistrations(el){
     return '<option value="'+escHtml(p.id)+'">'+escHtml(p.name)+'</option>'
   }).join('')
   var statusOpts = '<option value="">All Statuses</option><option value="confirmed">Confirmed</option><option value="pending_payment">Pending Payment</option><option value="waitlisted">Waitlisted</option><option value="cancelled">Cancelled</option>'
-
   var statusMap = {confirmed:'background:#dcfce7;color:#166534',pending_payment:'background:#fef3c7;color:#92400e',waitlisted:'background:#ede9fe;color:#6d28d9',cancelled:'background:#fee2e2;color:#991b1b'}
   var counts = {confirmed:0,pending_payment:0,waitlisted:0}
   regs.forEach(function(r){ if(counts[r.status]!==undefined) counts[r.status]++ })
@@ -18908,25 +18918,32 @@ async function renderMarqueeRegistrations(el){
   if(regs.length){
     html += '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
       + '<thead><tr style="border-bottom:2px solid var(--border)">'
-      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Child</th>'
-      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Guardian</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Participant</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Contact</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Program</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Status</th>'
-      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Date</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Registered</th>'
       + '<th></th></tr></thead><tbody>'
       + regs.map(function(r){
+          var isAdult = r.registration_form_type === 'adult'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
-          var childLabel = escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
-          if(sibCount) childLabel += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
+          // For adult registrations, participant IS the contact — show their name once
+          var participantName = isAdult
+            ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
+            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+          if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
+          var contactCell = isAdult
+            ? '<span style="font-size:11px;color:var(--text-muted)">—</span>'
+            : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
           var actions = '<button class="btn btn-secondary btn-sm mq-edit-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button>'
           if(r.status==='pending_payment') actions += ' <button class="btn btn-secondary btn-sm mq-resend-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button>'
           if(r.balance_due>0 && r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm mq-balance-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button>'
           return '<tr style="border-bottom:1px solid var(--border)">'
-            + '<td style="padding:8px">'+childLabel+'</td>'
-            + '<td style="padding:8px">'+escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div></td>'
+            + '<td style="padding:8px">'+participantName+'</td>'
+            + '<td style="padding:8px">'+contactCell+'</td>'
             + '<td style="padding:8px;font-size:11px">'+escHtml(r.program_name||'')+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'')+'</span></td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
             + '<td style="padding:8px;color:var(--text-muted);font-size:11px">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -18956,7 +18973,6 @@ async function renderMarqueeRegistrations(el){
     _marqueeRegs = (d2&&d2.registrations)||[]
     renderMarqueeRegistrations(el)
   })
-
   el.querySelectorAll('.mq-edit-btn').forEach(function(btn){
     btn.addEventListener('click', function(){ openEditRegistrationModal(btn.dataset.pid, btn.dataset.rid, _marqueeRegs) })
   })
@@ -18977,21 +18993,231 @@ async function renderMarqueeRegistrations(el){
   })
 }
 
+// ── Orders tab ────────────────────────────────────────────────────────────────
+
+async function renderMarqueeOrders(el){
+  var data = await api('/api/marquee/orders')
+  var cartOrders = (data&&data.cart_orders)||[]
+  var singles = (data&&data.single_registrations)||[]
+
+  function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
+  var statusMap = {completed:'background:#dcfce7;color:#166534',confirmed:'background:#dcfce7;color:#166534',pending:'background:#fef3c7;color:#92400e',pending_payment:'background:#fef3c7;color:#92400e',cancelled:'background:#fee2e2;color:#991b1b'}
+
+  // Merge and sort by date
+  var allOrders = []
+  cartOrders.forEach(function(o){
+    allOrders.push({type:'cart', id:o.id, name:o.guardian_name, email:o.guardian_email,
+      summary: (o.items||[]).map(function(it){ return it.program_name }).join(', '),
+      item_count: (o.items||[]).length,
+      total: o.total_cents, status: o.status, date: o.created_at,
+      discount_code: o.cart_discount_code, discount_amount: o.cart_discount_amount})
+  })
+  singles.forEach(function(r){
+    allOrders.push({type:'single', id:r.id, pid:r.program_id, name:r.guardian_name||r.child_first_name,
+      email:r.guardian_email,
+      summary: r.program_name,
+      item_count: r.participant_count||1,
+      total: r.discount_amount!=null ? ((r.price||0)*(r.participant_count||1) - (r.discount_amount||0) - (r.sibling_discount_amount||0)) : null,
+      status: r.status, date: r.created_at,
+      discount_code: r.discount_code})
+  })
+  allOrders.sort(function(a,b){ return (b.date||'').localeCompare(a.date||'') })
+
+  if(!allOrders.length){
+    el.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No orders yet.</div>'
+    return
+  }
+
+  var html = '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="border-bottom:2px solid var(--border)">'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Order</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Contact</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Programs</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Total</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Status</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Date</th>'
+    + '<th></th></tr></thead><tbody>'
+    + allOrders.map(function(o){
+        var orderLabel = o.type==='cart'
+          ? '<span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700;margin-right:4px">CART</span>'
+          : ''
+        var statusKey = o.status||''
+        return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" class="mq-order-row" data-type="'+o.type+'" data-id="'+o.id+'" '+(o.type==='single'?'data-pid="'+escHtml(o.pid||'')+'"':'')+'>'
+          + '<td style="padding:10px 8px">'+orderLabel+'<span style="font-family:monospace;font-size:11px;color:var(--text-muted)">#'+o.id.slice(-6).toUpperCase()+'</span></td>'
+          + '<td style="padding:10px 8px"><div style="font-weight:600">'+escHtml(o.name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(o.email||'')+'</div></td>'
+          + '<td style="padding:10px 8px;font-size:11px;max-width:200px">'+escHtml(o.summary||'')+(o.item_count>1?' <span style="color:var(--text-muted)">('+o.item_count+' items)</span>':'')+'</td>'
+          + '<td style="padding:10px 8px;font-weight:700">'+( o.total!=null ? fmtMoney(o.total) : '—')+'</td>'
+          + '<td style="padding:10px 8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[statusKey]||'background:#f3f4f6;color:#6b7280')+'">'+statusKey.replace('_',' ')+'</span></td>'
+          + '<td style="padding:10px 8px;color:var(--text-muted)">'+fmtDate(o.date)+'</td>'
+          + '<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="padding:3px 10px;font-size:11px">View</button></td>'
+          + '</tr>'
+      }).join('')
+    + '</tbody></table></div>'
+
+  el.innerHTML = html
+
+  el.querySelectorAll('.mq-order-row').forEach(function(row){
+    row.addEventListener('click', function(){
+      openOrderModal(row.dataset.type, row.dataset.id, row.dataset.pid)
+    })
+  })
+}
+
+async function openOrderModal(type, id, pid){
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px'
+  var modal = document.createElement('div')
+  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25)'
+  modal.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted)">Loading order...</div>'
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+
+  var data = type==='cart'
+    ? await api('/api/marquee/orders/cart/'+id)
+    : await api('/api/marquee/orders/single/'+id)
+
+  if(data.error){ modal.innerHTML='<div style="padding:24px;color:#dc2626">'+escHtml(data.error)+'</div>'; return }
+
+  function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) }catch(e){ return String(d).slice(0,16) } }
+  var statusMap = {completed:'#dcfce7;color:#166534',confirmed:'#dcfce7;color:#166534',pending:'#fef3c7;color:#92400e',pending_payment:'#fef3c7;color:#92400e',cancelled:'#fee2e2;color:#991b1b'}
+
+  var html = '<div style="padding:22px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">'
+    + '<div>'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">'+(type==='cart'?'Cart Order':'Registration Order')+'</div>'
+    + '<div style="font-size:18px;font-weight:800;color:var(--teal-dark);font-family:monospace">#'+(id.slice(-8).toUpperCase())+'</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:3px">'+fmtDate(data.created_at)+'</div>'
+    + '</div>'
+    + '<button onclick="this.closest(\'div[style*=\\\"position:fixed\\\"]\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);line-height:1">&times;</button>'
+    + '</div>'
+
+  // Contact info
+  var contactName = type==='cart' ? data.guardian_name : (data.guardian_name||data.child_first_name||'')
+  var contactEmail = type==='cart' ? data.guardian_email : data.guardian_email
+  var contactPhone = type==='cart' ? data.guardian_phone : data.guardian_phone
+  html += '<div style="padding:16px 24px;background:var(--bg);border-bottom:1px solid var(--border)">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Contact</div>'
+    + '<div style="font-size:14px;font-weight:700">'+escHtml(contactName||'')+'</div>'
+    + (contactEmail ? '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(contactEmail)+'</div>' : '')
+    + (contactPhone ? '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(contactPhone)+'</div>' : '')
+    + '</div>'
+
+  // Line items
+  html += '<div style="padding:16px 24px;border-bottom:1px solid var(--border)">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:12px">Items</div>'
+
+  if(type==='cart'){
+    var items = data.items||[]
+    items.forEach(function(it){
+      var n = it.participant_count||1
+      var baseTotal = (it.price||0)*n
+      var regStatus = it.reg_status||it.status||'—'
+      var statusStyle = statusMap[regStatus]||'#f3f4f6;color:#6b7280'
+      html += '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+        + '<div style="font-weight:700;font-size:13px">'+escHtml(it.program_name||'')+'</div>'
+        + '<div style="font-weight:700;font-size:13px">'+fmtMoney(baseTotal)+'</div>'
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(it.child_first_name||'')+' '+escHtml(it.child_last_name||'')+(n>1?' + '+(n-1)+' sibling(s)':'')+'</div>'
+        + (it.promo_discount ? '<div style="font-size:12px;color:#166534">Code discount: −'+fmtMoney(it.promo_discount)+'</div>' : '')
+        + (it.sibling_discount ? '<div style="font-size:12px;color:#166534">Sibling discount: −'+fmtMoney(it.sibling_discount)+'</div>' : '')
+        + (it.cart_discount_share ? '<div style="font-size:12px;color:#166534">Cart code: −'+fmtMoney(it.cart_discount_share)+'</div>' : '')
+        + '<div style="margin-top:6px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+statusStyle+'">'+regStatus.replace('_',' ')+'</span>'
+        + (it.balance_due>0 ? '<span style="margin-left:6px;font-size:11px;color:#92400e;font-weight:600">Balance due: '+fmtMoney(it.balance_due)+'</span>' : '')
+        + '</div></div>'
+    })
+    // Cart-level discount
+    if(data.cart_discount_code && data.cart_discount_amount){
+      html += '<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:13px;color:#166534">'
+        + '<span>Cart code: '+escHtml(data.cart_discount_code)+'</span><span>−'+fmtMoney(data.cart_discount_amount)+'</span></div>'
+    }
+  } else {
+    // Single registration
+    var n2 = data.participant_count||1
+    var baseTotal2 = (data.price||0)*n2
+    var regStatus2 = data.status||'—'
+    var statusStyle2 = statusMap[regStatus2]||'#f3f4f6;color:#6b7280'
+    html += '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+      + '<div style="font-weight:700;font-size:13px">'+escHtml(data.program_name||'')+'</div>'
+      + '<div style="font-weight:700;font-size:13px">'+fmtMoney(baseTotal2)+'</div>'
+      + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(data.child_first_name||'')+' '+escHtml(data.child_last_name||'')+(n2>1?' + '+(n2-1)+' sibling(s)':'')+'</div>'
+      + (data.discount_code ? '<div style="font-size:12px;color:#166534">Code '+escHtml(data.discount_code)+': −'+fmtMoney(data.discount_amount||0)+'</div>' : '')
+      + (data.sibling_discount_amount ? '<div style="font-size:12px;color:#166534">Sibling discount: −'+fmtMoney(data.sibling_discount_amount)+'</div>' : '')
+      + '<div style="margin-top:6px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+statusStyle2+'">'+regStatus2.replace('_',' ')+'</span>'
+      + (data.balance_due>0 ? '<span style="margin-left:6px;font-size:11px;color:#92400e;font-weight:600">Balance due: '+fmtMoney(data.balance_due)+'</span>' : '')
+      + '</div></div>'
+  }
+  html += '</div>'
+
+  // Order total
+  var total = type==='cart' ? data.total_cents : (data.price!=null ? Math.max(0,(data.price||0)*(data.participant_count||1)-(data.discount_amount||0)-(data.sibling_discount_amount||0)) : null)
+  html += '<div style="padding:16px 24px;border-bottom:1px solid var(--border)">'
+    + '<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;color:var(--teal-dark)">'
+    + '<span>Total</span><span>'+fmtMoney(total)+'</span></div>'
+    + (data.square_order_id ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">Square order: <code>'+escHtml(data.square_order_id)+'</code></div>' : '')
+    + '</div>'
+
+  // Actions
+  html += '<div style="padding:16px 24px;display:flex;gap:8px;flex-wrap:wrap">'
+  if(type==='single'){
+    html += '<button class="btn btn-secondary btn-sm od-edit-btn" data-pid="'+escHtml(pid||'')+'" data-rid="'+escHtml(id)+'" style="font-size:12px">Edit Registration</button>'
+    if(data.status==='pending_payment')
+      html += '<button class="btn btn-secondary btn-sm od-resend-btn" data-pid="'+escHtml(pid||'')+'" data-rid="'+escHtml(id)+'" style="font-size:12px">Resend Payment Link</button>'
+    if(data.balance_due>0 && data.status==='confirmed')
+      html += '<button class="btn btn-secondary btn-sm od-balance-btn" data-pid="'+escHtml(pid||'')+'" data-rid="'+escHtml(id)+'" style="font-size:12px">Send Balance Link</button>'
+  }
+  if(data.square_order_id)
+    html += '<a href="https://squareup.com/dashboard/sales/transactions" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;text-decoration:none">View in Square ↗</a>'
+  html += '</div>'
+
+  modal.innerHTML = html
+
+  // Wire action buttons
+  var editBtn = modal.querySelector('.od-edit-btn')
+  if(editBtn) editBtn.addEventListener('click', function(){ overlay.remove(); openEditRegistrationModal(editBtn.dataset.pid, editBtn.dataset.rid, _marqueeRegs) })
+  var resendBtn = modal.querySelector('.od-resend-btn')
+  if(resendBtn) resendBtn.addEventListener('click', async function(){
+    var res = await api('/api/programs/'+resendBtn.dataset.pid+'/registrations/'+resendBtn.dataset.rid+'/send-payment-link','POST')
+    if(res&&res.ok){ toast('Payment link resent','success'); overlay.remove() }
+    else toast((res&&res.error)||'Error','error')
+  })
+  var balBtn = modal.querySelector('.od-balance-btn')
+  if(balBtn) balBtn.addEventListener('click', async function(){
+    if(!confirm('Send balance payment link?')) return
+    var res = await api('/api/programs/'+balBtn.dataset.pid+'/registrations/'+balBtn.dataset.rid+'/send-balance-link','POST')
+    if(res&&res.ok){ toast('Balance link sent','success'); overlay.remove() }
+    else toast((res&&res.error)||'Error','error')
+  })
+}
+
 async function renderMarqueePrograms(el){
   var progs = allPrograms.filter(function(p){ return p.registration_status && p.registration_status !== 'draft' })
   if(!progs.length) progs = allPrograms
+  // Sort by start_date, nulls last
+  progs = progs.slice().sort(function(a,b){
+    if(!a.start_date && !b.start_date) return (a.name||'').localeCompare(b.name||'')
+    if(!a.start_date) return 1
+    if(!b.start_date) return -1
+    return a.start_date.localeCompare(b.start_date)
+  })
   var statusBadge = {open:'background:#dcfce7;color:#166534',interest_list:'background:#fef3c7;color:#92400e',closed:'background:#fee2e2;color:#991b1b',draft:'background:#f3f4f6;color:#6b7280'}
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
   var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">'
     + progs.map(function(p){
         var st = p.registration_status || 'draft'
         var badge = statusBadge[st] || statusBadge.draft
         return '<div class="card" style="padding:16px">'
-          + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">'
+          + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'
           + '<div style="font-weight:700;font-size:14px">'+escHtml(p.name)+'</div>'
           + '<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;'+badge+'">'+st.replace('_',' ')+'</span>'
           + '</div>'
+          + (p.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">📅 '+fmtDate(p.start_date)+(p.end_date?' – '+fmtDate(p.end_date):'')+'</div>' : '')
           + (p.price ? '<div style="font-size:13px;color:var(--text-muted)">$'+(p.price/100).toFixed(2)+'/participant</div>' : '<div style="font-size:13px;color:#166534;font-weight:600">Free</div>')
-          + (p.capacity ? '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">'+(p.registration_count||0)+' / '+p.capacity+' spots</div>' : '')
+          + (p.capacity ? '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.registration_count||0)+' / '+p.capacity+' spots</div>' : '')
           + '<div style="display:flex;gap:6px;margin-top:12px">'
           + '<button class="btn btn-secondary btn-sm mq-settings-btn" data-pid="'+p.id+'" style="font-size:12px;padding:5px 10px">Settings</button>'
           + (p.slug ? '<a href="/register/'+p.slug+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;padding:5px 10px">View Page</a>' : '')
@@ -19132,6 +19358,6 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 
 </script>
 <script src="https://cdn.quilljs.com/1.3.7/quill.min.js" async></script>
-<script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" async onerror="window._lucideFailed=true"></script>
+<script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true"></script>
 </body>
 </html>

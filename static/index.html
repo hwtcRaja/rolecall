@@ -17472,7 +17472,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
         var ff = {}
         try{ ff = JSON.parse(prog.form_fields||'{}') }catch(e){}
         // defaults
-        var defaults = {dob:true,shirt:true,phone:true,emergency_contact:true,age:false,allergies:false,pickup_dropoff:false,photo_consent:false}
+        var defaults = {dob:true,shirt:true,phone:true,emergency_contact:true,age:false,allergies:false,pickup_dropoff:false,photo_consent:false,pronouns:false}
         var fields = [
           {key:'dob',       label:'Date of Birth',              desc:'Child\'s birthday',                        youthOnly:true},
           {key:'age',       label:'Age',                        desc:'Participant age',                          youthOnly:false},
@@ -17482,6 +17482,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
           {key:'allergies', label:'Allergies / Medical Notes',  desc:'Health info and allergies',                youthOnly:false},
           {key:'pickup_dropoff', label:'Pickup & Drop-off',     desc:'Authorized pickup contacts',               youthOnly:true},
           {key:'photo_consent', label:'Photo / Video Consent',  desc:'Permission to use photos in marketing',    youthOnly:false},
+          {key:'pronouns',  label:'Pronouns',                   desc:'Participant\'s preferred pronouns',        youthOnly:false},
         ]
         var isYouth = prog.registration_form_type !== 'adult'
         return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'

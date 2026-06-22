@@ -282,6 +282,7 @@ function buildRegistrationForm(formType, customFields){
           + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
           + '</div>' : '')
       + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions we should know about"/></div>' : '')
+      + (on('pronouns',false) ? '<div class="form-group"><label>Pronouns</label><input id="f-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>' : '')
       + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for photos/videos of my child to be used in HWTC marketing and social media.</label></div>' : '')
       + '<div class="section-divider">Parent / Guardian Information</div>'
       + '<div class="form-group"><label>Full Name <span class="required">*</span></label><input id="f-contact-name" placeholder="Parent or guardian name"/></div>'
@@ -312,6 +313,7 @@ function buildRegistrationForm(formType, customFields){
             + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
           : '')
       + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions"/></div>' : '')
+      + (on('pronouns',false) ? '<div class="form-group"><label>Pronouns</label><input id="f-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>' : '')
       + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for my photos/videos to be used in HWTC marketing and social media.</label></div>' : '')
 
   return '<div class="card"><div class="card-header"><h2>Register</h2></div><div class="card-body">'
@@ -596,6 +598,7 @@ async function submitRegistration(){
     emergency_contact_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),
     notes: ((document.getElementById('f-notes')||{}).value||'').trim(),
     allergies: ((document.getElementById('f-allergies')||{}).value||'').trim(),
+    pronouns: ((document.getElementById('f-pronouns')||{}).value||'').trim(),
     pickup_contacts: ((document.getElementById('f-pickup')||{}).value||'').trim(),
     photo_consent: !!(document.getElementById('f-photo-consent')||{}).checked,
     custom_field_values: getCustomFieldValues(customFields),

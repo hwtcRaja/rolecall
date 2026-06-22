@@ -17417,6 +17417,9 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info &amp; Photos</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
     + '<textarea id="rs-program-info" rows="4" placeholder="Describe the program — what participants will learn, what to expect, etc. Basic HTML supported (bold, links)..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(prog.program_info||'')+'</textarea></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Footnote</label>'
+    + '<input type="text" id="rs-registration-note" value="'+escHtml(prog.registration_note||'')+'" placeholder="e.g. * Tap shoes required. Please bring water." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Shown as a small footnote under the program description on the public registration page.</div></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Cover Image</label>'
     + (images.length ? '<div style="margin-bottom:8px"><img src="'+escHtml(images[0])+'" alt="Cover" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"/></div>' : '<div style="margin-bottom:8px;padding:20px;background:var(--bg);border:1.5px dashed var(--border-md);border-radius:8px;text-align:center;font-size:12px;color:var(--text-muted)">No cover image yet</div>')
     + '<div style="display:flex;gap:8px;align-items:center">'
@@ -17839,6 +17842,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
     program_info: (document.getElementById('rs-program-info')||{}).value || '',
+    registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
     form_fields: (function(){

@@ -970,6 +970,8 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
+        """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -3920,6 +3922,7 @@ def save_registration_settings(pid):
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
+        registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
         start_date=%s, end_date=%s, form_fields=%s
@@ -3939,6 +3942,7 @@ def save_registration_settings(pid):
          (d.get('program_info') or '').strip(),
          _json.dumps(custom_fields),
          d.get('square_catalog_item_id') or None,
+         (d.get('registration_note') or '').strip(),
          (d.get('program_location') or '').strip(),
          d.get('schedule_type') or 'date_range',
          _json.dumps(d.get('meeting_days') or []),
@@ -11992,6 +11996,7 @@ def save_production_registration_settings(pid):
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, form_fields=%s,
+        registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
         start_date=%s, end_date=%s
@@ -12011,6 +12016,7 @@ def save_production_registration_settings(pid):
          (d.get('program_info') or '').strip(),
          _jps.dumps(d.get('custom_fields') or []),
          _jps.dumps(d.get('form_fields') or {}),
+         (d.get('registration_note') or '').strip(),
          (d.get('program_location') or '').strip(),
          d.get('schedule_type') or 'date_range',
          _jps.dumps(d.get('meeting_days') or []),

@@ -75,8 +75,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
 </div>
 <script>
 const pathParts = location.pathname.split('/').filter(Boolean)
-const slug = pathParts[1] || ''
-const isConfirmation = pathParts[2] === 'confirmation'
+// pathParts[0] = 'register', pathParts[1] = slug OR 'production', pathParts[2] = slug (if production)
+const isProduction = pathParts[1] === 'production'
+const slug = isProduction ? (pathParts[2] || '') : (pathParts[1] || '')
+const isConfirmation = isProduction ? pathParts[3] === 'confirmation' : pathParts[2] === 'confirmation'
+const apiBase = isProduction ? '/api/public/production/' : '/api/public/program/'
 const urlParams = new URLSearchParams(location.search)
 const regId = urlParams.get('reg')
 let program = null
@@ -129,7 +132,7 @@ function buildScheduleHTML(prog){
 
 async function init(){
   if(isConfirmation && regId){ showConfirmation(); return }
-  const data = await apiFetch('/api/public/program/'+slug)
+  const data = await apiFetch(apiBase+slug)
   if(data.error){ showErr(data.error); return }
   program = data
   document.getElementById('page-title').textContent = program.name
@@ -502,7 +505,7 @@ async function applyDiscount(){
     return
   }
   const numRegs = 1 + document.querySelectorAll('.sibling-block').length
-  const res = await apiFetch('/api/public/program/'+slug+'/validate-discount','POST',{
+  const res = await apiFetch(apiBase+slug+'/validate-discount','POST',{
     code: code.trim().toUpperCase(), num_registrations: numRegs
   })
   res._code = code.trim().toUpperCase()
@@ -598,7 +601,7 @@ async function submitRegistration(){
     payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
   }
 
-  const res = await apiFetch('/api/public/program/'+slug+'/register','POST',payload)
+  const res = await apiFetch(apiBase+slug+'/register','POST',payload)
   if(res.error){ show(res.error,'error'); btn.disabled=false; btn.textContent=program.price?'Continue to Payment \u2192':'Complete Registration'; return }
 
   if(res.type==='payment_required'){
@@ -620,7 +623,7 @@ async function submitInterest(){
   const name = (document.getElementById('f-contact-name')||{}).value||''
   if(!email.trim()||!name.trim()){ show('Name and email are required.','error'); return }
   btn.disabled=true; btn.textContent='Submitting...'
-  const res = await apiFetch('/api/public/program/'+slug+'/register','POST',{
+  const res = await apiFetch(apiBase+slug+'/register','POST',{
     type:'interest', name:name.trim(), email:email.trim(),
     phone:((document.getElementById('f-phone')||{}).value||'').trim(),
     child_name:((document.getElementById('f-first')||{}).value||'').trim(),
@@ -635,8 +638,8 @@ async function showConfirmation(){
   const el = document.getElementById('app')
   el.style.display=''
   const [reg, pData] = await Promise.all([
-    apiFetch('/api/public/program/'+slug+'/registration/'+regId),
-    apiFetch('/api/public/program/'+slug)
+    apiFetch(apiBase+slug+'/registration/'+regId),
+    apiFetch(apiBase+slug)
   ])
   const pName = pData && pData.name ? pData.name : 'the program'
   if(reg.status==='confirmed'){
@@ -670,6 +673,7 @@ function collectFormData(){
     program_id: program.id,
     program_name: program.name,
     slug: slug,
+    is_production: isProduction,
     price: program.price || 0,
     registration_form_type: formType,
     child_first_name: ((document.getElementById('f-first')||{}).value||'').trim(),

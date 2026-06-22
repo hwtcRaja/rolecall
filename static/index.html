@@ -10912,6 +10912,10 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
+ if(p.stage==='rising_stars'){
+   s += "<button id='prodtab-btn-auditions' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;auditions&quot;)'>Auditions</button>"
+   s += "<button id='prodtab-btn-registrations' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;registrations&quot;)'>Registrations</button>"
+ }
  if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>Portal Content</button>"
  s += '</div>'
 
@@ -11013,6 +11017,9 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  // Portal content tab
  s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
  s += '<div id="prodtab-auditions" style="display:none"><div id="prodtab-auditions-inner-'+p.id+'"></div></div>'
+ if(p.stage==='rising_stars'){
+   s += '<div id="prodtab-registrations" style="display:none"><div id="prodtab-registrations-inner-'+p.id+'"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div></div>'
+ }
  s += '</div>' // end right column
  s += '</div>' // end grid
  return s
@@ -11037,7 +11044,7 @@ function openProductionDetail(prodId, fromPage){
  <div class="page-subtitle">${PROD_TYPE_LABELS[p.production_type]||p.production_type} · <span style="color:${col}">${PROD_STATUS_LABELS[p.status]}</span></div>
  </div>
  </div>
- ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button><button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
+ ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button>'+(p.stage==='rising_stars'?'<button class="btn btn-secondary btn-sm" onclick="openProductionRegistrationSettingsModal(\''+p.id+'\')">Registration Settings</button>':'')+'<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
 
  // Group members by department
  const members=p.members||[]
@@ -16135,9 +16142,136 @@ function renderProductionPortalHTML(pid, stage){
 `
 }
 
+async function loadProductionRegistrations(pid){
+  const el = document.getElementById('prodtab-registrations-inner-'+pid)
+  if(!el) return
+  const prod = allProductions.find(p=>p.id===pid)
+  const regs = await api('/api/productions/'+pid+'/registrations')
+  if(!Array.isArray(regs)){ el.innerHTML='<div style="color:var(--text-muted);padding:20px">Could not load registrations.</div>'; return }
+  const statusMap = {confirmed:'background:#dcfce7;color:#166534',pending_payment:'background:#fef3c7;color:#92400e',waitlisted:'background:#ede9fe;color:#6d28d9',cancelled:'background:#fee2e2;color:#991b1b'}
+  const counts = {confirmed:0,pending_payment:0,waitlisted:0}
+  regs.forEach(r=>{ if(counts[r.status]!==undefined) counts[r.status]++ })
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+    + '<div style="display:flex;gap:10px">'
+    + [['Confirmed',counts.confirmed,'#dcfce7','#166534'],['Pending',counts.pending_payment,'#fef3c7','#92400e'],['Waitlisted',counts.waitlisted,'#ede9fe','#6d28d9']]
+      .map(x=>'<div style="background:'+x[2]+';border-radius:10px;padding:10px 14px;text-align:center"><div style="font-size:20px;font-weight:800;color:'+x[3]+'">'+x[1]+'</div><div style="font-size:11px;font-weight:600;color:'+x[3]+'">'+x[0]+'</div></div>').join('')
+    + '</div>'
+    + (prod && prod.slug ? '<a href="/register/production/'+escHtml(prod.slug||'')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px">View Reg Page</a>' : '')
+    + '</div>'
+  if(!regs.length){
+    html += '<div style="text-align:center;padding:30px;color:var(--text-muted)">No registrations yet.</div>'
+  } else {
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:2px solid var(--border)">'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Participant</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Contact</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Status</th>'
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Registered</th>'
+      + '<th></th></tr></thead><tbody>'
+      + regs.map(function(r){
+          var isAdult = r.registration_form_type === 'adult'
+          var sibCount = 0
+          try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
+          var participantName = isAdult
+            ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
+            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+          if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
+          var contactCell = isAdult ? '<span style="color:var(--text-muted);font-size:11px">—</span>'
+            : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
+          var actions = '<button class="btn btn-secondary btn-sm prod-reg-edit-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button> '
+          if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm prod-promote-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Promote</button> '
+          if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm prod-resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button> '
+          actions += '<button class="btn btn-sm prod-del-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px">'+participantName+'</td>'
+            + '<td style="padding:8px">'+contactCell+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
+            + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table></div>'
+  }
+  el.innerHTML = html
+  el.querySelectorAll('.prod-reg-edit-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var r = regs.find(function(x){ return x.id===btn.dataset.rid })
+      if(!r) return
+      openEditRegistrationModal(null, btn.dataset.rid, regs, '/api/productions/'+pid+'/registrations/'+btn.dataset.rid)
+    })
+  })
+  el.querySelectorAll('.prod-promote-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ promoteProductionWaitlist(pid, btn.dataset.rid) })
+  })
+  el.querySelectorAll('.prod-resend-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      var res = await api('/api/productions/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
+      if(res&&res.ok) toast('Payment link resent','success')
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+  el.querySelectorAll('.prod-del-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Permanently delete this registration?')) return
+      var res = await api('/api/productions/'+pid+'/registrations/'+btn.dataset.rid,'DELETE')
+      if(res&&res.ok){ toast('Deleted','success'); loadProductionRegistrations(pid) }
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+}
+
+function promoteProductionWaitlist(pid, rid){
+  var prod = allProductions.find(p=>p.id===pid) || {}
+  var regs = []
+  var reg = { child_first_name:'', guardian_email:'' }
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  var modal = document.createElement('div')
+  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:400px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.25)'
+  modal.innerHTML = '<div style="font-size:17px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">Promote from Waitlist</div>'
+    + '<div class="form-group"><label>Hold spot for</label>'
+    + '<select id="ppw-hold-hours" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px">'
+    + '<option value="24">24 hours</option><option value="48" selected>48 hours (recommended)</option>'
+    + '<option value="72">72 hours</option><option value="168">1 week</option><option value="0">No time limit</option>'
+    + '</select></div>'
+    + '<div style="display:flex;gap:10px"><button id="ppw-cancel" class="btn btn-secondary" style="flex:1">Cancel</button>'
+    + '<button id="ppw-confirm" class="btn btn-primary" style="flex:1">Send Offer</button></div>'
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  modal.querySelector('#ppw-cancel').addEventListener('click', function(){ overlay.remove() })
+  modal.querySelector('#ppw-confirm').addEventListener('click', async function(){
+    var btn = this; btn.disabled=true; btn.textContent='Sending...'
+    var holdHours = parseInt(modal.querySelector('#ppw-hold-hours').value||48)
+    var res = await api('/api/productions/'+pid+'/registrations/'+rid+'/promote-waitlist','POST',{hold_hours:holdHours})
+    overlay.remove()
+    if(res&&res.ok){ toast(res.type==='confirmed_free'?'Confirmed!':'Offer sent — spot held for '+holdHours+' hours','success'); loadProductionRegistrations(pid) }
+    else toast((res&&res.error)||'Error','error')
+  })
+}
+
+function openProductionRegistrationSettingsModal(pid){
+  var prod = allProductions.find(p=>p.id===pid)
+  if(!prod) return
+  // Reuse the program registration settings modal but post to productions endpoint
+  // Temporarily set prod as a program-like object
+  var fakeProg = Object.assign({}, prod, {
+    id: pid,
+    price: prod.price || 0,
+    deposit_amount: prod.deposit_amount || 0,
+    registration_status: prod.registration_status || 'draft',
+    registration_form_type: prod.registration_form_type || 'youth',
+  })
+  openRegistrationSettingsModal(pid, fakeProg, '/api/productions/'+pid+'/registration-settings', function(){
+    // Reload productions after save
+    api('/api/productions').then(function(prods){ if(Array.isArray(prods)) allProductions=prods })
+    loadProductionRegistrations(pid)
+  })
+}
+
 function switchProductionTab(tab){
  const pid = window._currentProductionDetailId
- const tabs = ['members','youth','schedule','info','portal','auditions']
+ const tabs = ['members','youth','schedule','info','portal','auditions','registrations']
  tabs.forEach(t=>{
  const el = document.getElementById('prodtab-'+t)
  if(el) el.style.display = t===tab?'':'none'
@@ -16154,6 +16288,7 @@ function switchProductionTab(tab){
  loadAuditionsTab('production', pid, 'prod-auditions-'+pid)
  }
  }
+ if(tab==='registrations' && pid) loadProductionRegistrations(pid)
  if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
 }
 
@@ -17133,8 +17268,9 @@ async function notifyInterestList(pid){
   else toast((res && res.error)||'Error', 'error')
 }
 
-function openRegistrationSettingsModal(pid){
-  const prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, onSavedCallback){
+  const prog = progOverride || allPrograms.find(function(p){ return p.id===pid }) || {}
+  const _saveEndpoint = saveEndpointOverride || ('/api/programs/'+pid+'/registration-settings')
   const existing = document.getElementById('reg-settings-overlay')
   if(existing) existing.remove()
   const overlay = document.createElement('div')
@@ -17376,7 +17512,10 @@ function openRegistrationSettingsModal(pid){
     var formData = new FormData()
     formData.append('file', file)
     try{
-      var res = await fetch('/api/programs/'+pid+'/upload-cover', {method:'POST', body:formData})
+      var coverEndpoint = saveEndpointOverride
+        ? saveEndpointOverride.replace('/registration-settings', '/upload-cover')
+        : '/api/programs/'+pid+'/upload-cover'
+      var res = await fetch(coverEndpoint, {method:'POST', body:formData})
       var data = await res.json()
       if(data.ok){
         if(statusEl) statusEl.textContent = 'Uploaded!'
@@ -17702,12 +17841,15 @@ async function saveRegistrationSettings(pid){
     start_date: (document.getElementById('rs-start-date-field')||document.getElementById('rs-recurring-start')||{}).value || null,
     end_date: (document.getElementById('rs-end-date-field')||document.getElementById('rs-recurring-end')||{}).value || null,
   }
-  const res = await api('/api/programs/'+pid+'/registration-settings', 'PUT', payload)
+  const res = await api(_saveEndpoint || ('/api/programs/'+pid+'/registration-settings'), 'PUT', payload)
   if(res && res.ok){
     toast('Settings saved', 'success')
     document.getElementById('reg-settings-overlay').remove()
-    api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
-    loadProgramRegistrations(pid)
+    if(typeof onSavedCallback === 'function') onSavedCallback()
+    else {
+      api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+      loadProgramRegistrations(pid)
+    }
   } else toast((res && res.error)||'Error saving', 'error')
 }
 

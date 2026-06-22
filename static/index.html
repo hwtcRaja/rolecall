@@ -17500,7 +17500,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
 
   document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
-  document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid) })
+  document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid, _saveEndpoint, onSavedCallback) })
 
   // Cover image upload
   var coverInput = document.getElementById('rs-cover-upload')
@@ -17512,16 +17512,15 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     var formData = new FormData()
     formData.append('file', file)
     try{
-      var coverEndpoint = saveEndpointOverride
-        ? saveEndpointOverride.replace('/registration-settings', '/upload-cover')
+      var coverEndpoint = _saveEndpoint
+        ? _saveEndpoint.replace('/registration-settings', '/upload-cover')
         : '/api/programs/'+pid+'/upload-cover'
       var res = await fetch(coverEndpoint, {method:'POST', body:formData})
       var data = await res.json()
       if(data.ok){
         if(statusEl) statusEl.textContent = 'Uploaded!'
         toast('Cover image saved','success')
-        // Refresh the modal to show the new image
-        setTimeout(function(){ openRegistrationSettingsModal(pid) }, 600)
+        setTimeout(function(){ openRegistrationSettingsModal(pid, null, _saveEndpoint, onSavedCallback) }, 600)
       } else {
         if(statusEl) statusEl.textContent = data.error || 'Upload failed'
         toast(data.error||'Upload failed','error')
@@ -17808,7 +17807,8 @@ function toggleScheduleFields(){
   if(re) re.style.display = type==='recurring' ? '' : 'none'
 }
 
-async function saveRegistrationSettings(pid){
+async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
+  saveEndpoint = saveEndpoint || ('/api/programs/'+pid+'/registration-settings')
   const payload = {
     registration_status: document.getElementById('rs-status').value || 'draft',
     registration_form_type: (document.getElementById('rs-form-type')||{}).value || 'youth',
@@ -17841,7 +17841,7 @@ async function saveRegistrationSettings(pid){
     start_date: (document.getElementById('rs-start-date-field')||document.getElementById('rs-recurring-start')||{}).value || null,
     end_date: (document.getElementById('rs-end-date-field')||document.getElementById('rs-recurring-end')||{}).value || null,
   }
-  const res = await api(_saveEndpoint || ('/api/programs/'+pid+'/registration-settings'), 'PUT', payload)
+  const res = await api(saveEndpoint, 'PUT', payload)
   if(res && res.ok){
     toast('Settings saved', 'success')
     document.getElementById('reg-settings-overlay').remove()

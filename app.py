@@ -10,7 +10,7 @@ import json
 from datetime import datetime, date
 from werkzeug.utils import secure_filename
 import requests
-
+import re
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
@@ -11254,15 +11254,21 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
 # ── Public registration page ──────────────────────────────────────────────────
 
 @app.route('/register/<slug>')
-@app.route('/register/production/<slug>')
 def public_register_page(slug):
     """Public-facing registration / interest list page."""
     return send_from_directory('static', 'register.html')
 
+@app.route('/register/production/<slug>')
+def public_register_production_page(slug):
+    """Public-facing production registration page."""
+    return send_from_directory('static', 'register.html')
 
 @app.route('/register/<slug>/confirmation')
-@app.route('/register/production/<slug>/confirmation')
 def public_register_confirmation(slug):
+    return send_from_directory('static', 'register.html')
+
+@app.route('/register/production/<slug>/confirmation')
+def public_register_production_confirmation(slug):
     return send_from_directory('static', 'register.html')
 
 
@@ -11989,7 +11995,7 @@ def save_production_registration_settings(pid):
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
-         (d.get('slug') or '').strip().lower().replace(' ', '-').replace('[^a-z0-9-]', '') or None,
+         re.sub(r'[^a-z0-9-]', '', (d.get('slug') or '').strip().lower().replace(' ', '-')) or None,
          d.get('capacity') or None,
          int(d.get('price_cents') or 0),
          int(d.get('deposit_amount') or 0),
@@ -12714,27 +12720,50 @@ def marquee_single_order_detail(rid):
 
 
 
+@app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():
     err = require_permission('marquee', 'view')
     if err: return err
     conn = get_db()
+    # Registration counts across programs and productions
     reg_counts = fetchone(conn, '''SELECT
         COUNT(*) FILTER (WHERE status='confirmed') AS confirmed,
         COUNT(*) FILTER (WHERE status='pending_payment') AS pending,
-        COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted
-        FROM program_registrations''')
-    recent_regs = fetchall(conn, '''SELECT pr.*, yp.name AS program_name
-        FROM program_registrations pr
-        JOIN youth_programs yp ON yp.id=pr.program_id
-        ORDER BY pr.created_at DESC LIMIT 10''')
-    recent_donations = fetchall(conn, '''SELECT pd.*, dd.amount
-        FROM pending_donations pd
-        LEFT JOIN donor_donations dd ON dd.notes LIKE '%'||pd.id||'%'
-        WHERE pd.status='completed'
-        ORDER BY pd.created_at DESC LIMIT 10''')
+        COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
+        COUNT(*) AS total
+        FROM program_registrations WHERE status != 'cancelled' ''')
+    # Revenue from completed cart orders
+    cart_rev = fetchone(conn, "SELECT COALESCE(SUM(total_cents),0) AS total FROM cart_orders WHERE status='completed'")
+    # Revenue from single registrations (discount already applied)
+    # Estimate: sum effective prices from confirmed registrations
+    single_rev = fetchone(conn, '''SELECT COALESCE(SUM(
+        COALESCE(discount_amount,0) + COALESCE(sibling_discount_amount,0) +
+        CASE WHEN balance_due > 0 THEN 0 ELSE 0 END
+    ),0) AS total FROM program_registrations WHERE status='confirmed' ''')
+    # Donations this year
+    import datetime as _dt
+    year = _dt.date.today().year
+    donations_ytd = fetchone(conn, f"SELECT COALESCE(SUM(amount),0) AS total FROM donor_donations WHERE donation_date >= '{year}-01-01' AND type='square'")
+    # Recent orders (cart + single, last 8)
+    cart_orders = fetchall(conn, '''SELECT id, guardian_name, guardian_email, total_cents, status, created_at,
+        (SELECT COUNT(*) FROM json_array_elements(items_json::json)) AS item_count
+        FROM cart_orders ORDER BY created_at DESC LIMIT 8''') or []
+    # Open products in catalog
+    open_programs = (fetchone(conn, "SELECT COUNT(*) AS c FROM youth_programs WHERE registration_status='open'") or {}).get('c', 0)
+    open_productions = (fetchone(conn, "SELECT COUNT(*) AS c FROM productions WHERE registration_status='open'") or {}).get('c', 0)
+    # Recent donations
+    recent_donations = fetchall(conn, '''SELECT pd.name, pd.email, pd.amount_cents, pd.created_at
+        FROM pending_donations pd WHERE pd.status='completed'
+        ORDER BY pd.created_at DESC LIMIT 5''') or []
     conn.close()
-    return jsonify({'reg_counts': reg_counts, 'recent_regs': recent_regs,
-                    'recent_donations': recent_donations})
+    return jsonify({
+        'reg_counts': reg_counts,
+        'cart_revenue': (cart_rev or {}).get('total', 0),
+        'donations_ytd': float((donations_ytd or {}).get('total', 0)),
+        'open_products': int(open_programs) + int(open_productions),
+        'recent_orders': cart_orders,
+        'recent_donations': recent_donations,
+    })
 
 
 @app.route('/api/marquee/registrations', methods=['GET'])

@@ -423,7 +423,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours">⏱</span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email">✉️</span>Email</div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events">📅</span>Events &amp; Calendar</div>
-        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee">🎟️</span>Marquee</div>
+        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee">🛒</span>Marquee</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">🎭 Mainstage</div>
@@ -1277,22 +1277,27 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <section class="page" id="page-marquee">
   <div class="page-header">
-    <div><div class="page-title">🎟️ Marquee</div><div class="page-subtitle">Registrations, discount codes &amp; donations</div></div>
+    <div>
+      <div class="page-title">Marquee</div>
+      <div class="page-subtitle">Box Office &amp; Store Management</div>
+    </div>
     <div class="page-actions">
-      <a href="/donate" target="_blank" class="btn btn-secondary btn-sm">🔗 Donation Page</a>
+      <a href="/donate" target="_blank" class="btn btn-secondary btn-sm">Donation Page</a>
     </div>
   </div>
   <div class="page-body">
-    <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content" id="marquee-tabs">
-      <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Registrations</button>
+    <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content;flex-wrap:wrap" id="marquee-tabs">
+      <button class="marquee-tab" data-tab="dashboard" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Dashboard</button>
+      <button class="marquee-tab" data-tab="catalog" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Catalog</button>
       <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
-      <button class="marquee-tab" data-tab="programs" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Programs</button>
-      <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Discount Codes</button>
+      <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
+      <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Promotions</button>
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
     </div>
-    <div id="marquee-tab-registrations"></div>
+    <div id="marquee-tab-dashboard"></div>
+    <div id="marquee-tab-catalog" style="display:none"></div>
     <div id="marquee-tab-orders" style="display:none"></div>
-    <div id="marquee-tab-programs" style="display:none"></div>
+    <div id="marquee-tab-registrations" style="display:none"></div>
     <div id="marquee-tab-discounts" style="display:none"></div>
     <div id="marquee-tab-donations" style="display:none"></div>
   </div>
@@ -1663,7 +1668,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-marquee">
- <span style="font-size:16px">🎟️</span>
+ <span style="font-size:16px">🛒</span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Marquee</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -6331,7 +6336,7 @@ async function loadSettings(){
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
  dashboard:'', volunteers:'', waivers:'', hours:'', email:'',
- events:'', marquee:'🎟️', productions:'', 'cast-signin':'', youth:'', programs:'',
+ events:'', marquee:'🛒', productions:'', 'cast-signin':'', youth:'', programs:'',
  'rising-stars':'⭐', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':'',
@@ -10833,7 +10838,7 @@ function renderProductions(){
  if(risingStars.length){
  html+=`<div style="grid-column:1/-1;margin-top:${mainstage.length?'24px':'0'}">
  <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
- ⭐ Rising Stars Productions
+ Rising Stars Productions
  <span style="font-size:11px;background:var(--purple-50);color:var(--purple-600);padding:2px 8px;border-radius:10px;font-weight:600">Managed under Education & Programming</span>
  <button class="btn btn-secondary btn-sm" onclick="navTo('rising-stars-page')">Go to Rising Stars →</button>
  </div>
@@ -16021,6 +16026,7 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">Files</button>
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
+ ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
@@ -16139,6 +16145,11 @@ function renderProductionPortalHTML(pid, stage){
  <div id="prod-team-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
  </div>
+
+ ${isRS?`<!-- Messages -->
+ <div id="pptab-messages-${pid}" style="display:none">
+   <div id="pptab-messages-inner-${pid}"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading messages…</div></div>
+ </div>`:''}
 `
 }
 
@@ -16458,13 +16469,17 @@ async function submitScConflict(pid){
 function switchProdPortalTab(tab, btn){
  const pid = window._currentProductionDetailId
  if(!pid) return
- ;['announcements','files','about','team','conflicts','overview','general'].forEach(t=>{
+ ;['announcements','files','about','team','conflicts','overview','general','messages'].forEach(t=>{
  const el = document.getElementById('pptab-'+t+'-'+pid)
  if(el) el.style.display = t===tab?'':'none'
  })
  document.querySelectorAll('.portal-sub-btn').forEach(b=>b.classList.remove('active'))
  if(btn) btn.classList.add('active')
  if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
+ if(tab==='messages'){
+   const inner = document.getElementById('pptab-messages-inner-'+pid)
+   if(inner) loadPortalMessages(pid, null, 'pptab-messages-inner-'+pid)
+ }
  if(tab==='team'){
  const teamEl = document.getElementById('pptab-team-'+pid)
  if(teamEl) loadTeamMembers(pid)
@@ -19242,7 +19257,7 @@ function formatDateTimeShort(ts){
 // MARQUEE
 // ═══════════════════════════════════════════════════════════════
 
-var _marqueeTab = 'registrations'
+var _marqueeTab = 'dashboard'
 var _marqueeRegs = []
 var _marqueePrograms = []
 
@@ -19261,18 +19276,194 @@ function loadMarqueePage(){
       renderMarqueeTab(_marqueeTab)
     }
   })
-  renderMarqueeTab('registrations')
+  renderMarqueeTab('dashboard')
 }
 
 async function renderMarqueeTab(tab){
   var el = document.getElementById('marquee-tab-'+tab)
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
-  if(tab==='registrations') await renderMarqueeRegistrations(el)
+  if(tab==='dashboard') await renderMarqueeDashboard(el)
+  else if(tab==='catalog') await renderMarqueeCatalog(el)
+  else if(tab==='registrations') await renderMarqueeRegistrations(el)
   else if(tab==='orders') await renderMarqueeOrders(el)
-  else if(tab==='programs') await renderMarqueePrograms(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
   else if(tab==='donations') await renderMarqueeDonations(el)
+}
+
+async function renderMarqueeDashboard(el){
+  var data = await api('/api/marquee/overview')
+  if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
+  var rc = data.reg_counts || {}
+  function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
+  var statusMap = {completed:'background:#dcfce7;color:#166534',confirmed:'background:#dcfce7;color:#166534',pending:'background:#fef3c7;color:#92400e'}
+
+  var html = ''
+
+  // ── Stat cards ──
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">'
+  var stats = [
+    ['', 'Confirmed', rc.confirmed||0, '#dcfce7', '#166534'],
+    ['', 'Pending Payment', rc.pending||0, '#fef3c7', '#92400e'],
+    ['', 'Waitlisted', rc.waitlisted||0, '#ede9fe', '#6d28d9'],
+    ['', 'Open in Catalog', data.open_products||0, '#e0f2fe', '#145466'],
+    ['', 'Cart Revenue', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
+    ['', 'Donations (YTD)', '$'+(data.donations_ytd||0).toFixed(2), '#fefce8', '#92400e'],
+  ]
+  stats.forEach(function(s){
+    html += '<div style="background:'+s[3]+';border-radius:12px;padding:14px 16px">'
+      + '<div style="font-size:20px;margin-bottom:6px">'+s[0]+'</div>'
+      + '<div style="font-size:20px;font-weight:800;color:'+s[4]+'">'+s[2]+'</div>'
+      + '<div style="font-size:11px;font-weight:600;color:'+s[4]+';margin-top:2px">'+s[1]+'</div>'
+      + '</div>'
+  })
+  html += '</div>'
+
+  // ── Quick actions ──
+  html += '<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=catalog]\').click()" style="font-size:13px">View Catalog</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=orders]\').click()" style="font-size:13px">View All Orders</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=registrations]\').click()" style="font-size:13px">View Registrations</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
+    + '</div>'
+
+  // ── Recent orders ──
+  var orders = data.recent_orders || []
+  html += '<div class="card" style="margin-bottom:16px">'
+    + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+    + '<div style="font-size:14px;font-weight:700">Recent Orders</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=orders]\').click()" style="font-size:12px">View All →</button>'
+    + '</div>'
+  if(!orders.length){
+    html += '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No orders yet.</div>'
+  } else {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)">'
+      + '<th style="text-align:left;padding:10px 16px;color:var(--text-muted);font-weight:600">Order</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Customer</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Items</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Total</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Status</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Date</th>'
+      + '</tr></thead><tbody>'
+      + orders.map(function(o){
+          var statusStyle = statusMap[o.status]||'background:#f3f4f6;color:#6b7280'
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:10px 16px;font-family:monospace;color:var(--text-muted)">#'+escHtml(o.id.slice(-6).toUpperCase())+'</td>'
+            + '<td style="padding:10px 8px"><div style="font-weight:600">'+escHtml(o.guardian_name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(o.guardian_email||'')+'</div></td>'
+            + '<td style="padding:10px 8px;color:var(--text-muted)">'+(o.item_count||1)+' item'+(o.item_count!=1?'s':'')+'</td>'
+            + '<td style="padding:10px 8px;font-weight:700">'+fmtMoney(o.total_cents)+'</td>'
+            + '<td style="padding:10px 8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+statusStyle+'">'+escHtml(o.status||'')+'</span></td>'
+            + '<td style="padding:10px 8px;color:var(--text-muted)">'+fmtDate(o.created_at)+'</td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table>'
+  }
+  html += '</div>'
+
+  // ── Recent donations ──
+  var dons = data.recent_donations || []
+  html += '<div class="card">'
+    + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+    + '<div style="font-size:14px;font-weight:700">Recent Donations</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=donations]\').click()" style="font-size:12px">View All →</button>'
+    + '</div>'
+  if(!dons.length){
+    html += '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No donations yet. <a href="/donate" target="_blank" style="color:var(--teal)">Share the donation page →</a></div>'
+  } else {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)">'
+      + '<th style="text-align:left;padding:10px 16px;color:var(--text-muted);font-weight:600">Donor</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Amount</th>'
+      + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-weight:600">Date</th>'
+      + '</tr></thead><tbody>'
+      + dons.map(function(d){
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:10px 16px"><div style="font-weight:600">'+escHtml(d.name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(d.email||'')+'</div></td>'
+            + '<td style="padding:10px 8px;font-weight:700;color:#166534">'+fmtMoney(d.amount_cents)+'</td>'
+            + '<td style="padding:10px 8px;color:var(--text-muted)">'+fmtDate(d.created_at)+'</td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table>'
+  }
+  html += '</div>'
+
+  el.innerHTML = html
+}
+
+async function renderMarqueeCatalog(el){
+  // Programs
+  var progs = allPrograms.filter(function(p){ return p.registration_status && p.registration_status !== 'draft' })
+  // RS Productions with registration enabled
+  var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
+
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
+  var statusBadge = {
+    open:'background:#dcfce7;color:#166534',
+    interest_list:'background:#fef3c7;color:#92400e',
+    closed:'background:#fee2e2;color:#991b1b',
+    draft:'background:#f3f4f6;color:#6b7280'
+  }
+
+  // Sort both by start_date
+  function sortByDate(arr){ return arr.slice().sort(function(a,b){
+    if(!a.start_date&&!b.start_date) return (a.name||'').localeCompare(b.name||'')
+    if(!a.start_date) return 1; if(!b.start_date) return -1
+    return a.start_date.localeCompare(b.start_date)
+  })}
+
+  var sortedProgs = sortByDate(progs)
+  var sortedProds = sortByDate(prods)
+
+  function makeCard(item, type){
+    var st = item.registration_status || 'draft'
+    var badge = statusBadge[st] || statusBadge.draft
+    var typeLabel = type==='production' ? 'Rising Stars Production' : 'Program'
+    var typeBg = type==='production' ? '#f5f3ff' : '#e0f2fe'
+    var typeColor = type==='production' ? '#6d28d9' : '#145466'
+    var regUrl = type==='production' ? '/register/production/'+(item.slug||item.id) : '/register/'+(item.slug||item.id)
+    var settingsFn = type==='production'
+      ? 'openProductionRegistrationSettingsModal(\''+item.id+'\')'
+      : 'openRegistrationSettingsModal(\''+item.id+'\')'
+    return '<div class="card" style="padding:0;overflow:hidden">'
+      + '<div style="height:4px;background:'+(type==='production'?'#7c3aed':'#145466')+'"></div>'
+      + '<div style="padding:16px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px">'
+      + '<div>'
+      + '<div style="font-weight:700;font-size:14px;margin-bottom:4px">'+escHtml(item.name)+'</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:wrap">'
+      + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+typeBg+';color:'+typeColor+'">'+typeLabel+'</span>'
+      + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;'+badge+'">'+st.replace('_',' ')+'</span>'
+      + '</div></div></div>'
+      + (item.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+fmtDate(item.start_date)+(item.end_date&&item.end_date!==item.start_date?' – '+fmtDate(item.end_date):'')+'</div>' : '')
+      + (item.price ? '<div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">$'+(item.price/100).toFixed(2)+'/participant</div>'
+                    : '<div style="font-size:13px;font-weight:700;color:#166534;margin-bottom:8px">Free</div>')
+      + (item.capacity ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+(item.registration_count||0)+' / '+item.capacity+' spots filled</div>' : '')
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      + '<button class="btn btn-secondary btn-sm" onclick="'+settingsFn+'" style="font-size:11px;padding:5px 10px">Settings</button>'
+      + (item.slug ? '<a href="'+regUrl+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:5px 10px;text-decoration:none">Reg Page</a>' : '')
+      + '</div></div></div>'
+  }
+
+  var html = ''
+  if(!sortedProgs.length && !sortedProds.length){
+    html = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No items in catalog yet. Set a registration status on a program or Rising Stars production to add it here.</div>'
+  } else {
+    if(sortedProds.length){
+      html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Rising Stars Productions</div>'
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:20px">'
+      sortedProds.forEach(function(p){ html += makeCard(p, 'production') })
+      html += '</div>'
+    }
+    if(sortedProgs.length){
+      html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Programs &amp; Classes</div>'
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">'
+      sortedProgs.forEach(function(p){ html += makeCard(p, 'program') })
+      html += '</div>'
+    }
+  }
+  el.innerHTML = html
 }
 
 async function renderMarqueeRegistrations(el, progFilter, statusFilter){
@@ -19614,7 +19805,7 @@ async function renderMarqueePrograms(el){
           + '<div style="font-weight:700;font-size:14px">'+escHtml(p.name)+'</div>'
           + '<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;'+badge+'">'+st.replace('_',' ')+'</span>'
           + '</div>'
-          + (p.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">📅 '+fmtDate(p.start_date)+(p.end_date?' – '+fmtDate(p.end_date):'')+'</div>' : '')
+          + (p.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+fmtDate(p.start_date)+(p.end_date?' – '+fmtDate(p.end_date):'')+'</div>' : '')
           + (p.price ? '<div style="font-size:13px;color:var(--text-muted)">$'+(p.price/100).toFixed(2)+'/participant</div>' : '<div style="font-size:13px;color:#166534;font-weight:600">Free</div>')
           + (p.capacity ? '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.registration_count||0)+' / '+p.capacity+' spots</div>' : '')
           + '<div style="display:flex;gap:6px;margin-top:12px">'

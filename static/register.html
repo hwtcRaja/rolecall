@@ -67,7 +67,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
 <body>
 <div class="header">
   <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
-  <h1 id="page-title">Program Registration</h1>
+  <h1 id="page-title">Registration</h1>
 </div>
 <div class="container">
   <div id="loading"><div class="spinner"></div>Loading...</div>
@@ -136,6 +136,9 @@ async function init(){
   if(data.error){ showErr(data.error); return }
   program = data
   document.getElementById('page-title').textContent = program.name
+  if(isProduction){
+    document.querySelector('.header h1') && (document.querySelector('.header h1').textContent = program.name)
+  }
   renderPage()
 }
 
@@ -187,7 +190,7 @@ function renderPage(){
   // Program info (rich text stored as HTML)
   var infoHTML = ''
   if(program.program_info){
-    infoHTML = '<div class="section-divider">About This Program</div><div class="program-info">'+program.program_info+'</div>'
+    infoHTML = '<div class="section-divider">About This '+(isProduction?'Production':'Program')+'</div><div class="program-info">'+program.program_info+'</div>'
   }
 
   // Cover image / photo gallery
@@ -417,9 +420,9 @@ function buildPaymentOptions(prog){
 
     // Base line
     if(numParticipants === 1){
-      html += summaryLine('Program fee', price)
+      html += summaryLine((isProduction?'Production':'Program')+' fee', price)
     } else {
-      html += summaryLine('Program fee &times; '+numParticipants+' participants', basket)
+      html += summaryLine((isProduction?'Production':'Program')+' fee &times; '+numParticipants+' participants', basket)
         + '<div style="font-size:12px;color:#9ca3af;margin:-4px 0 8px 4px">$'+(price/100).toFixed(2)+' each</div>'
     }
 

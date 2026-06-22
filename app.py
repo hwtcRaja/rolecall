@@ -1336,6 +1336,48 @@ def init_db():
             added_by TEXT DEFAULT '',
             added_via TEXT DEFAULT 'admin',
             UNIQUE(carpool_id, youth_id))""",
+
+        # Rising Stars production registration fields
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS slug TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'main'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'draft'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS custom_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS form_fields TEXT DEFAULT '{}'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_start_time TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_end_time TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS single_date TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_notes TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
+
+        # Allow program_registrations to link to a production instead of a program
+        "ALTER TABLE program_registrations ALTER COLUMN program_id DROP NOT NULL",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+
+        # Discount codes for productions
+        "ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE discount_codes ALTER COLUMN program_id DROP NOT NULL",
+
+        # Interest list for productions
+        "ALTER TABLE interest_list_entries ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE interest_list_entries ALTER COLUMN program_id DROP NOT NULL",
     ]:
         try:
             c.execute(col_sql)
@@ -11212,12 +11254,14 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
 # ── Public registration page ──────────────────────────────────────────────────
 
 @app.route('/register/<slug>')
+@app.route('/register/production/<slug>')
 def public_register_page(slug):
     """Public-facing registration / interest list page."""
     return send_from_directory('static', 'register.html')
 
 
 @app.route('/register/<slug>/confirmation')
+@app.route('/register/production/<slug>/confirmation')
 def public_register_confirmation(slug):
     return send_from_directory('static', 'register.html')
 
@@ -11570,7 +11614,531 @@ def finalize_donation(conn, pending_id, payment_id, amount_cents):
     app.logger.info(f'Donation finalized: ${amount:.2f} from {email}')
 
 
-# ── Cart routes ──────────────────────────────────────────────────────────────
+# ── Rising Stars Production Registration Routes ──────────────────────────────
+
+def _prod_to_public(prod, conn):
+    """Convert a production row to the same shape as public_program_info."""
+    import json as _j
+    for k in ['program_images', 'custom_fields', 'form_fields', 'meeting_days']:
+        v = prod.get(k)
+        if v:
+            try:
+                prod[k] = _j.loads(v)
+            except Exception:
+                prod[k] = [] if k != 'form_fields' else {}
+        else:
+            prod[k] = [] if k != 'form_fields' else {}
+    reg_count = (fetchone(conn, """SELECT COUNT(*) AS c FROM program_registrations
+        WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')""",
+        (prod['id'],)) or {}).get('c', 0)
+    prod['registration_count'] = reg_count
+    prod['spots_remaining'] = max(0, (prod['capacity'] or 999) - reg_count) if prod.get('capacity') else None
+    prod['_context'] = 'production'
+    return prod
+
+
+@app.route('/api/public/production/<slug>')
+def public_production_info(slug):
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    result = _prod_to_public(dict(prod), conn)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/public/production/<slug>/validate-discount', methods=['POST'])
+def validate_production_discount(slug):
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'valid': False, 'error': 'Production not found'})
+    dc = fetchone(conn, "SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE", (prod['id'], code))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    price = prod.get('price') or 0
+    num_regs = int(d.get('num_registrations') or 1)
+    basket = price * num_regs
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum spend of ${min_spend/100:.2f}'})
+    is_sib = bool(dc.get('is_sibling_discount'))
+    if is_sib:
+        if num_regs < 2:
+            return jsonify({'valid': False, 'error': 'Sibling discount requires 2+ participants'})
+        per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+        discount_amount = per * (num_regs - 1)
+        label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
+    else:
+        if dc['discount_type'] == 'percent':
+            discount_amount = int(basket * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off'
+        else:
+            discount_amount = min(dc['discount_value'] * num_regs, basket)
+            label = f'${dc["discount_value"]/100:.2f} off'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    return jsonify({'valid': True, 'discount_amount': discount_amount,
+                    'final_price': max(0, basket - discount_amount),
+                    'is_sibling': is_sib, 'label': label})
+
+
+@app.route('/api/public/production/<slug>/register', methods=['POST'])
+def public_register_production(slug):
+    import json as _jc2, uuid as _uc2
+    d = request.json or {}
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    reg_type = d.get('type', 'registration')
+
+    # Interest list
+    if reg_type == 'interest':
+        name = (d.get('name') or '').strip()
+        email = (d.get('email') or '').strip().lower()
+        if not name or not email:
+            conn.close()
+            return jsonify({'error': 'Name and email required'}), 400
+        existing = fetchone(conn, 'SELECT id FROM interest_list_entries WHERE production_id=%s AND email=%s', (prod['id'], email))
+        if existing:
+            conn.close()
+            return jsonify({'ok': True, 'message': 'Already on interest list'})
+        execute(conn, 'INSERT INTO interest_list_entries (id,production_id,name,email,phone,child_name,child_age) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (str(_uc2.uuid4()), prod['id'], name, email,
+             (d.get('phone') or '').strip(),
+             (d.get('child_name') or '').strip(),
+             (d.get('child_age') or '').strip()))
+        conn.commit()
+        # Thank-you email
+        try:
+            first = name.split()[0]
+            send_email([email], f'You\'re on the interest list — {prod["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/></div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;margin:0 0 12px">You\'re on the list!</h2>'
+                f'<p>Hi {first},</p><p>Thanks for your interest in <strong>{prod["name"]}</strong>! We\'ll reach out as soon as registration opens.</p>'
+                f'<p style="color:#6b7280;font-size:13px">Horizon West Theatre Company</p></div></div>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'interest'})
+
+    # Waitlist
+    if reg_type == 'waitlist':
+        guardian_email = (d.get('guardian_email') or '').strip().lower()
+        if not guardian_email:
+            conn.close()
+            return jsonify({'error': 'Email required'}), 400
+        pos_row = fetchone(conn, "SELECT COALESCE(MAX(waitlist_position),0)+1 AS pos FROM program_registrations WHERE production_id=%s AND status='waitlisted'", (prod['id'],))
+        position = (pos_row or {}).get('pos', 1)
+        rid = str(_uc2.uuid4())
+        execute(conn, '''INSERT INTO program_registrations
+            (id, production_id, registration_type, status, child_first_name, child_last_name,
+             guardian_name, guardian_email, guardian_phone, notes, waitlist_position)
+            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, prod['id'],
+             (d.get('child_first_name') or '').strip(),
+             (d.get('child_last_name') or '').strip(),
+             (d.get('guardian_name') or '').strip(),
+             guardian_email,
+             (d.get('guardian_phone') or '').strip(),
+             (d.get('notes') or '').strip(),
+             position))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': position})
+
+    # Full registration
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    if not guardian_email:
+        conn.close()
+        return jsonify({'error': 'Email required'}), 400
+    reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
+    if prod.get('capacity') and reg_count >= prod['capacity']:
+        conn.close()
+        return jsonify({'error': 'Production is now full. Please join the waitlist.'})
+
+    price = prod.get('price') or 0
+    siblings = d.get('siblings') or []
+    if not isinstance(siblings, list): siblings = []
+    participant_count = 1 + len(siblings)
+    basket = price * participant_count
+
+    discount_code_used = (d.get('discount_code') or '').strip().upper()
+    discount_amount = 0
+    sibling_discount_amount = 0
+    square_discount_id = None
+    if discount_code_used and price > 0:
+        dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE', (prod['id'], discount_code_used))
+        if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+            min_spend = dc.get('min_spend') or 0
+            if not (min_spend > 0 and basket < min_spend):
+                is_sib_code = bool(dc.get('is_sibling_discount'))
+                if is_sib_code and participant_count >= 2:
+                    per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                    discount_amount = per * (participant_count - 1)
+                elif not is_sib_code:
+                    discount_amount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
+                square_discount_id = dc.get('square_discount_id')
+                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+        else:
+            discount_code_used = ''
+
+    if prod.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+        sib_type = prod.get('sibling_discount_type') or 'percent'
+        sib_val = prod.get('sibling_discount_value') or 0
+        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+        sibling_discount_amount = per_sib * (participant_count - 1)
+
+    deposit = prod.get('deposit_amount') or 0
+    effective_price = max(0, basket - discount_amount - sibling_discount_amount)
+    use_deposit = deposit > 0 and effective_price > deposit and d.get('payment_type') == 'deposit'
+    charge_now = deposit if use_deposit else effective_price
+    balance_due = max(0, effective_price - deposit) if use_deposit else 0
+
+    rid = str(_uc2.uuid4())
+    execute(conn, '''INSERT INTO program_registrations
+        (id, production_id, registration_type, status,
+         child_first_name, child_last_name, child_dob, shirt_size,
+         guardian_name, guardian_email, guardian_phone,
+         emergency_contact_name, emergency_contact_phone, notes,
+         allergies, pickup_contacts, photo_consent,
+         discount_code, discount_amount, sibling_discount_amount,
+         participant_count, siblings_json, payment_type, balance_due)
+        VALUES (%s,%s,'registration',%s,
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                %s,%s,%s,%s,%s,%s,%s)''',
+        (rid, prod['id'],
+         'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed',
+         (d.get('child_first_name') or '').strip(),
+         (d.get('child_last_name') or '').strip(),
+         d.get('child_dob') or None, d.get('shirt_size') or None,
+         (d.get('guardian_name') or '').strip(),
+         guardian_email, (d.get('guardian_phone') or '').strip() or None,
+         (d.get('emergency_contact_name') or '').strip() or None,
+         (d.get('emergency_contact_phone') or '').strip() or None,
+         (d.get('notes') or '').strip() or None,
+         (d.get('allergies') or '').strip() or None,
+         (d.get('pickup_contacts') or '').strip() or None,
+         bool(d.get('photo_consent')),
+         discount_code_used or None, discount_amount, sibling_discount_amount,
+         participant_count, _jc2.dumps(siblings),
+         'deposit' if use_deposit else 'full', balance_due))
+    conn.commit()
+
+    if price == 0 or charge_now == 0:
+        finalize_registration(conn, rid)
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': rid})
+
+    try:
+        note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {prod["name"]}'
+        if use_deposit: note += ' (Deposit)'
+        pay_url, link_id, order_id = square_create_payment_link(
+            prod, rid, guardian_email,
+            d.get('guardian_name', ''), charge_now, note=note)
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, rid))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'type': 'payment_required',
+                        'payment_url': pay_url, 'registration_id': rid, 'use_deposit': use_deposit})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Registration saved but payment link failed: {str(e)}'}), 500
+
+
+@app.route('/api/public/production/<slug>/registration/<rid>')
+def public_production_registration_status(slug, rid):
+    conn = get_db()
+    prod = fetchone(conn, "SELECT id FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    reg = fetchone(conn, 'SELECT id, status, child_first_name, child_last_name, guardian_email FROM program_registrations WHERE id=%s AND production_id=%s', (rid, prod['id']))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Registration not found'}), 404
+    return jsonify(dict(reg))
+
+
+# ── Production admin registration routes ─────────────────────────────────────
+
+@app.route('/api/productions/<pid>/registrations', methods=['GET'])
+def get_production_registrations(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT pr.*, p.name AS production_name, p.registration_form_type
+        FROM program_registrations pr
+        JOIN productions p ON p.id=pr.production_id
+        WHERE pr.production_id=%s ORDER BY pr.created_at DESC''', (pid,))
+    conn.close()
+    return jsonify(regs or [])
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>', methods=['PUT'])
+def update_production_registration(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE program_registrations SET
+        status=%s, guardian_name=%s, guardian_email=%s, guardian_phone=%s,
+        emergency_contact_name=%s, emergency_contact_phone=%s,
+        shirt_size=%s, notes=%s, updated_at=NOW()
+        WHERE id=%s AND production_id=%s''',
+        (d.get('status'), (d.get('guardian_name') or '').strip(),
+         (d.get('guardian_email') or '').strip().lower(),
+         (d.get('guardian_phone') or '').strip() or None,
+         (d.get('emergency_contact_name') or '').strip() or None,
+         (d.get('emergency_contact_phone') or '').strip() or None,
+         d.get('shirt_size') or None,
+         (d.get('notes') or '').strip() or None,
+         rid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>', methods=['DELETE'])
+def delete_production_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>/promote-waitlist', methods=['POST'])
+def promote_production_waitlist(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    hold_hours = int(d.get('hold_hours') or 48)
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    price = prod.get('price') or 0
+    if price == 0:
+        execute(conn, "UPDATE program_registrations SET status='confirmed', waitlist_position=NULL WHERE id=%s", (rid,))
+        conn.commit()
+        try:
+            name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            send_email([reg['guardian_email']], f'You\'re confirmed — {prod["name"]}',
+                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theatre Company</p>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free'})
+    execute(conn, "UPDATE program_registrations SET status='pending_payment', waitlist_position=NULL WHERE id=%s", (rid,))
+    try:
+        child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
+        note = f'Waitlist promotion — {child or reg["guardian_email"]} — {prod["name"]}'
+        pay_url, link_id, order_id = square_create_payment_link(prod, rid, reg['guardian_email'], reg.get('guardian_name', ''), price, note=note)
+        if pay_url:
+            execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s', (link_id, order_id, rid))
+    except Exception as e:
+        app.logger.warning(f'Waitlist promote payment link failed: {e}')
+        pay_url = None
+    conn.commit()
+    try:
+        name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
+        send_email([reg['guardian_email']], f'A spot opened up — {prod["name"]}',
+            f'<p>Hi {name},</p><p>A spot is available in <strong>{prod["name"]}</strong>! {hold_msg}</p>'
+            + (f'<p><a href="{pay_url}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Secure My Spot</a></p>' if pay_url else '')
+            + '<p>Horizon West Theatre Company</p>')
+    except Exception: pass
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
+
+
+@app.route('/api/productions/<pid>/registration-settings', methods=['PUT'])
+def save_production_registration_settings(pid):
+    err = require_permission('rising_stars')
+    if err:
+        err = require_permission('productions')
+        if err: return err
+    import json as _jps
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE productions SET
+        registration_status=%s, registration_form_type=%s, slug=%s,
+        capacity=%s, price=%s, deposit_amount=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        program_info=%s, custom_fields=%s, form_fields=%s,
+        program_location=%s, schedule_type=%s, meeting_days=%s,
+        meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
+        start_date=%s, end_date=%s
+        WHERE id=%s''',
+        (d.get('registration_status') or 'draft',
+         d.get('registration_form_type') or 'youth',
+         (d.get('slug') or '').strip().lower().replace(' ', '-').replace('[^a-z0-9-]', '') or None,
+         d.get('capacity') or None,
+         int(d.get('price_cents') or 0),
+         int(d.get('deposit_amount') or 0),
+         bool(d.get('sibling_discount_enabled')),
+         d.get('sibling_discount_type') or 'percent',
+         int(d.get('sibling_discount_value') or 0),
+         d.get('registration_open_date') or None,
+         d.get('registration_close_date') or None,
+         bool(d.get('waitlist_auto_charge', True)),
+         (d.get('program_info') or '').strip(),
+         _jps.dumps(d.get('custom_fields') or []),
+         _jps.dumps(d.get('form_fields') or {}),
+         (d.get('program_location') or '').strip(),
+         d.get('schedule_type') or 'date_range',
+         _jps.dumps(d.get('meeting_days') or []),
+         (d.get('meeting_start_time') or '').strip(),
+         (d.get('meeting_end_time') or '').strip(),
+         (d.get('single_date') or '').strip(),
+         (d.get('schedule_notes') or '').strip(),
+         d.get('start_date') or None,
+         d.get('end_date') or None,
+         pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/upload-cover', methods=['POST'])
+def upload_production_cover(pid):
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT name, slug FROM productions WHERE id=%s', (pid,))
+    conn.close()
+    if not prod:
+        return jsonify({'error': 'Not found'}), 404
+    base = secure_filename((prod.get('slug') or prod.get('name') or pid).replace(' ', '-').lower())
+    filename = f'production-{base}-cover{ext}'
+    f.save(os.path.join(app.static_folder, 'images', filename))
+    url = f'/static/images/{filename}'
+    import json as _juc
+    conn2 = get_db()
+    prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
+    try:
+        images = _juc.loads(prod_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
+    execute(conn2, 'UPDATE productions SET program_images=%s WHERE id=%s', (_juc.dumps(images), pid))
+    conn2.commit(); conn2.close()
+    return jsonify({'ok': True, 'url': url})
+
+
+@app.route('/api/productions/<pid>/discount-codes', methods=['GET'])
+def get_production_discount_codes(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM discount_codes WHERE production_id=%s ORDER BY created_at DESC', (pid,))
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/productions/<pid>/discount-codes', methods=['POST'])
+def create_production_discount_code(pid):
+    err = require_auth()
+    if err: return err
+    import uuid as _udc
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO discount_codes
+            (id, production_id, code, discount_type, discount_value,
+             min_spend, is_sibling_discount, max_uses, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_udc.uuid4().hex, pid, code,
+             d.get('discount_type', 'percent'),
+             int(d.get('discount_value') or 0),
+             int(d.get('min_spend_cents') or 0),
+             bool(d.get('is_sibling_discount')),
+             d.get('max_uses') or None))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/productions/<pid>/discount-codes/<cid>', methods=['DELETE'])
+def delete_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE discount_codes SET active=FALSE WHERE id=%s AND production_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/notify-interest-list', methods=['POST'])
+def notify_production_interest_list(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    entries = fetchall(conn, 'SELECT * FROM interest_list_entries WHERE production_id=%s', (pid,))
+    conn.close()
+    if not entries:
+        return jsonify({'ok': True, 'sent': 0})
+    slug = prod.get('slug') or pid
+    reg_url = f'{APP_BASE_URL}/register/production/{slug}'
+    sent = 0
+    for e in entries:
+        email = e.get('email')
+        name = (e.get('name') or '').strip().split()[0] or 'there'
+        if not email: continue
+        try:
+            send_email([email], f'Registration is now open — {prod["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/></div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;margin:0 0 12px">Registration is now open!</h2>'
+                f'<p>Hi {name},</p><p>Registration for <strong>{prod["name"]}</strong> is now open!</p>'
+                f'<p style="text-align:center;margin:20px 0"><a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700">Register Now &rarr;</a></p>'
+                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'</div></div>')
+            conn2 = get_db()
+            execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
+            conn2.commit(); conn2.close()
+            sent += 1
+        except Exception as ex:
+            app.logger.warning(f'Production interest list notify failed for {email}: {ex}')
+    return jsonify({'ok': True, 'sent': sent})
+
+
+# ── Public cart routes ──────────────────────────────────────────────────────
 
 @app.route('/register/cart')
 @app.route('/register/cart/confirmation')
@@ -12175,21 +12743,37 @@ def marquee_all_registrations():
     if err: return err
     conn = get_db()
     program_id = request.args.get('program_id')
+    production_id = request.args.get('production_id')
     status = request.args.get('status')
-    query = '''SELECT pr.*, yp.name AS program_name
+    # Program registrations
+    q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
+        'program' AS context_type
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
-        WHERE 1=1'''
-    params = []
+        WHERE pr.program_id IS NOT NULL'''
+    p1 = []
     if program_id:
-        query += ' AND pr.program_id=%s'; params.append(program_id)
+        q1 += ' AND pr.program_id=%s'; p1.append(program_id)
     if status:
-        query += ' AND pr.status=%s'; params.append(status)
-    query += ' ORDER BY pr.created_at DESC LIMIT 200'
-    regs = fetchall(conn, query, params)
+        q1 += ' AND pr.status=%s'; p1.append(status)
+    # Production registrations
+    q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
+        'production' AS context_type
+        FROM program_registrations pr
+        JOIN productions p ON p.id=pr.production_id
+        WHERE pr.production_id IS NOT NULL'''
+    p2 = []
+    if production_id:
+        q2 += ' AND pr.production_id=%s'; p2.append(production_id)
+    if status:
+        q2 += ' AND pr.status=%s'; p2.append(status)
+    regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
+    regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
+    regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
     programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
+    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
-    return jsonify({'registrations': regs, 'programs': programs})
+    return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
 
 
 @app.route('/api/public/program/<slug>/registration/<rid>', methods=['GET'])

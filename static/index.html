@@ -15210,7 +15210,7 @@ function renderYouthProgramsPage(){
  const grid=document.getElementById('youth-programs-grid')
  const isAdmin=canEdit('programs')
  const sub=document.getElementById('youth-programs-subtitle')
- if(sub) sub.textContent=filtered.length+' program'+(filtered.length!==1?'s':'')+' · '+allYouth.length+' participants'
+ if(sub) sub.textContent=filtered.length+' program'+(filtered.length!==1?'s':'')+' · '+allYouth.length+' enrolled'
  if(!filtered.length){
  grid.innerHTML=`<div class="empty-state"><div class="empty-icon"></div><p>No programs yet</p>${isAdmin?'<button class="btn btn-primary" onclick="openNewProgramModal()" style="margin-top:12px">+ New Program</button>':''}</div>`
  return
@@ -15222,6 +15222,13 @@ function renderYouthProgramsPage(){
  const enrolled=allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===p.id)).length
  const instructor=volunteers.find(v=>v.id===p.instructor_id)
  const pMsgUnread = (_unreadByProgram && _unreadByProgram[p.id]) || 0
+ const regStatus = p.registration_status
+ const regStatusMap = {open:'background:#dcfce7;color:#166534',interest_list:'background:#fef3c7;color:#92400e',closed:'background:#fee2e2;color:#991b1b',draft:'background:#f3f4f6;color:#6b7280',cancelled:'background:#fee2e2;color:#991b1b'}
+ const regStatusLabel = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Draft',cancelled:'Cancelled'}
+ const regConfirmed = p.reg_confirmed || 0
+ const regPending = p.reg_pending || 0
+ const regWaitlisted = p.reg_waitlisted || 0
+ const regEnrolled = p.reg_enrolled || 0
  return`<div class="card" style="padding:0;overflow:hidden">
  <div style="height:6px;background:${col}"></div>
  <div style="padding:20px">
@@ -15230,7 +15237,7 @@ function renderYouthProgramsPage(){
  <div style="font-size:16px;font-weight:700;margin-bottom:4px">${p.name}</div>
  <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROGRAM_TYPE_LABELS[type]||type}</span>
  ${(()=>{ const st=p.status||'active'; const sc={upcoming:'background:#EFF6FF;color:#1D4ED8',active:'background:#F0FDF4;color:#16A34A',completed:'background:#F3F4F6;color:#6B7280',archived:'background:#FEF3C7;color:#92400E'}; return '<span style="'+( sc[st]||sc.active)+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;margin-left:4px">'+st.charAt(0).toUpperCase()+st.slice(1)+'</span>' })()}
- ${pMsgUnread ? `<span style="background:#e24b4a;color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-left:4px">💬 ${pMsgUnread} new</span>` : ''}
+ ${pMsgUnread ? `<span style="background:#e24b4a;color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-left:4px">${pMsgUnread} new</span>` : ''}
  </div>
  ${isAdmin?`<div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal('${p.id}')">Edit</button>
@@ -15239,13 +15246,42 @@ function renderYouthProgramsPage(){
  </div>
  ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
  <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px">
- ${p.start_date?`<div> ${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
- ${instructor?`<div> ${escHtml(instructor.name)} ${bgcBadgeHTML(instructor.background_check_status, true)}</div>
+ ${p.start_date?`<div>${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
+ ${instructor?`<div>${escHtml(instructor.name)} ${bgcBadgeHTML(instructor.background_check_status, true)}</div>
  ${bgcYouthWarning(instructor)}`:''}
  </div>
+ ${regStatus && regStatus !== 'draft' ? `<div style="margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+ <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Registration</div>
+ <span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;${regStatusMap[regStatus]||regStatusMap.draft}">${regStatusLabel[regStatus]||regStatus}</span>
+ </div>
+ <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+ <div style="background:var(--surface);border-radius:6px;padding:6px 4px">
+ <div style="font-size:16px;font-weight:800;color:#166534">${regEnrolled}</div>
+ <div style="font-size:10px;color:var(--text-muted);font-weight:600">Enrolled</div>
+ </div>
+ ${regPending > 0 ? `<div style="background:var(--surface);border-radius:6px;padding:6px 4px">
+ <div style="font-size:16px;font-weight:800;color:#92400e">${regPending}</div>
+ <div style="font-size:10px;color:var(--text-muted);font-weight:600">Pending</div>
+ </div>` : `<div style="background:var(--surface);border-radius:6px;padding:6px 4px">
+ <div style="font-size:16px;font-weight:800;color:#145466">${regConfirmed}</div>
+ <div style="font-size:10px;color:var(--text-muted);font-weight:600">Confirmed</div>
+ </div>`}
+ <div style="background:var(--surface);border-radius:6px;padding:6px 4px">
+ <div style="font-size:16px;font-weight:800;color:${regWaitlisted > 0 ? '#6d28d9' : 'var(--text-muted)'}">${regWaitlisted}</div>
+ <div style="font-size:10px;color:var(--text-muted);font-weight:600">Waitlisted</div>
+ </div>
+ </div>
+ ${p.capacity ? `<div style="margin-top:6px">
+ <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+ <div style="height:100%;background:${regEnrolled >= p.capacity ? '#dc2626' : '#145466'};border-radius:2px;width:${Math.min(100,Math.round(regEnrolled/p.capacity*100))}%"></div>
+ </div>
+ <div style="font-size:10px;color:var(--text-muted);margin-top:3px;text-align:right">${regEnrolled} / ${p.capacity} spots</div>
+ </div>` : ''}
+ </div>` : ''}
  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
- <div style="font-size:13px;color:var(--text-muted)"> ${enrolled} participant${enrolled!==1?'s':''}</div>
+ <div style="font-size:13px;color:var(--text-muted)">${enrolled} enrolled</div>
  <div style="display:flex;gap:6px">
  ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}', allPrograms.find(x=>x.id==='${p.id}')?.name||'')">+ Enroll</button>`:''}\n <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
  </div>
@@ -15253,10 +15289,10 @@ function renderYouthProgramsPage(){
  ${(()=>{
  const evts=allEvents.filter(e=>e.program_id===p.id)
  const progHours=allHours.filter(h=>evts.some(e=>e.id===h.event_id)).reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
- return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px"> ${evts.length} event${evts.length!==1?'s':''} · ${progHours}h logged</div>`+
+ return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${evts.length} event${evts.length!==1?'s':''} · ${progHours}h logged</div>`+
  (evts.length?`<div style="font-size:11px;color:var(--text-hint)">${evts.slice(0,2).map(e=>formatDate(e.event_date)+' '+e.name).join(' · ')}${evts.length>2?' +'+(evts.length-2)+' more':''}</div>`:'')
  })()}
- ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px"> Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
+ ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
  </div>
  </div>
  </div>`

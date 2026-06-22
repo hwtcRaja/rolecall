@@ -969,6 +969,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -11477,7 +11478,7 @@ def public_submit_registration(slug):
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
-             allergies, pickup_contacts, photo_consent,
+             allergies, pickup_contacts, photo_consent, pronouns,
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
@@ -11492,6 +11493,7 @@ def public_submit_registration(slug):
              d.get('allergies','').strip() or None,
              d.get('pickup_contacts','').strip() or None,
              bool(d.get('photo_consent')),
+             d.get('pronouns','').strip() or None,
              discount_code or None, discount_amount, sibling_discount_amount,
              participant_count, _json2.dumps(siblings),
              'deposit' if use_deposit else 'full', balance_due) + extra_vals)
@@ -11821,11 +11823,11 @@ def public_register_production(slug):
          child_first_name, child_last_name, child_dob, shirt_size,
          guardian_name, guardian_email, guardian_phone,
          emergency_contact_name, emergency_contact_phone, notes,
-         allergies, pickup_contacts, photo_consent,
+         allergies, pickup_contacts, photo_consent, pronouns,
          discount_code, discount_amount, sibling_discount_amount,
          participant_count, siblings_json, payment_type, balance_due)
         VALUES (%s,%s,'registration',%s,
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                 %s,%s,%s,%s,%s,%s,%s)''',
         (rid, prod['id'],
          'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed',
@@ -11840,6 +11842,7 @@ def public_register_production(slug):
          (d.get('allergies') or '').strip() or None,
          (d.get('pickup_contacts') or '').strip() or None,
          bool(d.get('photo_consent')),
+         (d.get('pronouns') or '').strip() or None,
          discount_code_used or None, discount_amount, sibling_discount_amount,
          participant_count, _jc2.dumps(siblings),
          'deposit' if use_deposit else 'full', balance_due))

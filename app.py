@@ -2494,7 +2494,11 @@ def get_youth_programs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name
+    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='confirmed') AS reg_confirmed,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='pending_payment') AS reg_pending,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='waitlisted') AS reg_waitlisted,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id

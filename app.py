@@ -11525,7 +11525,7 @@ def public_submit_registration(slug):
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json, session_ids,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,

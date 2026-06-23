@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from flask import Flask, request, jsonify, session, send_from_directory, send_file
 from flask_cors import CORS
 import psycopg2
@@ -9,7 +10,7 @@ import json
 from datetime import datetime, date
 from werkzeug.utils import secure_filename
 import requests
-
+import re
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
@@ -25,10 +26,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 #  DATABASE
 # ─────────────────────────────────────────────
 
-def seed_system_email_templates(conn):
+def seed_system_email_templates(conn=None):
+    _own_conn = conn is None
+    if _own_conn: conn = get_db()
     """Seed default system email templates if they don't already exist."""
     templates = [
-        ('join_notification', 'New Volunteer Interest — {{name}}', 'new_volunteer_join',
+        ('join_notification', 'New Volunteer Interest  -  {{name}}', 'new_volunteer_join',
          'Sent to admins when someone submits the join/interest form.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">New Volunteer Interest</h2>
@@ -45,7 +48,7 @@ def seed_system_email_templates(conn):
   <p><a href="{{review_link}}" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Review Application</a></p>
 </div>'''),
 
-        ('hours_submitted', 'RoleCall — Hours Submitted: {{volunteer_name}}', 'hours_submitted',
+        ('hours_submitted', 'RoleCall  -  Hours Submitted: {{volunteer_name}}', 'hours_submitted',
          'Sent to admins when a volunteer submits hours for approval.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">Hours Submitted for Approval</h2>
@@ -76,7 +79,7 @@ def seed_system_email_templates(conn):
   <p style="color:#666">Role: {{role}}<br>Date: {{event_date}}</p>
 </div>'''),
 
-        ('role_filled', 'Role Filled: {{role_name}} — {{event_name}}', 'role_filled',
+        ('role_filled', 'Role Filled: {{role_name}}  -  {{event_name}}', 'role_filled',
          'Sent to admins when a role on an event reaches full capacity.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <h2 style="color:#145466">Role Now Full</h2>
@@ -99,10 +102,10 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
 
-        ('board_availability', 'Board Meeting Availability — {{month}} {{year}}', 'board_availability',
+        ('board_availability', 'Board Meeting Availability  -  {{month}} {{year}}', 'board_availability',
          'Sent to board members requesting their availability for a month.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
-  <h2 style="color:#145466">Board Meeting Availability — {{month}} {{year}}</h2>
+  <h2 style="color:#145466">Board Meeting Availability  -  {{month}} {{year}}</h2>
   <p>Hi {{name}},</p>
   <p>We\'re scheduling the board meeting for <strong>{{month}} {{year}}</strong> and need to know your availability. Please click below and mark any dates you <strong>cannot</strong> attend.</p>
   <div style="text-align:center;margin:28px 0">
@@ -111,7 +114,7 @@ def seed_system_email_templates(conn):
   <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
 </div>'''),
 
-        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours — Disney VoluntEARS', 'disney_reminder',
+        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
          'Sent to Disney Cast Members who have logged hours, reminding them to submit to VoluntEARS.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
@@ -120,7 +123,7 @@ def seed_system_email_templates(conn):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
     <p>As a <strong>Disney Cast Member</strong>, you may be eligible to submit your volunteer hours through <strong>Disney VoluntEARS</strong>, which can result in a donation to our organization at no cost to you!</p>
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong>To submit your hours:</strong><br/>
@@ -131,25 +134,78 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
 
-        ('universal_reminder', '🎬 Reminder: Submit Your Volunteer Hours — Universal Giving', 'universal_reminder',
+        ('universal_reminder', 'Reminder: Submit Your Volunteer Hours - Universal Giving', 'universal_reminder',
          'Sent to Universal Team Members who have logged hours, reminding them to submit to Universal Giving.',
-         '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
+         '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
-    <div style="font-size:48px;margin-bottom:8px">🎬</div>
     <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
+    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently — thank you!</p>
-    <p>As a <strong>Universal Team Member</strong>, you may be eligible to submit your volunteer hours through <strong>Universal Giving</strong>, which can result in a donation to our organization at no cost to you!</p>
-    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
-      <strong>To submit your hours:</strong><br/>
-      Visit <a href="https://universalgiving.org" style="color:#145466;font-weight:600">Universal Giving</a> and log your hours for Horizon West Theatre Company.
+    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
+    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>
+
+    <div style="margin:20px 0">
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">1</div>
+        <p style="margin:0;font-size:14px;color:#374151">Go to the <strong>Team Universal site</strong> and scroll down until you find the <strong>Access myImpact</strong> button on the right side of the screen.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">2</div>
+        <p style="margin:0;font-size:14px;color:#374151">Select the <strong>division of the company</strong> you work for.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">3</div>
+        <p style="margin:0;font-size:14px;color:#374151">Login using your <strong>SSO</strong>.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">4</div>
+        <p style="margin:0;font-size:14px;color:#374151">Click on the <strong>Log Your Hours</strong> page on the top option bar.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">5</div>
+        <p style="margin:0;font-size:14px;color:#374151">Click the <strong>Log Individual Hours</strong> button.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">6</div>
+        <p style="margin:0;font-size:14px;color:#374151">Enter <strong>Horizon West Theater Company</strong> into the organization name and search for the company &mdash; or if you&rsquo;ve entered hours with this organization before, it should show up under <strong>My Recent Organizations</strong>.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">7</div>
+        <p style="margin:0;font-size:14px;color:#374151">Once you have selected Horizon West Theater Company as your organization, enter the <strong>date range</strong> you volunteered and <strong>how many hours</strong>. Click <strong>Save and Proceed</strong> once all information is entered.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">8</div>
+        <p style="margin:0;font-size:14px;color:#374151">Review your submission and click <strong>Submit</strong>.</p>
+      </div>
+
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px">9</div>
+        <p style="margin:0;font-size:14px;color:#374151">A <strong>confirmation page</strong> will then appear saying your submission was successful.</p>
+      </div>
+
     </div>
-    <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
-    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+
+    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
+      <strong style="color:#145466">Did you know?</strong>
+      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you have completed <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After the completion of <strong>104 hours</strong>, you will reach <strong>Club 52 Elite</strong> status. Club 52 and Club 52 Elite members qualify for the <strong>Universal Orlando Foundation grant</strong> at the end of the calendar year where you can choose a non-profit of your choosing to donate grant money to. <strong>Horizon West Theater Company qualifies</strong> for this event and hopes you will consider donating your grant money to our cause.</p>
+    </div>
+
+    {{hours_section}}
+
+    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
+    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>
   </div>
-</div>'''),
+</div>''')
 
         ('temp_password', 'Your RoleCall Temporary Password', 'temp_password',
          'Sent to users when an admin generates a temporary password for them.',
@@ -176,16 +232,24 @@ def seed_system_email_templates(conn):
   </div>
 </div>'''),
         ('welcome_email',
-         'Welcome to {{program_name}} — HWTC RoleCall',
+         'Welcome to {{program_name}}  -  HWTC RoleCall',
          'welcome_email',
          'Sent to families when they are enrolled in a program. Includes their portal passphrase. Supports {{program_name}}, {{passphrase}}, {{family_greeting}} merge tags.',
-         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}} — HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall — your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong> — our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company — all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important — your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started — three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile — changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families — create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details — dates, materials, and sign-up links — will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements — inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information — Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available — see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; display: flex; flex-direction: column; gap: 2.5rem; }\n  .step-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 1rem; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; flex-shrink: 0; margin-top: 2px; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { display: flex; flex-direction: column; gap: 8px; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; display: flex; align-items: flex-start; gap: 11px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  your family portal</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    <p>Summer camp is still a few weeks away, and we are so excited to have your family with us! Before the fun begins, we want to introduce you to <strong>RoleCall</strong>  -  our new family portal for Horizon West Theater Company.</p>\n\n    <p>Through RoleCall you can read announcements from your child\'s instructor, download program resources, sign required waivers, set up family carpools, and reach the theater company  -  all in one place. Moving forward, <strong>RoleCall will be our primary channel for all {{program_name}} communication.</strong></p>\n\n    <div class="callout">\n      <p><strong>Important  -  your passphrase is your child\'s pick-up password.</strong> Once you set it, our staff will ask for this word every afternoon before releasing your camper. Choose something only you and approved pick-up adults know.</p>\n    </div>\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">1</div>\n          <div>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">2</div>\n          <div>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to a word your family will remember. This same word is used at afternoon pick-up every day.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div>\n        <div class="step-header">\n          <div class="step-num">3</div>\n          <div>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during camp.</div>\n          </div>\n        </div>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n              <div class="section-icon">📢</div>\n              <div>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">🚗</div>\n              <div>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </div>\n            </div>\n            <div class="section-card">\n              <div class="section-icon">👤</div>\n              <div>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">A note about auditions</h2>\n\n    <p>During {{program_name}}, every camper performs in a complete 30-minute show at the end of the week. To make the most of every rehearsal hour for choreography, songs, and blocking, auditions are held <em>before</em> the first day of camp. This year we are offering both <strong>virtual</strong> and <strong>in-person</strong> audition options.</p>\n\n    <p>All audition details  -  dates, materials, and sign-up links  -  will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Audition information  -  Seussical Kids</span>\n            </div>\n            <div class="ann-item-body">Auditions are scheduled for Saturday, June 21. A virtual option is available  -  see the attached song sheet and sides.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you joining us for camp. Please review the supply list and dress code before the first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    <p>We cannot wait to see what your camper creates this summer. Please reach out through the portal or email us directly if you have any questions at all.</p>\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
 
     ]
 
 
     for key, subject, _, description, body in templates:
         existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
+        if existing:
+            # Update system templates so content changes deploy automatically
+            try:
+                execute(conn, 'UPDATE email_templates SET subject=%s, body=%s, description=%s WHERE template_key=%s AND is_system=TRUE',
+                    (subject, body, description, key))
+                conn.commit()
+            except Exception as e:
+                import traceback; traceback.print_exc()
         if not existing:
             try:
                 execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)
@@ -436,7 +500,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # summer camps (programs with dates)
-    # already covered by youth_programs — just add date columns via migration
+    # already covered by youth_programs  -  just add date columns via migration
 
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
@@ -537,7 +601,7 @@ def init_db():
         "UPDATE interest_types SET sub_options_label='' WHERE sub_options_label IS NULL",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sub_selections TEXT DEFAULT '{}'",
         "UPDATE volunteer_applications SET sub_selections='{}' WHERE sub_selections IS NULL",
-        # Sync required_all from required_for_volunteering — they should be the same column
+        # Sync required_all from required_for_volunteering  -  they should be the same column
         "UPDATE waiver_types SET required_all=required_for_volunteering WHERE required_for_volunteering=TRUE AND (required_all IS NULL OR required_all=FALSE)",
         "UPDATE waiver_types SET required_for_volunteering=required_all WHERE required_all=TRUE AND (required_for_volunteering IS NULL OR required_for_volunteering=FALSE)",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT",
@@ -680,6 +744,70 @@ def init_db():
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
         "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
+        """CREATE TABLE IF NOT EXISTS audition_settings (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            is_open BOOLEAN DEFAULT FALSE,
+            title TEXT, description TEXT,
+            audition_date TEXT, audition_time TEXT, location TEXT,
+            roles TEXT DEFAULT '[]', instructions TEXT,
+            email_submissions TEXT,
+            allow_video_link BOOLEAN DEFAULT TRUE,
+            allow_resume_link BOOLEAN DEFAULT TRUE,
+            allow_headshot_link BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS audition_submissions (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            family_id TEXT, participant_id TEXT,
+            submitter_name TEXT NOT NULL, submitter_email TEXT,
+            role_requested TEXT, video_url TEXT,
+            resume_url TEXT, headshot_url TEXT, notes TEXT,
+            status TEXT DEFAULT 'pending', admin_notes TEXT,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS context_type TEXT",
+        "ALTER TABLE audition_settings DROP CONSTRAINT IF EXISTS audition_settings_context_id_key",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
+        """CREATE TABLE IF NOT EXISTS volunteer_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS volunteer_group_members (
+            group_id TEXT NOT NULL REFERENCES volunteer_groups(id) ON DELETE CASCADE,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            PRIMARY KEY (group_id, volunteer_id))""",
+        """CREATE TABLE IF NOT EXISTS director_interest_submissions (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            hwtc_experience TEXT,
+            previous_experience TEXT,
+            years_experience TEXT,
+            experience_areas TEXT DEFAULT '[]',
+            shows_refuse TEXT,
+            role_description TEXT,
+            most_rewarding TEXT,
+            challenges TEXT,
+            three_qualities TEXT,
+            budget_management TEXT,
+            dream_shows TEXT,
+            admin_notes TEXT,
+            status TEXT DEFAULT 'new',
+            imported BOOLEAN DEFAULT FALSE,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
             family_id TEXT,
@@ -789,11 +917,154 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        # Registration system
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'draft'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS capacity INTEGER",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS interest_list_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS custom_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS discount_codes (
+            id TEXT PRIMARY KEY,
+            program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
+            code TEXT NOT NULL,
+            square_discount_id TEXT,
+            discount_type TEXT NOT NULL DEFAULT 'percent',
+            discount_value INTEGER NOT NULL DEFAULT 0,
+            max_uses INTEGER,
+            uses INTEGER DEFAULT 0,
+            expires_at TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(program_id, code))""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS discount_code TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS discount_amount INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_type TEXT DEFAULT 'full'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_due INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
+        """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS min_spend INTEGER DEFAULT 0""",
+        """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_sibling_discount BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_start_time TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS meeting_end_time TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS single_date TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS schedule_notes TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS form_fields TEXT DEFAULT '{}'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
+        """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
+        """CREATE TABLE IF NOT EXISTS program_sessions (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            day_of_week TEXT DEFAULT '',
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            capacity INTEGER,
+            price_override INTEGER,
+            status TEXT DEFAULT 'open',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
+        """CREATE TABLE IF NOT EXISTS pending_donations (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            message TEXT,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS cart_discount_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            discount_type TEXT NOT NULL DEFAULT 'percent',
+            discount_value INTEGER NOT NULL DEFAULT 0,
+            min_spend INTEGER DEFAULT 0,
+            max_uses INTEGER,
+            uses INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS cart_orders (
+            id TEXT PRIMARY KEY,
+            guardian_name TEXT NOT NULL,
+            guardian_email TEXT NOT NULL,
+            guardian_phone TEXT,
+            items_json TEXT NOT NULL,
+            cart_discount_code TEXT,
+            cart_discount_amount INTEGER DEFAULT 0,
+            total_cents INTEGER NOT NULL,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS program_registrations (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            registration_type TEXT NOT NULL DEFAULT 'registration',
+            status TEXT NOT NULL DEFAULT 'pending',
+            child_first_name TEXT, child_last_name TEXT, child_dob TEXT,
+            guardian_name TEXT, guardian_email TEXT NOT NULL, guardian_phone TEXT,
+            emergency_contact_name TEXT, emergency_contact_phone TEXT,
+            shirt_size TEXT,
+            notes TEXT,
+            square_payment_id TEXT,
+            square_order_id TEXT,
+            square_checkout_id TEXT,
+            amount_paid INTEGER DEFAULT 0,
+            youth_id TEXT REFERENCES youth_participants(id) ON DELETE SET NULL,
+            family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+            waitlist_position INTEGER,
+            waitlist_notified_at TIMESTAMP,
+            waitlist_payment_link TEXT,
+            waitlist_payment_expires_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS interest_list_entries (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            child_name TEXT,
+            child_age TEXT,
+            notes TEXT,
+            notified_at TIMESTAMP,
+            converted_to_registration_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(program_id, email))""",
         # missing columns found in audit
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS general_content TEXT DEFAULT ''",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "UPDATE volunteers SET pronouns='' WHERE pronouns IS NULL",
         # Backfill pronouns from approved applications for existing volunteers
         """UPDATE volunteers v SET pronouns=a.pronouns
@@ -902,7 +1173,7 @@ def init_db():
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
             waiver_type_id TEXT NOT NULL REFERENCES waiver_types(id) ON DELETE CASCADE,
             UNIQUE(program_id, waiver_type_id))""",
-        # meet the team — standalone public-facing entries (no volunteer required)
+        # meet the team  -  standalone public-facing entries (no volunteer required)
         """CREATE TABLE IF NOT EXISTS production_team_bios (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -1085,6 +1356,48 @@ def init_db():
             added_by TEXT DEFAULT '',
             added_via TEXT DEFAULT 'admin',
             UNIQUE(carpool_id, youth_id))""",
+
+        # Rising Stars production registration fields
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS slug TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS stage TEXT DEFAULT 'main'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'draft'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS custom_fields TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS form_fields TEXT DEFAULT '{}'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_start_time TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_end_time TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS single_date TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_notes TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS venue TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
+
+        # Allow program_registrations to link to a production instead of a program
+        "ALTER TABLE program_registrations ALTER COLUMN program_id DROP NOT NULL",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+
+        # Discount codes for productions
+        "ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE discount_codes ALTER COLUMN program_id DROP NOT NULL",
+
+        # Interest list for productions
+        "ALTER TABLE interest_list_entries ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE interest_list_entries ALTER COLUMN program_id DROP NOT NULL",
     ]:
         try:
             c.execute(col_sql)
@@ -1234,7 +1547,7 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
-        app.logger.warning('Resend API key not configured — email not sent')
+        app.logger.warning('Resend API key not configured  -  email not sent')
         return False, 'Resend API key not configured'
     # Build from address
     if from_email:
@@ -1271,6 +1584,15 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
         app.logger.error(f'Email send error: {e}')
         return False, str(e)
 
+def link_director_submission(conn, volunteer_id, email):
+    """Link a director interest submission to a volunteer if not already linked."""
+    try:
+        execute(conn, 'UPDATE director_interest_submissions SET volunteer_id=%s WHERE LOWER(email)=%s AND volunteer_id IS NULL',
+            (volunteer_id, email.strip().lower()))
+    except Exception:
+        pass
+
+
 def serialize_row(r):
     out = {}
     for k, v in r.items():
@@ -1279,6 +1601,30 @@ def serialize_row(r):
         else:
             out[k] = v
     return out
+
+def parse_db_datetime(val):
+    """Safely parse a datetime value that may be a string (from serialize_row) or datetime object.
+    Always returns a naive UTC datetime, or None if unparseable."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=None) if val.tzinfo else val
+    if isinstance(val, str):
+        s = val.strip()
+        # Strip timezone offset if present (handles Python < 3.11)
+        import re as _re
+        s = _re.sub(r'[+-]\d{2}:\d{2}$', '', s).replace('Z', '')
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        # Try common formats
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                pass
+    return None
 
 def fetchall(conn, sql, params=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
@@ -1402,7 +1748,7 @@ def me():
 
 @app.route('/api/auth/change-password', methods=['POST'])
 def change_password():
-    """Self-service password change — any logged-in user."""
+    """Self-service password change  -  any logged-in user."""
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     d = request.json or {}
@@ -1677,7 +2023,7 @@ def delete_event(eid):
             cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
             app.logger.warning(f'delete_event carpools: {e}')
 
-        # The main delete — if this fails we want the real error
+        # The main delete  -  if this fails we want the real error
         cur.execute('DELETE FROM events WHERE id=%s', (eid,))
         conn.commit()
         cur.close()
@@ -1752,8 +2098,8 @@ def create_volunteer():
     d = request.json or {}
     vid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-            (vid, d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None))
+    execute(conn, 'INSERT INTO volunteers (id,name,email,phone,birthday,status,interests,background_check_status,background_check_date,bio,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (vid, d.get('name',''), d.get('email',''), d.get('phone',''), d.get('birthday') or None, d.get('status','active'), json.dumps(d.get('interests',[])), d.get('background_check_status','none'), d.get('background_check_date') or None, d.get('bio','') or '', d.get('photo_url','') or ''))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
     vol['total_hours'] = 0; vol['waiver_status'] = 'none'; vol['waivers'] = []
@@ -1774,14 +2120,25 @@ def update_volunteer(vol_id):
         try: conn.rollback()
         except Exception: pass
     sub_selections = json.dumps(d.get('sub_selections') or {})
+    # Ensure bio/photo columns exist
+    try:
+        execute(conn, "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''")
+        execute(conn, "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except: pass
     execute(conn, '''UPDATE volunteers SET name=%s,email=%s,phone=%s,pronouns=%s,birthday=%s,status=%s,
-        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s,employer_program=%s
+        interests=%s,sub_selections=%s,background_check_status=%s,background_check_date=%s,employer_program=%s,
+        bio=%s,photo_url=%s
         WHERE id=%s''',
         (d.get('name',''), d.get('email',''), d.get('phone',''), d.get('pronouns',''),
          d.get('birthday') or None, d.get('status','active'),
          json.dumps(d.get('interests',[])), sub_selections,
          d.get('background_check_status','none'), d.get('background_check_date') or None,
-         d.get('employer_program','') or '', vol_id))
+         d.get('employer_program','') or '',
+         d.get('bio','') or '', d.get('photo_url','') or '',
+         vol_id))
     conn.commit()
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     conn.close()
@@ -2154,7 +2511,11 @@ def get_youth_programs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name
+    programs = fetchall(conn, '''SELECT yp.*, v.name as default_elic_name,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='confirmed') AS reg_confirmed,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='pending_payment') AS reg_pending,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='waitlisted') AS reg_waitlisted,
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
@@ -2360,7 +2721,7 @@ def send_program_welcome(pid):
     tmpl = get_system_template(conn, 'welcome_email')
     if not tmpl:
         conn.close()
-        return jsonify({'error': 'Welcome email template not found — check Email Templates in Settings'}), 404
+        return jsonify({'error': 'Welcome email template not found  -  check Email Templates in Settings'}), 404
     body_tmpl    = tmpl['body']
     subject_tmpl = tmpl['subject']
 
@@ -2436,13 +2797,13 @@ def send_program_welcome(pid):
 
     sent = 0
     errors = []
+    fi = d.get('from_identity') or {}
     for r in deduped:
         html_body = (body_tmpl
             .replace('{{program_name}}', prog_name)
             .replace('{{passphrase}}', r.get('passphrase', ''))
             .replace('{{family_greeting}}', r.get('family_greeting', 'HWTC Family')))
         subject = subject_base.replace('{{program_name}}', prog_name)
-        fi = d.get('from_identity') or {}
         ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
         if ok:
             sent += 1
@@ -2523,7 +2884,7 @@ def portal_start_message_thread():
     execute(conn, "INSERT INTO portal_messages (id,thread_id,sender_side,sender_name,body) VALUES (%s,%s,'family',%s,%s)",
         (str(uuid.uuid4()), tid, sender_name, body))
     conn.commit()
-    # Email notify — configured recipients + all admins + anyone with youth permission
+    # Email notify  -  configured recipients + all admins + anyone with youth permission
     s = get_email_settings()
     recipients = list(get_recipient_emails(s))
     try:
@@ -2654,6 +3015,21 @@ def portal_reply_thread(tid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/portal/messages/unread-summary')
+def portal_unread_summary():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0") or {}).get('t', 0)
+    by_program = fetchall(conn, """
+        SELECT program_id, COALESCE(SUM(unread_admin),0) AS unread
+        FROM portal_message_threads
+        WHERE unread_admin>0 AND program_id IS NOT NULL
+        GROUP BY program_id""")
+    conn.close()
+    return jsonify({'total': int(total), 'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])}})
+
+
 @app.route('/api/portal/messages/threads')
 def portal_list_threads():
     err = require_auth()
@@ -2711,6 +3087,1025 @@ def portal_family_threads():
     return jsonify(threads)
 
 
+
+# ─────────────────────────────────────────────────────────────
+#  AUDITIONS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
+def get_audition_settings(context_type, context_id):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    conn.close()
+    if not row:
+        resp = jsonify({'context_type': context_type, 'context_id': context_id,
+            'is_open': False, 'roles': [], 'allow_video_link': True,
+            'allow_resume_link': True, 'allow_headshot_link': True})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    try: row['roles'] = json.loads(row.get('roles') or '[]')
+    except Exception: row['roles'] = []
+    resp = jsonify(row)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
+def save_audition_settings(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    roles_json = json.dumps(d.get('roles') or [])
+    is_open  = bool(d.get('is_open', False))
+    title    = (d.get('title') or '').strip() or None
+    desc     = (d.get('description') or '').strip() or None
+    aud_date = d.get('audition_date') or None
+    aud_time = d.get('audition_time') or None
+    location = (d.get('location') or '').strip() or None
+    instructions = (d.get('instructions') or '').strip() or None
+    email_sub    = (d.get('email_submissions') or '').strip() or None
+    allow_video  = bool(d.get('allow_video_link', True))
+    allow_resume = bool(d.get('allow_resume_link', True))
+    allow_head   = bool(d.get('allow_headshot_link', True))
+    if existing:
+        execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
+            audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
+            email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
+            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
+             email_sub,allow_video,allow_resume,allow_head,context_id,context_type))
+    else:
+        sid = str(uuid.uuid4())
+        execute(conn, """INSERT INTO audition_settings
+            (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/list/<context_type>/<context_id>', methods=['GET'])
+def get_audition_submissions(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, """SELECT id, context_type, context_id, family_id,
+            participant_id, submitter_name, submitter_email, role_requested,
+            video_url, resume_url, headshot_url, notes, status, admin_notes,
+            submitted_at, updated_at,
+            COALESCE(roles_requested, '[]') as roles_requested,
+            COALESCE(cast_role, '') as cast_role
+            FROM audition_submissions
+            WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+            (context_type, context_id))
+    except Exception as e:
+        app.logger.error(f'get_audition_submissions error: {e}')
+        # Fallback without new columns if migration hasn't run yet
+        try:
+            rows = fetchall(conn, """SELECT * FROM audition_submissions
+                WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+                (context_type, context_id))
+            for r in rows:
+                if 'roles_requested' not in r: r['roles_requested'] = '[]'
+                if 'cast_role' not in r: r['cast_role'] = ''
+        except Exception as e2:
+            conn.close()
+            app.logger.error(f'get_audition_submissions fallback error: {e2}')
+            return jsonify([])
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/auditions/submit', methods=['POST'])
+def submit_audition():
+    d = request.json or {}
+    context_type = d.get('context_type')
+    context_id   = d.get('context_id')
+    name = (d.get('submitter_name') or '').strip()
+    if not context_type or not context_id or not name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    conn = get_db()
+    settings = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    if not settings or not settings.get('is_open'):
+        conn.close()
+        return jsonify({'error': 'Auditions are not currently open'}), 400
+    passphrase  = (d.get('passphrase') or '').strip()
+    family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    family_id   = family['id'] if family else None
+    sid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO audition_submissions
+        (id,context_type,context_id,family_id,participant_id,submitter_name,
+         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        sid, context_type, context_id, family_id,
+        d.get('participant_id') or None, name,
+        (d.get('submitter_email') or '').strip() or None,
+        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])) ,
+        (d.get('video_url') or '').strip() or None,
+        (d.get('resume_url') or '').strip() or None,
+        (d.get('headshot_url') or '').strip() or None,
+        (d.get('notes') or '').strip() or None,
+        passphrase or None,
+    ))
+    conn.commit()
+    # Get context name
+    ctx_name = ''
+    instructor_id = None
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name, instructor_id FROM youth_programs WHERE id=%s', (context_id,))
+        if p:
+            ctx_name = p['name']
+            instructor_id = p.get('instructor_id')
+    # Notify  -  instructor + info@ + audition email_submissions only (not all admins)
+    try:
+        recipients = []
+        # 1. Program/production instructor
+        if instructor_id:
+            try:
+                vol = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (instructor_id,))
+                if vol and vol.get('email'): recipients.append(vol['email'])
+            except Exception: pass
+        # 2. info@ default fallback
+        info_email = 'info@hwtco.org'
+        if info_email not in recipients: recipients.append(info_email)
+        # 3. Additional emails configured in audition settings
+        if settings.get('email_submissions'):
+            for e in settings['email_submissions'].split(','):
+                e = e.strip()
+                if e and e not in recipients: recipients.append(e)
+        if recipients:
+            links = []
+            if d.get('video_url'):    links.append('<a href="' + d['video_url'] + '">Video</a>')
+            if d.get('resume_url'):   links.append('<a href="' + d['resume_url'] + '">Resume</a>')
+            if d.get('headshot_url'): links.append('<a href="' + d['headshot_url'] + '">Headshot</a>')
+            html = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">New Audition: ' + ctx_name + '</h2>'
+                '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                '<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:140px">Name</td><td style="padding:8px 12px">' + name + '</td></tr>'
+                (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
+                    (lambda r: r if r else ([d.get('role_requested')] if d.get('role_requested') else []))(
+                        __import__('json').loads(d.get('roles_requested') or '[]') if isinstance(d.get('roles_requested'), str) else (d.get('roles_requested') or [])
+                    )
+                )
+                + ('<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">' + d.get('submitter_email','') + '</td></tr>' if d.get('submitter_email') else '')
+                + ('<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Notes</td><td style="padding:8px 12px">' + d.get('notes','') + '</td></tr>' if d.get('notes') else '')
+                + '</table>'
+                + ('<p>' + ' &nbsp; '.join(links) + '</p>' if links else '')
+                + '<p style="color:#9ca3af;font-size:12px">Manage submissions in RoleCall under the Auditions tab.</p>'
+                + '</div>'
+            )
+            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, html)
+    except Exception as e:
+        app.logger.warning(f'Audition notification failed: {e}')
+    # Confirmation to submitter
+    try:
+        sub_email = (d.get('submitter_email') or '').strip()
+        if sub_email:
+            conf = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">Audition Received: ' + ctx_name + '</h2>'
+                '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
+                '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
+                '<p>We will be in touch soon.</p>'
+                '<p style="color:#9ca3af;font-size:13px">Horizon West Theatre Company</p></div>'
+            )
+            send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
+    except Exception: pass
+    conn.close()
+    return jsonify({'ok': True, 'submission_id': sid})
+
+
+@app.route('/api/auditions/submissions/<sid>/status', methods=['PUT'])
+def update_audition_status(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
+        (d.get('status','pending'), d.get('admin_notes',''), sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/submissions/<sid>', methods=['DELETE'])
+def delete_audition_submission(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Hard delete the submission
+    execute(conn, 'DELETE FROM audition_submissions WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/submissions/<sid>/decline', methods=['POST'])
+def decline_audition_submission(sid):
+    """Soft-delete — marks as declined so portal shows the form again."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE audition_submissions SET status='declined', updated_at=NOW() WHERE id=%s", (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+
+@app.route('/api/auditions/my-submission', methods=['GET'])
+def get_my_audition_submission():
+    """Check if a family/participant already submitted for a context."""
+    passphrase   = request.args.get('passphrase','').strip()
+    context_type = request.args.get('context_type','')
+    context_id   = request.args.get('context_id','')
+    if not passphrase or not context_type or not context_id:
+        return jsonify(None)
+    conn = get_db()
+    sub = None
+    # Try by family record first
+    family = fetchone(conn, 'SELECT id FROM families WHERE passphrase=%s', (passphrase,))
+    if family:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE family_id=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            (family['id'], context_type, context_id))
+    # Fallback: check by submitter passphrase stored on the submission
+    if not sub:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            (passphrase, context_type, context_id))
+    conn.close()
+    if not sub: 
+        resp = jsonify(None)
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
+    except Exception: sub['roles_requested'] = []
+    if not sub.get('cast_role'): sub['cast_role'] = ''
+    resp = jsonify(sub)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])
+def update_submission_cast_role(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE audition_submissions SET cast_role=%s, status=%s, updated_at=NOW() WHERE id=%s',
+        (d.get('cast_role','').strip() or None, 'cast', sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
+def publish_cast_list(context_type, context_id):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    publish = bool(d.get('publish', True))
+    conn = get_db()
+    if publish:
+        # Build cast list from all 'cast' submissions that have a cast_role
+        cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email
+            FROM audition_submissions
+            WHERE context_type=%s AND context_id=%s AND status='cast'
+            ORDER BY cast_role, submitter_name""", (context_type, context_id))
+        cast_json = json.dumps([dict(c) for c in cast])
+        execute(conn, """UPDATE audition_settings
+            SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""",
+            (cast_json, context_type, context_id))
+    else:
+        execute(conn, """UPDATE audition_settings
+            SET cast_list_published=FALSE, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""",
+            (context_type, context_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
+def get_cast_list(context_type, context_id):
+    """Public endpoint - returns cast list if published."""
+    conn = get_db()
+    row = fetchone(conn, """SELECT cast_list, cast_list_published, title
+        FROM audition_settings WHERE context_type=%s AND context_id=%s""",
+        (context_type, context_id))
+    if not row or not row.get('cast_list_published'):
+        conn.close()
+        resp = jsonify({'published': False, 'cast': []})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    # Get the actual production/program name
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
+    try:
+        cast = json.loads(row.get('cast_list') or '[]')
+    except Exception:
+        cast = []
+    title = row.get('title') or ctx_name
+    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+
+# ─────────────────────────────────────────────────────────────
+#  DIRECTOR INTEREST
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/director-interest')
+def director_interest_page():
+    return send_from_directory('static', 'director-interest.html')
+
+
+@app.route('/api/director-interest/submit', methods=['POST'])
+def submit_director_interest():
+    d = request.json or {}
+    name  = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    conn = get_db()
+    # Check for existing submission
+    existing = fetchone(conn, 'SELECT id FROM director_interest_submissions WHERE email=%s', (email,))
+    if existing:
+        conn.close()
+        return jsonify({'already_submitted': True})
+    # Link to volunteer if exists
+    vol = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=%s', (email,))
+    vol_id = vol['id'] if vol else None
+    sid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO director_interest_submissions
+        (id, volunteer_id, name, email, phone, hwtc_experience, previous_experience,
+         years_experience, experience_areas, shows_refuse, role_description,
+         most_rewarding, challenges, three_qualities, budget_management, dream_shows)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        sid, vol_id, name, email,
+        (d.get('phone') or '').strip() or None,
+        (d.get('hwtc_experience') or '').strip() or None,
+        (d.get('previous_experience') or '').strip() or None,
+        (d.get('years_experience') or '').strip() or None,
+        json.dumps(d.get('experience_areas') or []),
+        (d.get('shows_refuse') or '').strip() or None,
+        (d.get('role_description') or '').strip() or None,
+        (d.get('most_rewarding') or '').strip() or None,
+        (d.get('challenges') or '').strip() or None,
+        (d.get('three_qualities') or '').strip() or None,
+        (d.get('budget_management') or '').strip() or None,
+        (d.get('dream_shows') or '').strip() or None,
+    ))
+    conn.commit()
+    # Notify admin
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if not recipients:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        if not recipients:
+            # Final fallback
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!=''")
+            recipients = [u['email'] for u in admins if u.get('email')]
+        app.logger.info(f'Director interest notification to: {recipients}')
+        if recipients:
+            areas = ', '.join(d.get('experience_areas') or []) or 'Not specified'
+            html = (
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                '<h2 style="color:#145466">New Director Interest Submission</h2>'
+                '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:180px">Name</td><td style="padding:8px 12px">{name}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Years Experience</td><td style="padding:8px 12px">{d.get("years_experience") or "Not specified"}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Experience Areas</td><td style="padding:8px 12px">{areas}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Dream Shows</td><td style="padding:8px 12px">{(d.get("dream_shows") or "Not specified")[:200]}</td></tr>'
+                '</table>'
+                '<p style="color:#9ca3af;font-size:12px">View full response in RoleCall under Directors.</p>'
+                '</div>'
+            )
+            send_email(recipients, 'Director Interest: ' + name, html)
+    except Exception as e:
+        app.logger.error(f'Director interest notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/director-interest/submissions', methods=['GET'])
+def get_director_submissions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT d.*, v.name as volunteer_name, v.id as matched_volunteer_id
+        FROM director_interest_submissions d
+        LEFT JOIN volunteers v ON LOWER(v.email)=d.email
+        ORDER BY d.submitted_at DESC""")
+    conn.close()
+    for r in rows:
+        try: r['experience_areas'] = json.loads(r.get('experience_areas') or '[]')
+        except Exception: r['experience_areas'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/director-interest/submissions/<sid>', methods=['PUT'])
+def update_director_submission(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    # If full=true, update all response fields too
+    if d.get('full'):
+        execute(conn, """UPDATE director_interest_submissions
+            SET status=%s, admin_notes=%s,
+                hwtc_experience=%s, previous_experience=%s, years_experience=%s,
+                experience_areas=%s, shows_refuse=%s, role_description=%s,
+                most_rewarding=%s, challenges=%s, three_qualities=%s,
+                budget_management=%s, dream_shows=%s,
+                name=%s, phone=%s,
+                updated_at=NOW()
+            WHERE id=%s""",
+            (d.get('status','new'), d.get('admin_notes','') or '',
+             d.get('hwtc_experience') or None, d.get('previous_experience') or None,
+             d.get('years_experience') or None,
+             json.dumps(d.get('experience_areas') or []),
+             d.get('shows_refuse') or None, d.get('role_description') or None,
+             d.get('most_rewarding') or None, d.get('challenges') or None,
+             d.get('three_qualities') or None, d.get('budget_management') or None,
+             d.get('dream_shows') or None,
+             d.get('name',''), d.get('phone','') or None,
+             sid))
+    else:
+        execute(conn, """UPDATE director_interest_submissions
+            SET status=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s""",
+            (d.get('status', 'new'), d.get('admin_notes', '') or '', sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/director-interest/import', methods=['POST'])
+def import_director_submissions():
+    """One-time import of existing director interest data."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    submissions = d.get('submissions', [])
+    conn = get_db()
+    imported = 0
+    skipped = 0
+    for s in submissions:
+        email = (s.get('email') or '').strip().lower()
+        if not email: continue
+        existing = fetchone(conn, 'SELECT id FROM director_interest_submissions WHERE email=%s', (email,))
+        if existing: skipped += 1; continue
+        vol = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=%s', (email,))
+        vol_id = vol['id'] if vol else None
+        sid = str(uuid.uuid4())
+        execute(conn, """INSERT INTO director_interest_submissions
+            (id, volunteer_id, name, email, phone, hwtc_experience, previous_experience,
+             years_experience, experience_areas, shows_refuse, role_description,
+             most_rewarding, challenges, three_qualities, budget_management, dream_shows,
+             admin_notes, status, imported)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)""", (
+            sid, vol_id,
+            (s.get('name') or '').strip(),
+            email,
+            (s.get('phone') or '').strip() or None,
+            s.get('hwtc_experience') or None,
+            s.get('previous_experience') or None,
+            s.get('years_experience') or None,
+            json.dumps(s.get('experience_areas') or []),
+            s.get('shows_refuse') or None,
+            s.get('role_description') or None,
+            s.get('most_rewarding') or None,
+            s.get('challenges') or None,
+            s.get('three_qualities') or None,
+            s.get('budget_management') or None,
+            s.get('dream_shows') or None,
+            s.get('admin_notes') or None,
+            s.get('status') or 'new',
+        ))
+        imported += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'imported': imported, 'skipped': skipped})
+
+
+
+@app.route('/api/director-interest/pending-volunteers', methods=['GET'])
+def get_pending_director_volunteers():
+    """Volunteers with Director interest who have not submitted the director form."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Get all emails that have submitted the director form
+    submitted = fetchall(conn, 'SELECT LOWER(email) as email FROM director_interest_submissions')
+    submitted_emails = {r['email'] for r in submitted}
+    # Get volunteers with Director in their interests
+    vols = fetchall(conn, """SELECT id, name, email, phone, interests, created_at
+        FROM volunteers WHERE status='active' AND interests IS NOT NULL AND interests != '[]'
+        ORDER BY name""")
+    pending = []
+    for v in vols:
+        try:
+            interests = json.loads(v.get('interests') or '[]')
+        except Exception:
+            interests = []
+        has_director = any('director' in str(i).lower() for i in interests)
+        if has_director and v.get('email','').lower() not in submitted_emails:
+            v['interests_parsed'] = interests
+            pending.append(v)
+    conn.close()
+    return jsonify(pending)
+
+
+
+@app.route('/api/director-interest/send-form-email', methods=['POST'])
+def send_director_form_email():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name  = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip()
+    if not email:
+        return jsonify({'error': 'Email required'}), 400
+    form_url = f'https://rolecall.hwtco.org/director-interest?email={email}&name={name}'
+    html = (
+        '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+        '<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
+        f'<p>Hi {name},</p>'
+        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+        '<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form:</p>'
+        f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
+        '<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
+        '<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out at info@hwtco.org.</p>'
+        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company</p>'
+        '</div>'
+    )
+    ok, msg = send_email([email], 'HWTC Director Interest Form', html)
+    if not ok:
+        return jsonify({'error': msg or 'Failed to send email'}), 500
+    return jsonify({'ok': True})
+
+
+
+@app.route('/api/youth-programs/<pid>/roster-export', methods=['GET'])
+def export_program_roster(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (pid,))
+    prog_name = prog['name'] if prog else 'Program'
+    rows = fetchall(conn, '''SELECT
+        y.first_name, y.last_name, y.dob, y.shirt_size,
+        ype.enrolled_date, ype.notes as enrollment_notes,
+        f.name as family_name, f.passphrase,
+        y.portal_last_login,
+        g.first_name as g1_first, g.last_name as g1_last,
+        g.email as g1_email, g.phone as g1_phone, g.relationship as g1_rel,
+        g2.first_name as g2_first, g2.last_name as g2_last,
+        g2.email as g2_email, g2.phone as g2_phone, g2.relationship as g2_rel
+        FROM youth_program_enrollments ype
+        JOIN youth_participants y ON ype.youth_id=y.id
+        LEFT JOIN youth_family_links yfl ON yfl.youth_id=y.id
+        LEFT JOIN families f ON f.id=yfl.family_id
+        LEFT JOIN youth_guardians g ON g.youth_id=y.id AND g.is_primary=TRUE
+        LEFT JOIN youth_guardians g2 ON g2.youth_id=y.id AND g2.is_primary=FALSE
+        WHERE ype.program_id=%s
+        ORDER BY y.last_name, y.first_name''', (pid,))
+    conn.close()
+    import io, csv
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow([
+        'Last Name','First Name','Date of Birth','Age','T-Shirt Size',
+        'Enrolled Date','Portal Passphrase','Last Portal Login',
+        'Family Name',
+        'Guardian 1 Name','Guardian 1 Relationship','Guardian 1 Email','Guardian 1 Phone',
+        'Guardian 2 Name','Guardian 2 Relationship','Guardian 2 Email','Guardian 2 Phone',
+        'Enrollment Notes'
+    ])
+    from datetime import date as _date
+    today = _date.today()
+    for r in rows:
+        dob = r.get('dob','')
+        age = ''
+        if dob:
+            try:
+                bd = _date.fromisoformat(dob)
+                age = str(today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day)))
+            except Exception: pass
+        last_login = ''
+        if r.get('portal_last_login'):
+            try: last_login = str(r['portal_last_login'])[:16]
+            except Exception: pass
+        g1_name = f"{r.get('g1_first','')} {r.get('g1_last','')}".strip()
+        g2_name = f"{r.get('g2_first','')} {r.get('g2_last','')}".strip()
+        w.writerow([
+            r.get('last_name',''), r.get('first_name',''), dob, age,
+            r.get('shirt_size','') or '',
+            r.get('enrolled_date','') or '',
+            r.get('passphrase','') or '',
+            last_login,
+            r.get('family_name','') or '',
+            g1_name, r.get('g1_rel','') or '', r.get('g1_email','') or '', r.get('g1_phone','') or '',
+            g2_name, r.get('g2_rel','') or '', r.get('g2_email','') or '', r.get('g2_phone','') or '',
+            r.get('enrollment_notes','') or '',
+        ])
+    csv_data = output.getvalue()
+    safe_name = prog_name.replace(' ','_')
+    from flask import Response
+    return Response(csv_data, mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=roster_{safe_name}.csv'})
+
+
+
+# ─────────────────────────────────────────────────────────────
+#  VOLUNTEER GROUPS
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/api/volunteer-groups', methods=['GET'])
+def get_volunteer_groups():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    groups = fetchall(conn, '''SELECT g.*, COUNT(m.volunteer_id) as member_count
+        FROM volunteer_groups g
+        LEFT JOIN volunteer_group_members m ON m.group_id=g.id
+        GROUP BY g.id ORDER BY g.name''')
+    conn.close()
+    return jsonify(groups)
+
+
+@app.route('/api/volunteer-groups', methods=['POST'])
+def create_volunteer_group():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name: return jsonify({'error': 'Name required'}), 400
+    gid = str(uuid.uuid4())
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO volunteer_groups (id, name, description)
+            VALUES (%s, %s, %s)''', (gid, name, d.get('description','').strip() or None))
+        # Add initial members if provided
+        for vid in (d.get('member_ids') or []):
+            try:
+                execute(conn, 'INSERT INTO volunteer_group_members (group_id, volunteer_id) VALUES (%s,%s)',
+                    (gid, vid))
+            except Exception: pass
+        conn.commit()
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 400
+    row = fetchone(conn, 'SELECT * FROM volunteer_groups WHERE id=%s', (gid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/volunteer-groups/<gid>', methods=['PUT'])
+def update_volunteer_group(gid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE volunteer_groups SET name=%s, description=%s, updated_at=NOW()
+        WHERE id=%s''', (d.get('name','').strip(), d.get('description','').strip() or None, gid))
+    # Replace members if provided
+    if 'member_ids' in d:
+        execute(conn, 'DELETE FROM volunteer_group_members WHERE group_id=%s', (gid,))
+        for vid in (d.get('member_ids') or []):
+            try:
+                execute(conn, 'INSERT INTO volunteer_group_members (group_id, volunteer_id) VALUES (%s,%s)',
+                    (gid, vid))
+            except Exception: pass
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/volunteer-groups/<gid>', methods=['DELETE'])
+def delete_volunteer_group(gid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM volunteer_groups WHERE id=%s', (gid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/volunteer-groups/<gid>/members', methods=['GET'])
+def get_group_members(gid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    members = fetchall(conn, '''SELECT v.id, v.name, v.email, v.status
+        FROM volunteer_group_members m
+        JOIN volunteers v ON v.id=m.volunteer_id
+        WHERE m.group_id=%s ORDER BY v.name''', (gid,))
+    conn.close()
+    return jsonify(members)
+
+
+
+@app.route('/api/square/catalog-items', methods=['GET'])
+def get_square_catalog_items():
+    """List Square catalog items for linking to programs."""
+    err = require_auth()
+    if err: return err
+    if not SQUARE_ACCESS_TOKEN:
+        return jsonify({'error': 'Square not configured'}), 400
+    try:
+        r = requests.get(
+            f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM',
+            headers=square_headers(), timeout=10)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+        items = []
+        for obj in (data.get('objects') or []):
+            item_data = obj.get('item_data', {})
+            # Get the first variation's price
+            variations = item_data.get('variations', [])
+            price = None
+            variation_id = None
+            if variations:
+                v = variations[0]
+                variation_id = v.get('id')
+                price_money = v.get('item_variation_data', {}).get('price_money', {})
+                price = price_money.get('amount')
+            items.append({
+                'id': obj.get('id'),
+                'variation_id': variation_id,
+                'name': item_data.get('name',''),
+                'description': item_data.get('description',''),
+                'price': price,
+            })
+        items.sort(key=lambda x: x['name'])
+        return jsonify(items)
+    except Exception as e:
+        app.logger.error(f'Square catalog error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/square/catalog-items', methods=['POST'])
+def create_square_catalog_item():
+    """Create a new Square catalog item for a program."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    price_cents = int(d.get('price_cents') or 0)
+    description = (d.get('description') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name required'}), 400
+    import uuid as _uuid
+    item_id = '#item_' + str(_uuid.uuid4()).replace('-','')[:16]
+    var_id  = '#var_'  + str(_uuid.uuid4()).replace('-','')[:16]
+    payload = {
+        'idempotency_key': str(_uuid.uuid4()),
+        'object': {
+            'type': 'ITEM',
+            'id': item_id,
+            'item_data': {
+                'name': name,
+                'description': description or None,
+                'variations': [{
+                    'type': 'ITEM_VARIATION',
+                    'id': var_id,
+                    'item_variation_data': {
+                        'name': 'Regular',
+                        'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
+                        'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
+                    }
+                }]
+            }
+        }
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object',
+            json=payload, headers=square_headers(), timeout=10)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': data.get('errors',[{}])[0].get('detail','Square error')}), 400
+        obj = data.get('catalog_object', {})
+        var = (obj.get('item_data',{}).get('variations') or [{}])[0]
+        return jsonify({'id': obj.get('id'), 'variation_id': var.get('id'), 'name': name, 'price': price_cents})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/programs/<pid>/link-catalog-item', methods=['POST'])
+def link_catalog_item(pid):
+    """Link a Square catalog item (variation ID) to a program."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE youth_programs SET square_catalog_item_id=%s WHERE id=%s',
+        (d.get('catalog_item_id') or None, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  REGISTRATION SETTINGS
+# ─────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/registration-settings', methods=['PUT'])
+def save_registration_settings(pid):
+    err = require_permission('youth')
+    if err: return err
+    import json as _json
+    d = request.json or {}
+    conn = get_db()
+    images = d.get('program_images') or []
+    custom_fields = d.get('custom_fields') or []
+    execute(conn, '''UPDATE youth_programs SET
+        registration_status=%s, registration_form_type=%s, slug=%s,
+        capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
+        registration_note=%s,
+        program_location=%s, schedule_type=%s, meeting_days=%s,
+        meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
+        start_date=%s, end_date=%s, form_fields=%s
+        WHERE id=%s''',
+        (d.get('registration_status') or 'draft',
+         d.get('registration_form_type') or 'youth',
+         (d.get('slug') or '').strip().lower().replace(' ', '-') or None,
+         d.get('capacity') or None,
+         int(d.get('price_cents') or 0),
+         int(d.get('deposit_amount') or 0),
+         bool(d.get('sessions_enabled')),
+         bool(d.get('sibling_discount_enabled')),
+         d.get('sibling_discount_type') or 'percent',
+         int(d.get('sibling_discount_value') or 0),
+         d.get('registration_open_date') or None,
+         d.get('registration_close_date') or None,
+         bool(d.get('waitlist_auto_charge', True)),
+         (d.get('program_info') or '').strip(),
+         _json.dumps(custom_fields),
+         d.get('square_catalog_item_id') or None,
+         (d.get('registration_note') or '').strip(),
+         (d.get('program_location') or '').strip(),
+         d.get('schedule_type') or 'date_range',
+         _json.dumps(d.get('meeting_days') or []),
+         (d.get('meeting_start_time') or '').strip(),
+         (d.get('meeting_end_time') or '').strip(),
+         (d.get('single_date') or '').strip(),
+         (d.get('schedule_notes') or '').strip(),
+         d.get('start_date') or None,
+         d.get('end_date') or None,
+         _json.dumps(d.get('form_fields') or {}),
+         pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+#  DISCOUNT CODES
+# ─────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/discount-codes', methods=['GET'])
+def get_discount_codes(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM discount_codes WHERE program_id=%s ORDER BY created_at DESC', (pid,))
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/programs/<pid>/discount-codes', methods=['POST'])
+def create_discount_code(pid):
+    err = require_auth()
+    if err: return err
+    import uuid as _u
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    discount_type = d.get('discount_type', 'percent')
+    discount_value = int(d.get('discount_value') or 0)
+    min_spend = int(d.get('min_spend_cents') or 0)
+    max_uses = d.get('max_uses') or None
+    is_sibling = bool(d.get('is_sibling_discount'))
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    sq_id = None
+    try:
+        sq_id = square_create_discount(f'{prog["name"]} — {code}', discount_type, discount_value)
+    except Exception as e:
+        app.logger.warning(f'Square discount create failed: {e}')
+    try:
+        execute(conn, '''INSERT INTO discount_codes
+            (id, program_id, code, square_discount_id, discount_type, discount_value,
+             min_spend, is_sibling_discount, max_uses, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_u.uuid4().hex, pid, code, sq_id, discount_type, discount_value,
+             min_spend, is_sibling, max_uses))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/programs/<pid>/discount-codes/<cid>', methods=['DELETE'])
+def delete_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE discount_codes SET active=FALSE WHERE id=%s AND program_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
+def validate_discount(slug):
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not prog:
+        conn.close()
+        return jsonify({'valid': False, 'error': 'Program not found'})
+    dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], code))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    price = prog.get('price') or 0
+    num_regs = int(d.get('num_registrations') or 1)
+    basket = price * num_regs
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum spend of ${min_spend/100:.2f}'})
+    is_sib = bool(dc.get('is_sibling_discount'))
+    if is_sib:
+        if num_regs < 2:
+            return jsonify({'valid': False, 'error': 'Sibling discount requires 2+ participants'})
+        per_child = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+        discount_amount = per_child * (num_regs - 1)
+        label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
+    else:
+        if dc['discount_type'] == 'percent':
+            discount_amount = int(basket * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off'
+        else:
+            discount_amount = min(dc['discount_value'] * num_regs, basket)
+            label = f'${dc["discount_value"]/100:.2f} off'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    final_price = max(0, basket - discount_amount)
+    return jsonify({'valid': True, 'discount_amount': discount_amount,
+                    'final_price': final_price, 'is_sibling': is_sib,
+                    'label': label, 'square_discount_id': dc.get('square_discount_id')})
+
+
+def square_create_discount(name, discount_type, value):
+    import uuid as _u
+    if not SQUARE_ACCESS_TOKEN:
+        return None
+    payload = {'idempotency_key': _u.uuid4().hex, 'object': {
+        'type': 'DISCOUNT', 'id': '#discount_' + _u.uuid4().hex[:12],
+        'discount_data': {'name': name, 'discount_type': 'FIXED_AMOUNT' if discount_type == 'fixed' else 'FIXED_PERCENTAGE'}}}
+    if discount_type == 'fixed':
+        payload['object']['discount_data']['amount_money'] = {'amount': value, 'currency': 'USD'}
+    else:
+        payload['object']['discount_data']['percentage'] = str(value)
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', json=payload, headers=square_headers(), timeout=10)
+        data = r.json()
+        return data.get('catalog_object', {}).get('id')
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
@@ -2723,6 +4118,40 @@ def get_email_templates():
     templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name')
     conn.close()
     return jsonify(templates)
+
+
+@app.route('/api/email-templates/reset/<key>', methods=['POST'])
+def reset_system_template(key):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    try:
+        # Direct targeted reset for each known system template
+        DEFAULTS = {
+            'universal_reminder': (
+                'Reminder: Submit Your Volunteer Hours - Universal Giving',
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>\n  </div>\n</div>\''
+            ),
+        }
+        if key not in DEFAULTS:
+            # Fall back to full reseed for other templates
+            seed_system_email_templates(conn)
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True})
+        subj, body = DEFAULTS[key]
+        execute(conn,
+            "UPDATE email_templates SET subject=%s, body=%s WHERE template_key=%s OR id=%s",
+            (subj, body, key, key))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        app.logger.error(f'reset_system_template error: {e}')
+        try: conn.rollback(); conn.close()
+        except: pass
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/email-templates/<tid>', methods=['PUT'])
 def update_email_template(tid):
@@ -3616,7 +5045,7 @@ def delete_donor_campaign(cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-# ── Donors — static routes MUST come before <did> dynamic routes ──
+# ── Donors  -  static routes MUST come before <did> dynamic routes ──
 @app.route('/api/donors')
 def get_donors():
     err = require_auth()
@@ -3883,7 +5312,7 @@ def get_donor_detail(did):
     # Cumulative tier benefits (this tier + all lower tiers)
     donor['benefits'] = get_cumulative_benefits(conn, donor.get('tier_id'))
 
-    # Campaign-specific benefits — for each campaign this donor has donated to,
+    # Campaign-specific benefits  -  for each campaign this donor has donated to,
     # show which benefits they've earned based on their total to that campaign
     try:
         campaign_totals = fetchall(conn, '''
@@ -4033,7 +5462,7 @@ def send_thank_you(donation_id):
         tier_benefits = get_cumulative_benefits(conn, donor['tier_id'])
         all_benefits += [dict(b, source='tier') for b in tier_benefits]
 
-    # Campaign-specific benefits — include all that the donation amount qualifies for
+    # Campaign-specific benefits  -  include all that the donation amount qualifies for
     if row.get('campaign_id') and row.get('amount'):
         try:
             camp_benefits = fetchall(conn, '''SELECT * FROM campaign_benefits
@@ -4052,12 +5481,12 @@ def send_thank_you(donation_id):
             elif b.get('tier_name'):
                 source_tag = f'<em style="font-size:11px;color:#888">{b["tier_name"]}</em> '
             return (f'<li style="margin-bottom:4px">{source_tag}{b["name"]}'
-                    + (f' — {b["description"]}' if b.get('description') else '')
+                    + (f'  -  {b["description"]}' if b.get('description') else '')
                     + '</li>')
         benefits_html = '<ul style="margin:8px 0;padding-left:20px">' + \
             ''.join(benefit_li(b) for b in all_benefits) + '</ul>'
         benefits_text = '\n'.join(
-            f'• {b["name"]}' + (f' — {b["description"]}' if b.get('description') else '')
+            f'• {b["name"]}' + (f'  -  {b["description"]}' if b.get('description') else '')
             for b in all_benefits)
     # Load template
     tmpl = None
@@ -4081,7 +5510,7 @@ def send_thank_you(donation_id):
         from_name  = tmpl.get('from_name') or ''
         from_addr  = (f'{from_name} <{from_email}>' if from_name and from_email else from_email) if from_email else None
     else:
-        subject   = 'Thank You for Your Generous Support — HWTC'
+        subject   = 'Thank You for Your Generous Support  -  HWTC'
         from_addr = None
         html_body = '''<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px;text-align:center;border-radius:12px 12px 0 0">
@@ -4362,7 +5791,7 @@ def kiosk_elic_auth():
         WHERE e.pin=%s''', (pin,))
     if not elic:
         conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
-    # Get assigned events — check both assigned_events field AND event_elics table
+    # Get assigned events  -  check both assigned_events field AND event_elics table
     assigned = json.loads(elic.get('assigned_events') or '[]')
     # Also get events assigned via the event detail page (event_elics table)
     event_elics_rows = fetchall(conn, 'SELECT event_id FROM event_elics WHERE elic_id=%s', (elic['id'],))
@@ -4402,7 +5831,7 @@ def kiosk_elic_auth():
 
 @app.route('/api/checklist-items')
 def get_checklist_items():
-    # No auth required — kiosk needs this without an admin session
+    # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, label')
     conn.close()
@@ -4444,7 +5873,7 @@ def delete_checklist_item(iid):
 
 @app.route('/api/opening-checklist-items')
 def get_opening_checklist_items():
-    # No auth required — kiosk needs this without an admin session
+    # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
     items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, label')
     conn.close()
@@ -4549,7 +5978,7 @@ def approve_pending_hours(hid):
             (pid, ph['volunteer_id'], ph['event'], ph.get('event_id'),
              ph['date'], ph['hours'], ph.get('role',''), ph.get('notes','')))
     except Exception:
-        # May already exist — just mark as approved
+        # May already exist  -  just mark as approved
         pass
     execute(conn, "UPDATE pending_hours SET status='approved' WHERE id=%s", (hid,))
     conn.commit(); conn.close()
@@ -4709,7 +6138,7 @@ def test_template_email(tid):
     conn.close()
     if not tmpl: return jsonify({'error': 'Template not found'}), 404
     to = (d.get('to') or '').strip() or (user['email'] if user else '')
-    if not to: return jsonify({'error': 'No recipient email — add your email to your user profile.'}), 400
+    if not to: return jsonify({'error': 'No recipient email  -  add your email to your user profile.'}), 400
     # Replace variables with sample values
     sample = {
         '{{name}}': user['name'] if user else 'Test User',
@@ -4739,7 +6168,7 @@ def test_template_email(tid):
         '{{interests}}': 'Acting, Stage Crew',
         '{{employer_program}}': 'Disney Cast Member',
         '{{how_heard}}': 'Social Media',
-        '{{notes}}': '—',
+        '{{notes}}': ' - ',
         '{{phone}}': '555-1234',
     }
     body = tmpl['body']
@@ -4749,7 +6178,7 @@ def test_template_email(tid):
         subject = subject.replace(var, val)
     # Wrap with test banner
     body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
-        <strong>⚠️ This is a test email</strong> — sent to {to}. Sample values have been substituted for real data.
+        <strong>⚠️ This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
     </div>''' + body
     ok, msg = send_email([to], subject, body)
     if ok: return jsonify({'ok': True, 'sent_to': to})
@@ -4833,7 +6262,7 @@ def send_reset_link(uid):
     conn.commit()
     html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto">
         <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px;text-align:center;border-radius:12px 12px 0 0">
-            <h2 style="color:#fff;margin:0">RoleCall — Temporary Password</h2>
+            <h2 style="color:#fff;margin:0">RoleCall  -  Temporary Password</h2>
         </div>
         <div style="padding:28px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
             <p style="font-size:15px;color:#1a1a17">Hi {user['name']},</p>
@@ -5009,6 +6438,22 @@ def portal_contact_production():
             f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
     return jsonify({'ok': True})
 
+
+@app.route('/api/portal/program/<pid>/instructor', methods=['GET'])
+def portal_program_instructor(pid):
+    """Return instructor bio/photo for a program - called by portal when viewing a program."""
+    conn = get_db()
+    row = fetchone(conn, '''SELECT v.name as instructor_name, v.bio as instructor_bio,
+        v.photo_url as instructor_photo
+        FROM youth_programs yp
+        LEFT JOIN volunteers v ON v.id=yp.instructor_id
+        WHERE yp.id=%s''', (pid,))
+    conn.close()
+    if not row:
+        return jsonify({})
+    return jsonify(row)
+
+
 @app.route('/api/portal/participant/<yid>')
 def portal_get_participant(yid):
     conn = get_db()
@@ -5017,9 +6462,12 @@ def portal_get_participant(yid):
     # Program enrollments
     try:
         enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name, yp.description,
-            yp.status as program_status
+            yp.status as program_status, yp.instructor_id,
+            v.name as instructor_name, v.bio as instructor_bio,
+            v.photo_url as instructor_photo
             FROM youth_program_enrollments ype
             JOIN youth_programs yp ON ype.program_id=yp.id
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id
             WHERE ype.youth_id=%s ORDER BY ype.created_at DESC''', (yid,))
     except Exception as e:
         enrollments = []; errors.append(f'enrollments: {e}')
@@ -5035,7 +6483,7 @@ def portal_get_participant(yid):
     except Exception as e:
         productions = []; errors.append(f'productions: {e}')
 
-    # Announcements — from both productions and programs
+    # Announcements  -  from both productions and programs
     prod_ids = [p['id'] for p in productions]
     prog_ids = [e['program_id'] for e in enrollments if e.get('program_id')]
     try:
@@ -5054,7 +6502,7 @@ def portal_get_participant(yid):
     except Exception as e:
         announcements = []; errors.append(f'announcements: {e}')
 
-    # Files — fetch for all productions and programs the participant is in
+    # Files  -  fetch for all productions and programs the participant is in
     try:
         files = []
         all_placeholders = []
@@ -5095,7 +6543,7 @@ def portal_youth_profile(yid):
     youth['waivers'] = fetchall(conn, '''SELECT yw.*, wt.name as type_name, wt.template_body, wt.can_sign_online
         FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
-    # Get signable waivers not yet signed — includes program-required ones
+    # Get signable waivers not yet signed  -  includes program-required ones
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
     # Also include program-required waivers even if not marked can_sign_online (show as required)
@@ -5356,7 +6804,7 @@ def delete_production_conflict(pid, cid):
 @app.route('/api/productions/<pid>/team')
 def get_production_team(pid):
     conn = get_db()
-    # Return public-facing team bios (headshots, bios — no volunteer required)
+    # Return public-facing team bios (headshots, bios  -  no volunteer required)
     rows = fetchall(conn, '''SELECT * FROM production_team_bios
         WHERE production_id=%s ORDER BY sort_order, name''', (pid,))
     # Also include production_members (crew with volunteer links) as fallback
@@ -5749,7 +7197,7 @@ def kiosk_begin_session():
             conn.close()
             return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
-    if existing: conn.close(); return jsonify({'error': 'Already volunteering — please stop your current session first.'}), 400
+    if existing: conn.close(); return jsonify({'error': 'Already volunteering  -  please stop your current session first.'}), 400
     event_name = d.get('event_name','')
     if event_id and not event_name:
         evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
@@ -5785,7 +7233,7 @@ def kiosk_stop_session():
         pid = str(uuid.uuid4())
         # Override sessions (no event) need admin review before approval
         hours_status = 'pending' if sess.get('event_id') else 'pending_review'
-        override_note = ' [Override — no event selected]' if not sess.get('event_id') else ''
+        override_note = ' [Override  -  no event selected]' if not sess.get('event_id') else ''
         execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
              today, elapsed_hours, role or sess['role'],
@@ -5798,7 +7246,7 @@ def kiosk_stop_session():
                 vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (vol_id,))
                 vol_name = vol['name'] if vol else 'A volunteer'
                 if recipients:
-                    send_email(recipients, 'RoleCall — Hours Submitted: ' + vol_name,
+                    send_email(recipients, 'RoleCall  -  Hours Submitted: ' + vol_name,
                         '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
                         + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
                         + (sess['event_name'] or 'a session') + '</strong>.</p>')
@@ -5874,7 +7322,7 @@ def kiosk_log_full_event():
         (sid, vol_id, event_id, evt['name'], role, hours))
     pid = str(uuid.uuid4())
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event — logged via kiosk'))
+        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event  -  logged via kiosk'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
 
@@ -5905,7 +7353,7 @@ def kiosk_submit_independent():
         recipients = get_recipient_emails(s)
         if recipients and s.get('alert_pending_hours'):
             send_email(recipients,
-                f'RoleCall — Independent Hours Submitted: {vol["name"]}',
+                f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
                 f'<p style="font-family:sans-serif"><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="font-family:sans-serif;color:#666">Please review and approve in RoleCall → Hours.</p>')
     except Exception:
         pass
@@ -5990,19 +7438,42 @@ def join_submit():
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
                   <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{d.get('name','')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{d.get('email','')}</td></tr>
-                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone','—')}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{d.get('phone',' - ')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Pronouns</td><td style="padding:8px">{d.get('pronouns',' - ') or ' - '}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Age</td><td style="padding:8px">{age_str}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Interests</td><td style="padding:8px">{interests_str}</td></tr>
                   {sub_rows}
-                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard','—')}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program','—') or '—'}</td></tr>
-                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes','—') or '—'}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard',' - ')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program',' - ') or ' - '}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
                 </table>
             </div>'''
-            send_email(recipients, f'New Volunteer Interest — {d["name"]}', html_body)
+            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
     except Exception:
         pass
+    # If Director is selected, send director interest form email
+    try:
+        interests = d.get('interests', [])
+        if any('director' in i.lower() for i in interests):
+            applicant_email = (d.get('email') or '').strip()
+            applicant_name  = (d.get('name') or '').strip()
+            if applicant_email:
+                form_url = f'https://rolecall.hwtco.org/director-interest?email={applicant_email}&name={applicant_name}'
+                dir_html = (
+                    f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                    f'<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
+                    f'<p>Hi {applicant_name},</p>'
+                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+                    f'<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form using the link below:</p>'
+                    f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
+                    f'<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
+                    f'<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out to us at info@hwtco.org.</p>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company &mdash; rolecall.hwtco.org</p>'
+                    f'</div>'
+                )
+                send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
+    except Exception as e:
+        app.logger.warning(f'Director interest email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'id': aid})
 
@@ -6012,7 +7483,7 @@ def get_applications():
     if err: return err
     conn = get_db()
     apps = fetchall(conn, 'SELECT * FROM volunteer_applications ORDER BY created_at DESC')
-    # Flag duplicates — email already exists in volunteers table
+    # Flag duplicates  -  email already exists in volunteers table
     for a in apps:
         if a.get('status') == 'pending':
             existing = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s)', (a['email'],))
@@ -6072,6 +7543,7 @@ def approve_application(aid):
             execute(conn, "INSERT INTO notes (id,volunteer_id,author,content) VALUES (%s,%s,%s,%s)",
                 (nid, vid, 'Join Form', app_notes))
 
+        link_director_submission(conn, vid, app_row.get('email',''))
         conn.commit()
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vid,))
         conn.close()
@@ -6403,7 +7875,7 @@ def build_report_email_html(report_type, data, params=None):
     </div>
     <div style="background:#fff;padding:28px 32px;border:1px solid #e0e0db;border-top:none;border-radius:0 0 12px 12px">'''
     footer = '''</div><p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
-        RoleCall — Horizon West Theatre Company Management System</p></div>'''
+        RoleCall  -  Horizon West Theatre Company Management System</p></div>'''
 
     def stat_box(label, value, color='#145466'):
         return f'<div style="background:#f0f8fa;border-radius:10px;padding:16px 20px;text-align:center"><div style="font-size:28px;font-weight:900;color:{color}">{value}</div><div style="font-size:12px;color:#5f5e5a;margin-top:4px">{label}</div></div>'
@@ -6413,12 +7885,12 @@ def build_report_email_html(report_type, data, params=None):
         trs = ''
         for i, r in enumerate(rows):
             bg = '#f9f9f9' if i%2==0 else '#fff'
-            tds = ''.join(f'<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #e0e0db">{str(r.get(c,"") or "—")}</td>' for c in cols)
+            tds = ''.join(f'<td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #e0e0db">{str(r.get(c,"") or " - ")}</td>' for c in cols)
             trs += f'<tr style="background:{bg}">{tds}</tr>'
         return f'<table style="width:100%;border-collapse:collapse;margin-top:12px"><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>'
 
     if report_type == 'monthly_recap':
-        title = f'{data["month"]} {data["year"]} — Volunteer Monthly Recap'
+        title = f'{data["month"]} {data["year"]}  -  Volunteer Monthly Recap'
         body = f'''<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
             {stat_box('Total Hours Logged', f'{data["total_hours"]:.1f}h')}
             {stat_box('Active Volunteers', data["active_volunteers"])}
@@ -6438,7 +7910,7 @@ def build_report_email_html(report_type, data, params=None):
             body += table(['Name','Last Active','Email'], data['lapsed_volunteers'], ['name','last_date','email'])
 
     elif report_type == 'top_volunteers':
-        title = f'Top Volunteers — {params.get("start_date","")} to {params.get("end_date","")}'
+        title = f'Top Volunteers  -  {params.get("start_date","")} to {params.get("end_date","")}'
         body = table(['#','Name','Hours','Events','Last Active'],
             [{**r, '#': i+1} for i,r in enumerate(data)],
             ['#','name','total_hours','events_count','last_date'])
@@ -6449,7 +7921,7 @@ def build_report_email_html(report_type, data, params=None):
         body += table(['Name','Last Active','Total Hours','Email'], data, ['name','last_date','total_hours_ever','email'])
 
     elif report_type == 'hours_by_event':
-        title = f'Hours by Event — {params.get("start_date","")} to {params.get("end_date","")}'
+        title = f'Hours by Event  -  {params.get("start_date","")} to {params.get("end_date","")}'
         body = table(['Event','Total Hours','Volunteers','Entries'], data, ['event','total_hours','volunteer_count','entry_count'])
 
     else:
@@ -6534,7 +8006,7 @@ def export_report_csv():
     }
 
     if rtype == 'monthly_recap' and isinstance(data, dict):
-        writer.writerow([f'{data.get("month","")} {data.get("year","")} — Volunteer Monthly Recap'])
+        writer.writerow([f'{data.get("month","")} {data.get("year","")}  -  Volunteer Monthly Recap'])
         writer.writerow([])
         writer.writerow(['Metric','Value'])
         writer.writerow(['Total Hours', data.get('total_hours',0)])
@@ -6688,13 +8160,13 @@ def _compute_next_send(cadence, send_day):
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
     return None
 
-# Cron-style scheduler — called on every request, fires due reports
+# Cron-style scheduler  -  called on every request, fires due reports
 _last_cron_check = [None]
 def maybe_run_scheduled_reports():
     import datetime as _dt
     now = _dt.datetime.now()
     last = _last_cron_check[0]
-    # Only check once per hour — use total_seconds() not .seconds
+    # Only check once per hour  -  use total_seconds() not .seconds
     if last and (now - last).total_seconds() < 3600: return
     _last_cron_check[0] = now
     try:
@@ -6873,14 +8345,14 @@ def kiosk_production_signout():
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
         (pid, vol_id, evt_name, event_id, today, event_hours, role or '',
-         f'Production member — {hours_source}'))
+         f'Production member  -  {hours_source}'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': event_hours, 'hours_source': hours_source})
 
 
 
 # ─────────────────────────────────────────────
-#  KIOSK — OPEN/CLOSE EVENT & YOUTH
+#  KIOSK  -  OPEN/CLOSE EVENT & YOUTH
 # ─────────────────────────────────────────────
 
 @app.route('/api/kiosk/open-event-checklist', methods=['POST'])
@@ -6972,13 +8444,13 @@ def kiosk_close_event():
                 ol_rows = ''
                 for r in open_responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
                     ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or '—')
+                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -6994,15 +8466,15 @@ def kiosk_close_event():
                       <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
                     </div>
                     <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-                    {f"""<h3 style="color:#145466;margin-top:0">🟢 Opening Checklist</h3>
+                    {f"""<h3 style="color:#145466;margin-top:0">Opening Checklist</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
                     <tbody>{ol_rows}</tbody></table>""" if ol_rows else ""}
-                    {f"""<h3 style="color:#145466">✅ Closing Checklist</h3>
+                    {f"""<h3 style="color:#145466">Closing Checklist</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
                     <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No closing checklist items recorded.</em></p>"}
-                    {f"""<h3 style="color:#145466">⏱ Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
+                    {f"""<h3 style="color:#145466">Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
@@ -7023,7 +8495,10 @@ def kiosk_get_youth():
     # Get all active youth for today's events linked to this kiosk session
     youth = fetchall(conn, '''
         SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-               ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+               ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at,
+               (SELECT f.passphrase FROM youth_family_links yfl
+                JOIN families f ON f.id=yfl.family_id
+                WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase
         FROM youth_participants yp
         LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
             AND ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
@@ -7053,10 +8528,13 @@ def kiosk_youth_for_event(event_id):
     youth = []
 
     if evt.get('production_id'):
-        # Rising Stars production — get enrolled cast
+        # Rising Stars production  -  get enrolled cast
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    ypm.role,
+                   (SELECT f.passphrase FROM youth_family_links yfl
+                    JOIN families f ON f.id=yfl.family_id
+                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_production_members ypm
             JOIN youth_participants yp ON ypm.youth_id=yp.id
@@ -7066,10 +8544,13 @@ def kiosk_youth_for_event(event_id):
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
     elif evt.get('program_id'):
-        # Youth program — get enrolled participants
+        # Youth program  -  get enrolled participants
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    NULL as role,
+                   (SELECT f.passphrase FROM youth_family_links yfl
+                    JOIN families f ON f.id=yfl.family_id
+                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
             FROM youth_program_enrollments ype
             JOIN youth_participants yp ON ype.youth_id=yp.id
@@ -7337,7 +8818,7 @@ def portal_events_for_carpools():
             AND e.carpools_enabled = TRUE
             ORDER BY e.event_date, e.start_time LIMIT 30""")
     except Exception:
-        # carpools_enabled column may not exist yet on live DB — fall back gracefully
+        # carpools_enabled column may not exist yet on live DB  -  fall back gracefully
         events = []
     conn.close()
     return jsonify(events)
@@ -7383,10 +8864,13 @@ def pickup_queue():
     try:
         # Only show kids from OPEN events (or signed in within last 8 hours as fallback)
         individuals = fetchall(conn, """
-            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id
+            SELECT ysi.*, y.first_name, y.last_name, e.name as event_name, e.id as event_id,
+            f.passphrase as family_passphrase
             FROM youth_sign_ins ysi
             JOIN youth_participants y ON ysi.youth_id=y.id
             LEFT JOIN events e ON ysi.event_id=e.id
+            LEFT JOIN youth_family_links yfl ON yfl.youth_id=ysi.youth_id
+            LEFT JOIN families f ON f.id=yfl.family_id
             WHERE ysi.signed_out_at IS NULL
             AND (
                 (e.status = 'open')
@@ -7484,7 +8968,7 @@ def pickup_queue():
 
 @app.route('/api/pickup/clear', methods=['POST'])
 def pickup_clear():
-    """Sign out everyone currently waiting — used for manual clear at end of day."""
+    """Sign out everyone currently waiting  -  used for manual clear at end of day."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -7496,7 +8980,7 @@ def pickup_clear():
 
 @app.route('/api/pickup/cleanup', methods=['POST'])
 def pickup_cleanup():
-    """Clear orphaned sign-ins — kids stuck in deleted/closed events."""
+    """Clear orphaned sign-ins  -  kids stuck in deleted/closed events."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -7538,7 +9022,7 @@ def carpool_signout():
 
 
 # ─────────────────────────────────────────────
-#  MISSING ROUTES — added by audit
+#  MISSING ROUTES  -  added by audit
 # ─────────────────────────────────────────────
 
 # ── Notifications ──
@@ -7568,7 +9052,7 @@ def get_notifications():
                 'type':  'pending_hours',
                 'icon':  '⏱',
                 'color': 'amber',
-                'title': f'{ph["volunteer_name"] or "A volunteer"} — {ph["hours"]}h',
+                'title': f'{ph["volunteer_name"] or "A volunteer"}  -  {ph["hours"]}h',
                 'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
                          (' · Needs review (no event)' if is_override else ''),
                 'data':  ph,
@@ -7591,7 +9075,7 @@ def get_notifications():
                 'type':  'profile_update',
                 'icon':  '👤',
                 'color': 'blue',
-                'title': f'{p["volunteer_name"] or "A volunteer"} — profile update',
+                'title': f'{p["volunteer_name"] or "A volunteer"}  -  profile update',
                 'sub':   'Requested profile change awaiting review',
                 'data':  p,
             })
@@ -7611,7 +9095,7 @@ def get_notifications():
                 'type':  'hours_approved',
                 'icon':  '✅',
                 'color': 'green',
-                'title': f'{h["volunteer_name"] or "Volunteer"} — {h["hours"]}h approved',
+                'title': f'{h["volunteer_name"] or "Volunteer"}  -  {h["hours"]}h approved',
                 'sub':   f'{h["event"] or ""} · {h["date"] or ""}',
                 'data':  h,
             })
@@ -7635,7 +9119,7 @@ def email_send_report(rid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    # rid can be event_id — find the most recent close log
+    # rid can be event_id  -  find the most recent close log
     close_log = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
         v.name as elic_name
         FROM event_logs el
@@ -7673,7 +9157,7 @@ def email_send_report(rid):
         rows = ''.join(f'''<tr>
             <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
-                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response','—') or '—'))}
+                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
             </td></tr>''' for r in items)
         return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
@@ -7697,7 +9181,7 @@ def email_send_report(rid):
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">Event Report</div>
         <div style="font-size:22px;font-weight:800;margin:4px 0">🔒 {close_log.get('event_name','')}</div>
-        <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name','—') if open_log else '—'} &nbsp;·&nbsp; Closed by {close_log.get('elic_name','—')}</div>
+        <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name',' - ') if open_log else ' - '} &nbsp;·&nbsp; Closed by {close_log.get('elic_name',' - ')}</div>
     </div>
     <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px">
@@ -7718,9 +9202,9 @@ def email_send_report(rid):
         {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
         {hours_html}
     </div>
-    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall — Horizon West Theatre Company</p>
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theatre Company</p>
     </div>'''
-    subject = f'Event Report: {close_log.get("event_name","")} — {close_log.get("event_date","")}'
+    subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
     fi = (request.json or {}).get('from_identity') or {}
     ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
@@ -8140,10 +9624,47 @@ def get_program_enrolled(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT ype.*, y.first_name, y.last_name
-        FROM youth_program_enrollments ype
-        JOIN youth_participants y ON ype.youth_id=y.id
-        WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    try:
+        # Step 1: guaranteed columns only (no optional ones)
+        rows = fetchall(conn, '''SELECT ype.id as enrollment_id, ype.youth_id, ype.program_id,
+            ype.enrolled_date, ype.notes, ype.created_at,
+            y.first_name, y.last_name, y.dob,
+            y.portal_last_login
+            FROM youth_program_enrollments ype
+            JOIN youth_participants y ON ype.youth_id=y.id
+            WHERE ype.program_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+        # Try to add optional columns one at a time
+        for row in rows:
+            row.setdefault('shirt_size', '')
+            row.setdefault('portal_last_login', None)
+            row.setdefault('family_passphrase', None)
+            row.setdefault('family_name', None)
+            row.setdefault('youth_id', row.get('youth_id'))
+        # Attempt to enrich with shirt_size and portal_last_login
+        try:
+            enriched = fetchall(conn, '''SELECT ype.id as enrollment_id,
+                y.shirt_size, y.portal_last_login,
+                (SELECT f.passphrase FROM youth_family_links yfl
+                 JOIN families f ON f.id=yfl.family_id
+                 WHERE yfl.youth_id=y.id LIMIT 1) as family_passphrase,
+                (SELECT f.name FROM youth_family_links yfl
+                 JOIN families f ON f.id=yfl.family_id
+                 WHERE yfl.youth_id=y.id LIMIT 1) as family_name
+                FROM youth_program_enrollments ype
+                JOIN youth_participants y ON ype.youth_id=y.id
+                WHERE ype.program_id=%s''', (pid,))
+            enriched_map = {r['enrollment_id']: r for r in enriched}
+            for row in rows:
+                extra = enriched_map.get(row['enrollment_id'], {})
+                row['shirt_size'] = extra.get('shirt_size') or ''
+                row['portal_last_login'] = extra.get('portal_last_login')
+                row['family_passphrase'] = extra.get('family_passphrase')
+                row['family_name'] = extra.get('family_name')
+        except Exception as enrich_err:
+            app.logger.warning(f'get_program_enrolled enrich failed (non-fatal): {enrich_err}')
+    except Exception as e:
+        app.logger.error(f'get_program_enrolled error: {e}')
+        rows = []
     conn.close()
     return jsonify(rows)
 
@@ -8152,12 +9673,17 @@ def enroll_in_program(pid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
-        VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
-        (eid, d.get('youth_id'), pid,
-         d.get('enrolled_date',''), d.get('notes','')))
+    # Supports both single youth_id and bulk youth_ids array
+    youth_ids = d.get('youth_ids') or ([d.get('youth_id')] if d.get('youth_id') else [])
+    enrolled_date = d.get('enrolled_date', '') or ''
+    notes = d.get('notes', '') or ''
+    for yid in youth_ids:
+        if not yid: continue
+        eid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO youth_program_enrollments (id,youth_id,program_id,enrolled_date,notes)
+            VALUES (%s,%s,%s,%s,%s) ON CONFLICT (youth_id,program_id) DO NOTHING''',
+            (eid, yid, pid, enrolled_date, notes))
     conn.commit()
     row = fetchone(conn, '''SELECT ype.*, y.first_name, y.last_name, yp.name as program_name
         FROM youth_program_enrollments ype
@@ -8215,7 +9741,7 @@ def toggle_waiver_required(tid):
     err = require_admin()
     if err: return err
     conn = get_db()
-    # Toggle both columns — required_for_volunteering is used by kiosk, required_all by admin UI
+    # Toggle both columns  -  required_for_volunteering is used by kiosk, required_all by admin UI
     execute(conn, '''UPDATE waiver_types
         SET required_for_volunteering = NOT COALESCE(required_for_volunteering, FALSE),
             required_all = NOT COALESCE(required_all, FALSE)
@@ -8295,7 +9821,7 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-# ── Global error handlers — return JSON for all API errors ──
+# ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
 def internal_error(e):
     app.logger.error(f'500: {e}')
@@ -8458,7 +9984,7 @@ def add_manual_rsvp(eid):
     # Check not already in the list
     existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, vol_id))
     if existing:
-        # Already exists — just mark them as confirmed
+        # Already exists  -  just mark them as confirmed
         execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (existing['id'],))
         conn.commit()
         row = fetchone(conn, '''SELECT er.*, v.name as vol_name, v.email as volunteer_email
@@ -8561,14 +10087,9 @@ def send_rsvp_invite(eid):
         if existing and existing.get('last_invited_at') and not force_resend:
             from datetime import datetime as _dt2
             last_sent = existing['last_invited_at']
-            try:
-                if isinstance(last_sent, str):
-                    last_sent = _dt2.fromisoformat(last_sent.replace('Z', '+00:00'))
-                if hasattr(last_sent, 'tzinfo') and last_sent.tzinfo:
-                    last_sent = last_sent.replace(tzinfo=None)
-            except Exception:
-                last_sent = _dt2.utcnow()
-            diff = (_dt2.utcnow() - last_sent).total_seconds()
+            last_sent_dt = parse_db_datetime(last_sent)
+            if last_sent_dt is None: last_sent_dt = _dt2.utcnow()
+            diff = (_dt2.utcnow() - last_sent_dt).total_seconds()
             if diff < 86400:  # 24 hours
                 skipped += 1
                 skipped_names.append(v['name'])
@@ -8618,14 +10139,14 @@ def send_rsvp_invite(eid):
             </div>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
             <p style="font-size:12px;color:#9ca3af;margin:0">
-              If you're unable to attend, no action is needed — we only want to hear from those who can volunteer.<br>
+              If you're unable to attend, no action is needed  -  we only want to hear from those who can volunteer.<br>
               This invitation was sent to {v['email']} by Horizon West Theater Company.
             </p>
           </div>
         </div>'''
 
+        fi = d.get('from_identity') or {}
         try:
-            fi = d.get('from_identity') or {}
             send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
@@ -8658,7 +10179,7 @@ def rsvp_page(token):
           <div style="font-size:48px;margin-bottom:16px">🚫</div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
-          <p style="color:#6b7280">Thank you for your interest — please check back for future events from Horizon West Theater Company.</p>
+          <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
         </body></html>'''
 
     # Already signed up
@@ -8670,7 +10191,7 @@ def rsvp_page(token):
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
           <div style="font-size:48px;margin-bottom:16px">✅</div>
           <h2 style="color:#145466">You're already signed up!</h2>
-          <p>Thanks {rsvp.get("volunteer_name","")} — we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p>Thanks {rsvp.get("volunteer_name","")}  -  we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
           {role_line}
           <p style="color:#888">We'll be in touch with more details.</p>
         </body></html>'''
@@ -8704,13 +10225,13 @@ def rsvp_page(token):
                 </div>
             </label>'''
 
-        return f'''<html><head><title>Sign Up — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
           <div style="text-align:center;margin-bottom:28px">
             <div style="font-size:40px;margin-bottom:12px">✋</div>
             <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
-            <p style="color:#555">Hi {vol_name} — choose your role for:</p>
+            <p style="color:#555">Hi {vol_name}  -  choose your role for:</p>
             <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
               <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
               {f'<div style="color:#555;margin-top:4px">{date_str}</div>' if date_str else ''}
@@ -8727,16 +10248,16 @@ def rsvp_page(token):
           <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
         </body></html>'''
     else:
-        # No roles — just confirm directly
+        # No roles  -  just confirm directly
         conn2 = get_db()
         execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
         conn2.commit(); conn2.close()
-        return f'''<html><head><title>RSVP Confirmed — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
           <div style="font-size:48px;margin-bottom:16px">🎉</div>
           <h2 style="color:#145466">You're in!</h2>
-          <p>Thanks {vol_name} — we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
+          <p>Thanks {vol_name}  -  we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
           <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
         </body></html>'''
 
@@ -8757,7 +10278,7 @@ def rsvp_submit(token):
           <div style="font-size:48px;margin-bottom:16px">🚫</div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
-          <p style="color:#6b7280">Thank you for your interest — please check back for future events.</p>
+          <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
         </body></html>'''
 
     role_name = ''
@@ -8799,7 +10320,7 @@ def rsvp_submit(token):
                 filled_now = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
                 if filled_now and role_row and int(filled_now['c']) >= int(role_row['slots']):
-                    send_email(recipients, f'Role Filled: {role_name} — {evt_name}',
+                    send_email(recipients, f'Role Filled: {role_name}  -  {evt_name}',
                         f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> role for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
@@ -9039,7 +10560,7 @@ def create_board_meeting():
                   </div>
                 </div>'''
                 fi = d.get('from_identity') or {}
-                send_email([m['email']], f'Board Meeting — {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
+                send_email([m['email']], f'Board Meeting  -  {friendly_date}', body, fi.get('email') or None, fi.get('name') or None)
     except Exception as e:
         app.logger.warning(f'Board meeting email notification failed: {e}')
     conn.close()
@@ -9125,9 +10646,9 @@ def send_board_availability_request():
                 .replace('{{link}}', link)
             subj = tmpl['subject'].replace('{{month}}', month_name_str).replace('{{year}}', str(year))
         else:
-            subj = f'Board Meeting Availability — {month_name_str} {year}'
+            subj = f'Board Meeting Availability  -  {month_name_str} {year}'
             body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
-          <h2 style="color:#145466">Board Meeting Availability — {month_name_str} {year}</h2>
+          <h2 style="color:#145466">Board Meeting Availability  -  {month_name_str} {year}</h2>
           <p>Hi {m['name']},</p>
           <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
           <div style="text-align:center;margin:28px 0">
@@ -9213,7 +10734,7 @@ def board_availability_form(token):
     month_name = ['','January','February','March','April','May','June',
                   'July','August','September','October','November','December'][int(record['month'])]
     return f'''<!DOCTYPE html>
-<html><head><title>Board Availability — {month_name} {record['year']}</title>
+<html><head><title>Board Availability  -  {month_name} {record['year']}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
@@ -9348,14 +10869,14 @@ def send_single_giving_reminder(vol_id):
     conn2.close()
     conn.close()
     if not hours_section:
-        return jsonify({'error': 'No hours logged in the last year — nothing to remind about'}), 400
+        return jsonify({'error': 'No hours logged in the last year  -  nothing to remind about'}), 400
     name = (v.get('name') or 'Volunteer').strip()
     if tmpl:
         base_body = tmpl['body'].replace('{{name}}', name)
         subj = tmpl['subject']
     else:
         base_body = f'<p>Hi {name}, please submit your hours to {submit_name}.</p>'
-        subj = f'{icon} Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+        subj = f'{icon} Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
     # Inject hours table before the last closing div
     if '</div>' in base_body:
         idx = base_body.rfind('</div>')
@@ -9363,6 +10884,7 @@ def send_single_giving_reminder(vol_id):
     else:
         body = base_body + hours_section
     conn3 = get_db()
+    d = request.json or {}
     fi = d.get('from_identity') or {}
     ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
     if ok:
@@ -9390,15 +10912,15 @@ def build_hours_section(conn, vol_id, submit_name, submit_link):
     total = sum(float(h.get('hours') or 0) for h in hours)
     def row_bg(i): return 'background:#f9fafb' if i % 2 else ''
     rows = ''.join(f'''<tr style="border-bottom:1px solid #e5e7eb;{row_bg(i)}">
-        <td style="padding:7px 10px">{h.get('event') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or '—'}</td>
-        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or '—'}</td>
+        <td style="padding:7px 10px">{h.get('event') or ' - '}</td>
+        <td style="padding:7px 10px;color:#6b7280;white-space:nowrap">{h.get('date') or ' - '}</td>
+        <td style="padding:7px 10px;color:#6b7280">{h.get('role') or ' - '}</td>
         <td style="padding:7px 10px;font-weight:600;text-align:right;white-space:nowrap">{float(h.get('hours') or 0):.1f}h</td>
     </tr>''' for i, h in enumerate(hours))
     section = f'''
 <div style="margin:24px 0;font-family:-apple-system,sans-serif">
   <div style="background:#f0f8fa;border-left:4px solid #145466;padding:14px 18px;border-radius:0 8px 8px 0;margin-bottom:16px">
-    <strong style="font-size:14px;color:#145466">Your recent volunteer hours — {total:.1f}h total</strong>
+    <strong style="font-size:14px;color:#145466">Your recent volunteer hours  -  {total:.1f}h total</strong>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb">
     <thead>
@@ -9496,20 +11018,13 @@ def send_employer_program_reminder():
         if v.get('last_sent'):
             from datetime import datetime, timezone
             last = v['last_sent']
-            try:
-                # Normalise to a naive datetime regardless of whether it came back
-                # as a datetime object or a string (psycopg2 MAX() returns strings)
-                if isinstance(last, str):
-                    last = datetime.fromisoformat(last.replace('Z', '+00:00'))
-                if hasattr(last, 'tzinfo') and last.tzinfo:
-                    last = last.replace(tzinfo=None)
-                diff = (datetime.utcnow() - last).days
+            last_dt = parse_db_datetime(last)
+            if last_dt is not None:
+                diff = (datetime.utcnow() - last_dt).days
                 if diff < min_days:
                     skipped += 1
                     skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')
                     continue
-            except Exception:
-                pass  # If we can't parse the date, don't skip
         prog = (v.get('employer_program') or '').strip()
         is_disney = 'disney' in prog.lower()
         submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
@@ -9525,7 +11040,7 @@ def send_employer_program_reminder():
             subj = tmpl['subject']
         else:
             prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-            subj = f'Reminder: Submit Your Volunteer Hours — {prog_label} Giving Program'
+            subj = f'Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
             base_body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
         # Inject hours table before closing div
         if hours_section:
@@ -9559,3 +11074,2193 @@ if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  SQUARE INTEGRATION & REGISTRATION SYSTEM
+# ═══════════════════════════════════════════════════════════════════════
+
+SQUARE_ACCESS_TOKEN = os.environ.get('SQUARE_ACCESS_TOKEN', '')
+SQUARE_LOCATION_ID  = os.environ.get('SQUARE_LOCATION_ID', '')
+SQUARE_WEBHOOK_SIG  = os.environ.get('SQUARE_WEBHOOK_SIGNATURE_KEY', '')
+SQUARE_ENV          = os.environ.get('SQUARE_ENV', 'sandbox')  # 'sandbox' or 'production'
+SQUARE_API_BASE     = 'https://connect.squareup.com' if SQUARE_ENV == 'production' else 'https://connect.squareupsandbox.com'
+APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org')
+
+def square_headers():
+    return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note=''):
+    """Create a Square hosted checkout link for a registration."""
+    import uuid as _uuid
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        app.logger.error('Square not configured: SQUARE_ACCESS_TOKEN or SQUARE_LOCATION_ID missing')
+        return None, None, None
+    redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
+    payload = {
+        'idempotency_key': str(_uuid.uuid4()),
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': [
+                {
+                    'catalog_object_id': program.get('square_catalog_item_id'),
+                    'quantity': '1',
+                } if program.get('square_catalog_item_id') else {
+                    'name': program['name'][:191],
+                    'quantity': '1',
+                    'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
+                }
+            ],
+            'reference_id': registration_id[:40],
+        },
+        'checkout_options': {
+            'redirect_url': redirect_url,
+            'ask_for_shipping_address': False,
+        },
+        'pre_populated_data': {
+            'buyer_email': guardian_email or '',
+        },
+        'description': (note or f'Registration: {registration_id}')[:255],
+    }
+    try:
+        r = requests.post(
+            f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        app.logger.info(f'Square payment link response {r.status_code}: {str(data)[:300]}')
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            return lnk.get('url'), lnk.get('id'), lnk.get('order_id')
+        app.logger.error(f'Square payment link failed {r.status_code}: {data}')
+        return None, None, None
+    except Exception as e:
+        app.logger.error(f'Square payment link exception: {e}')
+        return None, None, None
+
+
+def get_program_by_slug(slug):
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    conn.close()
+    return p
+
+
+def get_registration_count(conn, program_id):
+    r = fetchone(conn, "SELECT COUNT(*) as c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (program_id,))
+    return r['c'] if r else 0
+
+
+def get_waitlist_count(conn, program_id):
+    r = fetchone(conn, "SELECT COUNT(*) as c FROM program_registrations WHERE program_id=%s AND status='waitlisted'", (program_id,))
+    return r['c'] if r else 0
+
+
+def next_waitlist_position(conn, program_id):
+    r = fetchone(conn, 'SELECT MAX(waitlist_position) as m FROM program_registrations WHERE program_id=%s AND status=%s', (program_id,'waitlisted'))
+    return (r['m'] or 0) + 1 if r else 1
+
+
+def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
+    """Mark registration confirmed and create participant/family records."""
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
+    if not reg: return
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],))
+
+    # Update registration
+    execute(conn, '''UPDATE program_registrations SET status='confirmed',
+        square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
+        (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
+
+    # Find or create youth participant
+    youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+        JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+        JOIN families f ON f.id=yfl.family_id
+        WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+        (reg['guardian_email'], reg['child_first_name'] or '', reg['child_last_name'] or ''))
+
+    if not youth and reg.get('child_first_name'):
+        import uuid as _uuid2
+        yid = str(_uuid2.uuid4())
+        execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+            VALUES (%s,%s,%s,%s,%s)''',
+            (yid, reg['child_first_name'], reg['child_last_name'] or '',
+             reg.get('child_dob') or None, reg.get('shirt_size') or ''))
+        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+
+    if youth:
+        # Find or create family
+        family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
+        if not family:
+            import uuid as _uuid3
+            import random, string
+            passphrase = '-'.join([''.join(random.choices(string.ascii_lowercase, k=4)) for _ in range(3)])
+            fid = str(_uuid3.uuid4())
+            execute(conn, '''INSERT INTO families (id, name, email, passphrase)
+                VALUES (%s,%s,%s,%s)''',
+                (fid, reg.get('guardian_name') or reg['guardian_email'], reg['guardian_email'], passphrase))
+            family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
+
+        # Link youth to family
+        try:
+            execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+                (youth['id'], family['id']))
+        except Exception: pass
+
+        # Add guardian if not exists
+        existing_g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s', (youth['id'],))
+        if not existing_g and reg.get('guardian_name'):
+            import uuid as _uuid4
+            execute(conn, '''INSERT INTO youth_guardians (id, youth_id, first_name, last_name, email, phone, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,TRUE)''',
+                (str(_uuid4.uuid4()), youth['id'],
+                 reg['guardian_name'].split()[0] if reg.get('guardian_name') else '',
+                 ' '.join(reg['guardian_name'].split()[1:]) if reg.get('guardian_name') and len(reg['guardian_name'].split()) > 1 else '',
+                 reg['guardian_email'], reg.get('guardian_phone') or ''))
+
+        # Enroll in program
+        if prog:
+            try:
+                import uuid as _uuid5
+                execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                    (str(_uuid5.uuid4()), youth['id'], prog['id'], f'Online registration #{reg_id[:8]}'))
+            except Exception as e:
+                app.logger.warning(f'Enrollment insert: {e}')
+
+        # Update registration with youth/family IDs
+        execute(conn, 'UPDATE program_registrations SET youth_id=%s, family_id=%s WHERE id=%s',
+            (youth['id'], family['id'], reg_id))
+
+    # ── Create profiles for siblings (additional children in same order) ──
+    import json as _json_sib
+    siblings_raw = reg.get('siblings_json') or '[]'
+    try:
+        siblings = _json_sib.loads(siblings_raw)
+    except Exception:
+        siblings = []
+
+    for sib in (siblings or []):
+        sib_first = (sib.get('first_name') or '').strip()
+        sib_last = (sib.get('last_name') or '').strip()
+        if not sib_first:
+            continue
+        # Same family email lookup as primary child
+        sib_youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+            JOIN youth_family_links yfl ON yfl.youth_id=yp.id
+            JOIN families f ON f.id=yfl.family_id
+            WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+            (reg['guardian_email'], sib_first, sib_last))
+        if not sib_youth:
+            import uuid as _uuid_s
+            syid = str(_uuid_s.uuid4())
+            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+                VALUES (%s,%s,%s,%s,%s)''',
+                (syid, sib_first, sib_last,
+                 sib.get('dob') or None, sib.get('shirt_size') or ''))
+            sib_youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (syid,))
+        if sib_youth:
+            # Ensure family exists (will have been created for primary child above)
+            sib_family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
+            if sib_family:
+                try:
+                    execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+                        (sib_youth['id'], sib_family['id']))
+                except Exception: pass
+            if prog:
+                try:
+                    import uuid as _uuid_se
+                    execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
+                        VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                        (str(_uuid_se.uuid4()), sib_youth['id'], prog['id'], f'Online registration (sibling) #{reg_id[:8]}'))
+                except Exception as e:
+                    app.logger.warning(f'Sibling enrollment insert: {e}')
+
+    conn.commit()
+
+
+# ── Public registration page ──────────────────────────────────────────────────
+
+@app.route('/register/<slug>')
+def public_register_page(slug):
+    """Public-facing registration / interest list page."""
+    return send_from_directory('static', 'register.html')
+
+@app.route('/register/production/<slug>')
+def public_register_production_page(slug):
+    """Public-facing production registration page."""
+    return send_from_directory('static', 'register.html')
+
+@app.route('/register/<slug>/confirmation')
+def public_register_confirmation(slug):
+    return send_from_directory('static', 'register.html')
+
+@app.route('/register/production/<slug>/confirmation')
+def public_register_production_confirmation(slug):
+    return send_from_directory('static', 'register.html')
+
+
+@app.route('/api/public/program/<slug>')
+def public_program_info(slug):
+    """Public program info — no auth needed."""
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not p:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    # Attach counts
+    p['registration_count'] = get_registration_count(conn, p['id'])
+    p['waitlist_count'] = get_waitlist_count(conn, p['id'])
+    p['spots_remaining'] = max(0, (p.get('capacity') or 999) - p['registration_count']) if p.get('capacity') else None
+    # Attach instructor name
+    if p.get('instructor_id'):
+        v = fetchone(conn, 'SELECT name, bio, photo_url FROM volunteers WHERE id=%s', (p['instructor_id'],))
+        if v:
+            p['instructor_name'] = v['name']
+            p['instructor_bio'] = v.get('bio') or ''
+            p['instructor_photo'] = v.get('photo_url') or ''
+    conn.close()
+    # Remove internal fields
+    # Parse JSON fields
+    for k in ['custom_fields','program_images','interest_list_fields','meeting_days']:
+        if p.get(k):
+            try: p[k] = json.loads(p[k])
+            except: p[k] = []
+    if p.get('form_fields'):
+        try: p['form_fields'] = json.loads(p['form_fields'])
+        except: p['form_fields'] = {}
+    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
+        p.pop(k, None)
+    return jsonify(p)
+
+
+@app.route('/api/public/program/<slug>/register', methods=['POST'])
+def public_submit_registration(slug):
+    """Submit a registration or interest list entry."""
+    d = request.json or {}
+    conn = get_db()
+    p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if not p:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    reg_type = d.get('type', 'registration')  # 'registration' or 'interest'
+    email = (d.get('guardian_email') or d.get('email') or '').strip().lower()
+    if not email:
+        conn.close()
+        return jsonify({'error': 'Email is required'}), 400
+
+    # ── Interest list ──────────────────────────────────────────────────
+    if reg_type == 'interest' or p.get('registration_status') == 'interest_list':
+        try:
+            import uuid as _u
+            execute(conn, '''INSERT INTO interest_list_entries
+                (id, program_id, name, email, phone, child_name, child_age, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (program_id, email) DO UPDATE SET
+                    name=EXCLUDED.name, phone=EXCLUDED.phone,
+                    child_name=EXCLUDED.child_name, child_age=EXCLUDED.child_age,
+                    notes=EXCLUDED.notes''',
+                (_u.uuid4().hex, p['id'], d.get('name','').strip(), email,
+                 d.get('phone','').strip() or None,
+                 d.get('child_name','').strip() or None,
+                 d.get('child_age','').strip() or None,
+                 d.get('notes','').strip() or None))
+            conn.commit()
+            # Notify admin
+            try:
+                s = get_email_settings(conn)
+                recipients = list(get_recipient_emails(s))
+                if recipients:
+                    send_email(recipients, f'Interest List: {p["name"]} — {d.get("name","")}',
+                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>')
+            except Exception: pass
+            # Thank-you email to the family
+            try:
+                submitter_name = (d.get('name') or '').strip().split()[0] or 'there'
+                child_name = (d.get('child_name') or '').strip()
+                send_email([email], f'You\'re on the interest list — {p["name"]}',
+                    f'<div style="font-family:-apple-system,\'DM Sans\',sans-serif;max-width:560px;margin:0 auto;color:#1a2332">'
+                    f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                    f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto"/>'
+                    f'</div>'
+                    f'<div style="background:#fff;padding:28px 28px 24px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                    f'<h2 style="color:#0d3d4d;font-size:20px;margin:0 0 12px">You\'re on the list!</h2>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">Hi {submitter_name},</p>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">'
+                    f'Thanks for your interest in <strong>{p["name"]}</strong>{"!" if not child_name else f" for <strong>{child_name}</strong>!"} '
+                    f'We\'ve added you to our interest list and will reach out as soon as registration opens.</p>'
+                    f'<p style="color:#374151;line-height:1.6;margin:0 0 24px">'
+                    f'We\'ll also send you a direct link to register when the time comes, so keep an eye on your inbox.</p>'
+                    f'<div style="background:#f0f9ff;border-left:4px solid #145466;padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:24px">'
+                    f'<div style="font-size:13px;color:#145466;font-weight:700;margin-bottom:4px">Program</div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#0d3d4d">{p["name"]}</div>'
+                    f'</div>'
+                    f'<p style="color:#6b7280;font-size:13px;margin:0">Questions? Reply to this email or visit '
+                    f'<a href="https://hwtco.org" style="color:#145466">hwtco.org</a>.</p>'
+                    f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">'
+                    f'Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                    f'</div></div>')
+            except Exception as e:
+                app.logger.warning(f'Interest list thank-you email failed: {e}')
+            conn.close()
+            return jsonify({'ok': True, 'type': 'interest'})
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 500
+
+    # ── Registration ───────────────────────────────────────────────────
+    if p.get('registration_status') not in ('open',):
+        conn.close()
+        return jsonify({'error': 'Registrations are not currently open for this program'}), 400
+
+    # Check capacity
+    reg_count = get_registration_count(conn, p['id'])
+    cap = p.get('capacity')
+    is_full = cap and reg_count >= cap
+
+    import uuid as _u2
+    rid = _u2.uuid4().hex
+
+    if is_full:
+        # Waitlist
+        wpos = next_waitlist_position(conn, p['id'])
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status, waitlist_position,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone,
+             emergency_contact_name, emergency_contact_phone, notes)
+            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, p['id'], wpos,
+             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
+             d.get('child_dob') or None, d.get('shirt_size') or None,
+             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+             d.get('emergency_contact_name','').strip() or None,
+             d.get('emergency_contact_phone','').strip() or None,
+             d.get('notes','').strip() or None))
+        conn.commit()
+        # Email confirmation
+        try:
+            send_email([email], f'You\'re on the waitlist — {p["name"]}',
+                f'<p>Hi {d.get("guardian_name","")},</p>'
+                f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
+                f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
+                f'<p>Horizon West Theatre Company</p>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
+
+    # Available spot
+    price = p.get('price') or 0
+
+    # Sessions
+    import json as _json2
+    session_ids = d.get('session_ids') or []
+    if not isinstance(session_ids, list): session_ids = []
+    sessions_enabled = bool(p.get('sessions_enabled'))
+    session_rows = []
+    session_price_total = 0  # price per participant from sessions
+    if sessions_enabled and session_ids:
+        for sid in session_ids:
+            sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
+                (sid, p['id'], 'open'))
+            if sr:
+                session_rows.append(sr)
+                sp = sr.get('price_override') if sr.get('price_override') is not None else price
+                session_price_total += sp
+        # When sessions are used, effective per-participant price = sum of selected session prices
+        price = session_price_total
+
+    # Siblings (additional children in same order)
+    siblings = d.get('siblings') or []
+    if not isinstance(siblings, list):
+        siblings = []
+    participant_count = 1 + len(siblings)
+    basket = price * participant_count
+
+    # Apply promo discount code
+    discount_amount = 0
+    discount_code = (d.get('discount_code') or '').strip().upper()
+    if discount_code and price > 0:
+        dc = fetchone(conn, '''SELECT * FROM discount_codes
+            WHERE program_id=%s AND code=%s AND active=TRUE''', (p['id'], discount_code))
+        if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+            min_spend = dc.get('min_spend') or 0
+            if not (min_spend > 0 and basket < min_spend):
+                is_sib_code = bool(dc.get('is_sibling_discount'))
+                if is_sib_code and participant_count >= 2:
+                    per_child = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                    discount_amount = per_child * (participant_count - 1)
+                elif not is_sib_code:
+                    if dc['discount_type'] == 'percent':
+                        discount_amount = int(basket * dc['discount_value'] / 100)
+                    else:
+                        discount_amount = min(dc['discount_value'] * participant_count, basket)
+                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+        else:
+            discount_code = ''  # invalid, ignore
+
+    # Program-level automatic sibling discount
+    sibling_discount_amount = 0
+    if p.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+        sib_type = p.get('sibling_discount_type') or 'percent'
+        sib_val = p.get('sibling_discount_value') or 0
+        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+        sibling_discount_amount = per_sib * (participant_count - 1)
+
+    # Deposit payment plan
+    deposit = p.get('deposit_amount') or 0
+    effective_price = max(0, basket - discount_amount - sibling_discount_amount)
+    use_deposit = deposit > 0 and effective_price > deposit and d.get('payment_type') == 'deposit'
+    charge_now = deposit if use_deposit else effective_price
+    balance_due = max(0, effective_price - deposit) if use_deposit else 0
+
+    def insert_reg(status, extra_cols='', extra_vals=()):
+        execute(conn, f'''INSERT INTO program_registrations
+            (id, program_id, registration_type, status,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone,
+             emergency_contact_name, emergency_contact_phone, notes,
+             allergies, pickup_contacts, photo_consent, pronouns,
+             discount_code, discount_amount, sibling_discount_amount,
+             participant_count, siblings_json, session_ids,
+             payment_type, balance_due{', '+extra_cols if extra_cols else ''})
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            (rid, p['id'], status,
+             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
+             d.get('child_dob') or None, d.get('shirt_size') or None,
+             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+             d.get('emergency_contact_name','').strip() or None,
+             d.get('emergency_contact_phone','').strip() or None,
+             d.get('notes','').strip() or None,
+             d.get('allergies','').strip() or None,
+             d.get('pickup_contacts','').strip() or None,
+             bool(d.get('photo_consent')),
+             d.get('pronouns','').strip() or None,
+             discount_code or None, discount_amount, sibling_discount_amount,
+             participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
+             'deposit' if use_deposit else 'full', balance_due) + extra_vals)
+
+    if charge_now == 0:
+        insert_reg('confirmed')
+        finalize_registration(conn, rid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': rid})
+
+    insert_reg('pending_payment')
+    conn.commit()
+
+    note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}'
+    if session_rows:
+        note += ' (' + ', '.join(sr['name'] for sr in session_rows) + ')'
+    if participant_count > 1:
+        note += f' x{participant_count} participants'
+    if use_deposit:
+        note += f' (deposit ${deposit/100:.2f})'
+    pay_url, link_id, order_id = square_create_payment_link(
+        p, rid, email, d.get('guardian_name',''), charge_now, note=note)
+
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+
+    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+        (link_id, order_id, rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': pay_url,
+                    'registration_id': rid, 'charge_now': charge_now,
+                    'balance_due': balance_due, 'use_deposit': use_deposit})
+
+
+@app.route('/api/square/webhook', methods=['POST'])
+def square_webhook():
+    """Handle Square payment webhooks."""
+    # Verify signature
+    sig = request.headers.get('X-Square-Hmacsha256-Signature', '')
+    body = request.get_data(as_text=True)
+    if SQUARE_WEBHOOK_SIG:
+        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode(), (SQUARE_API_BASE + '/api/square/webhook' + body).encode(), hashlib.sha256).digest()
+        import base64 as _b64
+        expected_b64 = _b64.b64encode(expected).decode()
+        if not hmac.compare_digest(sig, expected_b64):
+            return jsonify({'error': 'Invalid signature'}), 401
+
+    event = request.json or {}
+    event_type = event.get('type', '')
+    app.logger.info(f'Square webhook: {event_type}')
+
+    if event_type in ('payment.completed', 'payment.updated'):
+        obj = event.get('data', {}).get('object', {}).get('payment', {})
+        payment_id = obj.get('id')
+        order_id = obj.get('order_id')
+        status = obj.get('status')
+        amount_cents = obj.get('amount_money', {}).get('amount', 0)
+        if status == 'COMPLETED' and order_id:
+            conn = get_db()
+            # Check registrations first
+            reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                (order_id, order_id))
+            if reg and reg['status'] == 'pending_payment':
+                finalize_registration(conn, reg['id'], payment_id, order_id)
+            elif reg and reg['status'] == 'waitlisted':
+                execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                    (payment_id, reg['id']))
+                finalize_registration(conn, reg['id'], payment_id, order_id)
+                conn.commit()
+            else:
+                # Check cart orders
+                import json as _jw
+                cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    (order_id, order_id))
+                if cart:
+                    execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                    try:
+                        items = _jw.loads(cart.get('items_json') or '[]')
+                    except Exception:
+                        items = []
+                    for it in items:
+                        rid = it.get('registration_id')
+                        if rid:
+                            reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                            if reg2 and reg2['status'] == 'pending_payment':
+                                finalize_registration(conn, rid, payment_id, order_id)
+                    conn.commit()
+                else:
+                    # Check pending donations
+                    don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                        (order_id, order_id))
+                    if don:
+                        finalize_donation(conn, don['id'], payment_id, amount_cents)
+            conn.close()
+
+    return jsonify({'ok': True})
+
+
+def finalize_donation(conn, pending_id, payment_id, amount_cents):
+    """Convert a pending donation into a donor_donations record."""
+    import uuid as _ud
+    don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (pending_id,))
+    if not don:
+        return
+    execute(conn, "UPDATE pending_donations SET status='completed' WHERE id=%s", (pending_id,))
+    email = (don.get('email') or '').strip().lower()
+    name = (don.get('name') or '').strip()
+    amount = (amount_cents or don.get('amount_cents') or 0) / 100.0
+    today = __import__('datetime').date.today().isoformat()
+    # Find or create donor
+    donor = fetchone(conn, 'SELECT * FROM donors WHERE LOWER(email)=LOWER(%s)', (email,))
+    if not donor:
+        did = str(_ud.uuid4())
+        execute(conn, '''INSERT INTO donors (id, type, display_name, email, status, created_at)
+            VALUES (%s,'individual',%s,%s,'active',NOW())''', (did, name, email))
+        donor = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (did,))
+    # Log donation
+    execute(conn, '''INSERT INTO donor_donations
+        (id, donor_id, amount, donation_date, type, payment_status, notes, created_at)
+        VALUES (%s,%s,%s,%s,'square','received',%s,NOW())''',
+        (str(_ud.uuid4()), donor['id'], amount, today,
+         f'Online donation via Marquee — Square payment {payment_id}' + (f' — {don["message"]}' if don.get('message') else '')))
+    recalc_donor_totals(conn, donor['id'])
+    conn.commit()
+    app.logger.info(f'Donation finalized: ${amount:.2f} from {email}')
+
+
+# ── Rising Stars Production Registration Routes ──────────────────────────────
+
+def _prod_to_public(prod, conn):
+    """Convert a production row to the same shape as public_program_info."""
+    import json as _j
+    for k in ['program_images', 'custom_fields', 'form_fields', 'meeting_days']:
+        v = prod.get(k)
+        if v:
+            try:
+                prod[k] = _j.loads(v)
+            except Exception:
+                prod[k] = [] if k != 'form_fields' else {}
+        else:
+            prod[k] = [] if k != 'form_fields' else {}
+    reg_count = (fetchone(conn, """SELECT COUNT(*) AS c FROM program_registrations
+        WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')""",
+        (prod['id'],)) or {}).get('c', 0)
+    prod['registration_count'] = reg_count
+    prod['spots_remaining'] = max(0, (prod['capacity'] or 999) - reg_count) if prod.get('capacity') else None
+    prod['_context'] = 'production'
+    return prod
+
+
+@app.route('/api/public/production/<slug>')
+def public_production_info(slug):
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    result = _prod_to_public(dict(prod), conn)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/public/production/<slug>/validate-discount', methods=['POST'])
+def validate_production_discount(slug):
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'valid': False, 'error': 'Production not found'})
+    dc = fetchone(conn, "SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE", (prod['id'], code))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    price = prod.get('price') or 0
+    num_regs = int(d.get('num_registrations') or 1)
+    basket = price * num_regs
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum spend of ${min_spend/100:.2f}'})
+    is_sib = bool(dc.get('is_sibling_discount'))
+    if is_sib:
+        if num_regs < 2:
+            return jsonify({'valid': False, 'error': 'Sibling discount requires 2+ participants'})
+        per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+        discount_amount = per * (num_regs - 1)
+        label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
+    else:
+        if dc['discount_type'] == 'percent':
+            discount_amount = int(basket * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off'
+        else:
+            discount_amount = min(dc['discount_value'] * num_regs, basket)
+            label = f'${dc["discount_value"]/100:.2f} off'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    return jsonify({'valid': True, 'discount_amount': discount_amount,
+                    'final_price': max(0, basket - discount_amount),
+                    'is_sibling': is_sib, 'label': label})
+
+
+@app.route('/api/public/production/<slug>/register', methods=['POST'])
+def public_register_production(slug):
+    import json as _jc2, uuid as _uc2
+    d = request.json or {}
+    conn = get_db()
+    prod = fetchone(conn, "SELECT * FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    reg_type = d.get('type', 'registration')
+
+    # Interest list
+    if reg_type == 'interest':
+        name = (d.get('name') or '').strip()
+        email = (d.get('email') or '').strip().lower()
+        if not name or not email:
+            conn.close()
+            return jsonify({'error': 'Name and email required'}), 400
+        existing = fetchone(conn, 'SELECT id FROM interest_list_entries WHERE production_id=%s AND email=%s', (prod['id'], email))
+        if existing:
+            conn.close()
+            return jsonify({'ok': True, 'message': 'Already on interest list'})
+        execute(conn, 'INSERT INTO interest_list_entries (id,production_id,name,email,phone,child_name,child_age) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+            (str(_uc2.uuid4()), prod['id'], name, email,
+             (d.get('phone') or '').strip(),
+             (d.get('child_name') or '').strip(),
+             (d.get('child_age') or '').strip()))
+        conn.commit()
+        # Thank-you email
+        try:
+            first = name.split()[0]
+            send_email([email], f'You\'re on the interest list — {prod["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/></div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;margin:0 0 12px">You\'re on the list!</h2>'
+                f'<p>Hi {first},</p><p>Thanks for your interest in <strong>{prod["name"]}</strong>! We\'ll reach out as soon as registration opens.</p>'
+                f'<p style="color:#6b7280;font-size:13px">Horizon West Theatre Company</p></div></div>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'interest'})
+
+    # Waitlist
+    if reg_type == 'waitlist':
+        guardian_email = (d.get('guardian_email') or '').strip().lower()
+        if not guardian_email:
+            conn.close()
+            return jsonify({'error': 'Email required'}), 400
+        pos_row = fetchone(conn, "SELECT COALESCE(MAX(waitlist_position),0)+1 AS pos FROM program_registrations WHERE production_id=%s AND status='waitlisted'", (prod['id'],))
+        position = (pos_row or {}).get('pos', 1)
+        rid = str(_uc2.uuid4())
+        execute(conn, '''INSERT INTO program_registrations
+            (id, production_id, registration_type, status, child_first_name, child_last_name,
+             guardian_name, guardian_email, guardian_phone, notes, waitlist_position)
+            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, prod['id'],
+             (d.get('child_first_name') or '').strip(),
+             (d.get('child_last_name') or '').strip(),
+             (d.get('guardian_name') or '').strip(),
+             guardian_email,
+             (d.get('guardian_phone') or '').strip(),
+             (d.get('notes') or '').strip(),
+             position))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': position})
+
+    # Full registration
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    if not guardian_email:
+        conn.close()
+        return jsonify({'error': 'Email required'}), 400
+    reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
+    if prod.get('capacity') and reg_count >= prod['capacity']:
+        conn.close()
+        return jsonify({'error': 'Production is now full. Please join the waitlist.'})
+
+    price = prod.get('price') or 0
+    siblings = d.get('siblings') or []
+    if not isinstance(siblings, list): siblings = []
+    participant_count = 1 + len(siblings)
+    basket = price * participant_count
+
+    discount_code_used = (d.get('discount_code') or '').strip().upper()
+    discount_amount = 0
+    sibling_discount_amount = 0
+    square_discount_id = None
+    if discount_code_used and price > 0:
+        dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE', (prod['id'], discount_code_used))
+        if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+            min_spend = dc.get('min_spend') or 0
+            if not (min_spend > 0 and basket < min_spend):
+                is_sib_code = bool(dc.get('is_sibling_discount'))
+                if is_sib_code and participant_count >= 2:
+                    per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                    discount_amount = per * (participant_count - 1)
+                elif not is_sib_code:
+                    discount_amount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
+                square_discount_id = dc.get('square_discount_id')
+                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+        else:
+            discount_code_used = ''
+
+    if prod.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+        sib_type = prod.get('sibling_discount_type') or 'percent'
+        sib_val = prod.get('sibling_discount_value') or 0
+        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+        sibling_discount_amount = per_sib * (participant_count - 1)
+
+    deposit = prod.get('deposit_amount') or 0
+    effective_price = max(0, basket - discount_amount - sibling_discount_amount)
+    use_deposit = deposit > 0 and effective_price > deposit and d.get('payment_type') == 'deposit'
+    charge_now = deposit if use_deposit else effective_price
+    balance_due = max(0, effective_price - deposit) if use_deposit else 0
+
+    rid = str(_uc2.uuid4())
+    execute(conn, '''INSERT INTO program_registrations
+        (id, production_id, registration_type, status,
+         child_first_name, child_last_name, child_dob, shirt_size,
+         guardian_name, guardian_email, guardian_phone,
+         emergency_contact_name, emergency_contact_phone, notes,
+         allergies, pickup_contacts, photo_consent, pronouns,
+         discount_code, discount_amount, sibling_discount_amount,
+         participant_count, siblings_json, payment_type, balance_due)
+        VALUES (%s,%s,'registration',%s,
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                %s,%s,%s,%s,%s,%s,%s)''',
+        (rid, prod['id'],
+         'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed',
+         (d.get('child_first_name') or '').strip(),
+         (d.get('child_last_name') or '').strip(),
+         d.get('child_dob') or None, d.get('shirt_size') or None,
+         (d.get('guardian_name') or '').strip(),
+         guardian_email, (d.get('guardian_phone') or '').strip() or None,
+         (d.get('emergency_contact_name') or '').strip() or None,
+         (d.get('emergency_contact_phone') or '').strip() or None,
+         (d.get('notes') or '').strip() or None,
+         (d.get('allergies') or '').strip() or None,
+         (d.get('pickup_contacts') or '').strip() or None,
+         bool(d.get('photo_consent')),
+         (d.get('pronouns') or '').strip() or None,
+         discount_code_used or None, discount_amount, sibling_discount_amount,
+         participant_count, _jc2.dumps(siblings),
+         'deposit' if use_deposit else 'full', balance_due))
+    conn.commit()
+
+    if price == 0 or charge_now == 0:
+        finalize_registration(conn, rid)
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': rid})
+
+    try:
+        note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {prod["name"]}'
+        if use_deposit: note += ' (Deposit)'
+        pay_url, link_id, order_id = square_create_payment_link(
+            prod, rid, guardian_email,
+            d.get('guardian_name', ''), charge_now, note=note)
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, rid))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'type': 'payment_required',
+                        'payment_url': pay_url, 'registration_id': rid, 'use_deposit': use_deposit})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Registration saved but payment link failed: {str(e)}'}), 500
+
+
+@app.route('/api/public/production/<slug>/registration/<rid>')
+def public_production_registration_status(slug, rid):
+    conn = get_db()
+    prod = fetchone(conn, "SELECT id FROM productions WHERE slug=%s OR id=%s", (slug, slug))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    reg = fetchone(conn, 'SELECT id, status, child_first_name, child_last_name, guardian_email FROM program_registrations WHERE id=%s AND production_id=%s', (rid, prod['id']))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Registration not found'}), 404
+    return jsonify(dict(reg))
+
+
+# ── Production admin registration routes ─────────────────────────────────────
+
+@app.route('/api/productions/<pid>/registrations', methods=['GET'])
+def get_production_registrations(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT pr.*, p.name AS production_name, p.registration_form_type
+        FROM program_registrations pr
+        JOIN productions p ON p.id=pr.production_id
+        WHERE pr.production_id=%s ORDER BY pr.created_at DESC''', (pid,))
+    conn.close()
+    return jsonify(regs or [])
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>', methods=['PUT'])
+def update_production_registration(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE program_registrations SET
+        status=%s, guardian_name=%s, guardian_email=%s, guardian_phone=%s,
+        emergency_contact_name=%s, emergency_contact_phone=%s,
+        shirt_size=%s, notes=%s, updated_at=NOW()
+        WHERE id=%s AND production_id=%s''',
+        (d.get('status'), (d.get('guardian_name') or '').strip(),
+         (d.get('guardian_email') or '').strip().lower(),
+         (d.get('guardian_phone') or '').strip() or None,
+         (d.get('emergency_contact_name') or '').strip() or None,
+         (d.get('emergency_contact_phone') or '').strip() or None,
+         d.get('shirt_size') or None,
+         (d.get('notes') or '').strip() or None,
+         rid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>', methods=['DELETE'])
+def delete_production_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>/promote-waitlist', methods=['POST'])
+def promote_production_waitlist(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    hold_hours = int(d.get('hold_hours') or 48)
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    price = prod.get('price') or 0
+    if price == 0:
+        execute(conn, "UPDATE program_registrations SET status='confirmed', waitlist_position=NULL WHERE id=%s", (rid,))
+        conn.commit()
+        try:
+            name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            send_email([reg['guardian_email']], f'You\'re confirmed — {prod["name"]}',
+                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theatre Company</p>')
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free'})
+    execute(conn, "UPDATE program_registrations SET status='pending_payment', waitlist_position=NULL WHERE id=%s", (rid,))
+    try:
+        child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
+        note = f'Waitlist promotion — {child or reg["guardian_email"]} — {prod["name"]}'
+        pay_url, link_id, order_id = square_create_payment_link(prod, rid, reg['guardian_email'], reg.get('guardian_name', ''), price, note=note)
+        if pay_url:
+            execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s', (link_id, order_id, rid))
+    except Exception as e:
+        app.logger.warning(f'Waitlist promote payment link failed: {e}')
+        pay_url = None
+    conn.commit()
+    try:
+        name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
+        send_email([reg['guardian_email']], f'A spot opened up — {prod["name"]}',
+            f'<p>Hi {name},</p><p>A spot is available in <strong>{prod["name"]}</strong>! {hold_msg}</p>'
+            + (f'<p><a href="{pay_url}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Secure My Spot</a></p>' if pay_url else '')
+            + '<p>Horizon West Theatre Company</p>')
+    except Exception: pass
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
+
+
+@app.route('/api/productions/<pid>/registration-settings', methods=['PUT'])
+def save_production_registration_settings(pid):
+    err = require_permission('rising_stars')
+    if err:
+        err = require_permission('productions')
+        if err: return err
+    import json as _jps
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE productions SET
+        registration_status=%s, registration_form_type=%s, slug=%s,
+        capacity=%s, price=%s, deposit_amount=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        program_info=%s, custom_fields=%s, form_fields=%s,
+        registration_note=%s,
+        program_location=%s, schedule_type=%s, meeting_days=%s,
+        meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
+        start_date=%s, end_date=%s
+        WHERE id=%s''',
+        (d.get('registration_status') or 'draft',
+         d.get('registration_form_type') or 'youth',
+         re.sub(r'[^a-z0-9-]', '', (d.get('slug') or '').strip().lower().replace(' ', '-')) or None,
+         d.get('capacity') or None,
+         int(d.get('price_cents') or 0),
+         int(d.get('deposit_amount') or 0),
+         bool(d.get('sibling_discount_enabled')),
+         d.get('sibling_discount_type') or 'percent',
+         int(d.get('sibling_discount_value') or 0),
+         d.get('registration_open_date') or None,
+         d.get('registration_close_date') or None,
+         bool(d.get('waitlist_auto_charge', True)),
+         (d.get('program_info') or '').strip(),
+         _jps.dumps(d.get('custom_fields') or []),
+         _jps.dumps(d.get('form_fields') or {}),
+         (d.get('registration_note') or '').strip(),
+         (d.get('program_location') or '').strip(),
+         d.get('schedule_type') or 'date_range',
+         _jps.dumps(d.get('meeting_days') or []),
+         (d.get('meeting_start_time') or '').strip(),
+         (d.get('meeting_end_time') or '').strip(),
+         (d.get('single_date') or '').strip(),
+         (d.get('schedule_notes') or '').strip(),
+         d.get('start_date') or None,
+         d.get('end_date') or None,
+         pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/upload-cover', methods=['POST'])
+def upload_production_cover(pid):
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT name, slug FROM productions WHERE id=%s', (pid,))
+    conn.close()
+    if not prod:
+        return jsonify({'error': 'Not found'}), 404
+    base = secure_filename((prod.get('slug') or prod.get('name') or pid).replace(' ', '-').lower())
+    filename = f'production-{base}-cover{ext}'
+    f.save(os.path.join(app.static_folder, 'images', filename))
+    url = f'/static/images/{filename}'
+    import json as _juc
+    conn2 = get_db()
+    prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
+    try:
+        images = _juc.loads(prod_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
+    execute(conn2, 'UPDATE productions SET program_images=%s WHERE id=%s', (_juc.dumps(images), pid))
+    conn2.commit(); conn2.close()
+    return jsonify({'ok': True, 'url': url})
+
+
+@app.route('/api/productions/<pid>/discount-codes', methods=['GET'])
+def get_production_discount_codes(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM discount_codes WHERE production_id=%s ORDER BY created_at DESC', (pid,))
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/productions/<pid>/discount-codes', methods=['POST'])
+def create_production_discount_code(pid):
+    err = require_auth()
+    if err: return err
+    import uuid as _udc
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO discount_codes
+            (id, production_id, code, discount_type, discount_value,
+             min_spend, is_sibling_discount, max_uses, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_udc.uuid4().hex, pid, code,
+             d.get('discount_type', 'percent'),
+             int(d.get('discount_value') or 0),
+             int(d.get('min_spend_cents') or 0),
+             bool(d.get('is_sibling_discount')),
+             d.get('max_uses') or None))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/productions/<pid>/discount-codes/<cid>', methods=['DELETE'])
+def delete_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE discount_codes SET active=FALSE WHERE id=%s AND production_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/notify-interest-list', methods=['POST'])
+def notify_production_interest_list(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    entries = fetchall(conn, 'SELECT * FROM interest_list_entries WHERE production_id=%s', (pid,))
+    conn.close()
+    if not entries:
+        return jsonify({'ok': True, 'sent': 0})
+    slug = prod.get('slug') or pid
+    reg_url = f'{APP_BASE_URL}/register/production/{slug}'
+    sent = 0
+    for e in entries:
+        email = e.get('email')
+        name = (e.get('name') or '').strip().split()[0] or 'there'
+        if not email: continue
+        try:
+            send_email([email], f'Registration is now open — {prod["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/></div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;margin:0 0 12px">Registration is now open!</h2>'
+                f'<p>Hi {name},</p><p>Registration for <strong>{prod["name"]}</strong> is now open!</p>'
+                f'<p style="text-align:center;margin:20px 0"><a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700">Register Now &rarr;</a></p>'
+                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'</div></div>')
+            conn2 = get_db()
+            execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
+            conn2.commit(); conn2.close()
+            sent += 1
+        except Exception as ex:
+            app.logger.warning(f'Production interest list notify failed for {email}: {ex}')
+    return jsonify({'ok': True, 'sent': sent})
+
+
+# ── Public cart routes ──────────────────────────────────────────────────────
+
+@app.route('/register/cart')
+@app.route('/register/cart/confirmation')
+def cart_page():
+    return send_from_directory('static', 'cart.html')
+
+
+@app.route('/api/public/programs')
+def public_programs_list():
+    """All open programs for the browse/add-more experience."""
+    conn = get_db()
+    progs = fetchall(conn, """SELECT id, name, slug, description, price, deposit_amount,
+        capacity, registration_status, registration_form_type,
+        start_date, end_date, sibling_discount_enabled,
+        sibling_discount_type, sibling_discount_value
+        FROM youth_programs WHERE registration_status='open'
+        ORDER BY start_date ASC NULLS LAST, name ASC""")
+    for p in progs:
+        count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
+        p['registration_count'] = count
+        p['spots_remaining'] = max(0, (p['capacity'] or 999) - count) if p.get('capacity') else None
+    conn.close()
+    return jsonify(progs or [])
+
+
+@app.route('/api/public/validate-cart-discount', methods=['POST'])
+def validate_cart_discount():
+    """Validate a cart-level promo code against the basket total."""
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    basket = int(d.get('basket_cents') or 0)
+    if not code:
+        return jsonify({'valid': False, 'error': 'Code required'})
+    conn = get_db()
+    dc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (code,))
+    conn.close()
+    if not dc:
+        return jsonify({'valid': False, 'error': 'Invalid or expired code'})
+    if dc.get('max_uses') and (dc.get('uses') or 0) >= dc['max_uses']:
+        return jsonify({'valid': False, 'error': 'This code has reached its maximum uses'})
+    min_spend = dc.get('min_spend') or 0
+    if min_spend > 0 and basket < min_spend:
+        return jsonify({'valid': False, 'error': f'This code requires a minimum cart total of ${min_spend/100:.2f}'})
+    if dc['discount_type'] == 'percent':
+        discount = int(basket * dc['discount_value'] / 100)
+        label = f'{dc["discount_value"]}% off your cart'
+    else:
+        discount = min(dc['discount_value'], basket)
+        label = f'${dc["discount_value"]/100:.2f} off your cart'
+    if min_spend:
+        label += f' (min. ${min_spend/100:.2f})'
+    final = max(0, basket - discount)
+    return jsonify({'valid': True, 'discount_amount': discount, 'final_price': final, 'label': label})
+
+
+@app.route('/api/public/cart/checkout', methods=['POST'])
+def cart_checkout():
+    """Create a single Square payment for a multi-program cart."""
+    import json as _jc, uuid as _uc
+    d = request.json or {}
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    items = d.get('items') or []
+    cart_code = (d.get('cart_discount_code') or '').strip().upper()
+
+    if not guardian_email or not guardian_name:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if not items:
+        return jsonify({'error': 'Cart is empty'}), 400
+
+    conn = get_db()
+
+    # Resolve each item's program and compute pricing
+    line_items = []
+    total_cents = 0
+    free_items = []   # items with price=0 or fully discounted — auto-confirm
+    paid_items = []   # items that need payment
+
+    for item in items:
+        prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s OR slug=%s',
+            (item.get('program_id',''), item.get('slug','')))
+        if not prog:
+            conn.close()
+            return jsonify({'error': f'Program not found: {item.get("program_name","")}'}), 400
+
+        price = prog.get('price') or 0
+        siblings = item.get('siblings') or []
+        participant_count = 1 + len(siblings)
+        basket = price * participant_count
+
+        # Program promo code
+        prog_discount = 0
+        prog_code_used = (item.get('promo_code') or '').strip().upper()
+        if prog_code_used and price > 0:
+            dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], prog_code_used))
+            if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
+                min_spend = dc.get('min_spend') or 0
+                if not (min_spend > 0 and basket < min_spend):
+                    is_sib = bool(dc.get('is_sibling_discount'))
+                    if is_sib and participant_count >= 2:
+                        per = int(price * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'], price)
+                        prog_discount = per * (participant_count - 1)
+                    elif not is_sib:
+                        prog_discount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
+                    execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+            else:
+                prog_code_used = ''
+
+        # Program-level auto sibling discount
+        sib_discount = 0
+        if prog.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
+            sib_type = prog.get('sibling_discount_type') or 'percent'
+            sib_val = prog.get('sibling_discount_value') or 0
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sib_discount = per_sib * (participant_count - 1)
+
+        effective = max(0, basket - prog_discount - sib_discount)
+        item_data = {
+            'program_id': prog['id'],
+            'program_name': prog['name'],
+            'slug': prog.get('slug') or '',
+            'price': price,
+            'participant_count': participant_count,
+            'child_first_name': (item.get('child_first_name') or '').strip(),
+            'child_last_name': (item.get('child_last_name') or '').strip(),
+            'child_dob': item.get('child_dob') or '',
+            'shirt_size': item.get('shirt_size') or '',
+            'notes': (item.get('notes') or '').strip(),
+            'custom_field_values': item.get('custom_field_values') or {},
+            'siblings': siblings,
+            'promo_code': prog_code_used or None,
+            'promo_discount': prog_discount,
+            'sibling_discount': sib_discount,
+            'effective_price': effective,
+            'payment_type': item.get('payment_type') or 'full',
+            'deposit_amount': prog.get('deposit_amount') or 0,
+        }
+        line_items.append(item_data)
+        total_cents += effective
+
+    # Cart-level discount code
+    cart_discount_amount = 0
+    cart_code_used = ''
+    if cart_code and total_cents > 0:
+        cdc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (cart_code,))
+        if cdc and (not cdc.get('max_uses') or cdc.get('uses', 0) < cdc['max_uses']):
+            min_spend = cdc.get('min_spend') or 0
+            if not (min_spend > 0 and total_cents < min_spend):
+                if cdc['discount_type'] == 'percent':
+                    cart_discount_amount = int(total_cents * cdc['discount_value'] / 100)
+                else:
+                    cart_discount_amount = min(cdc['discount_value'], total_cents)
+                execute(conn, 'UPDATE cart_discount_codes SET uses=uses+1 WHERE id=%s', (cdc['id'],))
+                cart_code_used = cart_code
+
+    final_total = max(0, total_cents - cart_discount_amount)
+
+    # Apportion cart discount across paid items proportionally
+    if cart_discount_amount > 0 and total_cents > 0:
+        remaining_disc = cart_discount_amount
+        for i, it in enumerate(line_items):
+            if i < len(line_items) - 1:
+                share = int(cart_discount_amount * it['effective_price'] / total_cents)
+            else:
+                share = remaining_disc  # last item gets remainder
+            it['cart_discount_share'] = share
+            it['effective_price'] = max(0, it['effective_price'] - share)
+            remaining_disc -= share
+
+    # Split into free and paid items, create pending registrations for all
+    cart_order_id = _uc.uuid4().hex
+    reg_ids = []
+    for it in line_items:
+        rid = _uc.uuid4().hex
+        it['registration_id'] = rid
+        prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (it['program_id'],))
+        # Check capacity
+        reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (it['program_id'],)) or {}).get('c', 0)
+        cap = prog.get('capacity') if prog else None
+        is_full = cap and reg_count >= cap
+        status = 'waitlisted' if is_full else ('confirmed' if it['effective_price'] == 0 else 'pending_payment')
+        deposit = it['deposit_amount']
+        use_deposit = it['payment_type'] == 'deposit' and deposit > 0 and it['effective_price'] > deposit
+        charge_now = deposit if use_deposit else it['effective_price']
+        balance_due = max(0, it['effective_price'] - deposit) if use_deposit else 0
+        it['charge_now'] = charge_now
+        it['balance_due'] = balance_due
+        it['use_deposit'] = use_deposit
+        wpos = None
+        if is_full:
+            wpos_row = fetchone(conn, 'SELECT MAX(waitlist_position) AS m FROM program_registrations WHERE program_id=%s AND status=%s', (it['program_id'], 'waitlisted'))
+            wpos = ((wpos_row or {}).get('m') or 0) + 1
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone, notes,
+             discount_code, discount_amount, sibling_discount_amount,
+             participant_count, siblings_json,
+             payment_type, balance_due, waitlist_position)
+            VALUES (%s,%s,'registration',%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,
+                    %s,%s,%s)''',
+            (rid, it['program_id'], status,
+             it['child_first_name'], it['child_last_name'],
+             it['child_dob'] or None, it['shirt_size'] or None,
+             guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
+             it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
+             it['participant_count'], _jc.dumps(it['siblings']),
+             'deposit' if use_deposit else 'full', balance_due, wpos))
+        reg_ids.append(rid)
+        if status == 'confirmed':
+            finalize_registration(conn, rid)
+        if is_full:
+            try:
+                send_email([guardian_email], f'You\'re on the waitlist — {it["program_name"]}',
+                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theatre Company</p>')
+            except Exception: pass
+
+    # Save cart order
+    execute(conn, '''INSERT INTO cart_orders
+        (id, guardian_name, guardian_email, guardian_phone, items_json,
+         cart_discount_code, cart_discount_amount, total_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (cart_order_id, guardian_name, guardian_email, guardian_phone or None,
+         _jc.dumps(line_items), cart_code_used or None, cart_discount_amount, final_total))
+    conn.commit()
+
+    # If everything is free/waitlisted, no payment needed
+    paid_line_items = [it for it in line_items if it['charge_now'] > 0]
+    if not paid_line_items:
+        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart_order_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'cart_order_id': cart_order_id,
+                        'registration_ids': reg_ids})
+
+    # Build Square order with one line item per paid program
+    sq_line_items = []
+    for it in paid_line_items:
+        name = it['program_name']
+        if it['participant_count'] > 1:
+            name += f' ({it["participant_count"]} participants)'
+        if it['use_deposit']:
+            name += ' — Deposit'
+        sq_line_items.append({
+            'name': name[:191],
+            'quantity': '1',
+            'base_price_money': {'amount': it['charge_now'], 'currency': 'USD'},
+        })
+
+    import uuid as _uc2
+    redirect_url = f'{APP_BASE_URL}/register/cart/confirmation?order={cart_order_id}'
+    payload = {
+        'idempotency_key': _uc2.uuid4().hex,
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': sq_line_items,
+            'reference_id': cart_order_id[:40],
+        },
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': guardian_email},
+        'description': f'HWTC Registration — {len(paid_line_items)} program(s)',
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE cart_orders SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                (lnk.get('order_id'), lnk.get('id'), cart_order_id))
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True, 'type': 'payment_required',
+                            'payment_url': lnk.get('url'),
+                            'cart_order_id': cart_order_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Cart checkout Square error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/public/cart/order/<oid>')
+def get_cart_order_status(oid):
+    conn = get_db()
+    order = fetchone(conn, 'SELECT id, status, guardian_name, guardian_email, total_cents, items_json FROM cart_orders WHERE id=%s', (oid,))
+    conn.close()
+    if not order:
+        return jsonify({'error': 'Not found'}), 404
+    import json as _jo
+    try:
+        order['items'] = _jo.loads(order.get('items_json') or '[]')
+    except Exception:
+        order['items'] = []
+    return jsonify(order)
+
+
+# ── Program Sessions ─────────────────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/sessions', methods=['GET'])
+def get_program_sessions(pid):
+    conn = get_db()
+    sessions = fetchall(conn, '''SELECT ps.*,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps WHERE ps.program_id=%s
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
+    conn.close()
+    return jsonify(sessions or [])
+
+
+@app.route('/api/programs/<pid>/sessions', methods=['POST'])
+def create_program_session(pid):
+    err = require_permission('programs')
+    if err: return err
+    import uuid as _us
+    d = request.json or {}
+    sid = _us.uuid4().hex
+    conn = get_db()
+    execute(conn, '''INSERT INTO program_sessions
+        (id, program_id, name, day_of_week, start_time, end_time,
+         start_date, end_date, location, capacity, price_override, status, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, pid,
+         (d.get('name') or '').strip(),
+         (d.get('day_of_week') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         (d.get('start_date') or '').strip(),
+         (d.get('end_date') or '').strip(),
+         (d.get('location') or '').strip(),
+         d.get('capacity') or None,
+         d.get('price_override') if d.get('price_override') is not None else None,
+         d.get('status') or 'open',
+         int(d.get('sort_order') or 0)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+
+@app.route('/api/programs/<pid>/sessions/<sid>', methods=['PUT'])
+def update_program_session(pid, sid):
+    err = require_permission('programs')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE program_sessions SET
+        name=%s, day_of_week=%s, start_time=%s, end_time=%s,
+        start_date=%s, end_date=%s, location=%s,
+        capacity=%s, price_override=%s, status=%s, sort_order=%s
+        WHERE id=%s AND program_id=%s''',
+        ((d.get('name') or '').strip(),
+         (d.get('day_of_week') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         (d.get('start_date') or '').strip(),
+         (d.get('end_date') or '').strip(),
+         (d.get('location') or '').strip(),
+         d.get('capacity') or None,
+         d.get('price_override') if d.get('price_override') is not None else None,
+         d.get('status') or 'open',
+         int(d.get('sort_order') or 0),
+         sid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/sessions/<sid>', methods=['DELETE'])
+def delete_program_session(pid, sid):
+    err = require_permission('programs')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/program/<slug>/sessions', methods=['GET'])
+def public_program_sessions(slug):
+    conn = get_db()
+    prog = fetchone(conn, "SELECT id FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
+    if not prog:
+        conn.close()
+        return jsonify([])
+    sessions = fetchall(conn, '''SELECT ps.id, ps.name, ps.day_of_week, ps.start_time,
+        ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
+        ps.price_override, ps.status, ps.sort_order,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps WHERE ps.program_id=%s AND ps.status='open'
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (prog['id'], prog['id']))
+    conn.close()
+    return jsonify(sessions or [])
+
+
+# ── Delete order routes ──────────────────────────────────────────────────────
+
+@app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])
+def delete_cart_order(oid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM cart_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    import json as _jd
+    try:
+        items = _jd.loads(order.get('items_json') or '[]')
+    except Exception:
+        items = []
+    for it in items:
+        rid = it.get('registration_id')
+        if rid:
+            execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rid,))
+    execute(conn, 'DELETE FROM cart_orders WHERE id=%s', (oid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>', methods=['DELETE'])
+def delete_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT id FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'DELETE FROM program_registrations WHERE id=%s', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Program cover image upload ────────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/upload-cover', methods=['POST'])
+def upload_program_cover(pid):
+    err = require_permission('youth')
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT name, slug FROM youth_programs WHERE id=%s', (pid,))
+    conn.close()
+    if not prog:
+        return jsonify({'error': 'Program not found'}), 404
+    base = secure_filename((prog.get('slug') or prog.get('name') or pid).replace(' ', '-').lower())
+    filename = f'program-{base}-cover{ext}'
+    save_path = os.path.join(app.static_folder, 'images', filename)
+    f.save(save_path)
+    url = f'/static/images/{filename}'
+    import json as _ji
+    conn2 = get_db()
+    prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
+    try:
+        images = _ji.loads(prog_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
+    execute(conn2, 'UPDATE youth_programs SET program_images=%s WHERE id=%s', (_ji.dumps(images), pid))
+    conn2.commit(); conn2.close()
+    return jsonify({'ok': True, 'url': url})
+
+
+# ── Cart discount code admin routes ─────────────────────────────────────────
+
+@app.route('/api/marquee/cart-discount-codes', methods=['GET'])
+def get_cart_discount_codes():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    codes = fetchall(conn, 'SELECT * FROM cart_discount_codes ORDER BY created_at DESC')
+    conn.close()
+    return jsonify(codes or [])
+
+
+@app.route('/api/marquee/cart-discount-codes', methods=['POST'])
+def create_cart_discount_code():
+    err = require_permission('marquee')
+    if err: return err
+    import uuid as _ucc
+    d = request.json or {}
+    code = (d.get('code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'Code required'}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO cart_discount_codes
+            (id, code, discount_type, discount_value, min_spend, max_uses, description, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (_ucc.uuid4().hex, code,
+             d.get('discount_type', 'percent'),
+             int(d.get('discount_value') or 0),
+             int(d.get('min_spend_cents') or 0),
+             d.get('max_uses') or None,
+             (d.get('description') or '').strip()))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/marquee/cart-discount-codes/<cid>', methods=['DELETE'])
+def delete_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE cart_discount_codes SET active=FALSE WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Public donation page routes ──────────────────────────────────────────────
+
+@app.route('/donate')
+@app.route('/donate/confirmation')
+def donate_page():
+    return send_from_directory('static', 'donate.html')
+
+
+@app.route('/api/public/donate', methods=['POST'])
+def submit_donation():
+    """Create a Square payment link for a public donation."""
+    import uuid as _ud2
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    amount_dollars = float(d.get('amount') or 0)
+    message = (d.get('message') or '').strip()
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if amount_dollars < 1:
+        return jsonify({'error': 'Minimum donation is $1.00'}), 400
+    amount_cents = int(round(amount_dollars * 100))
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        return jsonify({'error': 'Payment system not configured'}), 500
+    pending_id = _ud2.uuid4().hex
+    conn = get_db()
+    execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message)
+        VALUES (%s,%s,%s,%s,%s)''', (pending_id, name, email, amount_cents, message or None))
+    conn.commit()
+    redirect_url = f'{APP_BASE_URL}/donate/confirmation?don={pending_id}'
+    payload = {
+        'idempotency_key': _ud2.uuid4().hex,
+        'order': {
+            'location_id': SQUARE_LOCATION_ID,
+            'line_items': [{'name': 'Donation — Horizon West Theatre Company',
+                            'quantity': '1',
+                            'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}],
+            'reference_id': pending_id[:40],
+        },
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': email},
+        'description': f'Donation from {name}' + (f': {message[:100]}' if message else ''),
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE pending_donations SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                (lnk.get('order_id'), lnk.get('id'), pending_id))
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True, 'payment_url': lnk.get('url'), 'donation_id': pending_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Donation payment link error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/public/donation/<did>', methods=['GET'])
+def get_donation_status(did):
+    conn = get_db()
+    don = fetchone(conn, 'SELECT id, status, name, amount_cents FROM pending_donations WHERE id=%s', (did,))
+    conn.close()
+    if not don:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(don)
+
+
+# ── Marquee admin routes ─────────────────────────────────────────────────────
+
+@app.route('/api/marquee/orders', methods=['GET'])
+def marquee_orders():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo
+    conn = get_db()
+    # Cart orders (multi-program)
+    cart_orders = fetchall(conn, '''SELECT id, guardian_name, guardian_email, guardian_phone,
+        items_json, cart_discount_code, cart_discount_amount, total_cents, status, created_at,
+        square_order_id
+        FROM cart_orders ORDER BY created_at DESC LIMIT 100''')
+    for o in (cart_orders or []):
+        try: o['items'] = _jo.loads(o.get('items_json') or '[]')
+        except: o['items'] = []
+    # Single-program orders (have a square_order_id but not from cart_orders)
+    cart_order_ids = set(o['square_order_id'] for o in (cart_orders or []) if o.get('square_order_id'))
+    single_regs = fetchall(conn, '''SELECT pr.*, yp.name AS program_name
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.square_order_id IS NOT NULL
+        AND pr.status != \'waitlisted\'
+        ORDER BY pr.created_at DESC LIMIT 100''')
+    # Filter out regs that belong to a cart order
+    single_regs = [r for r in (single_regs or []) if r.get('square_order_id') not in cart_order_ids]
+    conn.close()
+    return jsonify({'cart_orders': cart_orders or [], 'single_registrations': single_regs or []})
+
+
+@app.route('/api/marquee/orders/cart/<oid>', methods=['GET'])
+def marquee_cart_order_detail(oid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo2
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM cart_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    try: order['items'] = _jo2.loads(order.get('items_json') or '[]')
+    except: order['items'] = []
+    # Fetch registration status for each item
+    for it in order['items']:
+        rid = it.get('registration_id')
+        if rid:
+            reg = fetchone(conn, 'SELECT status, square_order_id, balance_due FROM program_registrations WHERE id=%s', (rid,))
+            if reg:
+                it['reg_status'] = reg['status']
+                it['balance_due'] = reg.get('balance_due') or 0
+    conn.close()
+    return jsonify(order)
+
+
+@app.route('/api/marquee/orders/single/<rid>', methods=['GET'])
+def marquee_single_order_detail(rid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jo3
+    conn = get_db()
+    reg = fetchone(conn, '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.id=%s''', (rid,))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Not found'}), 404
+    try: reg['siblings'] = _jo3.loads(reg.get('siblings_json') or '[]')
+    except: reg['siblings'] = []
+    return jsonify(reg)
+
+
+
+@app.route('/api/marquee/overview', methods=['GET'])
+def marquee_overview():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    # Registration counts across programs and productions
+    reg_counts = fetchone(conn, '''SELECT
+        COUNT(*) FILTER (WHERE status='confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE status='pending_payment') AS pending,
+        COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
+        COUNT(*) AS total
+        FROM program_registrations WHERE status != 'cancelled' ''')
+    # Revenue from completed cart orders
+    cart_rev = fetchone(conn, "SELECT COALESCE(SUM(total_cents),0) AS total FROM cart_orders WHERE status='completed'")
+    # Revenue from single registrations (discount already applied)
+    # Estimate: sum effective prices from confirmed registrations
+    single_rev = fetchone(conn, '''SELECT COALESCE(SUM(
+        COALESCE(discount_amount,0) + COALESCE(sibling_discount_amount,0) +
+        CASE WHEN balance_due > 0 THEN 0 ELSE 0 END
+    ),0) AS total FROM program_registrations WHERE status='confirmed' ''')
+    # Donations this year
+    import datetime as _dt
+    year = _dt.date.today().year
+    donations_ytd = fetchone(conn, f"SELECT COALESCE(SUM(amount),0) AS total FROM donor_donations WHERE donation_date >= '{year}-01-01' AND type='square'")
+    # Recent orders (cart + single, last 8)
+    cart_orders = fetchall(conn, '''SELECT id, guardian_name, guardian_email, total_cents, status, created_at,
+        (SELECT COUNT(*) FROM json_array_elements(items_json::json)) AS item_count
+        FROM cart_orders ORDER BY created_at DESC LIMIT 8''') or []
+    # Open products in catalog
+    open_programs = (fetchone(conn, "SELECT COUNT(*) AS c FROM youth_programs WHERE registration_status='open'") or {}).get('c', 0)
+    open_productions = (fetchone(conn, "SELECT COUNT(*) AS c FROM productions WHERE registration_status='open'") or {}).get('c', 0)
+    # Recent donations
+    recent_donations = fetchall(conn, '''SELECT pd.name, pd.email, pd.amount_cents, pd.created_at
+        FROM pending_donations pd WHERE pd.status='completed'
+        ORDER BY pd.created_at DESC LIMIT 5''') or []
+    conn.close()
+    return jsonify({
+        'reg_counts': reg_counts,
+        'cart_revenue': (cart_rev or {}).get('total', 0),
+        'donations_ytd': float((donations_ytd or {}).get('total', 0)),
+        'open_products': int(open_programs) + int(open_productions),
+        'recent_orders': cart_orders,
+        'recent_donations': recent_donations,
+    })
+
+
+@app.route('/api/marquee/registrations', methods=['GET'])
+def marquee_all_registrations():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import json as _jmq
+    conn = get_db()
+    program_id = request.args.get('program_id')
+    production_id = request.args.get('production_id')
+    status = request.args.get('status')
+    q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
+        yp.sessions_enabled, 'program' AS context_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id IS NOT NULL'''
+    p1 = []
+    if program_id:
+        q1 += ' AND pr.program_id=%s'; p1.append(program_id)
+    if status:
+        q1 += ' AND pr.status=%s'; p1.append(status)
+    q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
+        FALSE AS sessions_enabled, 'production' AS context_type
+        FROM program_registrations pr
+        JOIN productions p ON p.id=pr.production_id
+        WHERE pr.production_id IS NOT NULL'''
+    p2 = []
+    if production_id:
+        q2 += ' AND pr.production_id=%s'; p2.append(production_id)
+    if status:
+        q2 += ' AND pr.status=%s'; p2.append(status)
+    regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
+    regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
+    regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
+    # Resolve session names for all program registrations
+    sessions_by_program = {}
+    for r in regs:
+        pid = r.get('program_id')
+        if pid and r.get('sessions_enabled') and pid not in sessions_by_program:
+            rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
+            sessions_by_program[pid] = {s['id']: s['name'] for s in rows}
+    for r in regs:
+        pid = r.get('program_id')
+        smap = sessions_by_program.get(pid, {})
+        try:
+            sids = _jmq.loads(r.get('session_ids') or '[]')
+            r['session_names'] = [smap[sid] for sid in sids if sid in smap]
+        except Exception:
+            r['session_names'] = []
+    programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
+    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
+    conn.close()
+    return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
+
+
+@app.route('/api/programs/<pid>/sessions/summary', methods=['GET'])
+def program_sessions_summary(pid):
+    """Return each session with its registered participants."""
+    err = require_auth()
+    if err: return err
+    import json as _jss
+    conn = get_db()
+    sessions = fetchall(conn, '''SELECT ps.*,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS confirmed_count,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status='waitlisted') AS waitlisted_count
+        FROM program_sessions ps WHERE ps.program_id=%s
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid, pid))
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id=%s AND pr.session_ids != '[]'
+        AND pr.status NOT IN ('cancelled')
+        ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+    # Group registrations by session
+    reg_by_session = {}
+    for r in regs:
+        try:
+            sids = _jss.loads(r.get('session_ids') or '[]')
+        except Exception:
+            sids = []
+        for sid in sids:
+            if sid not in reg_by_session:
+                reg_by_session[sid] = []
+            reg_by_session[sid].append(r)
+    conn.close()
+    return jsonify({'sessions': sessions or [], 'reg_by_session': reg_by_session})
+
+
+@app.route('/api/public/program/<slug>/registration/<rid>', methods=['GET'])
+def get_registration_status(slug, rid):
+    """Check registration status — called from confirmation page."""
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT status, waitlist_position, child_first_name, child_last_name, guardian_email FROM program_registrations WHERE id=%s', (rid,))
+    conn.close()
+    if not reg:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(reg)
+
+
+# ── Admin registration management ────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/registrations', methods=['GET'])
+def get_program_registrations(pid):
+    err = require_auth()
+    if err: return err
+    import json as _jreg
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
+    # Resolve session names
+    sessions_map = {}
+    session_rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
+    for sr in session_rows:
+        sessions_map[sr['id']] = sr['name']
+    for r in (regs or []):
+        try:
+            sids = _jreg.loads(r.get('session_ids') or '[]')
+            r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
+        except Exception:
+            r['session_names'] = []
+    interest = fetchall(conn, '''SELECT * FROM interest_list_entries
+        WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
+    counts = {
+        'confirmed': sum(1 for r in (regs or []) if r['status'] == 'confirmed'),
+        'pending_payment': sum(1 for r in (regs or []) if r['status'] == 'pending_payment'),
+        'waitlisted': sum(1 for r in (regs or []) if r['status'] == 'waitlisted'),
+        'interest': len(interest or []),
+    }
+    conn.close()
+    return jsonify({'registrations': regs or [], 'interest_list': interest or [], 'counts': counts})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>', methods=['PUT'])
+def update_registration(pid, rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE program_registrations SET
+        status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
+        guardian_email=%s, guardian_phone=%s,
+        emergency_contact_name=%s, emergency_contact_phone=%s,
+        updated_at=NOW() WHERE id=%s AND program_id=%s''',
+        (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
+         d.get('guardian_name',''), d.get('guardian_email',''),
+         d.get('guardian_phone',''), d.get('emergency_contact_name',''),
+         d.get('emergency_contact_phone',''), rid, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>/promote-waitlist', methods=['POST'])
+def promote_waitlist(pid, rid):
+    err = require_auth()
+    if err: return err
+    import uuid as _upw
+    d = request.json or {}
+    hold_hours = int(d.get('hold_hours') or 48)
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not reg or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    price = prog.get('price') or 0
+    # If free, just confirm
+    if price == 0:
+        execute(conn, "UPDATE program_registrations SET status='confirmed', waitlist_position=NULL WHERE id=%s", (rid,))
+        conn.commit()
+        try:
+            name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            send_email([reg['guardian_email']], f'Great news — you\'re in! {prog["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">You\'re Confirmed!</h2>'
+                f'<p>Hi {name},</p>'
+                f'<p>Great news — a spot has opened up in <strong>{prog["name"]}</strong> and you\'ve been confirmed!</p>'
+                f'<p>Horizon West Theatre Company</p></div>')
+        except Exception as e:
+            app.logger.warning(f'Waitlist confirm email failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free'})
+    # Paid — send payment link and notify of hold window
+    execute(conn, "UPDATE program_registrations SET status='pending_payment', waitlist_position=NULL WHERE id=%s", (rid,))
+    pay_url, link_id, order_id = square_create_payment_link(
+        prog, rid, reg['guardian_email'], reg.get('guardian_name',''), price,
+        note=f'Waitlist promotion — {reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
+    if pay_url:
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, rid))
+    conn.commit()
+    # Email family
+    try:
+        name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+        child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
+        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
+        send_email([reg['guardian_email']], f'A spot opened up for you — {prog["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">A Spot Has Opened Up!</h2>'
+            f'<p>Hi {name},</p>'
+            f'<p>Great news — a spot has become available in <strong>{prog["name"]}</strong>'
+            f'{" for " + child if child else ""}. You are next on the waitlist!</p>'
+            f'<p>{hold_msg} After that, the spot may be offered to the next person on the waitlist.</p>'
+            + (f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+               f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+               f'Secure My Spot</a></p>'
+               f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+               if pay_url else '')
+            + f'<p>Horizon West Theatre Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Waitlist promote email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
+
+
+@app.route('/api/programs/<pid>/notify-interest-list', methods=['POST'])
+def notify_interest_list(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    entries = fetchall(conn, 'SELECT * FROM interest_list_entries WHERE program_id=%s', (pid,))
+    conn.close()
+    if not entries:
+        return jsonify({'ok': True, 'sent': 0})
+    slug = prog.get('slug') or pid
+    reg_url = f'{APP_BASE_URL}/register/{slug}'
+    sent = 0
+    for e in entries:
+        email = e.get('email')
+        name = (e.get('name') or '').strip().split()[0] or 'there'
+        if not email:
+            continue
+        try:
+            send_email([email], f'Registration is now open — {prog["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;color:#1a2332">'
+                f'<div style="background:linear-gradient(135deg,#0d3d4d,#1b708d);padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">'
+                f'<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;display:block;margin:0 auto 10px;mix-blend-mode:screen"/>'
+                f'</div>'
+                f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
+                f'<h2 style="color:#0d3d4d;font-size:20px;margin:0 0 12px">Registration is now open!</h2>'
+                f'<p style="color:#374151;line-height:1.6;margin:0 0 14px">Hi {name},</p>'
+                f'<p style="color:#374151;line-height:1.6;margin:0 0 20px">'
+                f'Great news — registration for <strong>{prog["name"]}</strong> is now open. '
+                f'You signed up for our interest list and we wanted to make sure you\'re first to know!</p>'
+                f'<p style="margin:0 0 24px;text-align:center">'
+                f'<a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;'
+                f'text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Register Now &rarr;</a></p>'
+                f'<p style="color:#6b7280;font-size:13px;margin:0">Or copy this link: <a href="{reg_url}" style="color:#145466">{reg_url}</a></p>'
+                f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
+                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'</div></div>')
+            # Stamp notified_at so the UI reflects the notification
+            conn2 = get_db()
+            execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
+            conn2.commit(); conn2.close()
+            sent += 1
+        except Exception as ex:
+            app.logger.warning(f'Interest list notify failed for {email}: {ex}')
+    return jsonify({'ok': True, 'sent': sent})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+def send_registration_payment_link(pid, rid):
+    """Resend or create a new payment link for a pending_payment registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not reg or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    # Use existing link if still valid
+    existing = reg.get('square_checkout_id') or reg.get('waitlist_payment_link')
+    amount = prog.get('price') or 0
+    pay_url, link_id, order_id = square_create_payment_link(
+        prog, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
+        note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+        (link_id, order_id, rid))
+    conn.commit()
+    # Email the family
+    try:
+        send_email([reg['guardian_email']], f'Complete your registration — {prog["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Complete Your Registration</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>Your registration for <strong>{prog["name"]}</strong> is not yet complete. '
+            f'Click below to complete your payment and secure your spot.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Complete Payment</a></p>'
+            f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+            f'<p>Horizon West Theatre Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Payment link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
+
+@app.route('/api/programs/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])
+def send_balance_payment_link(pid, rid):
+    """Send a payment link for the remaining balance on a deposit registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if not reg or not prog:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    balance = reg.get('balance_due') or 0
+    if balance <= 0:
+        conn.close()
+        return jsonify({'error': 'No balance due'}), 400
+    pay_url, link_id, order_id = square_create_payment_link(
+        prog, rid + '_balance', reg['guardian_email'], reg.get('guardian_name',''), balance,
+        note=f'Balance payment — {reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET balance_payment_link=%s WHERE id=%s', (pay_url, rid))
+    conn.commit()
+    try:
+        send_email([reg['guardian_email']], f'Balance payment due — {prog["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Balance Payment Due</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
+            f'<strong>{prog["name"]}</strong>.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Pay Balance — ${balance/100:.2f}</a></p>'
+            f'<p>Horizon West Theatre Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Balance link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})

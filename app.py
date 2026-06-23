@@ -11582,10 +11582,13 @@ def square_webhook():
     sig = request.headers.get('X-Square-Hmacsha256-Signature', '')
     body = request.get_data(as_text=True)
     if SQUARE_WEBHOOK_SIG:
-        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode(), (SQUARE_API_BASE + '/api/square/webhook' + body).encode(), hashlib.sha256).digest()
         import base64 as _b64
+        notification_url = f'https://rolecall.hwtco.org/api/square/webhook'
+        payload = notification_url + body
+        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).digest()
         expected_b64 = _b64.b64encode(expected).decode()
         if not hmac.compare_digest(sig, expected_b64):
+            app.logger.warning(f'Webhook signature mismatch. Got: {sig[:20]}... Expected: {expected_b64[:20]}...')
             return jsonify({'error': 'Invalid signature'}), 401
 
     event = request.json or {}

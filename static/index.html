@@ -450,7 +450,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page">✉️</span>Email Templates</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
-        <div class="nav-item admin-only" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
+        <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
       </nav>
@@ -2961,10 +2961,13 @@ async function handleLogout(){
 const NAV_PERM_MAP = {
  'dashboard': null, // always visible
  'volunteers': 'volunteers',
+ 'directors': 'directors',
  'waivers': 'volunteers',
  'hours': 'hours',
  'email': 'email',
+ 'email-templates-page': 'email',
  'events': 'events',
+ 'marquee': 'marquee',
  'productions': 'productions',
  'production-signin':'productions',
  'youth': 'youth',
@@ -2973,11 +2976,11 @@ const NAV_PERM_MAP = {
  'portal-admin': 'portal_admin',
  'youth-signin': 'kiosk',
  'carpools': 'youth',
- 'email-templates-page': 'email-templates-page',
  'event-logs': 'reports',
  'reports': 'reports',
  'notifications': 'settings',
  'settings': 'settings',
+ 'board': 'board',
  'donors': 'donors',
  'donor-detail': 'donors',
  'donor-campaigns': 'donors',
@@ -11548,9 +11551,10 @@ async function resetUserPassword(uid, name){
 
 const PERM_SECTIONS = [
  {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
+ {key:'directors', label:'Directors', desc:'Director interest & submissions'},
  {key:'events', label:'Events & Calendar', desc:'Create and manage events'},
  {key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
- {key:'email', label:'Email', desc:'Send emails & manage templates'},
+ {key:'email', label:'Email & Templates', desc:'Send emails & manage templates'},
  {key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
  {key:'rising_stars', label:'Rising Stars', desc:'RS productions and portal content'},
  {key:'youth', label:'Participants', desc:'Youth profiles & guardians'},
@@ -11558,6 +11562,7 @@ const PERM_SECTIONS = [
  {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
  {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
  {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
+ {key:'board', label:'Board', desc:'Board member management & meetings'},
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},

@@ -17236,6 +17236,7 @@ async function loadProgramRegistrations(pid){
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend Link</button> '
           if(r.balance_due>0 && r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm balance-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button> '
           actions += '<button class="btn btn-sm delete-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
+          if(r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm finalize-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px" title="Create participant profile if missing">Finalize</button>'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
           var participantName = isAdult
@@ -17323,6 +17324,14 @@ async function loadProgramRegistrations(pid){
       if(!confirm('Permanently delete this registration? This cannot be undone.')) return
       const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid,'DELETE')
       if(res && res.ok){ toast('Registration deleted','success'); loadProgramRegistrations(pid) }
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+
+  el.querySelectorAll('.finalize-reg-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/finalize','POST')
+      if(res && res.ok){ toast('Participant profile created','success'); loadProgramRegistrations(pid) }
       else toast((res&&res.error)||'Error','error')
     })
   })

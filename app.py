@@ -13191,7 +13191,21 @@ def notify_interest_list(pid):
     return jsonify({'ok': True, 'sent': sent})
 
 
-@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+@app.route('/api/programs/<pid>/registrations/<rid>/finalize', methods=['POST'])
+def manual_finalize_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    finalize_registration(conn, rid)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()

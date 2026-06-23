@@ -113,14 +113,17 @@ function buildScheduleHTML(prog){
   var endTime = prog.meeting_end_time ? fmtTime(prog.meeting_end_time) : ''
   var timeStr = startTime ? (startTime + (endTime ? ' \u2013 ' + endTime : '')) : ''
   var lines = []
-  if(type === 'single' && prog.single_date){
-    lines.push('\uD83D\uDCC5 ' + fmtDate(prog.single_date))
-  } else if(type === 'recurring'){
-    var days = Array.isArray(prog.meeting_days) ? prog.meeting_days : []
-    if(days.length) lines.push('\uD83D\uDCC5 Every ' + days.join(', '))
-    if(prog.start_date) lines.push('\uD83D\uDDD3 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
-  } else {
-    if(prog.start_date) lines.push('\uD83D\uDCC5 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
+  // Skip dates when sessions are enabled — each session has its own date
+  if(!prog.sessions_enabled){
+    if(type === 'single' && prog.single_date){
+      lines.push('\uD83D\uDCC5 ' + fmtDate(prog.single_date))
+    } else if(type === 'recurring'){
+      var days = Array.isArray(prog.meeting_days) ? prog.meeting_days : []
+      if(days.length) lines.push('\uD83D\uDCC5 Every ' + days.join(', '))
+      if(prog.start_date) lines.push('\uD83D\uDDD3 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
+    } else {
+      if(prog.start_date) lines.push('\uD83D\uDCC5 ' + fmtDate(prog.start_date) + (prog.end_date && prog.end_date !== prog.start_date ? ' \u2013 ' + fmtDate(prog.end_date) : ''))
+    }
   }
   if(timeStr) lines.push('\uD83D\uDD50 ' + timeStr)
   if(prog.schedule_notes) lines.push('\u2139\uFE0F ' + escHtml(prog.schedule_notes))

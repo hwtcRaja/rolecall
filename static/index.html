@@ -17476,7 +17476,13 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     // Program Info & Photos section
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info &amp; Photos</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
-    + '<textarea id="rs-program-info" rows="4" placeholder="Describe the program — what participants will learn, what to expect, etc. Basic HTML supported (bold, links)..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(prog.program_info||'')+'</textarea></div>'
+    + '<div id="rs-program-info-toolbar">'
+    + '<span class="ql-formats"><button class="ql-bold"></button><button class="ql-italic"></button><button class="ql-underline"></button></span>'
+    + '<span class="ql-formats"><button class="ql-list" value="ordered"></button><button class="ql-list" value="bullet"></button></span>'
+    + '<span class="ql-formats"><button class="ql-link"></button><button class="ql-clean"></button></span>'
+    + '</div>'
+    + '<div id="rs-program-info-editor" style="min-height:120px;font-size:13px;font-family:inherit"></div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Supports bold, italic, lists, and links. Renders on the public registration page.</div></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Footnote</label>'
     + '<input type="text" id="rs-registration-note" value="'+escHtml(prog.registration_note||'')+'" placeholder="e.g. * Tap shoes required. Please bring water." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/>'
     + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Shown as a small footnote under the program description on the public registration page.</div></div>'
@@ -17580,6 +17586,15 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
   document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid, _saveEndpoint, onSavedCallback) })
+
+  // Initialize Quill for program info
+  if(window.Quill){
+    var _progInfoQuill = new Quill('#rs-program-info-editor', {
+      modules:{ toolbar:'#rs-program-info-toolbar' }, theme:'snow'
+    })
+    if(prog.program_info) _progInfoQuill.root.innerHTML = prog.program_info
+    window._regSettingsQuill = _progInfoQuill
+  }
 
   // Sessions toggle
   var sessToggle = document.getElementById('rs-sessions-enabled')
@@ -18019,7 +18034,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     registration_open_date: document.getElementById('rs-open-date').value || null,
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
-    program_info: (document.getElementById('rs-program-info')||{}).value || '',
+    program_info: window._regSettingsQuill ? window._regSettingsQuill.root.innerHTML : '',
     sessions_enabled: (document.getElementById('rs-sessions-enabled')||{}).checked||false,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
@@ -20131,7 +20146,7 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 }
 
 </script>
-<script src="https://cdn.quilljs.com/1.3.7/quill.min.js" async></script>
+<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
 <script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true"></script>
 </body>
 </html>

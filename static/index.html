@@ -17170,6 +17170,56 @@ async function loadProgramRegistrations(pid){
       .map(function(x){ return '<div style="background:'+x[2]+';border-radius:10px;padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:'+x[3]+'">'+x[1]+'</div><div style="font-size:11px;font-weight:600;color:'+x[3]+'">'+x[0]+'</div></div>' }).join('')
     + '</div></div>'
 
+  // Session breakdown — load and render if sessions are enabled
+  if(prog.sessions_enabled){
+    var sessData = await api('/api/programs/'+pid+'/sessions/summary')
+    var sessions = (sessData && sessData.sessions) || []
+    var regBySession = (sessData && sessData.reg_by_session) || {}
+    if(sessions.length){
+      function fmtSessTime(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+      html += '<div class="card" style="padding:16px 20px;margin-bottom:12px">'
+        + '<div style="font-size:14px;font-weight:700;margin-bottom:12px">Session Roster</div>'
+        + sessions.map(function(s){
+            var sessionRegs = regBySession[s.id] || []
+            var confirmed = sessionRegs.filter(function(r){ return r.status==='confirmed' }).length
+            var pending = sessionRegs.filter(function(r){ return r.status==='pending_payment' }).length
+            var waitlisted = sessionRegs.filter(function(r){ return r.status==='waitlisted' }).length
+            var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtSessTime(s.start_time)+(s.end_time?' – '+fmtSessTime(s.end_time):'') : '')
+            var statusColors = {open:'#dcfce7;color:#166534',closed:'#fee2e2;color:#991b1b',full:'#fef3c7;color:#92400e'}
+            return '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden">'
+              + '<summary style="padding:12px 16px;cursor:pointer;font-weight:700;font-size:13px;list-style:none;display:flex;align-items:center;justify-content:space-between;background:var(--bg)">'
+              + '<span>'+escHtml(s.name)+(timeStr?'<span style="font-weight:400;color:var(--text-muted);margin-left:8px;font-size:12px">'+escHtml(timeStr)+'</span>':'')+'</span>'
+              + '<span style="display:flex;gap:8px;align-items:center">'
+              + '<span style="font-size:12px;color:var(--text-muted)">'+confirmed+' confirmed'+(pending?' · '+pending+' pending':'')+(waitlisted?' · '+waitlisted+' waitlisted':'')+(s.capacity?' / '+s.capacity+' cap':'')+'</span>'
+              + '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(statusColors[s.status]||statusColors.open)+'">'+escHtml(s.status||'open')+'</span>'
+              + '</span></summary>'
+              + '<div style="padding:0 16px 12px">'
+              + (sessionRegs.length===0
+                  ? '<div style="font-size:13px;color:var(--text-muted);padding:12px 0">No registrations for this session yet.</div>'
+                  : '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">'
+                    + '<thead><tr style="border-bottom:1px solid var(--border)">'
+                    + '<th style="text-align:left;padding:5px 6px;color:var(--text-muted)">Participant</th>'
+                    + '<th style="text-align:left;padding:5px 6px;color:var(--text-muted)">Contact</th>'
+                    + '<th style="text-align:left;padding:5px 6px;color:var(--text-muted)">Status</th>'
+                    + '</tr></thead><tbody>'
+                    + sessionRegs.map(function(r){
+                        var isAdult = r.registration_form_type==='adult'
+                        var nm = isAdult ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+                        var ct = isAdult ? '—' : escHtml(r.guardian_name||'')+' <span style="color:var(--text-muted);font-size:11px">'+escHtml(r.guardian_email||'')+'</span>'
+                        var stBg = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
+                        return '<tr style="border-bottom:1px solid var(--border)">'
+                          + '<td style="padding:5px 6px;font-weight:600">'+nm+'</td>'
+                          + '<td style="padding:5px 6px">'+ct+'</td>'
+                          + '<td style="padding:5px 6px"><span style="padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
+                          + '</tr>'
+                      }).join('')
+                    + '</tbody></table>')
+              + '</div></details>'
+          }).join('')
+        + '</div>'
+    }
+  }
+
   if(regs.length){
     var hasSessions = prog && prog.sessions_enabled && regs.some(function(r){ try{ return JSON.parse(r.session_ids||'[]').length > 0 }catch(e){ return false } })
     html += '<div class="card" style="padding:16px 20px;margin-bottom:12px"><div style="font-size:14px;font-weight:700;margin-bottom:12px">Registrations</div>'
@@ -19694,11 +19744,13 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
     + '</div>'
 
   if(regs.length){
+    var mqHasSessions = regs.some(function(r){ return r.session_names && r.session_names.length > 0 })
     html += '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
       + '<thead><tr style="border-bottom:2px solid var(--border)">'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Participant</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Contact</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Program</th>'
+      + (mqHasSessions ? '<th style="text-align:left;padding:8px;color:var(--text-muted)">Sessions</th>' : '')
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Status</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Registered</th>'
       + '<th></th></tr></thead><tbody>'
@@ -19706,7 +19758,6 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           var isAdult = r.registration_form_type === 'adult'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
-          // For adult registrations, participant IS the contact — show their name once
           var participantName = isAdult
             ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
             : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
@@ -19714,6 +19765,9 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           var contactCell = isAdult
             ? '<span style="font-size:11px;color:var(--text-muted)">—</span>'
             : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
+          var sessionCell = mqHasSessions ? '<td style="padding:8px;font-size:11px;color:var(--text-muted);max-width:160px">'
+            + ((r.session_names||[]).length ? (r.session_names||[]).map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')
+            + '</td>' : ''
           var actions = '<button class="btn btn-secondary btn-sm mq-edit-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button>'
           if(r.status==='pending_payment') actions += ' <button class="btn btn-secondary btn-sm mq-resend-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button>'
           if(r.balance_due>0 && r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm mq-balance-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button>'
@@ -19721,6 +19775,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + '<td style="padding:8px;font-size:11px">'+escHtml(r.program_name||'')+'</td>'
+            + sessionCell
             + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
             + '<td style="padding:8px;color:var(--text-muted);font-size:11px">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'

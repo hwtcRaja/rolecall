@@ -972,6 +972,23 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
+        """CREATE TABLE IF NOT EXISTS program_sessions (
+            id TEXT PRIMARY KEY,
+            program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            day_of_week TEXT DEFAULT '',
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            start_date TEXT DEFAULT '',
+            end_date TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            capacity INTEGER,
+            price_override INTEGER,
+            status TEXT DEFAULT 'open',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -3922,7 +3939,7 @@ def save_registration_settings(pid):
     custom_fields = d.get('custom_fields') or []
     execute(conn, '''UPDATE youth_programs SET
         registration_status=%s, registration_form_type=%s, slug=%s,
-        capacity=%s, price=%s, deposit_amount=%s,
+        capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
@@ -3937,6 +3954,7 @@ def save_registration_settings(pid):
          d.get('capacity') or None,
          int(d.get('price_cents') or 0),
          int(d.get('deposit_amount') or 0),
+         bool(d.get('sessions_enabled')),
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
@@ -11435,8 +11453,25 @@ def public_submit_registration(slug):
     # Available spot
     price = p.get('price') or 0
 
-    # Siblings (additional children in same order)
+    # Sessions
     import json as _json2
+    session_ids = d.get('session_ids') or []
+    if not isinstance(session_ids, list): session_ids = []
+    sessions_enabled = bool(p.get('sessions_enabled'))
+    session_rows = []
+    session_price_total = 0  # price per participant from sessions
+    if sessions_enabled and session_ids:
+        for sid in session_ids:
+            sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
+                (sid, p['id'], 'open'))
+            if sr:
+                session_rows.append(sr)
+                sp = sr.get('price_override') if sr.get('price_override') is not None else price
+                session_price_total += sp
+        # When sessions are used, effective per-participant price = sum of selected session prices
+        price = session_price_total
+
+    # Siblings (additional children in same order)
     siblings = d.get('siblings') or []
     if not isinstance(siblings, list):
         siblings = []
@@ -11488,9 +11523,9 @@ def public_submit_registration(slug):
              emergency_contact_name, emergency_contact_phone, notes,
              allergies, pickup_contacts, photo_consent, pronouns,
              discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json,
+             participant_count, siblings_json, session_ids,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,
@@ -11503,7 +11538,7 @@ def public_submit_registration(slug):
              bool(d.get('photo_consent')),
              d.get('pronouns','').strip() or None,
              discount_code or None, discount_amount, sibling_discount_amount,
-             participant_count, _json2.dumps(siblings),
+             participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
              'deposit' if use_deposit else 'full', balance_due) + extra_vals)
 
     if charge_now == 0:
@@ -11517,8 +11552,10 @@ def public_submit_registration(slug):
     conn.commit()
 
     note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}'
+    if session_rows:
+        note += ' (' + ', '.join(sr['name'] for sr in session_rows) + ')'
     if participant_count > 1:
-        note += f' ({participant_count} participants)'
+        note += f' x{participant_count} participants'
     if use_deposit:
         note += f' (deposit ${deposit/100:.2f})'
     pay_url, link_id, order_id = square_create_payment_link(
@@ -12461,6 +12498,105 @@ def get_cart_order_status(oid):
     return jsonify(order)
 
 
+# ── Program Sessions ─────────────────────────────────────────────────────────
+
+@app.route('/api/programs/<pid>/sessions', methods=['GET'])
+def get_program_sessions(pid):
+    conn = get_db()
+    sessions = fetchall(conn, '''SELECT ps.*,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps WHERE ps.program_id=%s
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
+    conn.close()
+    return jsonify(sessions or [])
+
+
+@app.route('/api/programs/<pid>/sessions', methods=['POST'])
+def create_program_session(pid):
+    err = require_permission('programs')
+    if err: return err
+    import uuid as _us
+    d = request.json or {}
+    sid = _us.uuid4().hex
+    conn = get_db()
+    execute(conn, '''INSERT INTO program_sessions
+        (id, program_id, name, day_of_week, start_time, end_time,
+         start_date, end_date, location, capacity, price_override, status, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, pid,
+         (d.get('name') or '').strip(),
+         (d.get('day_of_week') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         (d.get('start_date') or '').strip(),
+         (d.get('end_date') or '').strip(),
+         (d.get('location') or '').strip(),
+         d.get('capacity') or None,
+         d.get('price_override') if d.get('price_override') is not None else None,
+         d.get('status') or 'open',
+         int(d.get('sort_order') or 0)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+
+@app.route('/api/programs/<pid>/sessions/<sid>', methods=['PUT'])
+def update_program_session(pid, sid):
+    err = require_permission('programs')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE program_sessions SET
+        name=%s, day_of_week=%s, start_time=%s, end_time=%s,
+        start_date=%s, end_date=%s, location=%s,
+        capacity=%s, price_override=%s, status=%s, sort_order=%s
+        WHERE id=%s AND program_id=%s''',
+        ((d.get('name') or '').strip(),
+         (d.get('day_of_week') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         (d.get('start_date') or '').strip(),
+         (d.get('end_date') or '').strip(),
+         (d.get('location') or '').strip(),
+         d.get('capacity') or None,
+         d.get('price_override') if d.get('price_override') is not None else None,
+         d.get('status') or 'open',
+         int(d.get('sort_order') or 0),
+         sid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/sessions/<sid>', methods=['DELETE'])
+def delete_program_session(pid, sid):
+    err = require_permission('programs')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/program/<slug>/sessions', methods=['GET'])
+def public_program_sessions(slug):
+    conn = get_db()
+    prog = fetchone(conn, "SELECT id FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
+    if not prog:
+        conn.close()
+        return jsonify([])
+    sessions = fetchall(conn, '''SELECT ps.id, ps.name, ps.day_of_week, ps.start_time,
+        ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
+        ps.price_override, ps.status, ps.sort_order,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps WHERE ps.program_id=%s AND ps.status='open'
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (prog['id'], prog['id']))
+    conn.close()
+    return jsonify(sessions or [])
+
+
 # ── Delete order routes ──────────────────────────────────────────────────────
 
 @app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])
@@ -12835,19 +12971,33 @@ def get_registration_status(slug, rid):
 def get_program_registrations(pid):
     err = require_auth()
     if err: return err
+    import json as _jreg
     conn = get_db()
-    regs = fetchall(conn, '''SELECT * FROM program_registrations
-        WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
+    # Resolve session names
+    sessions_map = {}
+    session_rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
+    for sr in session_rows:
+        sessions_map[sr['id']] = sr['name']
+    for r in (regs or []):
+        try:
+            sids = _jreg.loads(r.get('session_ids') or '[]')
+            r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
+        except Exception:
+            r['session_names'] = []
     interest = fetchall(conn, '''SELECT * FROM interest_list_entries
         WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
     counts = {
-        'confirmed': sum(1 for r in regs if r['status'] == 'confirmed'),
-        'pending_payment': sum(1 for r in regs if r['status'] == 'pending_payment'),
-        'waitlisted': sum(1 for r in regs if r['status'] == 'waitlisted'),
-        'interest': len(interest),
+        'confirmed': sum(1 for r in (regs or []) if r['status'] == 'confirmed'),
+        'pending_payment': sum(1 for r in (regs or []) if r['status'] == 'pending_payment'),
+        'waitlisted': sum(1 for r in (regs or []) if r['status'] == 'waitlisted'),
+        'interest': len(interest or []),
     }
     conn.close()
-    return jsonify({'registrations': regs, 'interest_list': interest, 'counts': counts})
+    return jsonify({'registrations': regs or [], 'interest_list': interest or [], 'counts': counts})
 
 
 @app.route('/api/programs/<pid>/registrations/<rid>', methods=['PUT'])

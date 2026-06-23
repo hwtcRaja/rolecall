@@ -11196,13 +11196,12 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             (youth_id, reg['guardian_email']))
         if not existing and reg.get('guardian_name'):
             import uuid as _ug
-            name_parts = (reg['guardian_name'] or '').split()
             execute(conn, '''INSERT INTO youth_guardians
-                (id, youth_id, first_name, last_name, email, phone, is_primary)
-                VALUES (%s,%s,%s,%s,%s,%s,TRUE) ON CONFLICT DO NOTHING''',
+                (id, youth_id, name, relationship, email, phone, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,1) ON CONFLICT DO NOTHING''',
                 (str(_ug.uuid4()), youth_id,
-                 name_parts[0] if name_parts else '',
-                 ' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
+                 reg.get('guardian_name') or '',
+                 'Parent/Guardian',
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
     def enroll(youth_id):

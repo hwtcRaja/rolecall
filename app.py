@@ -11162,119 +11162,83 @@ def next_waitlist_position(conn, program_id):
 
 
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
-    """Mark registration confirmed and create participant/family records."""
+    """Mark registration confirmed and create participant records."""
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
     if not reg: return
-    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
 
-    # Update registration
+    # Update registration status
     execute(conn, '''UPDATE program_registrations SET status='confirmed',
         square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
-    # Find or create youth participant
-    youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
-        JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-        JOIN families f ON f.id=yfl.family_id
-        WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
-        (reg['guardian_email'], reg['child_first_name'] or '', reg['child_last_name'] or ''))
-
-    if not youth and reg.get('child_first_name'):
-        import uuid as _uuid2
-        yid = str(_uuid2.uuid4())
+    def get_or_create_participant(first, last, dob, shirt):
+        """Find existing participant by guardian email + name, or create new one."""
+        if not first:
+            return None
+        existing = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+            JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE LOWER(yg.email)=LOWER(%s)
+            AND LOWER(yp.first_name)=LOWER(%s)
+            AND LOWER(yp.last_name)=LOWER(%s)''',
+            (reg['guardian_email'], first, last or ''))
+        if existing:
+            return existing
+        import uuid as _u
+        yid = str(_u.uuid4())
         execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
             VALUES (%s,%s,%s,%s,%s)''',
-            (yid, reg['child_first_name'], reg['child_last_name'] or '',
-             reg.get('child_dob') or None, reg.get('shirt_size') or ''))
-        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+            (yid, first, last or '', dob or None, shirt or ''))
+        return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
-    if youth:
-        # Find or create family
-        family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
-        if not family:
-            import uuid as _uuid3
-            import random, string
-            passphrase = '-'.join([''.join(random.choices(string.ascii_lowercase, k=4)) for _ in range(3)])
-            fid = str(_uuid3.uuid4())
-            execute(conn, '''INSERT INTO families (id, name, email, passphrase)
-                VALUES (%s,%s,%s,%s)''',
-                (fid, reg.get('guardian_name') or reg['guardian_email'], reg['guardian_email'], passphrase))
-            family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
-
-        # Link youth to family
-        try:
-            execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
-                (youth['id'], family['id']))
-        except Exception: pass
-
-        # Add guardian if not exists
-        existing_g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s', (youth['id'],))
-        if not existing_g and reg.get('guardian_name'):
-            import uuid as _uuid4
-            execute(conn, '''INSERT INTO youth_guardians (id, youth_id, first_name, last_name, email, phone, is_primary)
-                VALUES (%s,%s,%s,%s,%s,%s,TRUE)''',
-                (str(_uuid4.uuid4()), youth['id'],
-                 reg['guardian_name'].split()[0] if reg.get('guardian_name') else '',
-                 ' '.join(reg['guardian_name'].split()[1:]) if reg.get('guardian_name') and len(reg['guardian_name'].split()) > 1 else '',
+    def ensure_guardian(youth_id):
+        existing = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
+            (youth_id, reg['guardian_email']))
+        if not existing and reg.get('guardian_name'):
+            import uuid as _ug
+            name_parts = (reg['guardian_name'] or '').split()
+            execute(conn, '''INSERT INTO youth_guardians
+                (id, youth_id, first_name, last_name, email, phone, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,TRUE) ON CONFLICT DO NOTHING''',
+                (str(_ug.uuid4()), youth_id,
+                 name_parts[0] if name_parts else '',
+                 ' '.join(name_parts[1:]) if len(name_parts) > 1 else '',
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
-        # Enroll in program
-        if prog:
-            try:
-                import uuid as _uuid5
-                execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
-                    VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                    (str(_uuid5.uuid4()), youth['id'], prog['id'], f'Online registration #{reg_id[:8]}'))
-            except Exception as e:
-                app.logger.warning(f'Enrollment insert: {e}')
+    def enroll(youth_id):
+        if not prog: return
+        try:
+            import uuid as _ue
+            execute(conn, '''INSERT INTO youth_program_enrollments
+                (id, youth_id, program_id, enrolled_date, notes)
+                VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+        except Exception as e:
+            app.logger.warning(f'Enrollment insert: {e}')
 
-        # Update registration with youth/family IDs
-        execute(conn, 'UPDATE program_registrations SET youth_id=%s, family_id=%s WHERE id=%s',
-            (youth['id'], family['id'], reg_id))
+    # Primary participant
+    youth = get_or_create_participant(
+        reg.get('child_first_name'), reg.get('child_last_name'),
+        reg.get('child_dob'), reg.get('shirt_size'))
+    if youth:
+        ensure_guardian(youth['id'])
+        enroll(youth['id'])
 
-    # ── Create profiles for siblings (additional children in same order) ──
+    # Siblings
     import json as _json_sib
-    siblings_raw = reg.get('siblings_json') or '[]'
     try:
-        siblings = _json_sib.loads(siblings_raw)
+        siblings = _json_sib.loads(reg.get('siblings_json') or '[]')
     except Exception:
         siblings = []
-
     for sib in (siblings or []):
-        sib_first = (sib.get('first_name') or '').strip()
-        sib_last = (sib.get('last_name') or '').strip()
-        if not sib_first:
-            continue
-        # Same family email lookup as primary child
-        sib_youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
-            JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-            JOIN families f ON f.id=yfl.family_id
-            WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
-            (reg['guardian_email'], sib_first, sib_last))
-        if not sib_youth:
-            import uuid as _uuid_s
-            syid = str(_uuid_s.uuid4())
-            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
-                VALUES (%s,%s,%s,%s,%s)''',
-                (syid, sib_first, sib_last,
-                 sib.get('dob') or None, sib.get('shirt_size') or ''))
-            sib_youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (syid,))
+        sib_youth = get_or_create_participant(
+            (sib.get('first_name') or '').strip(),
+            (sib.get('last_name') or '').strip(),
+            sib.get('dob'), sib.get('shirt_size'))
         if sib_youth:
-            # Ensure family exists (will have been created for primary child above)
-            sib_family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
-            if sib_family:
-                try:
-                    execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
-                        (sib_youth['id'], sib_family['id']))
-                except Exception: pass
-            if prog:
-                try:
-                    import uuid as _uuid_se
-                    execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
-                        VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                        (str(_uuid_se.uuid4()), sib_youth['id'], prog['id'], f'Online registration (sibling) #{reg_id[:8]}'))
-                except Exception as e:
-                    app.logger.warning(f'Sibling enrollment insert: {e}')
+            ensure_guardian(sib_youth['id'])
+            enroll(sib_youth['id'])
 
     conn.commit()
 

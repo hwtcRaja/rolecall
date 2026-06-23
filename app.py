@@ -12919,13 +12919,13 @@ def marquee_overview():
 def marquee_all_registrations():
     err = require_permission('marquee', 'view')
     if err: return err
+    import json as _jmq
     conn = get_db()
     program_id = request.args.get('program_id')
     production_id = request.args.get('production_id')
     status = request.args.get('status')
-    # Program registrations
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        'program' AS context_type
+        yp.sessions_enabled, 'program' AS context_type
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         WHERE pr.program_id IS NOT NULL'''
@@ -12934,9 +12934,8 @@ def marquee_all_registrations():
         q1 += ' AND pr.program_id=%s'; p1.append(program_id)
     if status:
         q1 += ' AND pr.status=%s'; p1.append(status)
-    # Production registrations
     q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
-        'production' AS context_type
+        FALSE AS sessions_enabled, 'production' AS context_type
         FROM program_registrations pr
         JOIN productions p ON p.id=pr.production_id
         WHERE pr.production_id IS NOT NULL'''
@@ -12948,10 +12947,62 @@ def marquee_all_registrations():
     regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
     regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
     regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
+    # Resolve session names for all program registrations
+    sessions_by_program = {}
+    for r in regs:
+        pid = r.get('program_id')
+        if pid and r.get('sessions_enabled') and pid not in sessions_by_program:
+            rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
+            sessions_by_program[pid] = {s['id']: s['name'] for s in rows}
+    for r in regs:
+        pid = r.get('program_id')
+        smap = sessions_by_program.get(pid, {})
+        try:
+            sids = _jmq.loads(r.get('session_ids') or '[]')
+            r['session_names'] = [smap[sid] for sid in sids if sid in smap]
+        except Exception:
+            r['session_names'] = []
     programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
     productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
+
+
+@app.route('/api/programs/<pid>/sessions/summary', methods=['GET'])
+def program_sessions_summary(pid):
+    """Return each session with its registered participants."""
+    err = require_auth()
+    if err: return err
+    import json as _jss
+    conn = get_db()
+    sessions = fetchall(conn, '''SELECT ps.*,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status NOT IN ('cancelled','waitlisted')) AS confirmed_count,
+        (SELECT COUNT(*) FROM program_registrations
+         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         AND status='waitlisted') AS waitlisted_count
+        FROM program_sessions ps WHERE ps.program_id=%s
+        ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid, pid))
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id=%s AND pr.session_ids != '[]'
+        AND pr.status NOT IN ('cancelled')
+        ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+    # Group registrations by session
+    reg_by_session = {}
+    for r in regs:
+        try:
+            sids = _jss.loads(r.get('session_ids') or '[]')
+        except Exception:
+            sids = []
+        for sid in sids:
+            if sid not in reg_by_session:
+                reg_by_session[sid] = []
+            reg_by_session[sid].append(r)
+    conn.close()
+    return jsonify({'sessions': sessions or [], 'reg_by_session': reg_by_session})
 
 
 @app.route('/api/public/program/<slug>/registration/<rid>', methods=['GET'])

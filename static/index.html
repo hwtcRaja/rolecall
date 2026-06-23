@@ -17171,9 +17171,12 @@ async function loadProgramRegistrations(pid){
     + '</div></div>'
 
   if(regs.length){
+    var hasSessions = prog && prog.sessions_enabled && regs.some(function(r){ try{ return JSON.parse(r.session_ids||'[]').length > 0 }catch(e){ return false } })
     html += '<div class="card" style="padding:16px 20px;margin-bottom:12px"><div style="font-size:14px;font-weight:700;margin-bottom:12px">Registrations</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Participant</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Contact</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Registered</th><th></th></tr></thead>'
+      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Participant</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Contact</th>'
+      + (hasSessions ? '<th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Sessions</th>' : '')
+      + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Registered</th><th></th></tr></thead>'
       + '<tbody>'
       + regs.map(function(r){
           var isAdult = r.registration_form_type === 'adult'
@@ -17192,9 +17195,15 @@ async function loadProgramRegistrations(pid){
           var contactCell = isAdult
             ? '<span style="color:var(--text-muted);font-size:11px">—</span>'
             : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></div>'
+          var sessionCell = ''
+          if(hasSessions){
+            var snames = r.session_names || []
+            sessionCell = '<td style="padding:8px;font-size:11px;color:var(--text-muted)">'+(snames.length ? snames.map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')+'</td>'
+          }
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
+            + sessionCell
             + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
@@ -17454,6 +17463,16 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Additional Schedule Notes</label>'
     + '<input type="text" id="rs-schedule-notes" value="'+escHtml(prog.schedule_notes||'')+'" placeholder="e.g. No class July 4th week" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
 
+    // Sessions
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Sessions</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:10px">If enabled, participants choose one or more sessions when registering. Price is per session.</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:10px">'
+    + '<input type="checkbox" id="rs-sessions-enabled" '+(prog.sessions_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable sessions for this program</label>'
+    + '<div id="rs-sessions-container" style="'+(prog.sessions_enabled?'':'display:none')+'">'
+    + '<div id="rs-sessions-list" style="margin-bottom:8px"></div>'
+    + '<button type="button" id="rs-add-session-btn" class="btn btn-secondary btn-sm" style="font-size:12px">+ Add Session</button>'
+    + '</div>'
+
     // Program Info & Photos section
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Program Info &amp; Photos</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">About This Program</label>'
@@ -17561,6 +17580,19 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
   document.getElementById('rs-close-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-cancel-btn').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('rs-save-btn').addEventListener('click', function(){ saveRegistrationSettings(pid, _saveEndpoint, onSavedCallback) })
+
+  // Sessions toggle
+  var sessToggle = document.getElementById('rs-sessions-enabled')
+  var sessContainer = document.getElementById('rs-sessions-container')
+  if(sessToggle && sessContainer){
+    sessToggle.addEventListener('change', function(){
+      sessContainer.style.display = this.checked ? '' : 'none'
+    })
+    // Load existing sessions
+    if(prog.sessions_enabled) loadSessionsInModal(pid)
+    var addBtn = document.getElementById('rs-add-session-btn')
+    if(addBtn) addBtn.addEventListener('click', function(){ openAddSessionModal(pid) })
+  }
 
   // Cover image upload
   var coverInput = document.getElementById('rs-cover-upload')
@@ -17857,6 +17889,111 @@ async function loadDiscountCodes(pid){
 }
 
 
+async function loadSessionsInModal(pid){
+  var listEl = document.getElementById('rs-sessions-list')
+  if(!listEl) return
+  var sessions = await api('/api/programs/'+pid+'/sessions')
+  if(!Array.isArray(sessions) || !sessions.length){
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">No sessions yet. Click + Add Session to create one.</div>'
+    return
+  }
+  function fmtTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+  var statusColors = {open:'#dcfce7;color:#166534',closed:'#fee2e2;color:#991b1b',full:'#fef3c7;color:#92400e'}
+  listEl.innerHTML = sessions.map(function(s){
+    var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTime(s.start_time)+(s.end_time?' – '+fmtTime(s.end_time):'') : '')
+    var price = s.price_override !== null && s.price_override !== undefined ? '$'+(s.price_override/100).toFixed(2) : 'Program price'
+    var enrolled = s.enrolled_count || 0
+    var cap = s.capacity ? enrolled+'/'+s.capacity : enrolled+' enrolled'
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
+      + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+' &nbsp;·&nbsp; '+escHtml(price)+' &nbsp;·&nbsp; '+cap+'</div></div>'
+      + '<div style="display:flex;gap:6px;align-items:center">'
+      + '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+( statusColors[s.status]||statusColors.open)+'">'+(s.status||'open')+'</span>'
+      + '<button class="btn btn-secondary btn-sm sess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
+      + '<button class="btn btn-sm sess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
+      + '</div></div>'
+  }).join('')
+
+  listEl.querySelectorAll('.sess-edit-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ openAddSessionModal(pid, sessions.find(function(s){ return s.id===btn.dataset.sid })) })
+  })
+  listEl.querySelectorAll('.sess-del-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Delete this session?')) return
+      var res = await api('/api/programs/'+pid+'/sessions/'+btn.dataset.sid,'DELETE')
+      if(res&&res.ok){ toast('Session deleted','success'); loadSessionsInModal(pid) }
+      else toast('Error','error')
+    })
+  })
+}
+
+function openAddSessionModal(pid, existing){
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px'
+  var modal = document.createElement('div')
+  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto'
+  var s = existing || {}
+  function fld(id,label,type,value,placeholder){
+    return '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">'+label+'</label>'
+      + '<input type="'+type+'" id="sess-'+id+'" value="'+escHtml(value||'')+'" placeholder="'+(placeholder||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+  }
+  var days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+  modal.innerHTML = '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">'+(existing?'Edit Session':'Add Session')+'</div>'
+    + fld('name','Session Name','text',s.name,'e.g. Monday 4pm or Session A')
+    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Day of Week</label>'
+    + '<select id="sess-day" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + '<option value="">No specific day</option>'
+    + days.map(function(d){ return '<option value="'+d+'"'+(s.day_of_week===d?' selected':'')+'>'+d+'</option>' }).join('')
+    + '</select></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + fld('start-time','Start Time','time',s.start_time,'')
+    + fld('end-time','End Time','time',s.end_time,'')
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + fld('start-date','Start Date','date',s.start_date,'')
+    + fld('end-date','End Date','date',s.end_date,'')
+    + '</div>'
+    + fld('location','Location (optional)','text',s.location,'Leave blank to use program location')
+    + fld('capacity','Capacity (optional)','number',s.capacity,'Unlimited')
+    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (leave blank to use program price)</label>'
+    + '<input type="number" id="sess-price" value="'+(s.price_override!==null&&s.price_override!==undefined?(s.price_override/100).toFixed(2):'')+'" placeholder="Use program price" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+    + '<div class="form-group" style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+    + '<select id="sess-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + '<option value="open"'+((!s.status||s.status==='open')?' selected':'')+'>Open</option>'
+    + '<option value="closed"'+(s.status==='closed'?' selected':'')+'>Closed</option>'
+    + '<option value="full"'+(s.status==='full'?' selected':'')+'>Full</option>'
+    + '</select></div>'
+    + '<div style="display:flex;gap:10px"><button id="sess-cancel-btn" class="btn btn-secondary" style="flex:1">Cancel</button>'
+    + '<button id="sess-save-btn" class="btn btn-primary" style="flex:1">'+(existing?'Save Changes':'Add Session')+'</button></div>'
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  modal.querySelector('#sess-cancel-btn').addEventListener('click', function(){ overlay.remove() })
+  modal.querySelector('#sess-save-btn').addEventListener('click', async function(){
+    var btn = this; btn.disabled=true; btn.textContent='Saving...'
+    var priceVal = (document.getElementById('sess-price')||{}).value||''
+    var payload = {
+      name: (document.getElementById('sess-name')||{}).value||'',
+      day_of_week: (document.getElementById('sess-day')||{}).value||'',
+      start_time: (document.getElementById('sess-start-time')||{}).value||'',
+      end_time: (document.getElementById('sess-end-time')||{}).value||'',
+      start_date: (document.getElementById('sess-start-date')||{}).value||'',
+      end_date: (document.getElementById('sess-end-date')||{}).value||'',
+      location: (document.getElementById('sess-location')||{}).value||'',
+      capacity: parseInt((document.getElementById('sess-capacity')||{}).value)||null,
+      price_override: priceVal !== '' ? Math.round(parseFloat(priceVal)*100) : null,
+      status: (document.getElementById('sess-status')||{}).value||'open',
+    }
+    if(!payload.name){ toast('Session name is required','error'); btn.disabled=false; btn.textContent=existing?'Save Changes':'Add Session'; return }
+    var url = existing ? '/api/programs/'+pid+'/sessions/'+existing.id : '/api/programs/'+pid+'/sessions'
+    var method = existing ? 'PUT' : 'POST'
+    var res = await api(url, method, payload)
+    overlay.remove()
+    if(res&&res.ok){ toast(existing?'Session updated':'Session added','success'); loadSessionsInModal(pid) }
+    else toast((res&&res.error)||'Error','error')
+  })
+}
+
 function toggleScheduleFields(){
   var type = (document.getElementById('rs-schedule-type')||{}).value || 'date_range'
   var dr = document.getElementById('rs-sched-date-range')
@@ -17883,6 +18020,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
     program_info: (document.getElementById('rs-program-info')||{}).value || '',
+    sessions_enabled: (document.getElementById('rs-sessions-enabled')||{}).checked||false,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,

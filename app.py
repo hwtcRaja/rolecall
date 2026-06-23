@@ -4,6 +4,7 @@ from flask_cors import CORS
 import psycopg2
 import psycopg2.extras
 import hashlib
+import hmac
 import os
 import uuid
 import json
@@ -11592,48 +11593,51 @@ def square_webhook():
     app.logger.info(f'Square webhook: {event_type}')
 
     if event_type in ('payment.completed', 'payment.updated'):
-        obj = event.get('data', {}).get('object', {}).get('payment', {})
-        payment_id = obj.get('id')
-        order_id = obj.get('order_id')
-        status = obj.get('status')
-        amount_cents = obj.get('amount_money', {}).get('amount', 0)
-        if status == 'COMPLETED' and order_id:
-            conn = get_db()
-            # Check registrations first
-            reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
-                (order_id, order_id))
-            if reg and reg['status'] == 'pending_payment':
-                finalize_registration(conn, reg['id'], payment_id, order_id)
-            elif reg and reg['status'] == 'waitlisted':
-                execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
-                    (payment_id, reg['id']))
-                finalize_registration(conn, reg['id'], payment_id, order_id)
-                conn.commit()
-            else:
-                # Check cart orders
-                import json as _jw
-                cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+        try:
+            obj = event.get('data', {}).get('object', {}).get('payment', {})
+            payment_id = obj.get('id')
+            order_id = obj.get('order_id')
+            status = obj.get('status')
+            amount_cents = obj.get('amount_money', {}).get('amount', 0)
+            if status == 'COMPLETED' and order_id:
+                conn = get_db()
+                # Check registrations first
+                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
                     (order_id, order_id))
-                if cart:
-                    execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
-                    try:
-                        items = _jw.loads(cart.get('items_json') or '[]')
-                    except Exception:
-                        items = []
-                    for it in items:
-                        rid = it.get('registration_id')
-                        if rid:
-                            reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
-                            if reg2 and reg2['status'] == 'pending_payment':
-                                finalize_registration(conn, rid, payment_id, order_id)
+                if reg and reg['status'] == 'pending_payment':
+                    finalize_registration(conn, reg['id'], payment_id, order_id)
+                elif reg and reg['status'] == 'waitlisted':
+                    execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                        (payment_id, reg['id']))
+                    finalize_registration(conn, reg['id'], payment_id, order_id)
                     conn.commit()
                 else:
-                    # Check pending donations
-                    don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    # Check cart orders
+                    import json as _jw
+                    cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                         (order_id, order_id))
-                    if don:
-                        finalize_donation(conn, don['id'], payment_id, amount_cents)
-            conn.close()
+                    if cart:
+                        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                        try:
+                            items = _jw.loads(cart.get('items_json') or '[]')
+                        except Exception:
+                            items = []
+                        for it in items:
+                            rid = it.get('registration_id')
+                            if rid:
+                                reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                                if reg2 and reg2['status'] == 'pending_payment':
+                                    finalize_registration(conn, rid, payment_id, order_id)
+                        conn.commit()
+                    else:
+                        # Check pending donations
+                        don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                            (order_id, order_id))
+                        if don:
+                            finalize_donation(conn, don['id'], payment_id, amount_cents)
+                conn.close()
+        except Exception as e:
+            app.logger.error(f'Webhook processing error: {e}', exc_info=True)
 
     return jsonify({'ok': True})
 

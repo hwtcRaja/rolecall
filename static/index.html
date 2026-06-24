@@ -7903,6 +7903,7 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Closes</label><input type="time" id="ag-close" value="17:00" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Slot (min)</label><input type="number" id="ag-duration" value="15" min="5" max="120" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Gap (min)</label><input type="number" id="ag-gap" value="5" min="0" max="30" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Capacity / slot</label><input type="number" id="ag-capacity" value="1" min="1" max="20" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/><div style="font-size:10px;color:var(--text-muted);margin-top:2px">How many people can book each slot</div></div>
  </div>
  <div style="margin-bottom:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Location (optional)</label><input type="text" id="ag-location" placeholder="Studio, room, etc." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <button type="button" class="btn btn-primary btn-sm" id="ag-submit-btn" onclick="generateAudSlots('${contextType}','${contextId}','${containerId}')" style="font-size:12px">Generate</button>
@@ -7997,7 +7998,7 @@ async function generateAudSlots(contextType, contextId, containerId){
    slot_duration_minutes:parseInt((document.getElementById('ag-duration')||{}).value||15),
    gap_minutes:parseInt((document.getElementById('ag-gap')||{}).value||5),
    location:(document.getElementById('ag-location')||{}).value||'',
-   capacity:1, slot_type:'in_person',
+   capacity:parseInt((document.getElementById('ag-capacity')||{}).value||1), slot_type:'in_person',
  })
  if(btn){ btn.disabled=false; btn.textContent='Generate' }
  if(res&&res.ok){

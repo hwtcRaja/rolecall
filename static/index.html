@@ -417,6 +417,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- MAIN THEATER -->
         <div class="nav-section">RoleCall</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard">📊</span>Dashboard</div>
+        <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time">🕐</span>My Time &amp; Attendance</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers">👥</span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors">🎭</span>Directors</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
@@ -472,6 +473,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <!-- DASHBOARD -->
+ <section class="page" id="page-my-time">
+  <div class="page-header">
+    <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
+  </div>
+  <div class="page-body" id="my-time-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
+ </section>
+
  <section class="page active" id="page-dashboard">
  <div class="page-header">
  <div><div class="page-title">Dashboard</div><div class="page-subtitle">HWTC — Programs, productions, volunteers & participants</div></div>
@@ -2959,7 +2967,8 @@ async function handleLogout(){
 
 // Map nav item text/id to permission section key
 const NAV_PERM_MAP = {
- 'dashboard': null, // always visible
+ 'dashboard': null,
+ 'my-time': null, // always visible
  'volunteers': 'volunteers',
  'directors': 'directors',
  'waivers': 'volunteers',
@@ -3085,6 +3094,7 @@ function navTo(page,el){
  if(page==='donor-tiers') loadTiersPage()
  if(page==='donor-templates') loadTemplatesPage()
  if(page==='marquee') loadMarqueePage()
+ if(page==='my-time') loadMyTimePage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6343,7 +6353,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars':'⭐', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':'',
- board:'', directors:''
+ board:'', directors:'', 'my-time':''
 }
 
 let _currentNavIcons = {}
@@ -19564,6 +19574,175 @@ function formatDateTimeShort(ts){
 var _marqueeTab = 'dashboard'
 var _marqueeRegs = []
 var _marqueePrograms = []
+
+async function loadMyTimePage(){
+  const body = document.getElementById('my-time-body')
+  if(!body) return
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
+  const data = await api('/api/my/time')
+  if(!data || data.error){ body.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load your time data.</div>'; return }
+  if(!data.volunteer){
+    body.innerHTML = '<div class="card" style="padding:30px;text-align:center"><div style="font-size:15px;font-weight:700;margin-bottom:8px">No volunteer profile linked</div><div style="color:var(--text-muted);font-size:13px">Your account email doesn\'t match a volunteer record. Contact an admin to link your profile.</div></div>'
+    return
+  }
+  const vol = data.volunteer
+  const stats = data.stats || {}
+  const approved = data.hours || []
+  const pending = data.pending || []
+  const events = data.events || []
+  const boardAtt = data.board_attendance || []
+  const isBoard = data.is_board
+  const sub = document.getElementById('my-time-subtitle')
+  if(sub) sub.textContent = 'Welcome, '+vol.name
+
+  // Stat cards
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">'
+  var statCards = [
+    ['Total Hours', stats.total ? stats.total.toFixed(1) : '0', '#e0f2fe', '#145466'],
+    ['This Year', stats.ytd ? stats.ytd.toFixed(1) : '0', '#dcfce7', '#166534'],
+    ['Pending Approval', stats.pending ? stats.pending.toFixed(1) : '0', '#fef3c7', '#92400e'],
+  ]
+  if(isBoard){
+    var attended = boardAtt.filter(function(a){ return a.attendance_type && a.attendance_type !== 'absent' }).length
+    statCards.push(['Board Meetings', attended+' / '+boardAtt.length, '#ede9fe', '#6d28d9'])
+  }
+  html += statCards.map(function(s){
+    return '<div style="background:'+s[2]+';border-radius:12px;padding:16px">'
+      + '<div style="font-size:22px;font-weight:800;color:'+s[3]+'">'+s[1]+'</div>'
+      + '<div style="font-size:12px;font-weight:600;color:'+s[3]+';margin-top:2px">'+s[0]+'</div>'
+      + '</div>'
+  }).join('')
+  html += '</div>'
+
+  // Submit Time form
+  html += '<div class="card" style="margin-bottom:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Log Time</div>'
+    + '<div style="padding:16px 20px">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Type</label>'
+    + '<select id="myt-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px" onchange="toggleMyTimeType()">'
+    + '<option value="event">Existing Event</option>'
+    + '<option value="independent">Independent / Other Work</option>'
+    + '</select></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Date</label>'
+    + '<input type="date" id="myt-date" value="'+new Date().toISOString().slice(0,10)+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div id="myt-event-row" class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Event</label>'
+    + '<select id="myt-event" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + '<option value="">Select an event...</option>'
+    + events.map(function(e){ return '<option value="'+e.id+'" data-name="'+escHtml(e.name||'')+'">'+escHtml(e.name||'')+(e.event_date?' ('+e.event_date+')':'')+'</option>' }).join('')
+    + '</select></div>'
+    + '<div id="myt-desc-row" class="form-group" style="margin-bottom:12px;display:none"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Description</label>'
+    + '<input type="text" id="myt-desc" placeholder="e.g. Set design work, costume prep, admin tasks..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Hours</label>'
+    + '<input type="number" id="myt-hours" min="0.25" step="0.25" placeholder="2.5" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Role / Category</label>'
+    + '<input type="text" id="myt-role" placeholder="e.g. Stage crew, Admin, Rehearsal" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:14px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Notes (optional)</label>'
+    + '<input type="text" id="myt-notes" placeholder="Any additional details..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<button class="btn btn-primary" onclick="submitMyTime()">Submit for Approval</button>'
+    + '</div></div>'
+
+  // Pending hours
+  if(pending.length){
+    html += '<div class="card" style="margin-bottom:16px"><div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Pending Approval <span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;margin-left:6px">'+pending.length+'</span></div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 16px;color:var(--text-muted)">Event / Activity</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Date</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Hours</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Role</th><th></th></tr></thead><tbody>'
+      + pending.map(function(h){
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px 16px;font-weight:600">'+escHtml(h.event||h.event_name||'')+'</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(h.date||'')+'</td>'
+            + '<td style="padding:8px;font-weight:700;color:#92400e">'+parseFloat(h.hours||0).toFixed(1)+'h</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(h.role||'—')+'</td>'
+            + '<td style="padding:8px"><button class="btn btn-sm myt-del-btn" data-hid="'+h.id+'" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">Remove</button></td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table></div>'
+  }
+
+  // Approved hours history
+  html += '<div class="card" style="margin-bottom:16px"><div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Hours History</div>'
+  if(!approved.length){
+    html += '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No approved hours yet.</div>'
+  } else {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 16px;color:var(--text-muted)">Event</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Date</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Hours</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Role</th></tr></thead><tbody>'
+      + approved.map(function(h){
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px 16px;font-weight:600">'+escHtml(h.event||h.event_name||'')+'</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(h.date||'')+'</td>'
+            + '<td style="padding:8px;font-weight:700;color:#145466">'+parseFloat(h.hours||0).toFixed(1)+'h</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(h.role||'—')+'</td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table>'
+  }
+  html += '</div>'
+
+  // Board attendance
+  if(isBoard && boardAtt.length){
+    html += '<div class="card"><div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Board Meeting Attendance</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px 16px;color:var(--text-muted)">Meeting</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Date</th><th style="text-align:left;padding:8px;color:var(--text-muted)">Attendance</th></tr></thead><tbody>'
+      + boardAtt.map(function(a){
+          var attType = a.attendance_type || 'absent'
+          var attColors = {'in_person':'#dcfce7;color:#166534','virtual':'#e0f2fe;color:#145466','absent':'#fee2e2;color:#991b1b','excused':'#fef3c7;color:#92400e'}
+          var attLabels = {'in_person':'In Person','virtual':'Virtual','absent':'Absent','excused':'Excused'}
+          return '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px 16px;font-weight:600">Board Meeting'+(a.location?' · '+escHtml(a.location):'')+'</td>'
+            + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(a.meeting_date||'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(attColors[attType]||attColors['absent'])+'">'+( attLabels[attType]||attType)+'</span></td>'
+            + '</tr>'
+        }).join('')
+      + '</tbody></table></div>'
+  }
+
+  body.innerHTML = html
+
+  body.querySelectorAll('.myt-del-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Remove this pending submission?')) return
+      var res = await api('/api/my/hours/'+btn.dataset.hid,'DELETE')
+      if(res && res.ok){ toast('Removed','success'); loadMyTimePage() }
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+}
+
+function toggleMyTimeType(){
+  var type = (document.getElementById('myt-type')||{}).value
+  var evtRow = document.getElementById('myt-event-row')
+  var descRow = document.getElementById('myt-desc-row')
+  if(evtRow) evtRow.style.display = type==='event' ? '' : 'none'
+  if(descRow) descRow.style.display = type==='independent' ? '' : 'none'
+}
+
+async function submitMyTime(){
+  var type = (document.getElementById('myt-type')||{}).value
+  var date = (document.getElementById('myt-date')||{}).value
+  var hours = parseFloat((document.getElementById('myt-hours')||{}).value||0)
+  var role = (document.getElementById('myt-role')||{}).value||''
+  var notes = (document.getElementById('myt-notes')||{}).value||''
+  if(!date){ toast('Please enter a date','error'); return }
+  if(!hours || hours <= 0){ toast('Please enter hours greater than 0','error'); return }
+  var eventName = '', eventId = null
+  if(type==='event'){
+    var sel = document.getElementById('myt-event')
+    eventId = sel ? sel.value : ''
+    eventName = sel && sel.selectedOptions[0] ? (sel.selectedOptions[0].dataset.name || sel.selectedOptions[0].text) : ''
+    if(!eventId){ toast('Please select an event','error'); return }
+  } else {
+    eventName = (document.getElementById('myt-desc')||{}).value||''
+    if(!eventName){ toast('Please enter a description','error'); return }
+  }
+  var res = await api('/api/my/hours/submit','POST',{
+    event: eventName, event_id: eventId||null,
+    date: date, hours: hours, role: role, notes: notes
+  })
+  if(res && res.ok){ toast('Submitted for approval!','success'); loadMyTimePage() }
+  else toast((res&&res.error)||'Error submitting','error')
+}
 
 function loadMarqueePage(){
   // Wire tab buttons

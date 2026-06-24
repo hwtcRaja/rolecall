@@ -179,9 +179,9 @@ function renderPage(){
   var badge = getCartBadgeHTML()
   if(badge) el.innerHTML = badge
 
-  // If sessions enabled, show session picker card first
-  if(program.sessions_enabled && program._sessions && program._sessions.length){
-    el.innerHTML = (badge||'') + buildSessionPicker() + buildProgramInfoCard()
+  // If sessions enabled but no sessions loaded yet, show error
+  if(program.sessions_enabled && program._sessions && program._sessions.length === 0){
+    el.innerHTML = (badge||'') + '<div class="card"><div class="card-body"><div class="alert alert-error">No sessions are currently available for this program.</div></div></div>' + buildProgramInfoCard()
     return
   }
   const status = program.registration_status || 'draft'
@@ -305,7 +305,34 @@ function buildRegistrationForm(formType, customFields){
   var ff = (program && program.form_fields) || {}
   function on(key, def){ return ff.hasOwnProperty(key) ? ff[key] : (def !== undefined ? def : false) }
 
-  var participantSection = isYouth
+  // Session picker (when enabled, shown at top of form)
+  var sessionPickerHTML = ''
+  if(program.sessions_enabled && program._sessions && program._sessions.length){
+    var sessions = program._sessions
+    var basePrice = program.price || 0
+    function fmtTimeSess(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+    sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
+      + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
+      + sessions.map(function(s){
+          var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
+          var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : '')
+          var enrolled = s.enrolled_count || 0
+          var spotsLeft = s.capacity ? s.capacity - enrolled : null
+          var isFull = spotsLeft !== null && spotsLeft <= 0
+          return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+'" class="session-label">'
+            + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
+            + '<div style="flex:1">'
+            + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
+            + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
+            + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
+            + (isFull ? '<div style="font-size:12px;color:#dc2626;font-weight:600">Full</div>'
+                : spotsLeft !== null && spotsLeft <= 5 ? '<div style="font-size:12px;color:#f59e0b;font-weight:600">Only '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</div>' : '')
+            + '</div>'
+            + '<div style="font-weight:700;font-size:14px;color:#145466;white-space:nowrap">'+(price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
+            + '</label>'
+        }).join('')
+      + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
+  }
     ? '<div class="section-divider">Participant Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
@@ -350,6 +377,7 @@ function buildRegistrationForm(formType, customFields){
 
   return '<div class="card"><div class="card-header"><h2>Register</h2></div><div class="card-body">'
     + '<div id="form-alert"></div>'
+    + sessionPickerHTML
     + participantSection
     + (customFields.length ? '<div class="section-divider">Additional Information</div>'+customFieldInputs(customFields) : '')
     + (isYouth
@@ -547,19 +575,6 @@ document.addEventListener('change', function(e){
 })
 
 document.addEventListener('click', function(e){
-  if(e.target && e.target.id === 'sessions-continue-btn'){
-    e.preventDefault()
-    // Show registration form below session picker
-    var existing = document.getElementById('reg-form-section')
-    if(existing) existing.remove()
-    var el = document.getElementById('app')
-    var formDiv = document.createElement('div')
-    formDiv.id = 'reg-form-section'
-    formDiv.innerHTML = buildRegistrationForm(program.registration_form_type, program.custom_fields||[])
-    el.appendChild(formDiv)
-    formDiv.scrollIntoView({behavior:'smooth',block:'start'})
-    return
-  }
   if(e.target && e.target.id === 'apply-discount-btn'){
     applyDiscount(); return
   }
@@ -804,7 +819,6 @@ function buildProgramInfoCard(){
 }
 
 function updateSessionPicker(){
-  // Collect selected sessions
   selectedSessionIds = []
   var total = 0
   document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
@@ -812,22 +826,27 @@ function updateSessionPicker(){
     total += parseInt(cb.dataset.price||0)
   })
   // Update label styles
-  document.querySelectorAll('.session-checkbox').forEach(function(cb){
-    var lbl = cb.closest('label')
-    if(!lbl) return
-    var sel = cb.checked
-    lbl.style.borderColor = sel ? '#145466' : (cb.disabled ? '#e5e7eb' : '#d1d5db')
-    lbl.style.background = sel ? '#f0f9ff' : (cb.disabled ? '#f9fafb' : '#fff')
+  document.querySelectorAll('.session-label').forEach(function(lbl){
+    var cb = lbl.querySelector('.session-checkbox')
+    if(!cb || cb.disabled) return
+    lbl.style.borderColor = cb.checked ? '#145466' : '#d1d5db'
+    lbl.style.background = cb.checked ? '#f0f9ff' : '#fff'
   })
-  // Update total
+  // Update session total display
   var totalEl = document.getElementById('session-total')
-  var continueBtn = document.getElementById('sessions-continue-btn')
-  if(selectedSessionIds.length > 0){
-    if(totalEl){ totalEl.style.display=''; totalEl.textContent = selectedSessionIds.length+' session'+(selectedSessionIds.length===1?'':'s')+' selected — Total: $'+(total/100).toFixed(2) }
-    if(continueBtn){ continueBtn.disabled=false; continueBtn.textContent='Continue with '+selectedSessionIds.length+' session'+(selectedSessionIds.length===1?'':'s')+' →' }
-  } else {
-    if(totalEl) totalEl.style.display='none'
-    if(continueBtn){ continueBtn.disabled=true; continueBtn.textContent='Continue with Selected Sessions' }
+  if(totalEl){
+    if(selectedSessionIds.length > 0){
+      var numP = 1 + getSiblings().length
+      totalEl.style.display = ''
+      totalEl.textContent = selectedSessionIds.length+' session'+(selectedSessionIds.length===1?'':'s')+' selected'+(total>0?' — $'+(total/100).toFixed(2)+'/participant':'')
+    } else {
+      totalEl.style.display = 'none'
+    }
+  }
+  // Refresh payment options section if it exists
+  var paySection = document.getElementById('payment-options-section')
+  if(paySection && program && program.price >= 0){
+    paySection.innerHTML = buildPaymentOptions(program)
   }
 }
 

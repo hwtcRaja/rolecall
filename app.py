@@ -12563,7 +12563,7 @@ def public_program_sessions(slug):
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%"' || ps.id || '"%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
-        FROM program_sessions ps WHERE ps.program_id=%s AND ps.status='open'
+        FROM program_sessions ps WHERE ps.program_id=%s AND (ps.status IS NULL OR ps.status NOT IN ('closed','cancelled'))
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (prog['id'], prog['id']))
     conn.close()
     return jsonify(sessions or [])

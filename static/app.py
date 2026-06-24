@@ -4,6 +4,7 @@ from flask_cors import CORS
 import psycopg2
 import psycopg2.extras
 import hashlib
+import hmac
 import os
 import uuid
 import json
@@ -774,6 +775,22 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
+        """ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE""",
+        """CREATE TABLE IF NOT EXISTS audition_slots (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            slot_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            slot_type TEXT DEFAULT 'in_person',
+            location TEXT DEFAULT '',
+            capacity INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT REFERENCES audition_slots(id) ON DELETE SET NULL""",
+        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
         """CREATE TABLE IF NOT EXISTS volunteer_groups (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -931,6 +948,8 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS booking_mode BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_sessions_per_reg INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
@@ -989,6 +1008,7 @@ def init_db():
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -3097,15 +3117,23 @@ def get_audition_settings(context_type, context_id):
     conn = get_db()
     row = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
         (context_id, context_type))
+    # Load slots
+    slots = fetchall(conn, '''SELECT as2.*,
+        (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
+        FROM audition_slots as2
+        WHERE as2.context_id=%s AND as2.context_type=%s
+        ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
     conn.close()
     if not row:
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
-            'allow_resume_link': True, 'allow_headshot_link': True})
+            'allow_resume_link': True, 'allow_headshot_link': True,
+            'allow_slots': False, 'slots': slots})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
     except Exception: row['roles'] = []
+    row['slots'] = slots
     resp = jsonify(row)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -3131,21 +3159,22 @@ def save_audition_settings(context_type, context_id):
     allow_video  = bool(d.get('allow_video_link', True))
     allow_resume = bool(d.get('allow_resume_link', True))
     allow_head   = bool(d.get('allow_headshot_link', True))
+    allow_slots  = bool(d.get('allow_slots', False))
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3156,18 +3185,21 @@ def get_audition_submissions(context_type, context_id):
     if err: return err
     conn = get_db()
     try:
-        rows = fetchall(conn, """SELECT id, context_type, context_id, family_id,
-            participant_id, submitter_name, submitter_email, role_requested,
-            video_url, resume_url, headshot_url, notes, status, admin_notes,
-            submitted_at, updated_at,
-            COALESCE(roles_requested, '[]') as roles_requested,
-            COALESCE(cast_role, '') as cast_role
-            FROM audition_submissions
-            WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+        rows = fetchall(conn, """SELECT s.id, s.context_type, s.context_id, s.family_id,
+            s.participant_id, s.submitter_name, s.submitter_email, s.role_requested,
+            s.video_url, s.resume_url, s.headshot_url, s.notes, s.status, s.admin_notes,
+            s.submitted_at, s.updated_at,
+            COALESCE(s.roles_requested, '[]') as roles_requested,
+            COALESCE(s.cast_role, '') as cast_role,
+            COALESCE(s.audition_type, 'virtual') as audition_type,
+            s.slot_id,
+            sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
+            FROM audition_submissions s
+            LEFT JOIN audition_slots sl ON sl.id=s.slot_id
+            WHERE s.context_type=%s AND s.context_id=%s ORDER BY s.submitted_at DESC""",
             (context_type, context_id))
     except Exception as e:
         app.logger.error(f'get_audition_submissions error: {e}')
-        # Fallback without new columns if migration hasn't run yet
         try:
             rows = fetchall(conn, """SELECT * FROM audition_submissions
                 WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
@@ -3181,6 +3213,112 @@ def get_audition_submissions(context_type, context_id):
             return jsonify([])
     conn.close()
     return jsonify(rows)
+
+
+@app.route('/api/auditions/slots/<context_type>/<context_id>', methods=['GET'])
+def get_audition_slots(context_type, context_id):
+    conn = get_db()
+    slots = fetchall(conn, '''SELECT as2.*,
+        (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
+        FROM audition_slots as2
+        WHERE as2.context_id=%s AND as2.context_type=%s AND as2.status != 'cancelled'
+        ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
+    conn.close()
+    return jsonify(slots)
+
+
+@app.route('/api/auditions/slots/create', methods=['POST'])
+def create_audition_slot_v2():
+    err = require_auth()
+    if err: return err
+    import uuid as _uas
+    d = request.json or {}
+    conn = get_db()
+    sid = str(_uas.uuid4())
+    execute(conn, '''INSERT INTO audition_slots
+        (id, context_type, context_id, slot_date, start_time, end_time,
+         slot_type, location, capacity, sort_order, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+        (sid,
+         d.get('context_type', 'program'),
+         d.get('context_id', ''),
+         (d.get('slot_date') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         d.get('slot_type', 'in_person'),
+         (d.get('location') or '').strip() or None,
+         int(d.get('capacity') or 1),
+         int(d.get('sort_order') or 0)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+
+@app.route('/api/auditions/slots/generate', methods=['POST'])
+def generate_audition_slots():
+    err = require_auth()
+    if err: return err
+    import uuid as _uasg
+    import datetime as _dtasg
+    d = request.json or {}
+    context_type = d.get('context_type', 'program')
+    context_id = d.get('context_id', '')
+    start_date = d.get('start_date')
+    end_date = d.get('end_date') or start_date
+    open_time = d.get('open_time', '10:00')
+    close_time = d.get('close_time', '17:00')
+    slot_duration = int(d.get('slot_duration_minutes') or 15)
+    gap_minutes = int(d.get('gap_minutes') or 5)
+    capacity = int(d.get('capacity') or 1)
+    slot_type = d.get('slot_type', 'in_person')
+    location = (d.get('location') or '').strip()
+    days_of_week = d.get('days_of_week') or []
+    if not start_date or not open_time or not close_time:
+        return jsonify({'error': 'start_date, open_time and close_time required'}), 400
+    DAY_MAP = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5,'Sunday':6}
+    allowed_days = set(DAY_MAP[d2] for d2 in days_of_week if d2 in DAY_MAP) if days_of_week else set(range(7))
+    try:
+        cur = _dtasg.date.fromisoformat(start_date)
+        end = _dtasg.date.fromisoformat(end_date)
+        ot = _dtasg.time.fromisoformat(open_time)
+        ct = _dtasg.time.fromisoformat(close_time)
+    except Exception as e:
+        return jsonify({'error': f'Invalid date/time: {e}'}), 400
+    slot_td = _dtasg.timedelta(minutes=slot_duration)
+    gap_td = _dtasg.timedelta(minutes=gap_minutes)
+    conn = get_db()
+    created = 0
+    sort_order = 0
+    while cur <= end:
+        if cur.weekday() in allowed_days:
+            slot_start = _dtasg.datetime.combine(cur, ot)
+            slot_end_limit = _dtasg.datetime.combine(cur, ct)
+            while slot_start + slot_td <= slot_end_limit:
+                s_end = slot_start + slot_td
+                execute(conn, '''INSERT INTO audition_slots
+                    (id, context_type, context_id, slot_date, start_time, end_time,
+                     slot_type, location, capacity, sort_order, status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+                    (str(_uasg.uuid4()), context_type, context_id,
+                     cur.isoformat(),
+                     slot_start.strftime('%H:%M'), s_end.strftime('%H:%M'),
+                     slot_type, location or None,
+                     capacity, sort_order))
+                sort_order += 1
+                created += 1
+                slot_start = s_end + gap_td
+        cur += _dtasg.timedelta(days=1)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/auditions/slots/<sid>', methods=['DELETE'])
+def delete_audition_slot(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM audition_slots WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/auditions/submit', methods=['POST'])
@@ -3197,23 +3335,44 @@ def submit_audition():
     if not settings or not settings.get('is_open'):
         conn.close()
         return jsonify({'error': 'Auditions are not currently open'}), 400
+
+    # Handle slot booking
+    slot_id = d.get('slot_id') or None
+    audition_type = d.get('audition_type') or 'virtual'
+    if slot_id:
+        slot = fetchone(conn, 'SELECT * FROM audition_slots WHERE id=%s AND context_id=%s',
+            (slot_id, context_id))
+        if not slot:
+            conn.close()
+            return jsonify({'error': 'Slot not found'}), 400
+        if slot.get('status') == 'full':
+            conn.close()
+            return jsonify({'error': 'This slot is full. Please choose another time.'}), 400
+        booked = (fetchone(conn, 'SELECT COUNT(*) AS c FROM audition_submissions WHERE slot_id=%s', (slot_id,)) or {}).get('c', 0)
+        if int(booked) >= int(slot.get('capacity') or 1):
+            conn.close()
+            return jsonify({'error': 'This slot is now full. Please choose another time.'}), 400
+        audition_type = 'in_person'
+
     passphrase  = (d.get('passphrase') or '').strip()
     family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
     family_id   = family['id'] if family else None
     sid = str(uuid.uuid4())
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
-         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
+         slot_id,audition_type)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
-        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])) ,
+        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])),
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
         (d.get('notes') or '').strip() or None,
         passphrase or None,
+        slot_id, audition_type,
     ))
     conn.commit()
     # Get context name
@@ -3940,6 +4099,7 @@ def save_registration_settings(pid):
     execute(conn, '''UPDATE youth_programs SET
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
+        booking_mode=%s, max_sessions_per_reg=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
@@ -3955,6 +4115,8 @@ def save_registration_settings(pid):
          int(d.get('price_cents') or 0),
          int(d.get('deposit_amount') or 0),
          bool(d.get('sessions_enabled')),
+         bool(d.get('booking_mode')),
+         int(d.get('max_sessions_per_reg') or 0),
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
@@ -4658,7 +4820,9 @@ def get_productions():
     if err: return err
     conn = get_db()
     prods = fetchall(conn, """SELECT p.*, COALESCE(p.stage,'mainstage') as stage,
-        v.name as default_elic_name
+        v.name as default_elic_name,
+        (SELECT COUNT(*) FROM program_registrations WHERE production_id=p.id AND status NOT IN ('cancelled','waitlisted')) AS reg_enrolled,
+        (SELECT COUNT(*) FROM program_registrations WHERE production_id=p.id AND status='waitlisted') AS reg_waitlisted
         FROM productions p
         LEFT JOIN elics el ON p.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
@@ -11161,119 +11325,82 @@ def next_waitlist_position(conn, program_id):
 
 
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
-    """Mark registration confirmed and create participant/family records."""
+    """Mark registration confirmed and create participant records."""
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
     if not reg: return
-    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],))
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
 
-    # Update registration
+    # Update registration status
     execute(conn, '''UPDATE program_registrations SET status='confirmed',
         square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
-    # Find or create youth participant
-    youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
-        JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-        JOIN families f ON f.id=yfl.family_id
-        WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
-        (reg['guardian_email'], reg['child_first_name'] or '', reg['child_last_name'] or ''))
-
-    if not youth and reg.get('child_first_name'):
-        import uuid as _uuid2
-        yid = str(_uuid2.uuid4())
+    def get_or_create_participant(first, last, dob, shirt):
+        """Find existing participant by guardian email + name, or create new one."""
+        if not first:
+            return None
+        existing = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
+            JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE LOWER(yg.email)=LOWER(%s)
+            AND LOWER(yp.first_name)=LOWER(%s)
+            AND LOWER(yp.last_name)=LOWER(%s)''',
+            (reg['guardian_email'], first, last or ''))
+        if existing:
+            return existing
+        import uuid as _u
+        yid = str(_u.uuid4())
         execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
             VALUES (%s,%s,%s,%s,%s)''',
-            (yid, reg['child_first_name'], reg['child_last_name'] or '',
-             reg.get('child_dob') or None, reg.get('shirt_size') or ''))
-        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
+            (yid, first, last or '', dob or None, shirt or ''))
+        return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
-    if youth:
-        # Find or create family
-        family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
-        if not family:
-            import uuid as _uuid3
-            import random, string
-            passphrase = '-'.join([''.join(random.choices(string.ascii_lowercase, k=4)) for _ in range(3)])
-            fid = str(_uuid3.uuid4())
-            execute(conn, '''INSERT INTO families (id, name, email, passphrase)
-                VALUES (%s,%s,%s,%s)''',
-                (fid, reg.get('guardian_name') or reg['guardian_email'], reg['guardian_email'], passphrase))
-            family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (fid,))
-
-        # Link youth to family
-        try:
-            execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
-                (youth['id'], family['id']))
-        except Exception: pass
-
-        # Add guardian if not exists
-        existing_g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s', (youth['id'],))
-        if not existing_g and reg.get('guardian_name'):
-            import uuid as _uuid4
-            execute(conn, '''INSERT INTO youth_guardians (id, youth_id, first_name, last_name, email, phone, is_primary)
-                VALUES (%s,%s,%s,%s,%s,%s,TRUE)''',
-                (str(_uuid4.uuid4()), youth['id'],
-                 reg['guardian_name'].split()[0] if reg.get('guardian_name') else '',
-                 ' '.join(reg['guardian_name'].split()[1:]) if reg.get('guardian_name') and len(reg['guardian_name'].split()) > 1 else '',
+    def ensure_guardian(youth_id):
+        existing = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
+            (youth_id, reg['guardian_email']))
+        if not existing and reg.get('guardian_name'):
+            import uuid as _ug
+            execute(conn, '''INSERT INTO youth_guardians
+                (id, youth_id, name, relationship, email, phone, is_primary)
+                VALUES (%s,%s,%s,%s,%s,%s,1) ON CONFLICT DO NOTHING''',
+                (str(_ug.uuid4()), youth_id,
+                 reg.get('guardian_name') or '',
+                 'Parent/Guardian',
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
-        # Enroll in program
-        if prog:
-            try:
-                import uuid as _uuid5
-                execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
-                    VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                    (str(_uuid5.uuid4()), youth['id'], prog['id'], f'Online registration #{reg_id[:8]}'))
-            except Exception as e:
-                app.logger.warning(f'Enrollment insert: {e}')
+    def enroll(youth_id):
+        if not prog: return
+        try:
+            import uuid as _ue
+            execute(conn, '''INSERT INTO youth_program_enrollments
+                (id, youth_id, program_id, enrolled_date, notes)
+                VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+        except Exception as e:
+            app.logger.warning(f'Enrollment insert: {e}')
 
-        # Update registration with youth/family IDs
-        execute(conn, 'UPDATE program_registrations SET youth_id=%s, family_id=%s WHERE id=%s',
-            (youth['id'], family['id'], reg_id))
+    # Primary participant
+    youth = get_or_create_participant(
+        reg.get('child_first_name'), reg.get('child_last_name'),
+        reg.get('child_dob'), reg.get('shirt_size'))
+    if youth:
+        ensure_guardian(youth['id'])
+        enroll(youth['id'])
 
-    # ── Create profiles for siblings (additional children in same order) ──
+    # Siblings
     import json as _json_sib
-    siblings_raw = reg.get('siblings_json') or '[]'
     try:
-        siblings = _json_sib.loads(siblings_raw)
+        siblings = _json_sib.loads(reg.get('siblings_json') or '[]')
     except Exception:
         siblings = []
-
     for sib in (siblings or []):
-        sib_first = (sib.get('first_name') or '').strip()
-        sib_last = (sib.get('last_name') or '').strip()
-        if not sib_first:
-            continue
-        # Same family email lookup as primary child
-        sib_youth = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
-            JOIN youth_family_links yfl ON yfl.youth_id=yp.id
-            JOIN families f ON f.id=yfl.family_id
-            WHERE LOWER(f.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
-            (reg['guardian_email'], sib_first, sib_last))
-        if not sib_youth:
-            import uuid as _uuid_s
-            syid = str(_uuid_s.uuid4())
-            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
-                VALUES (%s,%s,%s,%s,%s)''',
-                (syid, sib_first, sib_last,
-                 sib.get('dob') or None, sib.get('shirt_size') or ''))
-            sib_youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (syid,))
+        sib_youth = get_or_create_participant(
+            (sib.get('first_name') or '').strip(),
+            (sib.get('last_name') or '').strip(),
+            sib.get('dob'), sib.get('shirt_size'))
         if sib_youth:
-            # Ensure family exists (will have been created for primary child above)
-            sib_family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(email)=LOWER(%s)', (reg['guardian_email'],))
-            if sib_family:
-                try:
-                    execute(conn, 'INSERT INTO youth_family_links (youth_id, family_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
-                        (sib_youth['id'], sib_family['id']))
-                except Exception: pass
-            if prog:
-                try:
-                    import uuid as _uuid_se
-                    execute(conn, '''INSERT INTO youth_program_enrollments (id, youth_id, program_id, enrolled_date, notes)
-                        VALUES (%s,%s,%s,NOW()::TEXT,%s) ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                        (str(_uuid_se.uuid4()), sib_youth['id'], prog['id'], f'Online registration (sibling) #{reg_id[:8]}'))
-                except Exception as e:
-                    app.logger.warning(f'Sibling enrollment insert: {e}')
+            ensure_guardian(sib_youth['id'])
+            enroll(sib_youth['id'])
 
     conn.commit()
 
@@ -11518,6 +11645,7 @@ def public_submit_registration(slug):
     def insert_reg(status, extra_cols='', extra_vals=()):
         execute(conn, f'''INSERT INTO program_registrations
             (id, program_id, registration_type, status,
+             registration_form_type,
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
@@ -11527,6 +11655,7 @@ def public_submit_registration(slug):
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
             VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
+             d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,
              d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
@@ -11581,10 +11710,13 @@ def square_webhook():
     sig = request.headers.get('X-Square-Hmacsha256-Signature', '')
     body = request.get_data(as_text=True)
     if SQUARE_WEBHOOK_SIG:
-        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode(), (SQUARE_API_BASE + '/api/square/webhook' + body).encode(), hashlib.sha256).digest()
         import base64 as _b64
+        notification_url = f'https://rolecall.hwtco.org/api/square/webhook'
+        payload = notification_url + body
+        expected = hmac.new(SQUARE_WEBHOOK_SIG.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).digest()
         expected_b64 = _b64.b64encode(expected).decode()
         if not hmac.compare_digest(sig, expected_b64):
+            app.logger.warning(f'Webhook signature mismatch. Got: {sig[:20]}... Expected: {expected_b64[:20]}...')
             return jsonify({'error': 'Invalid signature'}), 401
 
     event = request.json or {}
@@ -11592,48 +11724,51 @@ def square_webhook():
     app.logger.info(f'Square webhook: {event_type}')
 
     if event_type in ('payment.completed', 'payment.updated'):
-        obj = event.get('data', {}).get('object', {}).get('payment', {})
-        payment_id = obj.get('id')
-        order_id = obj.get('order_id')
-        status = obj.get('status')
-        amount_cents = obj.get('amount_money', {}).get('amount', 0)
-        if status == 'COMPLETED' and order_id:
-            conn = get_db()
-            # Check registrations first
-            reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
-                (order_id, order_id))
-            if reg and reg['status'] == 'pending_payment':
-                finalize_registration(conn, reg['id'], payment_id, order_id)
-            elif reg and reg['status'] == 'waitlisted':
-                execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
-                    (payment_id, reg['id']))
-                finalize_registration(conn, reg['id'], payment_id, order_id)
-                conn.commit()
-            else:
-                # Check cart orders
-                import json as _jw
-                cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+        try:
+            obj = event.get('data', {}).get('object', {}).get('payment', {})
+            payment_id = obj.get('id')
+            order_id = obj.get('order_id')
+            status = obj.get('status')
+            amount_cents = obj.get('amount_money', {}).get('amount', 0)
+            if status == 'COMPLETED' and order_id:
+                conn = get_db()
+                # Check registrations first
+                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
                     (order_id, order_id))
-                if cart:
-                    execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
-                    try:
-                        items = _jw.loads(cart.get('items_json') or '[]')
-                    except Exception:
-                        items = []
-                    for it in items:
-                        rid = it.get('registration_id')
-                        if rid:
-                            reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
-                            if reg2 and reg2['status'] == 'pending_payment':
-                                finalize_registration(conn, rid, payment_id, order_id)
+                if reg and reg['status'] == 'pending_payment':
+                    finalize_registration(conn, reg['id'], payment_id, order_id)
+                elif reg and reg['status'] == 'waitlisted':
+                    execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                        (payment_id, reg['id']))
+                    finalize_registration(conn, reg['id'], payment_id, order_id)
                     conn.commit()
                 else:
-                    # Check pending donations
-                    don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    # Check cart orders
+                    import json as _jw
+                    cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                         (order_id, order_id))
-                    if don:
-                        finalize_donation(conn, don['id'], payment_id, amount_cents)
-            conn.close()
+                    if cart:
+                        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                        try:
+                            items = _jw.loads(cart.get('items_json') or '[]')
+                        except Exception:
+                            items = []
+                        for it in items:
+                            rid = it.get('registration_id')
+                            if rid:
+                                reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                                if reg2 and reg2['status'] == 'pending_payment':
+                                    finalize_registration(conn, rid, payment_id, order_id)
+                        conn.commit()
+                    else:
+                        # Check pending donations
+                        don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                            (order_id, order_id))
+                        if don:
+                            finalize_donation(conn, don['id'], payment_id, amount_cents)
+                conn.close()
+        except Exception as e:
+            app.logger.error(f'Webhook processing error: {e}', exc_info=True)
 
     return jsonify({'ok': True})
 
@@ -12091,8 +12226,14 @@ def upload_production_cover(pid):
         return jsonify({'error': 'Not found'}), 404
     base = secure_filename((prod.get('slug') or prod.get('name') or pid).replace(' ', '-').lower())
     filename = f'production-{base}-cover{ext}'
-    f.save(os.path.join(app.static_folder, 'images', filename))
-    url = f'/static/images/{filename}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'GitHub upload failed ({gh_err}), saving locally')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
     import json as _juc
     conn2 = get_db()
     prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
@@ -12505,7 +12646,7 @@ def get_program_sessions(pid):
     conn = get_db()
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
@@ -12513,8 +12654,81 @@ def get_program_sessions(pid):
     return jsonify(sessions or [])
 
 
-@app.route('/api/programs/<pid>/sessions', methods=['POST'])
-def create_program_session(pid):
+@app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])
+def generate_program_sessions(pid):
+    """Generate multiple time slots at once for booking mode."""
+    err = require_permission('programs')
+    if err: return err
+    import uuid as _usg
+    import datetime as _dt
+    d = request.json or {}
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    start_date = d.get('start_date')
+    end_date = d.get('end_date')
+    days_of_week = d.get('days_of_week') or []  # e.g. ['Monday', 'Wednesday']
+    open_time = d.get('open_time')    # e.g. '10:00'
+    close_time = d.get('close_time')  # e.g. '16:00'
+    slot_duration = int(d.get('slot_duration_minutes') or 45)
+    gap_minutes = int(d.get('gap_minutes') or 0)
+    capacity = int(d.get('capacity') or 1)
+    price_override = d.get('price_override')
+    location = (d.get('location') or '').strip()
+
+    if not start_date or not open_time or not close_time:
+        conn.close()
+        return jsonify({'error': 'start_date, open_time and close_time are required'}), 400
+
+    DAY_MAP = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5,'Sunday':6}
+    allowed_days = set(DAY_MAP[d] for d in days_of_week if d in DAY_MAP) if days_of_week else set(range(7))
+
+    try:
+        cur = _dt.date.fromisoformat(start_date)
+        end = _dt.date.fromisoformat(end_date) if end_date else cur
+        ot = _dt.time.fromisoformat(open_time)
+        ct = _dt.time.fromisoformat(close_time)
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Invalid date/time: {e}'}), 400
+
+    slot_td = _dt.timedelta(minutes=slot_duration)
+    gap_td = _dt.timedelta(minutes=gap_minutes)
+    created = 0
+    sort_order = 0
+
+    while cur <= end:
+        if cur.weekday() in allowed_days:
+            day_name = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][cur.weekday()]
+            slot_start = _dt.datetime.combine(cur, ot)
+            slot_end_limit = _dt.datetime.combine(cur, ct)
+            while slot_start + slot_td <= slot_end_limit:
+                s_end = slot_start + slot_td
+                label = f'{cur.strftime("%A, %B %-d")} · {slot_start.strftime("%-I:%M %p")} – {s_end.strftime("%-I:%M %p")}'
+                execute(conn, '''INSERT INTO program_sessions
+                    (id, program_id, name, day_of_week, start_time, end_time,
+                     start_date, end_date, location, capacity, price_override, status, sort_order)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)''',
+                    (str(_usg.uuid4()), pid, label, day_name,
+                     slot_start.strftime('%H:%M'), s_end.strftime('%H:%M'),
+                     cur.isoformat(), cur.isoformat(),
+                     location or None,
+                     capacity,
+                     int(price_override) if price_override is not None else None,
+                     sort_order))
+                sort_order += 1
+                created += 1
+                slot_start = s_end + gap_td
+        cur += _dt.timedelta(days=1)
+
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+
     err = require_permission('programs')
     if err: return err
     import uuid as _us
@@ -12589,15 +12803,118 @@ def public_program_sessions(slug):
         ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
         ps.price_override, ps.status, ps.sort_order,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
-        FROM program_sessions ps WHERE ps.program_id=%s AND ps.status='open'
+        FROM program_sessions ps WHERE ps.program_id=%s AND (ps.status IS NULL OR ps.status NOT IN ('closed','cancelled'))
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (prog['id'], prog['id']))
     conn.close()
     return jsonify(sessions or [])
 
 
-# ── Delete order routes ──────────────────────────────────────────────────────
+# ── My Time & Attendance ──────────────────────────────────────────────────────
+
+@app.route('/api/my/time', methods=['GET'])
+def my_time():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Find volunteer record by matching user email
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'volunteer': None, 'hours': [], 'pending': [], 'events': [], 'board_attendance': []})
+
+    # Approved hours
+    approved = fetchall(conn, '''SELECT h.*, e.name AS event_name
+        FROM hours h LEFT JOIN events e ON e.id=h.event_id
+        WHERE h.volunteer_id=%s ORDER BY h.date DESC''', (vol['id'],)) or []
+
+    # Pending hours
+    pending = fetchall(conn, '''SELECT ph.*, e.name AS event_name
+        FROM pending_hours ph LEFT JOIN events e ON e.id=ph.event_id
+        WHERE ph.volunteer_id=%s ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
+
+    # Events this volunteer can log hours for
+    events = fetchall(conn, '''SELECT e.id, e.name, e.event_date
+        FROM events e ORDER BY e.event_date DESC LIMIT 50''') or []
+
+    # Board attendance if board member
+    board_member = fetchone(conn, 'SELECT bm.* FROM board_members bm JOIN volunteers v ON v.id=bm.volunteer_id WHERE v.id=%s', (vol['id'],))
+    board_attendance = []
+    if board_member:
+        board_attendance = fetchall(conn, '''SELECT bm.meeting_date, bm.meeting_time, bm.location,
+            bma.attendance_type
+            FROM board_meetings bm
+            LEFT JOIN board_meeting_attendance bma ON bma.meeting_id=bm.id AND bma.member_id=%s
+            WHERE bm.meeting_date <= CURRENT_DATE::TEXT
+            ORDER BY bm.meeting_date DESC LIMIT 24''', (board_member['id'],)) or []
+
+    # Summary stats
+    total_approved = sum(float(h.get('hours') or 0) for h in approved)
+    total_pending = sum(float(h.get('hours') or 0) for h in pending)
+    import datetime as _dt
+    this_year = str(_dt.date.today().year)
+    ytd = sum(float(h.get('hours') or 0) for h in approved if (h.get('date') or '').startswith(this_year))
+
+    conn.close()
+    return jsonify({
+        'volunteer': vol,
+        'hours': approved,
+        'pending': pending,
+        'events': events,
+        'board_attendance': board_attendance,
+        'is_board': bool(board_member),
+        'stats': {'total': total_approved, 'pending': total_pending, 'ytd': ytd}
+    })
+
+
+@app.route('/api/my/hours/submit', methods=['POST'])
+def my_submit_hours():
+    err = require_auth()
+    if err: return err
+    import uuid as _umh
+    d = request.json or {}
+    conn = get_db()
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'No volunteer profile linked to your account. Please contact an admin.'}), 400
+    if not d.get('hours') or float(d.get('hours') or 0) <= 0:
+        conn.close()
+        return jsonify({'error': 'Hours must be greater than 0'}), 400
+    hid = str(_umh.uuid4())
+    execute(conn, '''INSERT INTO pending_hours (id, volunteer_id, event, event_id, date, hours, role, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (hid, vol['id'],
+         (d.get('event') or '').strip(),
+         d.get('event_id') or None,
+         (d.get('date') or '').strip(),
+         float(d.get('hours') or 0),
+         (d.get('role') or '').strip() or None,
+         (d.get('notes') or '').strip() or None))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': hid})
+
+
+@app.route('/api/my/hours/<hid>', methods=['DELETE'])
+def my_delete_pending_hours(hid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'No volunteer profile found'}), 400
+    execute(conn, "DELETE FROM pending_hours WHERE id=%s AND volunteer_id=%s AND status='pending'", (hid, vol['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── End My Time & Attendance ───────────────────────────────────────────────────
+
 
 @app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])
 def delete_cart_order(oid):
@@ -12638,6 +12955,47 @@ def delete_registration(pid, rid):
 
 # ── Program cover image upload ────────────────────────────────────────────────
 
+def upload_image_to_github(filename, file_bytes):
+    """Upload an image to GitHub repo and return the raw URL. Falls back to local if no token."""
+    import base64 as _b64
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    GITHUB_REPO = os.environ.get('GITHUB_REPO', 'hwtcRaja/rolecall')
+    GITHUB_BRANCH = os.environ.get('GITHUB_BRANCH', 'main')
+    if not GITHUB_TOKEN:
+        return None, 'No GITHUB_TOKEN set'
+    path = f'static/images/{filename}'
+    api_url = f'https://api.github.com/repos/{GITHUB_REPO}/contents/{path}'
+    headers = {
+        'Authorization': f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+    }
+    # Check if file already exists (need its SHA to update)
+    sha = None
+    try:
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            sha = r.json().get('sha')
+    except Exception:
+        pass
+    payload = {
+        'message': f'Upload cover image: {filename}',
+        'content': _b64.b64encode(file_bytes).decode('utf-8'),
+        'branch': GITHUB_BRANCH,
+    }
+    if sha:
+        payload['sha'] = sha
+    try:
+        r = requests.put(api_url, headers=headers, json=payload, timeout=15)
+        if r.status_code in (200, 201):
+            raw_url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{path}'
+            return raw_url, None
+        else:
+            return None, f'GitHub API error {r.status_code}: {r.text[:200]}'
+    except Exception as e:
+        return None, str(e)
+
+
 @app.route('/api/programs/<pid>/upload-cover', methods=['POST'])
 def upload_program_cover(pid):
     err = require_permission('youth')
@@ -12657,9 +13015,17 @@ def upload_program_cover(pid):
         return jsonify({'error': 'Program not found'}), 404
     base = secure_filename((prog.get('slug') or prog.get('name') or pid).replace(' ', '-').lower())
     filename = f'program-{base}-cover{ext}'
-    save_path = os.path.join(app.static_folder, 'images', filename)
-    f.save(save_path)
-    url = f'/static/images/{filename}'
+    file_bytes = f.read()
+    # Try GitHub first
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        # Fallback to local filesystem
+        app.logger.warning(f'GitHub upload failed ({gh_err}), saving locally')
+        save_path = os.path.join(app.static_folder, 'images', filename)
+        with open(save_path, 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
     import json as _ji
     conn2 = get_db()
     prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
@@ -12977,10 +13343,10 @@ def program_sessions_summary(pid):
     conn = get_db()
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status NOT IN ('cancelled','waitlisted')) AS confirmed_count,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status='waitlisted') AS waitlisted_count
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid, pid))
@@ -13055,17 +13421,21 @@ def get_program_registrations(pid):
 def update_registration(pid, rid):
     err = require_auth()
     if err: return err
+    import json as _jur
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE program_registrations SET
         status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
+        session_ids=%s,
         updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
-         d.get('emergency_contact_phone',''), rid, pid))
+         d.get('emergency_contact_phone',''),
+         _jur.dumps(d.get('session_ids') or []),
+         rid, pid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -13184,7 +13554,21 @@ def notify_interest_list(pid):
     return jsonify({'ok': True, 'sent': sent})
 
 
-@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+@app.route('/api/programs/<pid>/registrations/<rid>/finalize', methods=['POST'])
+def manual_finalize_registration(pid, rid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND program_id=%s', (rid, pid))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    finalize_registration(conn, rid)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()

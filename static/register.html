@@ -159,8 +159,6 @@ async function init(){
   if(program.sessions_enabled && !isProduction){
     const sd = await apiFetch('/api/public/program/'+slug+'/sessions')
     program._sessions = Array.isArray(sd) ? sd : []
-  } else {
-    program._sessions = []
   }
   renderPage()
 }
@@ -179,9 +177,9 @@ function renderPage(){
   var badge = getCartBadgeHTML()
   if(badge) el.innerHTML = badge
 
-  // If sessions enabled but no sessions loaded yet, show error
+  // If sessions enabled but no open sessions exist
   if(program.sessions_enabled && program._sessions && program._sessions.length === 0){
-    el.innerHTML = (badge||'') + '<div class="card"><div class="card-body"><div class="alert alert-error">No sessions are currently available for this program.</div></div></div>' + buildProgramInfoCard()
+    el.innerHTML = (badge||'') + '<div class="card"><div class="card-body"><div class="alert alert-error">No sessions are currently available. Please check back soon.</div></div></div>' + buildProgramInfoCard()
     return
   }
   const status = program.registration_status || 'draft'

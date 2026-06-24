@@ -13027,17 +13027,21 @@ def get_program_registrations(pid):
 def update_registration(pid, rid):
     err = require_auth()
     if err: return err
+    import json as _jur
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE program_registrations SET
         status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
+        session_ids=%s,
         updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
-         d.get('emergency_contact_phone',''), rid, pid))
+         d.get('emergency_contact_phone',''),
+         _jur.dumps(d.get('session_ids') or []),
+         rid, pid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

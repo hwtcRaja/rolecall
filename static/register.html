@@ -177,11 +177,6 @@ function renderPage(){
   var badge = getCartBadgeHTML()
   if(badge) el.innerHTML = badge
 
-  // If sessions enabled but no open sessions exist
-  if(program.sessions_enabled && program._sessions && program._sessions.length === 0){
-    el.innerHTML = (badge||'') + '<div class="card"><div class="card-body"><div class="alert alert-error">No sessions are currently available. Please check back soon.</div></div></div>' + buildProgramInfoCard()
-    return
-  }
   const status = program.registration_status || 'draft'
   const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
   const labelMap = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Coming Soon'}
@@ -807,8 +802,8 @@ function buildProgramInfoCard(){
   if(program.registration_note){
     infoHTML += '<div style="font-size:12px;color:#6b7280;font-style:italic;margin-top:8px;padding:8px 12px;background:#f8fafc;border-left:3px solid #d1d5db;border-radius:0 6px 6px 0;line-height:1.5">'+escHtml(program.registration_note)+'</div>'
   }
+  // No cover image here — it already shows in the main program card above
   return '<div class="card" style="margin-bottom:12px">'
-    + (images.length ? '<div style="overflow:hidden;border-radius:14px 14px 0 0"><img src="'+escHtml(images[0])+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:200px;object-fit:cover;display:block"></div>' : '')
     + '<div class="card-body">'
     + (program.description?'<p style="font-size:14px;color:#374151;margin-bottom:10px;line-height:1.6">'+escHtml(program.description)+'</p>':'')
     + buildScheduleHTML(program)

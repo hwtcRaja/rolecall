@@ -17873,7 +17873,7 @@ async function sendBalanceLink(pid, rid){
   else toast((res && res.error)||'Error', 'error')
 }
 
-function openEditRegistrationModal(pid, rid, regs){
+function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
   const reg = regs.find(function(r){ return r.id===rid }) || {}
   const existing = document.getElementById('edit-reg-overlay')
   if(existing) existing.remove()
@@ -17883,6 +17883,19 @@ function openEditRegistrationModal(pid, rid, regs){
   var statusOpts = ['confirmed','pending_payment','waitlisted','cancelled'].map(function(s){
     return '<option value="'+s+'"'+(reg.status===s?' selected':'')+'>'+s+'</option>'
   }).join('')
+
+  // Load sessions for this program if available
+  var sessionsHTML = ''
+  var prog = pid ? allPrograms.find(function(p){ return p.id===pid }) : null
+  if(prog && prog.sessions_enabled){
+    var savedSids = []
+    try{ savedSids = JSON.parse(reg.session_ids||'[]') }catch(e){}
+    var sessRows = reg.session_names ? reg.session_names : []
+    // We'll load and render sessions async after modal is built
+    sessionsHTML = '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Sessions</label>'
+      + '<div id="er-sessions-list" style="font-size:12px;color:var(--text-muted)">Loading sessions...</div></div>'
+  }
+
   var form = document.createElement('div')
   form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
   form.innerHTML =
@@ -17894,6 +17907,7 @@ function openEditRegistrationModal(pid, rid, regs){
     + '<div style="font-size:14px;font-weight:600">'+(reg.child_first_name||'')+(reg.child_last_name?' '+reg.child_last_name:'')+'</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
     + '<select id="er-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+statusOpts+'</select></div>'
+    + sessionsHTML
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Guardian Name</label>'
     + '<input id="er-guardian-name" value="'+escHtml(reg.guardian_name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>'
@@ -17917,7 +17931,33 @@ function openEditRegistrationModal(pid, rid, regs){
   document.body.appendChild(overlay)
   document.getElementById('er-close').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('er-cancel').addEventListener('click', function(){ overlay.remove() })
+
+  // Load sessions async if applicable
+  if(prog && prog.sessions_enabled){
+    var savedSids2 = []
+    try{ savedSids2 = JSON.parse(reg.session_ids||'[]') }catch(e){}
+    api('/api/programs/'+pid+'/sessions').then(function(sessions){
+      var listEl = document.getElementById('er-sessions-list')
+      if(!listEl || !Array.isArray(sessions) || !sessions.length){
+        if(listEl) listEl.innerHTML = '<div style="color:var(--text-muted)">No sessions found.</div>'
+        return
+      }
+      listEl.innerHTML = sessions.map(function(s){
+        var checked = savedSids2.indexOf(s.id) !== -1
+        var timeStr = (s.day_of_week?s.day_of_week+' ':'')+(s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):'')
+        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1.5px solid '+(checked?'#145466':'var(--border-md)')+';border-radius:8px;margin-bottom:6px;cursor:pointer;background:'+(checked?'#f0f9ff':'var(--surface)')+'">'
+          + '<input type="checkbox" class="er-session-cb" data-sid="'+s.id+'" '+(checked?'checked':'')+' style="accent-color:#145466" onchange="var l=this.closest(\'label\');l.style.borderColor=this.checked?\'#145466\':\'var(--border-md)\';l.style.background=this.checked?\'#f0f9ff\':\'var(--surface)\'"/>'
+          + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
+          + (timeStr?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(timeStr)+'</div>':'')
+          + '</div></label>'
+      }).join('')
+    })
+  }
+
   document.getElementById('er-save').addEventListener('click', async function(){
+    var sessionIds = []
+    document.querySelectorAll('.er-session-cb:checked').forEach(function(cb){ sessionIds.push(cb.dataset.sid) })
+    const url = saveEndpoint || ('/api/programs/'+pid+'/registrations/'+rid)
     const payload = {
       status: document.getElementById('er-status').value,
       guardian_name: document.getElementById('er-guardian-name').value,
@@ -17927,10 +17967,14 @@ function openEditRegistrationModal(pid, rid, regs){
       emergency_contact_name: document.getElementById('er-ec-name').value,
       emergency_contact_phone: document.getElementById('er-ec-phone').value,
       notes: document.getElementById('er-notes').value,
+      session_ids: sessionIds,
     }
-    const res = await api('/api/programs/'+pid+'/registrations/'+rid, 'PUT', payload)
-    if(res && res.ok){ toast('Registration updated', 'success'); overlay.remove(); loadProgramRegistrations(pid) }
-    else toast((res && res.error)||'Error', 'error')
+    const res = await api(url, 'PUT', payload)
+    if(res && res.ok){
+      toast('Registration updated', 'success')
+      overlay.remove()
+      if(pid) loadProgramRegistrations(pid)
+    } else toast((res && res.error)||'Error', 'error')
   })
 }
 

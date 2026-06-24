@@ -179,7 +179,7 @@ async function init(){
   updateHeaderCart()
 }
 
-
+function showErr(msg){
   document.getElementById('loading').style.display='none'
   document.getElementById('app').style.display=''
   document.getElementById('app').innerHTML='<div class="alert alert-error">'+escHtml(msg)+'</div>'

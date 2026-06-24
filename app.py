@@ -990,6 +990,7 @@ def init_db():
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,

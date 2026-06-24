@@ -1709,6 +1709,47 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
  </div>
 
  <div id="aud-submit-status" style="font-size:13px"></div>
+
+ ${(settings.allow_slots && (settings.slots||[]).filter(s=>s.status!=='cancelled').length > 0) ? `
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:8px">Audition Type</label>
+ <div style="display:flex;gap:8px;margin-bottom:12px">
+ <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border-md);border-radius:8px;cursor:pointer;font-size:13px" id="aud-type-virtual-label">
+ <input type="radio" name="aud-type" value="virtual" checked style="accent-color:#145466" onclick="document.getElementById('aud-slots-picker').style.display='none';document.getElementById('aud-type-virtual-label').style.borderColor='#145466';document.getElementById('aud-type-inperson-label').style.borderColor='var(--border-md)'"> Virtual submission
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border-md);border-radius:8px;cursor:pointer;font-size:13px" id="aud-type-inperson-label">
+ <input type="radio" name="aud-type" value="in_person" style="accent-color:#145466" onclick="document.getElementById('aud-slots-picker').style.display='';document.getElementById('aud-type-inperson-label').style.borderColor='#145466';document.getElementById('aud-type-virtual-label').style.borderColor='var(--border-md)'"> Book an in-person slot
+ </label>
+ </div>
+ <div id="aud-slots-picker" style="display:none">
+ <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Choose Your Slot</div>
+ <div style="display:flex;flex-direction:column;gap:6px">
+ ${(()=>{
+   var byDate = {}
+   ;(settings.slots||[]).filter(function(s){ return s.status!=='cancelled' }).forEach(function(s){
+     var d = s.slot_date||'TBD'; if(!byDate[d]) byDate[d]=[]
+     byDate[d].push(s)
+   })
+   return Object.keys(byDate).sort().map(function(date){
+     var label = date==='TBD' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ return date } })()
+     return '<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:6px">'+label+'</div>'
+       + byDate[date].map(function(s){
+           var booked=parseInt(s.booked_count||0), cap=parseInt(s.capacity||1), full=booked>=cap
+           return '<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid '+(full?'#e5e7eb':'var(--border-md)')+';border-radius:8px;cursor:'+(full?'not-allowed':'pointer')+';opacity:'+(full?'0.6':'1')+'">'
+             + '<input type="radio" name="aud-slot" value="'+s.id+'" '+(full?'disabled':'')+' style="accent-color:#145466;flex-shrink:0">'
+             + '<div><div style="font-size:13px;font-weight:700">'+(s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):'')+'</div>'
+             + (s.location?'<div style="font-size:11px;color:#6b7280">'+escHtml(s.location)+'</div>':'')
+             + (full?'<div style="font-size:11px;color:#dc2626;font-weight:600">Full</div>':cap-booked<=3?'<div style="font-size:11px;color:#f59e0b;font-weight:600">'+(cap-booked)+' spot'+(cap-booked===1?'':'s')+' left</div>':'')
+             + '</div></label>'
+         }).join('')
+       + '</div>'
+   }).join('')
+ })()}
+ </div>
+ </div>
+ </div>
+ ` : ''}
+
  <button onclick="submitPortalAudition('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}')"
  style="width:100%;background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:13px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
  Submit Audition</button>
@@ -1750,7 +1791,9 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
  roles_requested: roles_requested,
  role_requested: role||null,
  video_url: video||null, resume_url: resume||null,
- headshot_url: headshot||null, notes: notes||null
+ headshot_url: headshot||null, notes: notes||null,
+ audition_type: (document.querySelector('input[name="aud-type"]:checked')||{}).value || 'virtual',
+ slot_id: (document.querySelector('input[name="aud-slot"]:checked')||{}).value || null,
  }
  const r = await fetch('/api/auditions/submit',{
  method:'POST', headers:{'Content-Type':'application/json'},

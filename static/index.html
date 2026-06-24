@@ -7537,6 +7537,7 @@ function renderAuditionList(submissions, contextId, filterStatus){
  })()}
  ${s.cast_role?`<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px"> Cast as: ${escHtml(s.cast_role)}</div>`:''}
  ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
+ ${s.slot_id?`<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:4px;background:var(--teal-50);display:inline-block;padding:2px 8px;border-radius:6px">In-Person: ${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' \u2013 '+s.end_time:''):''}</div>`:s.audition_type==='virtual'?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Virtual submission</div>`:''}
  ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
  <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
  </div>
@@ -7762,6 +7763,37 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
  <input type="checkbox" id="aud-s-headshot" ${settings.allow_headshot_link!==false?'checked':''} style="accent-color:var(--teal)">
  Headshot link</label>
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <input type="checkbox" id="aud-s-slots" ${settings.allow_slots?'checked':''} style="accent-color:var(--teal)" onchange="toggleAudSlotSection(this.checked)">
+ In-person audition slots (families book a specific time)</label>
+ </div>
+ </div>
+ <div id="aud-slots-section" style="${settings.allow_slots?'':'display:none'}">
+ <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Slots</div>
+ <div id="aud-slots-list" style="margin-bottom:8px">${(settings.slots||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No slots yet.</div>':(settings.slots||[]).map(s=>{
+   var booked=s.booked_count||0; var cap=s.capacity||1; var full=booked>=cap;
+   return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:5px;font-size:12px">
+   <div><span style="font-weight:700">${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):''}</span><span style="color:var(--text-muted);margin-left:8px">${booked}/${cap} booked</span>${s.location?`<span style="color:var(--text-muted);margin-left:8px">${escHtml(s.location)}</span>`:''}</div>
+   <button onclick="deleteAudSlot('${s.id}','${contextType}','${contextId}','${containerId}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">×</button>
+   </div>`
+ }).join('')}</div>
+ <div style="display:flex;gap:6px;margin-bottom:8px">
+ <button type="button" class="btn btn-secondary btn-sm" onclick="openAddAudSlotForm('${contextType}','${contextId}')" style="font-size:12px">+ Add Slot</button>
+ <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px">⚡ Generate Slots</button>
+ </div>
+ <div id="aud-gen-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+ <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Bulk Slot Generator</div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Date</label><input type="date" id="ag-date" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">End Date (optional)</label><input type="date" id="ag-end-date" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Opens</label><input type="time" id="ag-open" value="09:00" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Closes</label><input type="time" id="ag-close" value="17:00" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Slot (min)</label><input type="number" id="ag-duration" value="15" min="5" max="120" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Gap (min)</label><input type="number" id="ag-gap" value="5" min="0" max="30" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ </div>
+ <div style="margin-bottom:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Location (optional)</label><input type="text" id="ag-location" placeholder="Studio, room, etc." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
+ <button type="button" class="btn btn-primary btn-sm" id="ag-submit-btn" onclick="generateAudSlots('${contextType}','${contextId}','${containerId}')" style="font-size:12px">Generate</button>
+ <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('aud-gen-form').style.display='none'" style="font-size:12px;margin-left:6px">Cancel</button>
  </div>
  </div>
  </div>
@@ -7791,12 +7823,68 @@ async function saveAuditionSettings(contextType, contextId, containerId){
  allow_video_link:!!document.getElementById('aud-s-video')?.checked,
  allow_resume_link:!!document.getElementById('aud-s-resume')?.checked,
  allow_headshot_link:!!document.getElementById('aud-s-headshot')?.checked,
+ allow_slots:!!document.getElementById('aud-s-slots')?.checked,
  }
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)
  if(res?.error){ toast(res.error,'error'); return }
  document.getElementById('aud-settings-overlay')?.remove()
  toast('Settings saved!', 'success')
  loadAuditionsTab(contextType, contextId, containerId)
+}
+
+function toggleAudSlotSection(show){
+ var el = document.getElementById('aud-slots-section')
+ if(el) el.style.display = show ? '' : 'none'
+}
+
+function toggleAudGenForm(){
+ var el = document.getElementById('aud-gen-form')
+ if(el) el.style.display = el.style.display==='none' ? '' : 'none'
+}
+
+async function deleteAudSlot(sid, contextType, contextId, containerId){
+ if(!confirm('Delete this slot?')) return
+ var res = await api('/api/auditions/slots/'+sid, 'DELETE')
+ if(res&&res.ok){ toast('Slot deleted','success'); openAuditionSettingsModal(contextType, contextId, containerId) }
+ else toast('Error','error')
+}
+
+async function openAddAudSlotForm(contextType, contextId){
+ var date = prompt('Slot date (YYYY-MM-DD):')
+ if(!date) return
+ var start = prompt('Start time (HH:MM, 24h):')
+ if(!start) return
+ var end = prompt('End time (HH:MM, 24h):')
+ if(!end) return
+ var location = prompt('Location (optional):') || ''
+ var res = await api('/api/auditions/slots/create','POST',{
+   context_type:contextType, context_id:contextId,
+   slot_date:date, start_time:start, end_time:end,
+   location:location, capacity:1, slot_type:'in_person'
+ })
+ if(res&&res.ok) toast('Slot added','success')
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function generateAudSlots(contextType, contextId, containerId){
+ var btn = document.getElementById('ag-submit-btn')
+ if(btn){ btn.disabled=true; btn.textContent='Generating...' }
+ var res = await api('/api/auditions/slots/generate','POST',{
+   context_type:contextType, context_id:contextId,
+   start_date:(document.getElementById('ag-date')||{}).value||'',
+   end_date:(document.getElementById('ag-end-date')||{}).value||(document.getElementById('ag-date')||{}).value||'',
+   open_time:(document.getElementById('ag-open')||{}).value||'09:00',
+   close_time:(document.getElementById('ag-close')||{}).value||'17:00',
+   slot_duration_minutes:parseInt((document.getElementById('ag-duration')||{}).value||15),
+   gap_minutes:parseInt((document.getElementById('ag-gap')||{}).value||5),
+   location:(document.getElementById('ag-location')||{}).value||'',
+   capacity:1, slot_type:'in_person',
+ })
+ if(btn){ btn.disabled=false; btn.textContent='Generate' }
+ if(res&&res.ok){
+   toast('Created '+res.created+' slot'+(res.created===1?'':'s'),'success')
+   openAuditionSettingsModal(contextType, contextId, containerId)
+ } else toast((res&&res.error)||'Error','error')
 }
 
 function openPublishCastModal(contextType, contextId, containerId){

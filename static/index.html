@@ -7720,6 +7720,7 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <div style="font-size:16px;font-weight:700"> Audition Settings</div>
  <button onclick="document.getElementById('aud-settings-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
  </div>
+ <input type="hidden" id="aud-s-is-open" data-open="${settings.is_open?'true':'false'}" />
  <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
  <div class="form-group">
  <label>Audition Title <span style="font-weight:400;color:var(--text-muted)">(shown on portal)</span></label>
@@ -7809,23 +7810,29 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
 
 async function saveAuditionSettings(contextType, contextId, containerId){
  const roles = (document.getElementById('aud-s-roles')?.value||'')
-.split(',').map(r=>r.trim()).filter(Boolean)
+   .split(',').map(r=>r.trim()).filter(Boolean)
+ const allowSlotsEl = document.getElementById('aud-s-slots')
+ const allowSlots = allowSlotsEl ? allowSlotsEl.checked : false
+ const isOpenEl = document.getElementById('aud-s-is-open')
+ const isOpen = isOpenEl ? isOpenEl.dataset.open === 'true' : false
  const data = {
- is_open:!!(await api(`/api/auditions/settings/${contextType}/${contextId}`)).is_open,
- title: document.getElementById('aud-s-title')?.value.trim()||'',
- description: document.getElementById('aud-s-desc')?.value.trim()||'',
- audition_date: document.getElementById('aud-s-date')?.value||null,
- audition_time: document.getElementById('aud-s-time')?.value||null,
- location: document.getElementById('aud-s-location')?.value.trim()||'',
- roles,
- instructions: document.getElementById('aud-s-instructions')?.value.trim()||'',
- email_submissions: document.getElementById('aud-s-email')?.value.trim()||'',
- allow_video_link:!!document.getElementById('aud-s-video')?.checked,
- allow_resume_link:!!document.getElementById('aud-s-resume')?.checked,
- allow_headshot_link:!!document.getElementById('aud-s-headshot')?.checked,
- allow_slots:!!document.getElementById('aud-s-slots')?.checked,
+   is_open: isOpen,
+   title: document.getElementById('aud-s-title')?.value.trim()||'',
+   description: document.getElementById('aud-s-desc')?.value.trim()||'',
+   audition_date: document.getElementById('aud-s-date')?.value||null,
+   audition_time: document.getElementById('aud-s-time')?.value||null,
+   location: document.getElementById('aud-s-location')?.value.trim()||'',
+   roles,
+   instructions: document.getElementById('aud-s-instructions')?.value.trim()||'',
+   email_submissions: document.getElementById('aud-s-email')?.value.trim()||'',
+   allow_video_link: !!document.getElementById('aud-s-video')?.checked,
+   allow_resume_link: !!document.getElementById('aud-s-resume')?.checked,
+   allow_headshot_link: !!document.getElementById('aud-s-headshot')?.checked,
+   allow_slots: allowSlots,
  }
+ console.log('saveAuditionSettings payload:', data)
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)
+ console.log('saveAuditionSettings result:', res)
  if(res?.error){ toast(res.error,'error'); return }
  document.getElementById('aud-settings-overlay')?.remove()
  toast('Settings saved!', 'success')

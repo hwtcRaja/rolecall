@@ -892,12 +892,25 @@ function renderCartDrawer(){
   }
   var total = items.reduce(function(s,it){ return s+(it.price||0) },0)
   itemsEl.innerHTML = items.map(function(it,i){
-    var sessions = it.session_ids && it.session_ids.length ? '<div style="font-size:11px;color:#6b7280;margin-top:2px">Sessions: '+it.session_ids.length+' selected</div>' : ''
+    var sessionLine = ''
+    if(it.session_ids && it.session_ids.length){
+      // Try to resolve session names from program._sessions if available
+      var sNames = []
+      if(program && program._sessions){
+        it.session_ids.forEach(function(sid){
+          var s = program._sessions.find(function(x){ return x.id===sid })
+          if(s) sNames.push(s.name)
+        })
+      }
+      sessionLine = '<div style="font-size:11px;color:#6b7280;margin-top:2px">'
+        + (sNames.length ? sNames.join(', ') : it.session_ids.length+' session'+(it.session_ids.length===1?'':'s')+' selected')
+        + '</div>'
+    }
     return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid #e5e7eb">'
       + '<div style="flex:1">'
       + '<div style="font-size:13px;font-weight:700;color:#0d3d4d">'+escHtml(it.program_name||'')+'</div>'
       + '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml((it.child_first_name||'')+(it.child_last_name?' '+it.child_last_name:''))+'</div>'
-      + sessions
+      + sessionLine
       + '<div style="font-size:13px;font-weight:700;color:#145466;margin-top:4px">$'+((it.price||0)/100).toFixed(2)+'</div>'
       + '</div>'
       + '<button onclick="removeCartItem('+i+')" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:18px;padding:0;line-height:1" title="Remove">×</button>'

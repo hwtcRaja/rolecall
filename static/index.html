@@ -17239,13 +17239,15 @@ async function loadProgramRegistrations(pid){
           if(r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm finalize-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px" title="Create participant profile if missing">Finalize</button>'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
+          // Show child name for youth, guardian name for adult. Default to youth if type is null.
           var participantName = isAdult
-            ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
-            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+            ? escHtml(r.guardian_name||'')
+            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||'')).trim()
+          if(!participantName) participantName = escHtml(r.guardian_name||'')
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
-          var contactCell = isAdult
-            ? '<span style="color:var(--text-muted);font-size:11px">—</span>'
-            : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)"><a href="mailto:'+escHtml(r.guardian_email)+'" style="color:var(--teal)">'+escHtml(r.guardian_email)+'</a></div>'
+          // Contact: always show guardian name + email
+          var contactCell = '<div style="font-size:12px;font-weight:600">'+escHtml(r.guardian_name||'')+'</div>'
+            + '<div style="font-size:11px;color:var(--text-muted)"><a href="mailto:'+escHtml(r.guardian_email||'')+'" style="color:var(--teal)">'+escHtml(r.guardian_email||'')+'</a></div>'
           var sessionCell = ''
           if(hasSessions){
             var snames = r.session_names || []

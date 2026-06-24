@@ -7432,75 +7432,187 @@ async function loadAuditionsTab(contextType, contextId, containerId){
 function renderAuditionsAdmin(contextType, contextId, containerId, settings, submissions){
  const el = document.getElementById(containerId)
  if(!el) return
- const isOpen =!!settings.is_open
+ const isOpen = !!settings.is_open
  const roles = settings.roles || []
+ const slots = settings.slots || []
  const castCount = submissions.filter(s=>s.status==='cast').length
-
- // Status filter
  const counts = {}
  submissions.forEach(s=>{ counts[s.status]=(counts[s.status]||0)+1 })
  const total = submissions.length
+ const inPersonSubs = submissions.filter(s=>s.slot_id)
+ const virtualSubs = submissions.filter(s=>!s.slot_id)
 
- // Group by status for summary
- const summaryBadges = Object.entries(AUDITION_STATUS_LABELS).map(([k,l])=>{
- const c = counts[k]||0
- if(!c) return ''
- const [bg,col] = AUDITION_STATUS_COLORS[k]
- return `<span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${c} ${l}</span>`
- }).filter(Boolean).join(' ')
+ function fmt12(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } }
+ const [AS_LABELS, AS_COLORS] = [AUDITION_STATUS_LABELS, AUDITION_STATUS_COLORS]
 
- let html = `
- <!-- Settings card -->
- <div class="card" style="padding:20px;margin-bottom:16px">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
- <div>
- <div style="font-size:15px;font-weight:700"> Audition Settings</div>
- <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Configure what families see and can submit</div>
- </div>
- <div style="display:flex;align-items:center;gap:10px">
- <span style="font-size:12px;font-weight:700;color:${isOpen?'var(--green-600)':'var(--text-muted)'}">
- ${isOpen?' Open':' Closed'}</span>
- <button class="btn ${isOpen?'btn-secondary':'btn-primary'} btn-sm"
- onclick="toggleAuditionOpen('${contextType}','${contextId}','${containerId}',${!isOpen})">
- ${isOpen?'Close Submissions':'Open Submissions'}</button>
- <button class="btn btn-secondary btn-sm"
- onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">
- Settings</button>
- </div>
- </div>
- ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:4px"> ${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
- ${roles.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${roles.map(r=>'<span style="background:var(--teal-50);color:var(--teal-dark);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600">'+escHtml(r)+'</span>').join('')}</div>`:''}
- </div>
+ // ── Tab strip ──
+ const tabs = [
+  {id:'overview', label:'Overview'},
+  {id:'schedule', label:`In-Person Schedule${slots.length?' ('+slots.length+')':''}`, show: slots.length>0},
+  {id:'virtual', label:`Virtual (${virtualSubs.length})`},
+  {id:'all', label:`All Submissions (${total})`},
+ ].filter(t=>t.show!==false)
 
- <!-- Submissions card -->
- <div class="card" style="padding:20px">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
- <div>
- <div style="font-size:15px;font-weight:700"> Submissions (${total})</div>
- ${summaryBadges?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${summaryBadges}</div>`:''}
- </div>
- <div style="display:flex;gap:8px;flex-wrap:wrap">
- <button class="btn btn-sm ${castCount>0?'btn-primary':'btn-secondary'}"
- onclick="openPublishCastModal('${contextType}','${contextId}','${containerId}')"
- style="${castCount===0?'opacity:0.5':''}" ${castCount===0?'title="Mark submissions as Cast first"':''}>
- ${settings.cast_list_published?' Cast List Published':' Publish Cast List'}
- ${castCount>0?`(${castCount} cast)`:''}</button>
- <select id="aud-filter-${contextId}" onchange="filterAuditionSubmissions('${contextId}')"
- style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">
- <option value="">All Statuses</option>
- ${Object.entries(AUDITION_STATUS_LABELS).map(([k,l])=>`<option value="${k}">${l}${counts[k]?' ('+counts[k]+')':''}</option>`).join('')}
- </select>
- </div>
- </div>
- <div id="aud-list-${contextId}">
- ${renderAuditionList(submissions, contextId)}
- </div>
+ let html = `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;flex-wrap:wrap">`
+  + tabs.map((t,i)=>`<button onclick="switchAudTab('${contextId}','${t.id}')" id="aud-tab-${contextId}-${t.id}"
+    style="padding:8px 14px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:${i===0?'700':'600'};cursor:pointer;border-bottom:2px solid ${i===0?'#145466':'transparent'};margin-bottom:-2px;color:${i===0?'#145466':'var(--text-muted)'}">
+    ${t.label}</button>`).join('')
+  + `</div>`
+
+ // ── Overview tab ──
+ html += `<div id="aud-tab-panel-${contextId}-overview">`
+ html += `<div class="card" style="padding:18px 20px;margin-bottom:12px">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+   <div style="font-size:15px;font-weight:700">${escHtml(settings.title||'Auditions')}</div>
+   <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:${isOpen?'#dcfce7':'#f3f4f6'};color:${isOpen?'#166534':'#6b7280'}">${isOpen?'Open':'Closed'}</span>
+    <button class="btn ${isOpen?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleAuditionOpen('${contextType}','${contextId}','${containerId}',${!isOpen})">${isOpen?'Close Submissions':'Open Submissions'}</button>
+    <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">Settings</button>
+   </div>
+  </div>
+  ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
+  ${settings.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;line-height:1.5">${escHtml(settings.description)}</div>`:''}
+  ${roles.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${roles.map(r=>'<span style="background:var(--teal-50);color:var(--teal-dark);padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600">'+escHtml(r)+'</span>').join('')}</div>`:''}
  </div>`
 
+ // Stat cards
+ html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px">`
+ const statData = [
+  ['Total', total, '#e0f2fe', '#145466'],
+  ['Virtual', virtualSubs.length, '#f0f9ff', '#0369a1'],
+  ['In-Person', inPersonSubs.length, '#dcfce7', '#166534'],
+  ['Pending', counts['pending']||0, '#fef3c7', '#92400e'],
+  ['Cast', castCount, '#ede9fe', '#6d28d9'],
+ ]
+ html += statData.map(([l,v,bg,col])=>`<div style="background:${bg};border-radius:10px;padding:12px 14px"><div style="font-size:20px;font-weight:800;color:${col}">${v}</div><div style="font-size:11px;font-weight:600;color:${col};margin-top:2px">${l}</div></div>`).join('')
+ html += `</div>`
+
+ // Slot capacity summary if slots exist
+ if(slots.length){
+  const totalCap = slots.reduce((s,sl)=>s+(parseInt(sl.capacity)||1),0)
+  const totalBooked = slots.reduce((s,sl)=>s+(parseInt(sl.booked_count)||0),0)
+  const fullSlots = slots.filter(sl=>(parseInt(sl.booked_count)||0)>=(parseInt(sl.capacity)||1)).length
+  html += `<div class="card" style="padding:14px 18px;margin-bottom:12px">
+   <div style="font-size:13px;font-weight:700;margin-bottom:10px">In-Person Slot Capacity</div>
+   <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+    <span><strong>${totalBooked}</strong><span style="color:var(--text-muted)"> / ${totalCap} slots booked</span></span>
+    <span><strong style="color:#dc2626">${fullSlots}</strong><span style="color:var(--text-muted)"> full</span></span>
+    <span><strong style="color:#166534">${slots.length-fullSlots}</strong><span style="color:var(--text-muted)"> available</span></span>
+   </div>
+   <div style="height:6px;background:#e5e7eb;border-radius:3px;margin-top:10px;overflow:hidden">
+    <div style="height:100%;background:#145466;border-radius:3px;width:${totalCap?Math.min(100,Math.round(totalBooked/totalCap*100)):0}%"></div>
+   </div>
+  </div>`
+ }
+
+ html += `<div style="text-align:center;margin-top:4px"><button class="btn ${castCount>0?'btn-primary':'btn-secondary'} btn-sm"
+  onclick="openPublishCastModal('${contextType}','${contextId}','${containerId}')"
+  ${castCount===0?'style="opacity:0.5"':''}>
+  ${settings.cast_list_published?'✓ Cast List Published':'Publish Cast List'}${castCount>0?' ('+castCount+' cast)':''}</button></div>`
+
+ html += `</div>` // end overview panel
+
+ // ── In-Person Schedule tab ──
+ if(slots.length){
+  html += `<div id="aud-tab-panel-${contextId}-schedule" style="display:none">`
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+   <div style="font-size:14px;font-weight:700">Audition Schedule</div>
+   <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">Manage Slots</button>
+  </div>`
+
+  // Group slots by date
+  const byDate = {}
+  slots.forEach(function(s){ var d=s.slot_date||'TBD'; if(!byDate[d]) byDate[d]=[]; byDate[d].push(s) })
+  // Build slot → submission map
+  const subBySlot = {}
+  inPersonSubs.forEach(function(s){ if(!subBySlot[s.slot_id]) subBySlot[s.slot_id]=[]; subBySlot[s.slot_id].push(s) })
+
+  Object.keys(byDate).sort().forEach(function(date){
+   const dateLabel = date==='TBD' ? 'TBD' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) }catch(e){ return date } })()
+   html += `<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:700;color:#145466;padding:8px 12px;background:#f0f9ff;border-radius:8px;margin-bottom:8px">${dateLabel}</div>`
+   byDate[date].forEach(function(sl){
+    const booked = parseInt(sl.booked_count||0)
+    const cap = parseInt(sl.capacity||1)
+    const full = booked >= cap
+    const slotSubs = subBySlot[sl.id] || []
+    const timeStr = fmt12(sl.start_time) + (sl.end_time?' \u2013 '+fmt12(sl.end_time):'')
+    html += `<div style="border:1.5px solid ${full?'#fca5a5':booked>0?'#86efac':'#e5e7eb'};border-radius:10px;padding:12px 14px;margin-bottom:8px;background:${full?'#fef2f2':booked>0?'#f0fdf4':'#fff'}">`
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${slotSubs.length?'10px':'0'}">`
+    html += `<div style="display:flex;align-items:center;gap:10px">`
+    html += `<div style="font-size:15px;font-weight:800;color:#0d3d4d;min-width:130px">${timeStr}</div>`
+    if(sl.location) html += `<div style="font-size:12px;color:#6b7280">${escHtml(sl.location)}</div>`
+    html += `</div>`
+    html += `<div style="display:flex;align-items:center;gap:8px">`
+    html += `<span style="font-size:12px;font-weight:700;padding:2px 10px;border-radius:20px;background:${full?'#fee2e2':booked>0?'#dcfce7':'#f3f4f6'};color:${full?'#991b1b':booked>0?'#166534':'#6b7280'}">${booked}/${cap} booked</span>`
+    html += `<button class="btn btn-sm" onclick="deleteAudSlot('${sl.id}','${contextType}','${contextId}','${containerId}')" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>`
+    html += `</div></div>`
+
+    if(slotSubs.length){
+     html += `<div style="border-top:1px solid #e5e7eb;padding-top:8px;display:flex;flex-direction:column;gap:6px">`
+     slotSubs.forEach(function(sub){
+      const [bg,col] = AS_COLORS[sub.status] || AS_COLORS['pending']
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px">`
+      html += `<div style="flex:1;min-width:0">`
+      html += `<div style="font-size:13px;font-weight:700">${escHtml(sub.submitter_name||'')}</div>`
+      if(sub.submitter_email) html += `<div style="font-size:11px;color:#6b7280">${escHtml(sub.submitter_email)}</div>`
+      const roleList = (function(){ try{ return JSON.parse(sub.roles_requested||'[]') }catch(e){ return [] } })()
+      if(roleList.length) html += `<div style="font-size:11px;color:var(--teal-dark);margin-top:2px">${roleList.map(function(r){ return escHtml(r) }).join(', ')}</div>`
+      html += `</div>`
+      html += `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">`
+      html += `<select onchange="updateAuditionStatus('${sub.id}','${contextId}',this.value)"
+        style="padding:4px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:11px;background:${bg};color:${col};font-weight:700;cursor:pointer">`
+      html += Object.entries(AS_LABELS).map(([k,l])=>`<option value="${k}" ${sub.status===k?'selected':''}>${l}</option>`).join('')
+      html += `</select>`
+      html += `</div></div>`
+     })
+     html += `</div>`
+    } else {
+     html += `<div style="font-size:12px;color:#9ca3af;margin-top:6px;font-style:italic">No one booked yet</div>`
+    }
+    html += `</div>` // end slot
+   })
+   html += `</div>` // end date group
+  })
+  html += `</div>` // end schedule panel
+ }
+
+ // ── Virtual tab ──
+ html += `<div id="aud-tab-panel-${contextId}-virtual" style="display:none">`
+ if(!virtualSubs.length){
+  html += `<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No virtual submissions yet.</div>`
+ } else {
+  html += `<div id="aud-list-${contextId}-virtual">${renderAuditionList(virtualSubs, contextId)}</div>`
+ }
+ html += `</div>`
+
+ // ── All tab ──
+ html += `<div id="aud-tab-panel-${contextId}-all" style="display:none">`
+ html += `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+  <select id="aud-filter-${contextId}" onchange="filterAuditionSubmissions('${contextId}')"
+   style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">
+   <option value="">All Statuses</option>
+   ${Object.entries(AS_LABELS).map(([k,l])=>`<option value="${k}">${l}${counts[k]?' ('+counts[k]+')':''}</option>`).join('')}
+  </select>
+ </div>`
+ html += `<div id="aud-list-${contextId}">${renderAuditionList(submissions, contextId)}</div>`
+ html += `</div>`
+
  el.innerHTML = html
- // Store submissions for filtering
  el._submissions = submissions
  el._contextId = contextId
+}
+
+function switchAudTab(contextId, tabId){
+ const prefix = `aud-tab-panel-${contextId}-`
+ document.querySelectorAll(`[id^="${prefix}"]`).forEach(function(p){ p.style.display='none' })
+ const panel = document.getElementById(prefix+tabId)
+ if(panel) panel.style.display=''
+ const tprefix = `aud-tab-${contextId}-`
+ document.querySelectorAll(`[id^="${tprefix}"]`).forEach(function(b){
+  b.style.fontWeight='600'; b.style.borderBottomColor='transparent'; b.style.color='var(--text-muted)'
+ })
+ const tab = document.getElementById(tprefix+tabId)
+ if(tab){ tab.style.fontWeight='700'; tab.style.borderBottomColor='#145466'; tab.style.color='#145466' }
 }
 
 function renderAuditionList(submissions, contextId, filterStatus){

@@ -8,7 +8,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
-.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:24px;text-align:center}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:24px;text-align:center;position:relative}
 .header img{height:64px;mix-blend-mode:screen;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto}
 .header h1{color:#fff;font-size:20px;font-weight:700;margin-bottom:4px}
 .header p{color:rgba(255,255,255,0.75);font-size:13px}
@@ -81,7 +81,22 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-heigh
 <div class="header">
   <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
   <h1 id="page-title">Registration</h1>
+  <div id="header-cart" style="display:none;position:absolute;top:16px;right:16px">
+    <button onclick="toggleCartDrawer()" style="background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.4);border-radius:10px;padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;color:#fff;font-family:inherit;font-size:13px;font-weight:700">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+      <span id="cart-header-count">0</span>
+    </button>
+  </div>
 </div>
+<div id="cart-drawer" style="display:none;position:fixed;top:0;right:0;width:340px;max-width:95vw;height:100vh;background:var(--surface,#fff);box-shadow:-4px 0 24px rgba(0,0,0,0.18);z-index:9999;overflow-y:auto;padding:20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:16px;font-weight:800;color:#0d3d4d">Your Cart</div>
+    <button onclick="toggleCartDrawer()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1">×</button>
+  </div>
+  <div id="cart-drawer-items"></div>
+  <div id="cart-drawer-footer" style="margin-top:16px"></div>
+</div>
+<div id="cart-drawer-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:9998" onclick="toggleCartDrawer()"></div>
 <div class="container">
   <div id="loading"><div class="spinner"></div>Loading...</div>
   <div id="app" style="display:none"></div>
@@ -161,9 +176,10 @@ async function init(){
     program._sessions = Array.isArray(sd) ? sd : []
   }
   renderPage()
+  updateHeaderCart()
 }
 
-function showErr(msg){
+
   document.getElementById('loading').style.display='none'
   document.getElementById('app').style.display=''
   document.getElementById('app').innerHTML='<div class="alert alert-error">'+escHtml(msg)+'</div>'
@@ -173,9 +189,7 @@ function renderPage(){
   const el = document.getElementById('app')
   document.getElementById('loading').style.display='none'
   el.style.display=''
-  // Cart badge
-  var badge = getCartBadgeHTML()
-  if(badge) el.innerHTML = badge
+  updateHeaderCart()
 
   const status = program.registration_status || 'draft'
   const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
@@ -218,20 +232,13 @@ function renderPage(){
     infoHTML += '<div style="font-size:12px;color:#6b7280;font-style:italic;margin-top:8px;padding:8px 12px;background:#f8fafc;border-left:3px solid #d1d5db;border-radius:0 6px 6px 0;line-height:1.5">'+escHtml(program.registration_note)+'</div>'
   }
 
-  // Cover image / photo gallery
-  var imagesHTML = ''
-  if(images.length){
-    var cover = images[0]
-    var rest = images.slice(1)
-    imagesHTML = '<div style="margin:-20px -22px 16px;overflow:hidden;border-radius:0">'
-      + '<img src="'+escHtml(cover)+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:260px;object-fit:cover;display:block">'
+  // Cover image / photo gallery — deduplicate, show cover at top, rest in body
+  var uniqueImages = images.filter(function(u,i,a){ return a.indexOf(u)===i })
+  var imagesHTML = uniqueImages.length > 1
+    ? '<div class="program-images" style="margin-bottom:8px">'
+      + uniqueImages.slice(1).map(function(url){ return '<img src="'+escHtml(url)+'" alt="Program photo" loading="lazy">' }).join('')
       + '</div>'
-    if(rest.length){
-      imagesHTML += '<div class="program-images" style="margin-bottom:8px">'
-        + rest.map(function(url){ return '<img src="'+escHtml(url)+'" alt="Program photo" loading="lazy">' }).join('')
-        + '</div>'
-    }
-  }
+    : ''
 
   // Action section
   var actionHTML = ''
@@ -247,15 +254,15 @@ function renderPage(){
 
   el.innerHTML =
     '<div class="card">'
-    + (images.length ? '<div style="overflow:hidden;border-radius:14px 14px 0 0"><img src="'+escHtml(images[0])+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:260px;object-fit:cover;display:block"></div>' : '')
+    + (uniqueImages.length ? '<div style="overflow:hidden;border-radius:14px 14px 0 0"><img src="'+escHtml(uniqueImages[0])+'" alt="'+escHtml(program.name)+'" style="width:100%;max-height:260px;object-fit:cover;display:block"></div>' : '')
     + '<div class="card-header"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px"><h2>'+escHtml(program.name)+'</h2><span class="badge '+(badgeMap[status]||'badge-draft')+'">'+(labelMap[status]||status)+'</span></div></div>'
     + '<div class="card-body">'
     + (program.description?'<p style="font-size:14px;color:#374151;margin-bottom:14px;line-height:1.6">'+escHtml(program.description)+'</p>':'')
     + buildScheduleHTML(program)
-    + (program.program_location ? '<div style="font-size:13px;color:#6b7280;margin-bottom:8px">📍 '+escHtml(program.program_location)+'</div>' : '')
+    + (program.program_location ? '<div style="font-size:13px;color:#6b7280;margin-bottom:8px">'+escHtml(program.program_location)+'</div>' : '')
     + capHTML
     + (program.price?'<div class="price-tag">'+fmtPrice(program.price)+'<span> per participant</span></div>':'<div style="margin:10px 0;font-size:14px;font-weight:700;color:#166534">Free</div>')
-    + (images.length > 1 ? imagesHTML : '')
+    + imagesHTML
     + infoHTML
     + instrHTML
     + '</div></div>'
@@ -853,10 +860,64 @@ function cartCount(){ return cartGet().length }
 function guardianGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart_guardian')||'{}') }catch(e){ return {} } }
 function guardianSave(g){ localStorage.setItem('hwtc_cart_guardian', JSON.stringify(g)) }
 
-function getCartBadgeHTML(){
+function getCartBadgeHTML(){ return '' } // No longer used — cart is in header icon
+
+function updateHeaderCart(){
   var n = cartCount()
-  if(!n) return ''
-  return '<a href="/register/cart" style="display:inline-flex;align-items:center;gap:6px;background:#0d3d4d;color:#fff;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;margin-bottom:12px">🛒 Cart: '+n+' program'+(n===1?'':'s')+' — Go to Cart &rarr;</a>'
+  var headerCart = document.getElementById('header-cart')
+  var countEl = document.getElementById('cart-header-count')
+  if(headerCart) headerCart.style.display = n > 0 ? '' : 'none'
+  if(countEl) countEl.textContent = n
+}
+
+function toggleCartDrawer(){
+  var drawer = document.getElementById('cart-drawer')
+  var overlay = document.getElementById('cart-drawer-overlay')
+  if(!drawer) return
+  var isOpen = drawer.style.display !== 'none'
+  drawer.style.display = isOpen ? 'none' : ''
+  overlay.style.display = isOpen ? 'none' : ''
+  if(!isOpen) renderCartDrawer()
+}
+
+function renderCartDrawer(){
+  var items = getCart()
+  var itemsEl = document.getElementById('cart-drawer-items')
+  var footerEl = document.getElementById('cart-drawer-footer')
+  if(!itemsEl) return
+  if(!items.length){
+    itemsEl.innerHTML = '<div style="text-align:center;padding:30px;color:#6b7280;font-size:13px">Your cart is empty.</div>'
+    if(footerEl) footerEl.innerHTML = ''
+    return
+  }
+  var total = items.reduce(function(s,it){ return s+(it.price||0) },0)
+  itemsEl.innerHTML = items.map(function(it,i){
+    var sessions = it.session_ids && it.session_ids.length ? '<div style="font-size:11px;color:#6b7280;margin-top:2px">Sessions: '+it.session_ids.length+' selected</div>' : ''
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid #e5e7eb">'
+      + '<div style="flex:1">'
+      + '<div style="font-size:13px;font-weight:700;color:#0d3d4d">'+escHtml(it.program_name||'')+'</div>'
+      + '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml((it.child_first_name||'')+(it.child_last_name?' '+it.child_last_name:''))+'</div>'
+      + sessions
+      + '<div style="font-size:13px;font-weight:700;color:#145466;margin-top:4px">$'+((it.price||0)/100).toFixed(2)+'</div>'
+      + '</div>'
+      + '<button onclick="removeCartItem('+i+')" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:18px;padding:0;line-height:1" title="Remove">×</button>'
+      + '</div>'
+  }).join('')
+  if(footerEl){
+    footerEl.innerHTML = '<div style="border-top:2px solid #e5e7eb;padding-top:12px;margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#0d3d4d">'
+      + '<span>Total</span><span>$'+(total/100).toFixed(2)+'</span></div></div>'
+      + '<a href="/register/cart" style="display:block;background:#145466;color:#fff;text-align:center;padding:12px;border-radius:10px;font-weight:700;font-size:14px;text-decoration:none">Checkout &rarr;</a>'
+      + '<button onclick="toggleCartDrawer()" style="display:block;width:100%;margin-top:8px;background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;padding:6px">Continue registering</button>'
+  }
+}
+
+function removeCartItem(index){
+  var items = getCart()
+  items.splice(index,1)
+  localStorage.setItem('hwtc_cart', JSON.stringify(items))
+  updateHeaderCart()
+  renderCartDrawer()
 }
 
 function collectFormData(){
@@ -909,15 +970,19 @@ function addToCart(){
   var item = collectFormData()
   var g = item._guardian
   delete item._guardian
-  // Save guardian for cart pre-fill (only save if first item or overwrite)
   guardianSave(g)
-  // Add to cart
   var cart = cartGet()
-  // Remove any existing entry for the same program
   cart = cart.filter(function(c){ return c.program_id !== item.program_id })
   cart.push(item)
   cartSave(cart)
-  showAddedScreen(item, g)
+  updateHeaderCart()
+  // Open the cart drawer to confirm
+  var drawer = document.getElementById('cart-drawer')
+  var overlay = document.getElementById('cart-drawer-overlay')
+  if(drawer){ drawer.style.display=''; overlay.style.display=''; renderCartDrawer() }
+  // Scroll back to top so they can register another
+  window.scrollTo({top:0, behavior:'smooth'})
+  renderPage()
 }
 
 function showAddedScreen(item, guardian){

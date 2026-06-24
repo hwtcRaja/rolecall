@@ -881,7 +881,7 @@ function toggleCartDrawer(){
 }
 
 function renderCartDrawer(){
-  var items = getCart()
+  var items = cartGet()
   var itemsEl = document.getElementById('cart-drawer-items')
   var footerEl = document.getElementById('cart-drawer-footer')
   if(!itemsEl) return
@@ -913,9 +913,9 @@ function renderCartDrawer(){
 }
 
 function removeCartItem(index){
-  var items = getCart()
+  var items = cartGet()
   items.splice(index,1)
-  localStorage.setItem('hwtc_cart', JSON.stringify(items))
+  cartSave(items)
   updateHeaderCart()
   renderCartDrawer()
 }

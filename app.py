@@ -12570,7 +12570,110 @@ def public_program_sessions(slug):
     return jsonify(sessions or [])
 
 
-# ── Delete order routes ──────────────────────────────────────────────────────
+# ── My Time & Attendance ──────────────────────────────────────────────────────
+
+@app.route('/api/my/time', methods=['GET'])
+def my_time():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Find volunteer record by matching user email
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'volunteer': None, 'hours': [], 'pending': [], 'events': [], 'board_attendance': []})
+
+    # Approved hours
+    approved = fetchall(conn, '''SELECT h.*, e.name AS event_name
+        FROM hours h LEFT JOIN events e ON e.id=h.event_id
+        WHERE h.volunteer_id=%s ORDER BY h.date DESC''', (vol['id'],)) or []
+
+    # Pending hours
+    pending = fetchall(conn, '''SELECT ph.*, e.name AS event_name
+        FROM pending_hours ph LEFT JOIN events e ON e.id=ph.event_id
+        WHERE ph.volunteer_id=%s ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
+
+    # Events this volunteer can log hours for
+    events = fetchall(conn, '''SELECT e.id, e.name, e.event_date
+        FROM events e ORDER BY e.event_date DESC LIMIT 50''') or []
+
+    # Board attendance if board member
+    board_member = fetchone(conn, 'SELECT bm.* FROM board_members bm JOIN volunteers v ON v.id=bm.volunteer_id WHERE v.id=%s', (vol['id'],))
+    board_attendance = []
+    if board_member:
+        board_attendance = fetchall(conn, '''SELECT bm.meeting_date, bm.meeting_time, bm.location,
+            bma.attendance_type
+            FROM board_meetings bm
+            LEFT JOIN board_meeting_attendance bma ON bma.meeting_id=bm.id AND bma.member_id=%s
+            WHERE bm.meeting_date <= CURRENT_DATE::TEXT
+            ORDER BY bm.meeting_date DESC LIMIT 24''', (board_member['id'],)) or []
+
+    # Summary stats
+    total_approved = sum(float(h.get('hours') or 0) for h in approved)
+    total_pending = sum(float(h.get('hours') or 0) for h in pending)
+    import datetime as _dt
+    this_year = str(_dt.date.today().year)
+    ytd = sum(float(h.get('hours') or 0) for h in approved if (h.get('date') or '').startswith(this_year))
+
+    conn.close()
+    return jsonify({
+        'volunteer': vol,
+        'hours': approved,
+        'pending': pending,
+        'events': events,
+        'board_attendance': board_attendance,
+        'is_board': bool(board_member),
+        'stats': {'total': total_approved, 'pending': total_pending, 'ytd': ytd}
+    })
+
+
+@app.route('/api/my/hours/submit', methods=['POST'])
+def my_submit_hours():
+    err = require_auth()
+    if err: return err
+    import uuid as _umh
+    d = request.json or {}
+    conn = get_db()
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'No volunteer profile linked to your account. Please contact an admin.'}), 400
+    if not d.get('hours') or float(d.get('hours') or 0) <= 0:
+        conn.close()
+        return jsonify({'error': 'Hours must be greater than 0'}), 400
+    hid = str(_umh.uuid4())
+    execute(conn, '''INSERT INTO pending_hours (id, volunteer_id, event, event_id, date, hours, role, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (hid, vol['id'],
+         (d.get('event') or '').strip(),
+         d.get('event_id') or None,
+         (d.get('date') or '').strip(),
+         float(d.get('hours') or 0),
+         (d.get('role') or '').strip() or None,
+         (d.get('notes') or '').strip() or None))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': hid})
+
+
+@app.route('/api/my/hours/<hid>', methods=['DELETE'])
+def my_delete_pending_hours(hid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(email)=LOWER(%s)', (user['email'],)) if user else None
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'No volunteer profile found'}), 400
+    execute(conn, "DELETE FROM pending_hours WHERE id=%s AND volunteer_id=%s AND status='pending'", (hid, vol['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── End My Time & Attendance ───────────────────────────────────────────────────
+
 
 @app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])
 def delete_cart_order(oid):

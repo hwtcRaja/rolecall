@@ -932,6 +932,8 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS booking_mode BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_sessions_per_reg INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
@@ -3942,6 +3944,7 @@ def save_registration_settings(pid):
     execute(conn, '''UPDATE youth_programs SET
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
+        booking_mode=%s, max_sessions_per_reg=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
@@ -3957,6 +3960,8 @@ def save_registration_settings(pid):
          int(d.get('price_cents') or 0),
          int(d.get('deposit_amount') or 0),
          bool(d.get('sessions_enabled')),
+         bool(d.get('booking_mode')),
+         int(d.get('max_sessions_per_reg') or 0),
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
@@ -4660,7 +4665,9 @@ def get_productions():
     if err: return err
     conn = get_db()
     prods = fetchall(conn, """SELECT p.*, COALESCE(p.stage,'mainstage') as stage,
-        v.name as default_elic_name
+        v.name as default_elic_name,
+        (SELECT COUNT(*) FROM program_registrations WHERE production_id=p.id AND status NOT IN ('cancelled','waitlisted')) AS reg_enrolled,
+        (SELECT COUNT(*) FROM program_registrations WHERE production_id=p.id AND status='waitlisted') AS reg_waitlisted
         FROM productions p
         LEFT JOIN elics el ON p.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
@@ -12064,8 +12071,14 @@ def upload_production_cover(pid):
         return jsonify({'error': 'Not found'}), 404
     base = secure_filename((prod.get('slug') or prod.get('name') or pid).replace(' ', '-').lower())
     filename = f'production-{base}-cover{ext}'
-    f.save(os.path.join(app.static_folder, 'images', filename))
-    url = f'/static/images/{filename}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'GitHub upload failed ({gh_err}), saving locally')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
     import json as _juc
     conn2 = get_db()
     prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
@@ -12486,8 +12499,81 @@ def get_program_sessions(pid):
     return jsonify(sessions or [])
 
 
-@app.route('/api/programs/<pid>/sessions', methods=['POST'])
-def create_program_session(pid):
+@app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])
+def generate_program_sessions(pid):
+    """Generate multiple time slots at once for booking mode."""
+    err = require_permission('programs')
+    if err: return err
+    import uuid as _usg
+    import datetime as _dt
+    d = request.json or {}
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+
+    start_date = d.get('start_date')
+    end_date = d.get('end_date')
+    days_of_week = d.get('days_of_week') or []  # e.g. ['Monday', 'Wednesday']
+    open_time = d.get('open_time')    # e.g. '10:00'
+    close_time = d.get('close_time')  # e.g. '16:00'
+    slot_duration = int(d.get('slot_duration_minutes') or 45)
+    gap_minutes = int(d.get('gap_minutes') or 0)
+    capacity = int(d.get('capacity') or 1)
+    price_override = d.get('price_override')
+    location = (d.get('location') or '').strip()
+
+    if not start_date or not open_time or not close_time:
+        conn.close()
+        return jsonify({'error': 'start_date, open_time and close_time are required'}), 400
+
+    DAY_MAP = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5,'Sunday':6}
+    allowed_days = set(DAY_MAP[d] for d in days_of_week if d in DAY_MAP) if days_of_week else set(range(7))
+
+    try:
+        cur = _dt.date.fromisoformat(start_date)
+        end = _dt.date.fromisoformat(end_date) if end_date else cur
+        ot = _dt.time.fromisoformat(open_time)
+        ct = _dt.time.fromisoformat(close_time)
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Invalid date/time: {e}'}), 400
+
+    slot_td = _dt.timedelta(minutes=slot_duration)
+    gap_td = _dt.timedelta(minutes=gap_minutes)
+    created = 0
+    sort_order = 0
+
+    while cur <= end:
+        if cur.weekday() in allowed_days:
+            day_name = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][cur.weekday()]
+            slot_start = _dt.datetime.combine(cur, ot)
+            slot_end_limit = _dt.datetime.combine(cur, ct)
+            while slot_start + slot_td <= slot_end_limit:
+                s_end = slot_start + slot_td
+                label = f'{cur.strftime("%A, %B %-d")} · {slot_start.strftime("%-I:%M %p")} – {s_end.strftime("%-I:%M %p")}'
+                execute(conn, '''INSERT INTO program_sessions
+                    (id, program_id, name, day_of_week, start_time, end_time,
+                     start_date, end_date, location, capacity, price_override, status, sort_order)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)''',
+                    (str(_usg.uuid4()), pid, label, day_name,
+                     slot_start.strftime('%H:%M'), s_end.strftime('%H:%M'),
+                     cur.isoformat(), cur.isoformat(),
+                     location or None,
+                     capacity,
+                     int(price_override) if price_override is not None else None,
+                     sort_order))
+                sort_order += 1
+                created += 1
+                slot_start = s_end + gap_td
+        cur += _dt.timedelta(days=1)
+
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+
     err = require_permission('programs')
     if err: return err
     import uuid as _us
@@ -12714,6 +12800,47 @@ def delete_registration(pid, rid):
 
 # ── Program cover image upload ────────────────────────────────────────────────
 
+def upload_image_to_github(filename, file_bytes):
+    """Upload an image to GitHub repo and return the raw URL. Falls back to local if no token."""
+    import base64 as _b64
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    GITHUB_REPO = os.environ.get('GITHUB_REPO', 'hwtcRaja/rolecall')
+    GITHUB_BRANCH = os.environ.get('GITHUB_BRANCH', 'main')
+    if not GITHUB_TOKEN:
+        return None, 'No GITHUB_TOKEN set'
+    path = f'static/images/{filename}'
+    api_url = f'https://api.github.com/repos/{GITHUB_REPO}/contents/{path}'
+    headers = {
+        'Authorization': f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+    }
+    # Check if file already exists (need its SHA to update)
+    sha = None
+    try:
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            sha = r.json().get('sha')
+    except Exception:
+        pass
+    payload = {
+        'message': f'Upload cover image: {filename}',
+        'content': _b64.b64encode(file_bytes).decode('utf-8'),
+        'branch': GITHUB_BRANCH,
+    }
+    if sha:
+        payload['sha'] = sha
+    try:
+        r = requests.put(api_url, headers=headers, json=payload, timeout=15)
+        if r.status_code in (200, 201):
+            raw_url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{path}'
+            return raw_url, None
+        else:
+            return None, f'GitHub API error {r.status_code}: {r.text[:200]}'
+    except Exception as e:
+        return None, str(e)
+
+
 @app.route('/api/programs/<pid>/upload-cover', methods=['POST'])
 def upload_program_cover(pid):
     err = require_permission('youth')
@@ -12733,9 +12860,17 @@ def upload_program_cover(pid):
         return jsonify({'error': 'Program not found'}), 404
     base = secure_filename((prog.get('slug') or prog.get('name') or pid).replace(' ', '-').lower())
     filename = f'program-{base}-cover{ext}'
-    save_path = os.path.join(app.static_folder, 'images', filename)
-    f.save(save_path)
-    url = f'/static/images/{filename}'
+    file_bytes = f.read()
+    # Try GitHub first
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        # Fallback to local filesystem
+        app.logger.warning(f'GitHub upload failed ({gh_err}), saving locally')
+        save_path = os.path.join(app.static_folder, 'images', filename)
+        with open(save_path, 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
     import json as _ji
     conn2 = get_db()
     prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))

@@ -17537,11 +17537,54 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     // Sessions
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Sessions</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:10px">If enabled, participants choose one or more sessions when registering. Price is per session.</div>'
-    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:10px">'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-sessions-enabled" '+(prog.sessions_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable sessions for this program</label>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-booking-mode" '+(prog.booking_mode?'checked':'')+' style="accent-color:var(--teal)"/> Booking Mode (studio/slot reservations — one slot per booking)</label>'
+    + '<div class="form-group" style="margin-bottom:10px"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Max slots per registration (0 = unlimited)</label>'
+    + '<input type="number" id="rs-max-sessions" min="0" max="20" value="'+(prog.max_sessions_per_reg||0)+'" style="width:120px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>'
     + '<div id="rs-sessions-container" style="'+(prog.sessions_enabled?'':'display:none')+'">'
     + '<div id="rs-sessions-list" style="margin-bottom:8px"></div>'
-    + '<button type="button" id="rs-add-session-btn" class="btn btn-secondary btn-sm" style="font-size:12px">+ Add Session</button>'
+    + '<div style="display:flex;gap:8px;margin-bottom:8px">'
+    + '<button type="button" id="rs-add-session-btn" class="btn btn-secondary btn-sm" style="font-size:12px">+ Add Single Session</button>'
+    + '<button type="button" id="rs-generate-slots-btn" class="btn btn-secondary btn-sm" style="font-size:12px">⚡ Generate Slots</button>'
+    + '</div>'
+    + '<div id="rs-generate-slots-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:10px">Bulk Slot Generator</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>'
+    + '<input type="date" id="sg-start-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Date</label>'
+    + '<input type="date" id="sg-end-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">Days of Week</label>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:5px">'
+    + ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(function(d){ return '<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;border:1.5px solid var(--border-md);border-radius:20px;cursor:pointer;font-size:12px"><input type="checkbox" name="sg-day" value="'+d+'" style="accent-color:#145466"/>'+d.slice(0,3)+'</label>' }).join('')
+    + '</div></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Studio Opens</label>'
+    + '<input type="time" id="sg-open-time" value="10:00" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Studio Closes</label>'
+    + '<input type="time" id="sg-close-time" value="16:00" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Slot Duration (min)</label>'
+    + '<input type="number" id="sg-duration" value="45" min="15" max="240" step="15" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Gap Between (min)</label>'
+    + '<input type="number" id="sg-gap" value="15" min="0" max="60" step="5" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Capacity / slot</label>'
+    + '<input type="number" id="sg-capacity" value="1" min="1" max="20" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Price per slot (blank = program price)</label>'
+    + '<input type="number" id="sg-price" placeholder="Leave blank to use program price" min="0" step="0.01" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Location (optional)</label>'
+    + '<input type="text" id="sg-location" placeholder="Studio room, address..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button type="button" id="sg-cancel-btn" class="btn btn-secondary btn-sm">Cancel</button>'
+    + '<button type="button" id="sg-generate-btn" class="btn btn-primary btn-sm">Generate Slots</button>'
+    + '</div></div>'
     + '</div>'
 
     // Program Info & Photos section
@@ -17674,10 +17717,45 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     sessToggle.addEventListener('change', function(){
       sessContainer.style.display = this.checked ? '' : 'none'
     })
-    // Load existing sessions
     if(prog.sessions_enabled) loadSessionsInModal(pid)
     var addBtn = document.getElementById('rs-add-session-btn')
     if(addBtn) addBtn.addEventListener('click', function(){ openAddSessionModal(pid) })
+    // Slot generator toggle
+    var genBtn = document.getElementById('rs-generate-slots-btn')
+    var genForm = document.getElementById('rs-generate-slots-form')
+    var genCancel = document.getElementById('sg-cancel-btn')
+    var genSubmit = document.getElementById('sg-generate-btn')
+    if(genBtn) genBtn.addEventListener('click', function(){ if(genForm) genForm.style.display = genForm.style.display==='none'?'':'' === '' ? 'none' : '' })
+    if(genBtn) genBtn.addEventListener('click', function(){ if(genForm) genForm.style.display=genForm.style.display==='none'?'':'none' })
+    if(genCancel) genCancel.addEventListener('click', function(){ if(genForm) genForm.style.display='none' })
+    if(genSubmit) genSubmit.addEventListener('click', async function(){
+      var startDate = (document.getElementById('sg-start-date')||{}).value||''
+      var endDate = (document.getElementById('sg-end-date')||{}).value||startDate
+      var openTime = (document.getElementById('sg-open-time')||{}).value||'10:00'
+      var closeTime = (document.getElementById('sg-close-time')||{}).value||'16:00'
+      var duration = parseInt((document.getElementById('sg-duration')||{}).value||45)
+      var gap = parseInt((document.getElementById('sg-gap')||{}).value||15)
+      var capacity = parseInt((document.getElementById('sg-capacity')||{}).value||1)
+      var priceVal = (document.getElementById('sg-price')||{}).value||''
+      var location = (document.getElementById('sg-location')||{}).value||''
+      var days = Array.from(document.querySelectorAll('input[name="sg-day"]:checked')).map(function(cb){ return cb.value })
+      if(!startDate){ toast('Start date is required','error'); return }
+      var btn = this; btn.disabled=true; btn.textContent='Generating...'
+      var res = await api('/api/programs/'+pid+'/sessions/generate','POST',{
+        start_date:startDate, end_date:endDate,
+        days_of_week:days, open_time:openTime, close_time:closeTime,
+        slot_duration_minutes:duration, gap_minutes:gap,
+        capacity:capacity,
+        price_override: priceVal !== '' ? Math.round(parseFloat(priceVal)*100) : null,
+        location:location
+      })
+      btn.disabled=false; btn.textContent='Generate Slots'
+      if(res && res.ok){
+        toast('Created '+res.created+' slot'+(res.created===1?'':'s'),'success')
+        if(genForm) genForm.style.display='none'
+        loadSessionsInModal(pid)
+      } else toast((res&&res.error)||'Error','error')
+    })
   }
 
   // Cover image upload
@@ -18151,6 +18229,8 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
     program_info: window._regSettingsQuill ? window._regSettingsQuill.root.innerHTML : '',
     sessions_enabled: (document.getElementById('rs-sessions-enabled')||{}).checked||false,
+    booking_mode: (document.getElementById('rs-booking-mode')||{}).checked||false,
+    max_sessions_per_reg: parseInt((document.getElementById('rs-max-sessions')||{}).value||0)||0,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
@@ -19922,7 +20002,7 @@ async function renderMarqueeCatalog(el){
       + (item.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+fmtDate(item.start_date)+(item.end_date&&item.end_date!==item.start_date?' – '+fmtDate(item.end_date):'')+'</div>' : '')
       + (item.price ? '<div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">$'+(item.price/100).toFixed(2)+'/participant</div>'
                     : '<div style="font-size:13px;font-weight:700;color:#166534;margin-bottom:8px">Free</div>')
-      + (item.capacity ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+(item.registration_count||0)+' / '+item.capacity+' spots filled</div>' : '')
+      + (item.capacity ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+(item.reg_enrolled||item.registration_count||0)+' / '+item.capacity+' spots filled</div>' : '')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       + '<button class="btn btn-secondary btn-sm" onclick="'+settingsFn+'" style="font-size:11px;padding:5px 10px">Settings</button>'
       + (item.slug ? '<a href="'+regUrl+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:5px 10px;text-decoration:none">Reg Page</a>' : '')

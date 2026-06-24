@@ -310,28 +310,65 @@ function buildRegistrationForm(formType, customFields){
   if(program.sessions_enabled && program._sessions && program._sessions.length){
     var sessions = program._sessions
     var basePrice = program.price || 0
+    var isBookingMode = !!program.booking_mode
+    var maxPerReg = program.max_sessions_per_reg || 0
     function fmtTimeSess(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
-    sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
-      + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
-      + sessions.map(function(s){
-          var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
-          var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : '')
-          var enrolled = s.enrolled_count || 0
-          var spotsLeft = s.capacity ? s.capacity - enrolled : null
-          var isFull = spotsLeft !== null && spotsLeft <= 0
-          return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+'" class="session-label">'
-            + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
-            + '<div style="flex:1">'
-            + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
-            + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
-            + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
-            + (isFull ? '<div style="font-size:12px;color:#dc2626;font-weight:600">Full</div>'
-                : spotsLeft !== null && spotsLeft <= 5 ? '<div style="font-size:12px;color:#f59e0b;font-weight:600">Only '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</div>' : '')
-            + '</div>'
-            + '<div style="font-weight:700;font-size:14px;color:#145466;white-space:nowrap">'+(price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
-            + '</label>'
-        }).join('')
-      + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
+
+    if(isBookingMode){
+      // Group by date for a visual calendar-style grid
+      var byDate = {}
+      sessions.forEach(function(s){
+        var d = s.start_date || 'Ongoing'
+        if(!byDate[d]) byDate[d] = []
+        byDate[d].push(s)
+      })
+      sessionPickerHTML = '<div class="section-divider">Choose Your Time Slot</div>'
+        + '<div style="font-size:13px;color:#6b7280;margin-bottom:12px">Select a time slot. Each slot is '+(maxPerReg===1?'a single reservation':maxPerReg>1?'up to '+maxPerReg+' slots':'one reservation per booking')+'.</div>'
+        + Object.keys(byDate).sort().map(function(date){
+            var label = date === 'Ongoing' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) }catch(e){ return date } })()
+            return '<div style="margin-bottom:16px">'
+              + '<div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:8px;padding:6px 0;border-bottom:2px solid #e5e7eb">'+label+'</div>'
+              + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">'
+              + byDate[date].map(function(s){
+                  var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
+                  var enrolled = s.enrolled_count || 0
+                  var spotsLeft = s.capacity ? s.capacity - enrolled : null
+                  var isFull = spotsLeft !== null && spotsLeft <= 0
+                  var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
+                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isFull?'#e5e7eb':'#d1d5db')+';border-radius:10px;cursor:'+(isFull?'not-allowed':'pointer')+';text-align:center;background:'+(isFull?'#f9fafb':'#fff')+';opacity:'+(isFull?'0.6':'1')+'">'
+                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isFull?'disabled':'')+' style="display:none"/>'
+                    + '<div style="font-size:13px;font-weight:700;color:'+(isFull?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
+                    + '<div style="font-size:11px;font-weight:700;color:'+(isFull?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
+                    + (spotsLeft!==null&&!isFull&&spotsLeft<=3?'<div style="font-size:10px;color:#f59e0b;font-weight:600">'+spotsLeft+' left</div>':'')
+                    + '</label>'
+                }).join('')
+              + '</div></div>'
+          }).join('')
+        + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
+    } else {
+      // Standard checkbox list
+      sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
+        + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
+        + sessions.map(function(s){
+            var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
+            var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : '')
+            var enrolled = s.enrolled_count || 0
+            var spotsLeft = s.capacity ? s.capacity - enrolled : null
+            var isFull = spotsLeft !== null && spotsLeft <= 0
+            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+'" class="session-label">'
+              + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
+              + '<div style="flex:1">'
+              + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
+              + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
+              + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
+              + (isFull ? '<div style="font-size:12px;color:#dc2626;font-weight:600">Full</div>'
+                  : spotsLeft !== null && spotsLeft <= 5 ? '<div style="font-size:12px;color:#f59e0b;font-weight:600">Only '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</div>' : '')
+              + '</div>'
+              + '<div style="font-weight:700;font-size:14px;color:#145466;white-space:nowrap">'+(price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
+              + '</label>'
+          }).join('')
+        + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
+    }
   }
 
   var participantSection = isYouth
@@ -821,31 +858,60 @@ function buildProgramInfoCard(){
 }
 
 function updateSessionPicker(){
+  var isBookingMode = program && program.booking_mode
+  var maxPerReg = program && program.max_sessions_per_reg ? parseInt(program.max_sessions_per_reg) : 0
+
   selectedSessionIds = []
   var total = 0
   document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
     selectedSessionIds.push(cb.dataset.sid)
     total += parseInt(cb.dataset.price||0)
   })
-  // Update label styles
-  document.querySelectorAll('.session-label').forEach(function(lbl){
-    var cb = lbl.querySelector('.session-checkbox')
-    if(!cb || cb.disabled) return
-    lbl.style.borderColor = cb.checked ? '#145466' : '#d1d5db'
-    lbl.style.background = cb.checked ? '#f0f9ff' : '#fff'
-  })
+
+  if(isBookingMode){
+    // In booking mode, enforce max slots — if maxPerReg=1, uncheck others
+    if(maxPerReg === 1 && selectedSessionIds.length > 1){
+      // Keep only the last checked one
+      var lastChecked = event && event.target ? event.target.dataset.sid : selectedSessionIds[selectedSessionIds.length-1]
+      document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
+        if(cb.dataset.sid !== lastChecked) cb.checked = false
+      })
+      selectedSessionIds = [lastChecked]
+      total = parseInt(document.querySelector('.session-checkbox[data-sid="'+lastChecked+'"]').dataset.price||0)
+    } else if(maxPerReg > 1 && selectedSessionIds.length > maxPerReg){
+      // Uncheck the just-checked one
+      if(event && event.target){ event.target.checked = false; return }
+    }
+    // Update slot styles
+    document.querySelectorAll('.booking-slot-label').forEach(function(lbl){
+      var cb = lbl.querySelector('.session-checkbox')
+      if(!cb || cb.disabled) return
+      lbl.style.borderColor = cb.checked ? '#145466' : '#d1d5db'
+      lbl.style.background = cb.checked ? '#f0f9ff' : '#fff'
+      var timeEl = lbl.querySelector('div')
+      if(timeEl) timeEl.style.color = cb.checked ? '#145466' : '#0d3d4d'
+    })
+  } else {
+    // Standard session — update label styles
+    document.querySelectorAll('.session-label').forEach(function(lbl){
+      var cb = lbl.querySelector('.session-checkbox')
+      if(!cb || cb.disabled) return
+      lbl.style.borderColor = cb.checked ? '#145466' : '#d1d5db'
+      lbl.style.background = cb.checked ? '#f0f9ff' : '#fff'
+    })
+  }
+
   // Update session total display
   var totalEl = document.getElementById('session-total')
   if(totalEl){
     if(selectedSessionIds.length > 0){
-      var numP = 1 + getSiblings().length
       totalEl.style.display = ''
-      totalEl.textContent = selectedSessionIds.length+' session'+(selectedSessionIds.length===1?'':'s')+' selected'+(total>0?' — $'+(total/100).toFixed(2)+'/participant':'')
+      totalEl.textContent = selectedSessionIds.length+' slot'+(selectedSessionIds.length===1?'':'s')+' selected'+(total>0?' — $'+(total/100).toFixed(2)+'/person':'')
     } else {
       totalEl.style.display = 'none'
     }
   }
-  // Refresh payment options section if it exists
+  // Refresh payment options
   var paySection = document.getElementById('payment-options-section')
   if(paySection && program && program.price >= 0){
     paySection.innerHTML = buildPaymentOptions(program)

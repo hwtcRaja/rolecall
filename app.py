@@ -775,6 +775,22 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
+        """ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE""",
+        """CREATE TABLE IF NOT EXISTS audition_slots (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            slot_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            slot_type TEXT DEFAULT 'in_person',
+            location TEXT DEFAULT '',
+            capacity INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT REFERENCES audition_slots(id) ON DELETE SET NULL""",
+        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
         """CREATE TABLE IF NOT EXISTS volunteer_groups (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -3099,17 +3115,26 @@ def portal_family_threads():
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
 def get_audition_settings(context_type, context_id):
     conn = get_db()
-    row = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
+    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots
+        FROM audition_settings WHERE context_id=%s AND context_type=%s''',
         (context_id, context_type))
+    # Load slots
+    slots = fetchall(conn, '''SELECT as2.*,
+        (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
+        FROM audition_slots as2
+        WHERE as2.context_id=%s AND as2.context_type=%s
+        ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
     conn.close()
     if not row:
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
-            'allow_resume_link': True, 'allow_headshot_link': True})
+            'allow_resume_link': True, 'allow_headshot_link': True,
+            'allow_slots': False, 'slots': slots})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
     except Exception: row['roles'] = []
+    row['slots'] = slots
     resp = jsonify(row)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -3135,21 +3160,22 @@ def save_audition_settings(context_type, context_id):
     allow_video  = bool(d.get('allow_video_link', True))
     allow_resume = bool(d.get('allow_resume_link', True))
     allow_head   = bool(d.get('allow_headshot_link', True))
+    allow_slots  = bool(d.get('allow_slots', False))
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -3160,18 +3186,21 @@ def get_audition_submissions(context_type, context_id):
     if err: return err
     conn = get_db()
     try:
-        rows = fetchall(conn, """SELECT id, context_type, context_id, family_id,
-            participant_id, submitter_name, submitter_email, role_requested,
-            video_url, resume_url, headshot_url, notes, status, admin_notes,
-            submitted_at, updated_at,
-            COALESCE(roles_requested, '[]') as roles_requested,
-            COALESCE(cast_role, '') as cast_role
-            FROM audition_submissions
-            WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
+        rows = fetchall(conn, """SELECT s.id, s.context_type, s.context_id, s.family_id,
+            s.participant_id, s.submitter_name, s.submitter_email, s.role_requested,
+            s.video_url, s.resume_url, s.headshot_url, s.notes, s.status, s.admin_notes,
+            s.submitted_at, s.updated_at,
+            COALESCE(s.roles_requested, '[]') as roles_requested,
+            COALESCE(s.cast_role, '') as cast_role,
+            COALESCE(s.audition_type, 'virtual') as audition_type,
+            s.slot_id,
+            sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
+            FROM audition_submissions s
+            LEFT JOIN audition_slots sl ON sl.id=s.slot_id
+            WHERE s.context_type=%s AND s.context_id=%s ORDER BY s.submitted_at DESC""",
             (context_type, context_id))
     except Exception as e:
         app.logger.error(f'get_audition_submissions error: {e}')
-        # Fallback without new columns if migration hasn't run yet
         try:
             rows = fetchall(conn, """SELECT * FROM audition_submissions
                 WHERE context_type=%s AND context_id=%s ORDER BY submitted_at DESC""",
@@ -3185,6 +3214,112 @@ def get_audition_submissions(context_type, context_id):
             return jsonify([])
     conn.close()
     return jsonify(rows)
+
+
+@app.route('/api/auditions/slots/<context_type>/<context_id>', methods=['GET'])
+def get_audition_slots(context_type, context_id):
+    conn = get_db()
+    slots = fetchall(conn, '''SELECT as2.*,
+        (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
+        FROM audition_slots as2
+        WHERE as2.context_id=%s AND as2.context_type=%s AND as2.status != 'cancelled'
+        ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
+    conn.close()
+    return jsonify(slots)
+
+
+@app.route('/api/auditions/slots/create', methods=['POST'])
+def create_audition_slot_v2():
+    err = require_auth()
+    if err: return err
+    import uuid as _uas
+    d = request.json or {}
+    conn = get_db()
+    sid = str(_uas.uuid4())
+    execute(conn, '''INSERT INTO audition_slots
+        (id, context_type, context_id, slot_date, start_time, end_time,
+         slot_type, location, capacity, sort_order, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+        (sid,
+         d.get('context_type', 'program'),
+         d.get('context_id', ''),
+         (d.get('slot_date') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         d.get('slot_type', 'in_person'),
+         (d.get('location') or '').strip() or None,
+         int(d.get('capacity') or 1),
+         int(d.get('sort_order') or 0)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+
+@app.route('/api/auditions/slots/generate', methods=['POST'])
+def generate_audition_slots():
+    err = require_auth()
+    if err: return err
+    import uuid as _uasg
+    import datetime as _dtasg
+    d = request.json or {}
+    context_type = d.get('context_type', 'program')
+    context_id = d.get('context_id', '')
+    start_date = d.get('start_date')
+    end_date = d.get('end_date') or start_date
+    open_time = d.get('open_time', '10:00')
+    close_time = d.get('close_time', '17:00')
+    slot_duration = int(d.get('slot_duration_minutes') or 15)
+    gap_minutes = int(d.get('gap_minutes') or 5)
+    capacity = int(d.get('capacity') or 1)
+    slot_type = d.get('slot_type', 'in_person')
+    location = (d.get('location') or '').strip()
+    days_of_week = d.get('days_of_week') or []
+    if not start_date or not open_time or not close_time:
+        return jsonify({'error': 'start_date, open_time and close_time required'}), 400
+    DAY_MAP = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5,'Sunday':6}
+    allowed_days = set(DAY_MAP[d2] for d2 in days_of_week if d2 in DAY_MAP) if days_of_week else set(range(7))
+    try:
+        cur = _dtasg.date.fromisoformat(start_date)
+        end = _dtasg.date.fromisoformat(end_date)
+        ot = _dtasg.time.fromisoformat(open_time)
+        ct = _dtasg.time.fromisoformat(close_time)
+    except Exception as e:
+        return jsonify({'error': f'Invalid date/time: {e}'}), 400
+    slot_td = _dtasg.timedelta(minutes=slot_duration)
+    gap_td = _dtasg.timedelta(minutes=gap_minutes)
+    conn = get_db()
+    created = 0
+    sort_order = 0
+    while cur <= end:
+        if cur.weekday() in allowed_days:
+            slot_start = _dtasg.datetime.combine(cur, ot)
+            slot_end_limit = _dtasg.datetime.combine(cur, ct)
+            while slot_start + slot_td <= slot_end_limit:
+                s_end = slot_start + slot_td
+                execute(conn, '''INSERT INTO audition_slots
+                    (id, context_type, context_id, slot_date, start_time, end_time,
+                     slot_type, location, capacity, sort_order, status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open')''',
+                    (str(_uasg.uuid4()), context_type, context_id,
+                     cur.isoformat(),
+                     slot_start.strftime('%H:%M'), s_end.strftime('%H:%M'),
+                     slot_type, location or None,
+                     capacity, sort_order))
+                sort_order += 1
+                created += 1
+                slot_start = s_end + gap_td
+        cur += _dtasg.timedelta(days=1)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/auditions/slots/<sid>', methods=['DELETE'])
+def delete_audition_slot(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM audition_slots WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/auditions/submit', methods=['POST'])
@@ -3201,23 +3336,44 @@ def submit_audition():
     if not settings or not settings.get('is_open'):
         conn.close()
         return jsonify({'error': 'Auditions are not currently open'}), 400
+
+    # Handle slot booking
+    slot_id = d.get('slot_id') or None
+    audition_type = d.get('audition_type') or 'virtual'
+    if slot_id:
+        slot = fetchone(conn, 'SELECT * FROM audition_slots WHERE id=%s AND context_id=%s',
+            (slot_id, context_id))
+        if not slot:
+            conn.close()
+            return jsonify({'error': 'Slot not found'}), 400
+        if slot.get('status') == 'full':
+            conn.close()
+            return jsonify({'error': 'This slot is full. Please choose another time.'}), 400
+        booked = (fetchone(conn, 'SELECT COUNT(*) AS c FROM audition_submissions WHERE slot_id=%s', (slot_id,)) or {}).get('c', 0)
+        if int(booked) >= int(slot.get('capacity') or 1):
+            conn.close()
+            return jsonify({'error': 'This slot is now full. Please choose another time.'}), 400
+        audition_type = 'in_person'
+
     passphrase  = (d.get('passphrase') or '').strip()
     family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
     family_id   = family['id'] if family else None
     sid = str(uuid.uuid4())
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
-         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
+         slot_id,audition_type)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
-        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])) ,
+        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])),
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
         (d.get('notes') or '').strip() or None,
         passphrase or None,
+        slot_id, audition_type,
     ))
     conn.commit()
     # Get context name

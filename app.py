@@ -772,6 +772,8 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS context_type TEXT",
         "ALTER TABLE audition_settings DROP CONSTRAINT IF EXISTS audition_settings_context_id_key",
+        # Fix rows where context_type is NULL — assume production since that's the original use
+        "UPDATE audition_settings SET context_type='production' WHERE context_type IS NULL",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS roles_requested TEXT DEFAULT '[]'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
@@ -12812,7 +12814,30 @@ def public_program_sessions(slug):
     return jsonify(sessions or [])
 
 
-# ── My Time & Attendance ──────────────────────────────────────────────────────
+@app.route('/api/admin/run-migrations', methods=['POST'])
+def run_migrations_manual():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    results = []
+    migrations = [
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_slots ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'",
+        "UPDATE audition_settings SET context_type='production' WHERE context_type IS NULL",
+    ]
+    for m in migrations:
+        try:
+            execute(conn, m)
+            results.append({'sql': m[:60], 'ok': True})
+        except Exception as e:
+            results.append({'sql': m[:60], 'error': str(e)})
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'results': results})
+
+
+
 
 @app.route('/api/my/time', methods=['GET'])
 def my_time():

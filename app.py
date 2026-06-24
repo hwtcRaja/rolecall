@@ -11482,6 +11482,7 @@ def public_submit_registration(slug):
     def insert_reg(status, extra_cols='', extra_vals=()):
         execute(conn, f'''INSERT INTO program_registrations
             (id, program_id, registration_type, status,
+             registration_form_type,
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
@@ -11489,8 +11490,9 @@ def public_submit_registration(slug):
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json, session_ids,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
+             d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
              d.get('child_dob') or None, d.get('shirt_size') or None,
              d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
@@ -12475,7 +12477,7 @@ def get_program_sessions(pid):
     conn = get_db()
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%"' || ps.id || '"%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
@@ -12559,7 +12561,7 @@ def public_program_sessions(slug):
         ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
         ps.price_override, ps.status, ps.sort_order,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%"' || ps.id || '"%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
         FROM program_sessions ps WHERE ps.program_id=%s AND ps.status='open'
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (prog['id'], prog['id']))
@@ -12947,10 +12949,10 @@ def program_sessions_summary(pid):
     conn = get_db()
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%"' || ps.id || '"%'
          AND status NOT IN ('cancelled','waitlisted')) AS confirmed_count,
         (SELECT COUNT(*) FROM program_registrations
-         WHERE program_id=%s AND session_ids::jsonb ? ps.id
+         WHERE program_id=%s AND session_ids LIKE '%"' || ps.id || '"%'
          AND status='waitlisted') AS waitlisted_count
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid, pid))

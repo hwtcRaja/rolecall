@@ -1712,40 +1712,50 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
 
  ${(settings.allow_slots && (settings.slots||[]).filter(s=>s.status!=='cancelled').length > 0) ? `
  <div class="form-group">
- <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:8px">Audition Type</label>
- <div style="display:flex;gap:8px;margin-bottom:12px">
- <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border-md);border-radius:8px;cursor:pointer;font-size:13px" id="aud-type-virtual-label">
- <input type="radio" name="aud-type" value="virtual" checked style="accent-color:#145466" onclick="document.getElementById('aud-slots-picker').style.display='none';document.getElementById('aud-type-virtual-label').style.borderColor='#145466';document.getElementById('aud-type-inperson-label').style.borderColor='var(--border-md)'"> Virtual submission
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:10px">Audition Type</label>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+ <label id="aud-type-virtual-label" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border:2px solid #145466;border-radius:10px;cursor:pointer;background:#f0f9ff">
+ <input type="radio" name="aud-type" value="virtual" checked style="accent-color:#145466;flex-shrink:0;width:16px;height:16px"
+   onclick="document.getElementById('aud-slots-picker').style.display='none';this.closest('.form-group').querySelectorAll('label[id^=aud-type]').forEach(function(l){l.style.borderColor='var(--border-md)';l.style.background='#fff'});document.getElementById('aud-type-virtual-label').style.borderColor='#145466';document.getElementById('aud-type-virtual-label').style.background='#f0f9ff'">
+ <span style="font-size:13px;font-weight:600;color:#0d3d4d">Virtual submission</span>
  </label>
- <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border-md);border-radius:8px;cursor:pointer;font-size:13px" id="aud-type-inperson-label">
- <input type="radio" name="aud-type" value="in_person" style="accent-color:#145466" onclick="document.getElementById('aud-slots-picker').style.display='';document.getElementById('aud-type-inperson-label').style.borderColor='#145466';document.getElementById('aud-type-virtual-label').style.borderColor='var(--border-md)'"> Book an in-person slot
+ <label id="aud-type-inperson-label" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border:2px solid var(--border-md);border-radius:10px;cursor:pointer;background:#fff">
+ <input type="radio" name="aud-type" value="in_person" style="accent-color:#145466;flex-shrink:0;width:16px;height:16px"
+   onclick="document.getElementById('aud-slots-picker').style.display='';this.closest('.form-group').querySelectorAll('label[id^=aud-type]').forEach(function(l){l.style.borderColor='var(--border-md)';l.style.background='#fff'});document.getElementById('aud-type-inperson-label').style.borderColor='#145466';document.getElementById('aud-type-inperson-label').style.background='#f0f9ff'">
+ <span style="font-size:13px;font-weight:600;color:#0d3d4d">Book an in-person slot</span>
  </label>
  </div>
  <div id="aud-slots-picker" style="display:none">
- <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Choose Your Slot</div>
- <div style="display:flex;flex-direction:column;gap:6px">
+ <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Choose Your Time Slot</div>
  ${(()=>{
+   function fmt12(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } }
    var byDate = {}
    ;(settings.slots||[]).filter(function(s){ return s.status!=='cancelled' }).forEach(function(s){
      var d = s.slot_date||'TBD'; if(!byDate[d]) byDate[d]=[]
      byDate[d].push(s)
    })
    return Object.keys(byDate).sort().map(function(date){
-     var label = date==='TBD' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ return date } })()
-     return '<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:6px">'+label+'</div>'
+     var dateLabel = date==='TBD' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ return date } })()
+     return '<div style="margin-bottom:14px">'
+       + '<div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e0f2fe">'+dateLabel+'</div>'
+       + '<div style="display:flex;flex-direction:column;gap:6px">'
        + byDate[date].map(function(s){
            var booked=parseInt(s.booked_count||0), cap=parseInt(s.capacity||1), full=booked>=cap
-           return '<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid '+(full?'#e5e7eb':'var(--border-md)')+';border-radius:8px;cursor:'+(full?'not-allowed':'pointer')+';opacity:'+(full?'0.6':'1')+'">'
-             + '<input type="radio" name="aud-slot" value="'+s.id+'" '+(full?'disabled':'')+' style="accent-color:#145466;flex-shrink:0">'
-             + '<div><div style="font-size:13px;font-weight:700">'+(s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):'')+'</div>'
-             + (s.location?'<div style="font-size:11px;color:#6b7280">'+escHtml(s.location)+'</div>':'')
-             + (full?'<div style="font-size:11px;color:#dc2626;font-weight:600">Full</div>':cap-booked<=3?'<div style="font-size:11px;color:#f59e0b;font-weight:600">'+(cap-booked)+' spot'+(cap-booked===1?'':'s')+' left</div>':'')
-             + '</div></label>'
+           var timeStr = s.start_time ? fmt12(s.start_time)+(s.end_time?' \u2013 '+fmt12(s.end_time):'') : ''
+           var spotsLeft = cap - booked
+           return '<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid '+(full?'#e5e7eb':'#d1d5db')+';border-radius:10px;cursor:'+(full?'not-allowed':'pointer')+';opacity:'+(full?'0.5':'1')+';background:'+(full?'#f9fafb':'#fff')+'">'
+             + '<input type="radio" name="aud-slot" value="'+s.id+'" '+(full?'disabled':'')+' style="accent-color:#145466;flex-shrink:0;width:16px;height:16px">'
+             + '<div style="flex:1;min-width:0">'
+             + '<div style="font-size:14px;font-weight:700;color:'+(full?'#9ca3af':'#0d3d4d')+'">'+timeStr+'</div>'
+             + (s.location?'<div style="font-size:12px;color:#6b7280;margin-top:1px">'+escHtml(s.location)+'</div>':'')
+             + '</div>'
+             + (full ? '<span style="font-size:11px;color:#dc2626;font-weight:700;flex-shrink:0">Full</span>'
+               : spotsLeft<=3 ? '<span style="font-size:11px;color:#f59e0b;font-weight:700;flex-shrink:0">'+spotsLeft+' left</span>' : '')
+             + '</label>'
          }).join('')
-       + '</div>'
+       + '</div></div>'
    }).join('')
  })()}
- </div>
  </div>
  </div>
  ` : ''}

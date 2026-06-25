@@ -952,6 +952,71 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS booking_mode BOOLEAN DEFAULT FALSE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_sessions_per_reg INTEGER DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS rental_spaces (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            capacity INTEGER,
+            amenities TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_partners (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            contact_name TEXT DEFAULT '',
+            contact_email TEXT DEFAULT '',
+            contact_phone TEXT DEFAULT '',
+            organization_type TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_requests (
+            id TEXT PRIMARY KEY,
+            partner_id TEXT REFERENCES rental_partners(id) ON DELETE SET NULL,
+            space_id TEXT REFERENCES rental_spaces(id) ON DELETE SET NULL,
+            title TEXT NOT NULL,
+            purpose TEXT DEFAULT '',
+            start_date TEXT NOT NULL,
+            end_date TEXT DEFAULT '',
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            recurring BOOLEAN DEFAULT FALSE,
+            recurrence_pattern TEXT DEFAULT '',
+            recurrence_end_date TEXT DEFAULT '',
+            estimated_attendance INTEGER,
+            rate_type TEXT DEFAULT 'hourly',
+            rate_amount INTEGER DEFAULT 0,
+            total_amount INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            notes TEXT DEFAULT '',
+            approved_by TEXT DEFAULT '',
+            approved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_agreements (
+            id TEXT PRIMARY KEY,
+            request_id TEXT REFERENCES rental_requests(id) ON DELETE CASCADE,
+            contract_html TEXT DEFAULT '',
+            signing_token TEXT UNIQUE,
+            partner_signed_name TEXT DEFAULT '',
+            partner_signed_at TIMESTAMP,
+            partner_signed_ip TEXT DEFAULT '',
+            admin_notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'draft',
+            sent_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_occurrences (
+            id TEXT PRIMARY KEY,
+            request_id TEXT REFERENCES rental_requests(id) ON DELETE CASCADE,
+            occurrence_date TEXT NOT NULL,
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            status TEXT DEFAULT 'scheduled',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
@@ -1897,6 +1962,33 @@ def get_events():
             pass
         e['status'] = e.get('status') or 'draft'
     conn.close()
+    # Add rental occurrences as synthetic calendar events
+    try:
+        conn2 = get_db()
+        rentals = fetchall(conn2, '''SELECT ro.*, rr.title, rr.start_time AS req_start, rr.end_time AS req_end,
+            rp.name AS partner_name, rs.name AS space_name
+            FROM rental_occurrences ro
+            JOIN rental_requests rr ON rr.id=ro.request_id
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+            WHERE ro.status != \'cancelled\' ''') or []
+        conn2.close()
+        for r in rentals:
+            events.append({
+                'id': 'rental_' + r['id'],
+                'name': f"{r.get('title','')} \u2013 {r.get('partner_name','')}",
+                'event_date': r.get('occurrence_date',''),
+                'start_time': r.get('start_time') or r.get('req_start',''),
+                'end_time': r.get('end_time') or r.get('req_end',''),
+                'event_type_name': 'Venue Rental',
+                'event_type_color': '#7c3aed',
+                'status': r.get('status','scheduled'),
+                'location': r.get('space_name',''),
+                'is_rental': True,
+                'required_waivers': [], 'elics': [], 'staff': [],
+            })
+    except Exception as e:
+        app.logger.warning(f'Rental calendar merge error: {e}')
     return jsonify(events)
 
 @app.route('/api/events', methods=['POST'])
@@ -12940,6 +13032,504 @@ def my_delete_pending_hours(hid):
 
 
 # ── End My Time & Attendance ───────────────────────────────────────────────────
+
+# ── Venue Rentals ─────────────────────────────────────────────────────────────
+
+@app.route('/api/rental/spaces', methods=['GET'])
+def get_rental_spaces():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    spaces = fetchall(conn, 'SELECT * FROM rental_spaces ORDER BY sort_order, name') or []
+    conn.close()
+    return jsonify(spaces)
+
+@app.route('/api/rental/spaces', methods=['POST'])
+def create_rental_space():
+    err = require_auth()
+    if err: return err
+    import uuid as _urs
+    d = request.json or {}
+    conn = get_db()
+    sid = str(_urs.uuid4())
+    execute(conn, '''INSERT INTO rental_spaces (id, name, description, capacity, amenities, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s,%s,TRUE)''',
+        (sid, (d.get('name') or '').strip(),
+         (d.get('description') or '').strip(),
+         d.get('capacity') or None,
+         (d.get('amenities') or '').strip(),
+         int(d.get('sort_order') or 0)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+@app.route('/api/rental/spaces/<sid>', methods=['PUT'])
+def update_rental_space(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE rental_spaces SET name=%s, description=%s, capacity=%s,
+        amenities=%s, sort_order=%s, active=%s WHERE id=%s''',
+        ((d.get('name') or '').strip(), (d.get('description') or '').strip(),
+         d.get('capacity') or None, (d.get('amenities') or '').strip(),
+         int(d.get('sort_order') or 0), bool(d.get('active', True)), sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/spaces/<sid>', methods=['DELETE'])
+def delete_rental_space(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_spaces WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/partners', methods=['GET'])
+def get_rental_partners():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    partners = fetchall(conn, 'SELECT * FROM rental_partners ORDER BY name') or []
+    conn.close()
+    return jsonify(partners)
+
+@app.route('/api/rental/partners', methods=['POST'])
+def create_rental_partner():
+    err = require_auth()
+    if err: return err
+    import uuid as _urp
+    d = request.json or {}
+    conn = get_db()
+    pid = str(_urp.uuid4())
+    execute(conn, '''INSERT INTO rental_partners
+        (id, name, contact_name, contact_email, contact_phone, organization_type, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'active')''',
+        (pid, (d.get('name') or '').strip(),
+         (d.get('contact_name') or '').strip(),
+         (d.get('contact_email') or '').strip(),
+         (d.get('contact_phone') or '').strip(),
+         (d.get('organization_type') or '').strip(),
+         (d.get('notes') or '').strip()))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/rental/partners/<pid>', methods=['PUT'])
+def update_rental_partner(pid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE rental_partners SET name=%s, contact_name=%s, contact_email=%s,
+        contact_phone=%s, organization_type=%s, notes=%s, status=%s, updated_at=NOW() WHERE id=%s''',
+        ((d.get('name') or '').strip(), (d.get('contact_name') or '').strip(),
+         (d.get('contact_email') or '').strip(), (d.get('contact_phone') or '').strip(),
+         (d.get('organization_type') or '').strip(), (d.get('notes') or '').strip(),
+         d.get('status') or 'active', pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests', methods=['GET'])
+def get_rental_requests():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
+        rs.name AS space_name,
+        ra.id AS agreement_id, ra.status AS agreement_status,
+        ra.partner_signed_at, ra.signing_token
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        LEFT JOIN rental_agreements ra ON ra.request_id=rr.id
+        ORDER BY rr.start_date DESC, rr.created_at DESC''') or []
+    conn.close()
+    return jsonify(requests_data)
+
+@app.route('/api/rental/requests', methods=['POST'])
+def create_rental_request():
+    err = require_permission('rentals')
+    if err: return err
+    import uuid as _urr
+    d = request.json or {}
+    conn = get_db()
+    rid = str(_urr.uuid4())
+    execute(conn, '''INSERT INTO rental_requests
+        (id, partner_id, space_id, title, purpose, start_date, end_date,
+         start_time, end_time, recurring, recurrence_pattern, recurrence_end_date,
+         estimated_attendance, rate_type, rate_amount, total_amount, status, notes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+        (rid, d.get('partner_id') or None, d.get('space_id') or None,
+         (d.get('title') or '').strip(),
+         (d.get('purpose') or '').strip(),
+         (d.get('start_date') or '').strip(),
+         (d.get('end_date') or '').strip(),
+         (d.get('start_time') or '').strip(),
+         (d.get('end_time') or '').strip(),
+         bool(d.get('recurring')),
+         (d.get('recurrence_pattern') or '').strip(),
+         (d.get('recurrence_end_date') or '').strip(),
+         d.get('estimated_attendance') or None,
+         d.get('rate_type') or 'hourly',
+         int(d.get('rate_amount') or 0),
+         int(d.get('total_amount') or 0),
+         (d.get('notes') or '').strip()))
+    # Generate occurrences if recurring
+    if d.get('recurring') and d.get('start_date') and d.get('recurrence_end_date'):
+        _generate_rental_occurrences(conn, rid, d)
+    conn.commit()
+    # Send approval notification to board president/VP
+    try:
+        board_leaders = fetchall(conn, '''SELECT v.email, v.name, bm.role FROM board_members bm
+            JOIN volunteers v ON v.id=bm.volunteer_id
+            WHERE bm.role IN ('President','Vice President') AND v.email IS NOT NULL''')
+        if board_leaders:
+            subject = f'Rental Request Pending Approval: {d.get("title","")}'
+            body = f'A new venue rental request requires your approval.\n\nTitle: {d.get("title","")}\nStart: {d.get("start_date","")}\nPurpose: {d.get("purpose","")}\n\nPlease log in to RoleCall to review and approve.'
+            for bl in board_leaders:
+                if bl.get('email'):
+                    send_email_via_ses(bl['email'], subject, body)
+    except Exception as e:
+        app.logger.warning(f'Rental approval notification error: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': rid})
+
+def _generate_rental_occurrences(conn, request_id, d):
+    import uuid as _uro2
+    import datetime as _dto2
+    pattern = d.get('recurrence_pattern') or 'weekly'
+    try:
+        cur = _dto2.date.fromisoformat(d.get('start_date'))
+        end = _dto2.date.fromisoformat(d.get('recurrence_end_date'))
+    except Exception:
+        return
+    while cur <= end:
+        execute(conn, '''INSERT INTO rental_occurrences
+            (id, request_id, occurrence_date, start_time, end_time, status)
+            VALUES (%s,%s,%s,%s,%s,'scheduled')''',
+            (str(_uro2.uuid4()), request_id, cur.isoformat(),
+             d.get('start_time',''), d.get('end_time','')))
+        if pattern == 'weekly':
+            cur += _dto2.timedelta(days=7)
+        elif pattern == 'biweekly':
+            cur += _dto2.timedelta(days=14)
+        elif pattern == 'monthly':
+            # Same day next month
+            month = cur.month + 1 if cur.month < 12 else 1
+            year = cur.year + (1 if cur.month == 12 else 0)
+            try: cur = cur.replace(year=year, month=month)
+            except Exception: break
+        elif pattern == 'daily':
+            cur += _dto2.timedelta(days=1)
+        else:
+            break
+
+@app.route('/api/rental/requests/<rid>', methods=['PUT'])
+def update_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE rental_requests SET partner_id=%s, space_id=%s, title=%s,
+        purpose=%s, start_date=%s, end_date=%s, start_time=%s, end_time=%s,
+        recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
+        estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
+        status=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
+        (d.get('partner_id') or None, d.get('space_id') or None,
+         (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
+         (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
+         (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip(),
+         bool(d.get('recurring')), (d.get('recurrence_pattern') or '').strip(),
+         (d.get('recurrence_end_date') or '').strip(),
+         d.get('estimated_attendance') or None,
+         d.get('rate_type') or 'hourly',
+         int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
+         d.get('status') or 'pending', (d.get('notes') or '').strip(), rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/approve', methods=['POST'])
+def approve_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, '''UPDATE rental_requests SET status='approved',
+        approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        ((user or {}).get('name','Admin'), rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/generate-contract', methods=['POST'])
+def generate_rental_contract(rid):
+    err = require_auth()
+    if err: return err
+    import uuid as _urgc
+    import secrets as _sec
+    d = request.json or {}
+    conn = get_db()
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Request not found'}), 404
+    token = _sec.token_urlsafe(32)
+    custom_terms = (d.get('custom_terms') or '').strip()
+    contract_html = _build_rental_contract_html(req, custom_terms)
+    # Delete any existing draft agreement
+    execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
+    aid = str(_urgc.uuid4())
+    execute(conn, '''INSERT INTO rental_agreements
+        (id, request_id, contract_html, signing_token, status)
+        VALUES (%s,%s,%s,%s,'draft')''',
+        (aid, rid, contract_html, token))
+    conn.commit(); conn.close()
+    signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
+    return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
+
+def _build_rental_contract_html(req, custom_terms=''):
+    import datetime as _dtc
+    today = _dtc.date.today().strftime('%B %d, %Y')
+    rate_type = req.get('rate_type','hourly')
+    rate_cents = int(req.get('rate_amount') or 0)
+    rate_str = f'${rate_cents/100:.2f} per {rate_type.replace("_"," ")}'
+    total_cents = int(req.get('total_amount') or 0)
+    total_str = f'${total_cents/100:.2f}' if total_cents else 'To be invoiced'
+    start = req.get('start_date','')
+    end = req.get('end_date','')
+    date_range = start + (' through ' + end if end and end != start else '')
+    time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
+    default_terms = f'''
+<h2 style="color:#0d3d4d;margin-top:24px">VENUE RENTAL AGREEMENT</h2>
+<p>This Venue Rental Agreement ("Agreement") is entered into as of <strong>{today}</strong> by and between:</p>
+<p><strong>Horizon West Theatre Company</strong> ("HWTC"), a nonprofit performing arts organization located in Winter Garden, FL</p>
+<p>and</p>
+<p><strong>{req.get('partner_name','')}</strong> ("{req.get('organization_type','Partner')}"), hereinafter referred to as "Renter."</p>
+
+<h3 style="color:#0d3d4d;margin-top:20px">1. RENTAL DETAILS</h3>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('space_name','')}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Time</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{time_range}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('purpose','')}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Rate</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+</table>
+
+<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
+<p><strong>2.1 Payment.</strong> Renter agrees to pay the rental fee as specified above. Payment is due no later than 48 hours prior to the rental date unless otherwise agreed in writing.</p>
+<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the rental fee. Cancellations within 48 hours will forfeit the full rental fee.</p>
+<p><strong>2.3 Use of Space.</strong> Renter agrees to use the space only for the purpose described above. Renter shall not sublet the space or allow unauthorized parties to use it.</p>
+<p><strong>2.4 Care of Facility.</strong> Renter agrees to leave the space in the same condition as found. Renter is responsible for any damage to the facility, equipment, or property caused by Renter or Renter's guests. Renter will be charged for any repairs or cleaning required beyond normal use.</p>
+<p><strong>2.5 Capacity.</strong> Renter agrees to not exceed the posted occupancy limits of the space.</p>
+<p><strong>2.6 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Renter is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the rental immediately if this clause is violated, with no refund.</p>
+<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, etc.) must be agreed upon in advance and may incur additional fees. Renter shall not move or modify technical equipment without authorization.</p>
+<p><strong>2.8 Insurance.</strong> HWTC strongly recommends Renter carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the rental period.</p>
+<p><strong>2.9 Indemnification.</strong> Renter agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Renter's use of the facility.</p>
+<p><strong>2.10 Compliance.</strong> Renter agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
+<p><strong>2.11 Recording &amp; Photography.</strong> Renter may not record, photograph, or livestream HWTC proprietary content, costumes, or set pieces without written permission.</p>
+'''
+    if custom_terms:
+        default_terms += f'\n<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3>\n<p>{custom_terms}</p>'
+
+    default_terms += '''
+<h3 style="color:#0d3d4d;margin-top:20px">4. SIGNATURES</h3>
+<p>By signing below, both parties agree to the terms and conditions set forth in this Agreement.</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
+<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+<div style="font-weight:700;font-size:14px">Horizon West Theatre Company</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
+<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
+<div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
+</div>
+<div id="partner-signature-block" style="border-top:2px solid #0d3d4d;padding-top:8px">
+<div style="font-weight:700;font-size:14px">PARTNER_NAME_PLACEHOLDER</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
+<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
+<div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
+</div>
+</div>
+'''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
+h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
+h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
+<body>
+<div style="text-align:center;margin-bottom:24px">
+<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:60px" alt="HWTC"/>
+<div style="font-size:11px;color:#6b7280;margin-top:6px">horizonwesttheatre.com · Winter Garden, FL</div>
+</div>
+{default_terms}
+</body></html>'''
+
+@app.route('/api/rental/agreements/<aid>', methods=['GET'])
+def get_rental_agreement(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    conn.close()
+    return jsonify(agr or {})
+
+
+@app.route('/api/rental/agreements/<aid>/send', methods=['POST'])
+def send_rental_agreement(aid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.partner_id, rp.contact_email, rp.contact_name, rp.name AS partner_name, rr.title
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.id=%s''', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    signing_url = f'https://rolecall.hwtco.org/rent/sign/{agr["signing_token"]}'
+    email_to = agr.get('contact_email','')
+    if email_to:
+        subject = f'Venue Rental Agreement – {agr.get("title","")}'
+        body = f'''Dear {agr.get("contact_name","") or agr.get("partner_name","")},
+
+Please review and digitally sign your venue rental agreement with Horizon West Theatre Company.
+
+Click the link below to review and sign:
+{signing_url}
+
+If you have any questions, please contact us.
+
+Horizon West Theatre Company'''
+        try:
+            send_email_via_ses(email_to, subject, body)
+            execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'Email failed: {e}'}), 500
+    conn.close()
+    return jsonify({'ok': True, 'signing_url': signing_url})
+
+@app.route('/rent/sign/<token>', methods=['GET'])
+def rental_signing_page(token):
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.signing_token=%s''', (token,))
+    conn.close()
+    if not agr:
+        return 'Agreement not found.', 404
+    if agr.get('partner_signed_at'):
+        return f'''<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{{font-family:sans-serif;text-align:center;padding:60px;color:#0d3d4d}}</style></head>
+<body><h2>✓ Already Signed</h2><p>This agreement was signed on {agr["partner_signed_at"]}.</p><p>Thank you!</p></body></html>'''
+    contract = agr.get('contract_html','')
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign Rental Agreement – {agr.get("title","")}</title>
+<style>
+body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
+.contract-wrap{{max-width:860px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
+.sign-bar{{position:sticky;bottom:0;background:#fff;border-top:2px solid #145466;padding:20px;max-width:860px;margin:0 auto;box-shadow:0 -4px 20px rgba(0,0,0,0.1)}}
+.sign-btn{{background:#145466;color:#fff;border:none;padding:14px 32px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;width:100%}}
+.sign-btn:disabled{{background:#9ca3af;cursor:not-allowed}}
+input[type=text]{{width:100%;padding:12px 14px;border:2px solid #d1d5db;border-radius:8px;font-size:16px;font-family:Georgia,serif;box-sizing:border-box}}
+input[type=text]:focus{{border-color:#145466;outline:none}}
+.signed-msg{{background:#dcfce7;color:#166534;padding:20px;border-radius:10px;text-align:center;font-size:18px;font-weight:700;margin-top:20px}}
+</style></head><body>
+<div class="contract-wrap">
+{contract}
+</div>
+<div class="sign-bar">
+<div style="max-width:500px;margin:0 auto">
+<div style="font-size:13px;font-weight:700;color:#0d3d4d;margin-bottom:6px">Type your full name to sign this agreement</div>
+<input type="text" id="sig-name" placeholder="Your full legal name" oninput="document.getElementById('sign-btn').disabled=this.value.trim().length<3"/>
+<div id="sig-error" style="color:#dc2626;font-size:12px;margin-top:4px;display:none"></div>
+<button class="sign-btn" id="sign-btn" style="margin-top:10px" disabled onclick="signAgreement()">Sign Agreement</button>
+<div style="font-size:11px;color:#9ca3af;margin-top:8px;text-align:center">By clicking "Sign Agreement" you are providing a legally binding digital signature.</div>
+</div>
+</div>
+<script>
+async function signAgreement(){{
+  const name = document.getElementById('sig-name').value.trim()
+  if(name.length < 3){{ document.getElementById('sig-error').style.display=''; document.getElementById('sig-error').textContent='Please enter your full name'; return }}
+  const btn = document.getElementById('sign-btn')
+  btn.disabled=true; btn.textContent='Signing...'
+  const res = await fetch('/rent/sign/{token}', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{name}})}})
+  const data = await res.json()
+  if(data.ok){{
+    document.querySelector('.sign-bar').innerHTML = '<div class="signed-msg" style="max-width:500px;margin:0 auto">✓ Agreement Signed!<div style="font-size:14px;font-weight:400;margin-top:4px">Thank you, '+name+'. A copy will be sent to you by email.</div></div>'
+    window.scrollTo(0, document.body.scrollHeight)
+  }} else {{
+    btn.disabled=false; btn.textContent='Sign Agreement'
+    document.getElementById('sig-error').style.display=''
+    document.getElementById('sig-error').textContent = data.error||'An error occurred. Please try again.'
+  }}
+}}
+</script></body></html>'''
+
+@app.route('/rent/sign/<token>', methods=['POST'])
+def submit_rental_signature(token):
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE signing_token=%s', (token,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    if agr.get('partner_signed_at'):
+        conn.close()
+        return jsonify({'error': 'Already signed'}), 400
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    execute(conn, '''UPDATE rental_agreements SET partner_signed_name=%s,
+        partner_signed_at=NOW(), partner_signed_ip=%s, status='signed', updated_at=NOW()
+        WHERE id=%s''', (name, ip, agr['id']))
+    execute(conn, "UPDATE rental_requests SET status='signed', updated_at=NOW() WHERE id=%s",
+        (agr['request_id'],))
+    conn.commit()
+    # Notify admin
+    try:
+        req = fetchone(conn, '''SELECT rr.title, rp.name AS partner_name FROM rental_requests rr
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (agr['request_id'],))
+        admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL")
+        for admin in (admins or []):
+            send_email_via_ses(admin['email'],
+                f'Agreement Signed: {(req or {}).get("title","")}',
+                f'{name} has signed the rental agreement for {(req or {}).get("title","")}.\n\nLog in to RoleCall to view the signed agreement.')
+    except Exception: pass
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/occurrences/<request_id>', methods=['GET'])
+def get_rental_occurrences(request_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    occs = fetchall(conn, 'SELECT * FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (request_id,)) or []
+    conn.close()
+    return jsonify(occs)
+
+@app.route('/api/rental/occurrences/<oid>', methods=['PUT'])
+def update_rental_occurrence(oid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE rental_occurrences SET status=%s, notes=%s WHERE id=%s',
+        (d.get('status','scheduled'), (d.get('notes') or '').strip(), oid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── End Venue Rentals ─────────────────────────────────────────────────────────
+
 
 
 @app.route('/api/marquee/orders/cart/<oid>', methods=['DELETE'])

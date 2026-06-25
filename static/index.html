@@ -1608,6 +1608,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </label>
  </div>
 
+ <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
+ <div class="form-group">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Approver Emails</label>
+ <textarea id="es-rental-approver-emails" rows="3" placeholder="Enter email addresses, one per line or comma-separated&#10;e.g. raja@example.com, board@hwtco.org" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:3px">These people will receive an email notification whenever a new venue rental request is submitted and needs approval.</div>
+ </div>
+ </div>
+
  <div style="display:flex;gap:10px">
  <button class="btn btn-primary" id="es-save-btn" onclick="saveEmailSettings()">Save Email Settings</button>
  <button class="btn btn-secondary" onclick="testEmail()">Send Test Email</button>
@@ -1881,6 +1890,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-directors" placeholder="film" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('directors',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-my-time">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">My Time &amp; Attendance</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-my-time" placeholder="clock" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('my-time',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rentals">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Venue Rentals</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-rentals" placeholder="key" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('rentals',this.value)"/>
  </div>
  </div>
  </div>
@@ -6474,6 +6505,7 @@ async function loadEmailSettings(){
  chk('es-alert-not-closed', s.alert_event_not_closed!==false)
  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
  chk('es-alert-role-filled', s.alert_role_filled!==false)
+ set('es-rental-approver-emails', s.rental_approver_emails||'')
 
  // Load sender identities
  let identities = []
@@ -6590,7 +6622,8 @@ async function saveEmailSettings(){
  alert_event_not_closed: chk('es-alert-not-closed'),
  alert_new_rsvp: chk('es-alert-new-rsvp'),
  alert_role_filled: chk('es-alert-role-filled'),
- alert_waiver_expiry: chk('es-alert-waivers')
+ alert_waiver_expiry: chk('es-alert-waivers'),
+ rental_approver_emails: get('es-rental-approver-emails'),
  }
  const res = await api('/api/email-settings','PUT',data)
  const statusEl = document.getElementById('email-settings-status')

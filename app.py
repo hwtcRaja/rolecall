@@ -952,6 +952,8 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS booking_mode BOOLEAN DEFAULT FALSE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_sessions_per_reg INTEGER DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS show_capacity_public BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS show_almost_sold_out BOOLEAN DEFAULT TRUE",
         """CREATE TABLE IF NOT EXISTS rental_spaces (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -4194,7 +4196,7 @@ def save_registration_settings(pid):
     execute(conn, '''UPDATE youth_programs SET
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
-        booking_mode=%s, max_sessions_per_reg=%s,
+        booking_mode=%s, max_sessions_per_reg=%s, show_capacity_public=%s, show_almost_sold_out=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
@@ -4212,6 +4214,8 @@ def save_registration_settings(pid):
          bool(d.get('sessions_enabled')),
          bool(d.get('booking_mode')),
          int(d.get('max_sessions_per_reg') or 0),
+         bool(d.get('show_capacity_public', True)),
+         bool(d.get('show_almost_sold_out', True)),
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
@@ -14070,6 +14074,43 @@ def marquee_overview():
     recent_donations = fetchall(conn, '''SELECT pd.name, pd.email, pd.amount_cents, pd.created_at
         FROM pending_donations pd WHERE pd.status='completed'
         ORDER BY pd.created_at DESC LIMIT 5''') or []
+    # Program breakdown with session stats
+    program_breakdown = fetchall(conn, '''SELECT
+        yp.id, yp.name, yp.price, yp.capacity, yp.registration_status,
+        yp.sessions_enabled,
+        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count,
+        COALESCE(SUM(
+            COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+            - COALESCE(pr.discount_amount,0)
+            - COALESCE(pr.sibling_discount_amount,0)
+        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
+        FROM youth_programs yp
+        LEFT JOIN program_registrations pr ON pr.program_id=yp.id AND pr.status != \'cancelled\'
+        WHERE yp.registration_status != \'draft\'
+        GROUP BY yp.id, yp.name, yp.price, yp.capacity, yp.registration_status, yp.sessions_enabled
+        ORDER BY confirmed_count DESC, yp.name''') or []
+
+    # Session breakdown for programs with sessions
+    session_breakdown = fetchall(conn, '''SELECT
+        ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override, ps.start_date, ps.start_time, ps.end_time,
+        yp.name AS program_name, yp.price AS program_price,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
+        COALESCE(SUM(
+            COALESCE(ps.price_override, yp.price, 0)
+        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
+        FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
+        LEFT JOIN program_registrations pr ON pr.program_id=ps.program_id
+            AND pr.session_ids LIKE \'%%"\' || ps.id || \'"\%%\'
+            AND pr.status != \'cancelled\'
+        WHERE yp.registration_status != \'draft\'
+        GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override, ps.start_date, ps.start_time, ps.end_time, yp.name, yp.price
+        ORDER BY ps.program_id, ps.sort_order, ps.start_date, ps.start_time''') or []
+
     conn.close()
     return jsonify({
         'reg_counts': reg_counts,
@@ -14078,6 +14119,8 @@ def marquee_overview():
         'open_products': int(open_programs) + int(open_productions),
         'recent_orders': cart_orders,
         'recent_donations': recent_donations,
+        'program_breakdown': program_breakdown,
+        'session_breakdown': session_breakdown,
     })
 
 

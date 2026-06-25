@@ -13208,19 +13208,31 @@ def create_rental_request():
     if d.get('recurring') and d.get('start_date') and d.get('recurrence_end_date'):
         _generate_rental_occurrences(conn, rid, d)
     conn.commit()
-    # Send approval notification to configured approvers
+    # Send approval notification — use Level 1 emails from approval_levels, fallback to rental_approver_emails
     try:
-        es = fetchone(conn, 'SELECT rental_approver_emails FROM email_settings WHERE id=1') or {}
-        approver_emails_raw = (es.get('rental_approver_emails') or '').strip()
-        if approver_emails_raw:
-            approver_emails = [e.strip() for e in approver_emails_raw.replace(',','\n').splitlines() if e.strip()]
-            subject = f'Rental Request Pending Approval: {d.get("title","")}'
-            body = f'A new venue rental request requires your approval.\n\nTitle: {d.get("title","")}\nStart: {d.get("start_date","")}\nPurpose: {d.get("purpose","")}\n\nPlease log in to RoleCall to review and approve.'
-            for email_addr in approver_emails:
-                try:
-                    send_email_via_ses(email_addr, subject, body)
-                except Exception as email_err:
-                    app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
+        import json as _jen
+        es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
+        approver_emails = []
+        # Try Level 1 from approval levels first
+        try:
+            levels = _jen.loads(es.get('rental_approval_levels') or '[]')
+            if levels and levels[0].get('emails'):
+                approver_emails = [e.strip() for e in levels[0]['emails'].replace(',','\n').splitlines() if e.strip()]
+        except Exception:
+            pass
+        # Fall back to flat approver list
+        if not approver_emails:
+            raw = (es.get('rental_approver_emails') or '').strip()
+            approver_emails = [e.strip() for e in raw.replace(',','\n').splitlines() if e.strip()]
+        subject = f'New Rental Request Pending Approval: {d.get("title","")}'
+        body = f'A new venue rental request has been submitted and requires approval.<br><br><strong>Title:</strong> {d.get("title","")}<br><strong>Start:</strong> {d.get("start_date","")}<br><strong>Purpose:</strong> {d.get("purpose","")}<br><br>Please log in to RoleCall → Venue Rentals to review and approve.'
+        for email_addr in approver_emails:
+            try:
+                send_email(email_addr, subject, body)
+            except Exception as email_err:
+                app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
+        if not approver_emails:
+            app.logger.warning('Rental request created but no approver emails configured — check Settings → Email Settings → Venue Rental Approvals')
     except Exception as e:
         app.logger.warning(f'Rental approval notification error: {e}')
     conn.close()
@@ -13332,9 +13344,9 @@ def approve_rental_request(rid):
         emails = [e.strip() for e in emails_raw.replace(',', '\n').splitlines() if e.strip()]
         for em in emails:
             try:
-                send_email_via_ses(em,
+                send_email(em,
                     f'Rental Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
-                    f'{approver_name} has approved this request at Level {next_level}.\n\nTitle: {req.get("title","")}\n\nPlease log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
+                    f'{approver_name} has approved this request at Level {next_level}.<br><br>Title: {req.get("title","")}<br><br>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
             except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'fully_approved': fully_approved, 'level': next_level})
@@ -13373,9 +13385,9 @@ def deny_rental_request(rid):
         WHERE rr.id=%s''', (rid,))
     if partner and partner.get('contact_email'):
         try:
-            send_email_via_ses(partner['contact_email'],
+            send_email(partner['contact_email'],
                 f'Rental Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},\n\nWe regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.\n\n{("Reason: "+reason) if reason else ""}\n\nPlease contact us if you have questions.\n\nHorizon West Theatre Company')
+                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theatre Company')
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -13568,7 +13580,7 @@ If you have any questions, please contact us.
 
 Horizon West Theatre Company'''
         try:
-            send_email_via_ses(email_to, subject, body)
+            send_email(email_to, subject, body)
             execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
             conn.commit()
         except Exception as e:
@@ -13663,9 +13675,9 @@ def submit_rental_signature(token):
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (agr['request_id'],))
         admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL")
         for admin in (admins or []):
-            send_email_via_ses(admin['email'],
+            send_email(admin['email'],
                 f'Agreement Signed: {(req or {}).get("title","")}',
-                f'{name} has signed the rental agreement for {(req or {}).get("title","")}.\n\nLog in to RoleCall to view the signed agreement.')
+                f'{name} has signed the rental agreement for {(req or {}).get("title","")}.<br><br>Log in to RoleCall to view the signed agreement.')
     except Exception: pass
     conn.close()
     return jsonify({'ok': True})

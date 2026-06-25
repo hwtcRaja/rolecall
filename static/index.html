@@ -16274,22 +16274,34 @@ async function openProgramDetail(programId){
 
  document.getElementById('program-detail-content').innerHTML = `
  <!-- Stats row -->
- <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px">
  <div class="card" style="padding:16px;text-align:center">
- <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${enrolled.length}</div>
- <div style="font-size:12px;color:var(--text-muted)">Participants</div>
+ <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${p.reg_confirmed||0}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Confirmed</div>
  </div>
  <div class="card" style="padding:16px;text-align:center">
- <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${progEvents.length}</div>
- <div style="font-size:12px;color:var(--text-muted)">Total Events</div>
+ <div style="font-size:26px;font-weight:800;color:#92400e">${p.reg_pending||0}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Pending Payment</div>
  </div>
  <div class="card" style="padding:16px;text-align:center">
- <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${upcoming.length}</div>
- <div style="font-size:12px;color:var(--text-muted)">Upcoming</div>
+ <div style="font-size:26px;font-weight:800;color:#6d28d9">${p.reg_waitlisted||0}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Waitlisted</div>
+ </div>
+ <div class="card" style="padding:16px;text-align:center;background:#f0fdf4">
+ <div style="font-size:22px;font-weight:800;color:#166534">${(function(){ var r=(p.reg_confirmed||0)*(p.price||0); return r>0?'$'+(r/100).toFixed(2):'—' })()}</div>
+ <div style="font-size:11px;color:#166534;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Est. Revenue</div>
  </div>
  <div class="card" style="padding:16px;text-align:center">
- <div style="font-size:28px;font-weight:800;color:var(--teal-dark)">${totalHours}</div>
- <div style="font-size:12px;color:var(--text-muted)">Hours Logged</div>
+ <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${enrolled.length}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Participants</div>
+ </div>
+ <div class="card" style="padding:16px;text-align:center">
+ <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${progEvents.length}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Events</div>
+ </div>
+ <div class="card" style="padding:16px;text-align:center">
+ <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${totalHours}</div>
+ <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Hours Logged</div>
  </div>
  </div>
 
@@ -20770,6 +20782,23 @@ function loadMarqueePage(){
   renderMarqueeTab('dashboard')
 }
 
+function switchMarqueeTab(tab){
+  _marqueeTab = tab
+  document.querySelectorAll('.marquee-tab').forEach(function(b){
+    var isActive = b.dataset.tab === tab
+    b.style.background = isActive ? 'var(--surface)' : 'transparent'
+    b.style.color = isActive ? '' : 'var(--text-muted)'
+  })
+  document.querySelectorAll('[id^="marquee-tab-"]').forEach(function(d){ d.style.display='none' })
+  var panel = document.getElementById('marquee-tab-'+tab)
+  if(panel) panel.style.display=''
+  renderMarqueeTab(tab)
+}
+
+function loadMarqueeRegistrations(){
+  renderMarqueeTab('registrations')
+}
+
 async function renderMarqueeTab(tab){
   var el = document.getElementById('marquee-tab-'+tab)
   if(!el) return
@@ -20841,23 +20870,25 @@ async function renderMarqueeDashboard(el){
       var statusBg = p.registration_status==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
 
       html += '<div style="border-bottom:1px solid var(--border)">'
-        // Program header row
-        + '<div style="display:flex;align-items:center;gap:10px;padding:12px 20px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\';this.querySelector(\'.prog-chevron\').textContent=this.nextElementSibling.style.display===\'none\'?\'›\':\'v\'">'
-        + '<div style="flex:1;min-width:0">'
-        + '<div style="font-size:13px;font-weight:700">'+escHtml(p.name||'')+'</div>'
-        + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:3px">'
-        + '<span style="font-size:11px;color:var(--text-muted)">'+p.confirmed_count+' confirmed'+(p.waitlisted_count>0?' · '+p.waitlisted_count+' waitlisted':'')+'</span>'
-        + (p.capacity ? '<span style="font-size:11px;color:var(--text-muted)">'+(fillPct>=90?'<strong style="color:#d97706">'+fillPct+'% full — Almost Sold Out</strong>':fillPct+'% full')+'</span>' : '')
-        + '<span style="font-size:11px;font-weight:700;color:#166534">'+fmtMoney(progRevenue)+'</span>'
-        + '</div>'
-        + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:4px;height:4px;background:#e5e7eb;border-radius:2px;width:200px"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
-        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:10px;padding:12px 20px">'
+        + '<div style="flex:1;min-width:0;cursor:pointer" onclick="this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\').style.display=this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\').style.display===\'none\'?\'\':\'none\'">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
+        + '<span style="font-size:13px;font-weight:700">'+escHtml(p.name||'')+'</span>'
         + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+statusBg+'">'+escHtml(p.registration_status||'')+'</span>'
-        + '<span class="prog-chevron" style="color:var(--text-muted);font-size:16px">›</span>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+        + '<span style="font-size:12px;color:var(--text-muted)"><strong>'+p.confirmed_count+'</strong> confirmed'+(p.waitlisted_count>0?' &middot; <strong>'+p.waitlisted_count+'</strong> waitlisted':'')+'</span>'
+        + (p.capacity ? '<span style="font-size:12px;color:'+(fillPct>=90?'#d97706':'var(--text-muted)')+'">'+(fillPct>=90?'<strong>':'')+''+fillPct+'% full'+(fillPct>=90?'</strong>':'')+'</span>' : '')
+        + '<span style="font-size:14px;font-weight:800;color:'+(progRevenue>0?'#166534':'var(--text-muted)')+';background:'+(progRevenue>0?'#f0fdf4':'transparent')+';padding:'+(progRevenue>0?'2px 10px':'0')+';border-radius:20px">'+fmtMoney(progRevenue)+'</span>'
+        + '</div>'
+        + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
+        + '</div>'
+        + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\'registrations\');setTimeout(function(){ var f=document.getElementById(\'mq-prog-filter\'); if(f){ f.value=\''+p.id+'\'; loadMarqueeRegistrations() } },150)" style="font-size:11px;white-space:nowrap;flex-shrink:0">View Regs</button>'
+        + '<span style="color:var(--text-muted);font-size:14px;cursor:pointer" onclick="var d=this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\');d.style.display=d.style.display===\'none\'?\'\':\'none\'">›</span>'
         + '</div>'
 
       // Session detail rows (hidden by default)
-      html += '<div style="display:none">'
+      html += '<div class="prog-detail" style="display:none">'
       if(p.sessions_enabled && progSessions.length){
         html += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#f9fafb">'
           + '<thead><tr style="border-bottom:1px solid var(--border)">'

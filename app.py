@@ -6368,28 +6368,18 @@ def save_email_settings_route():
     if err: return err
     d = request.json or {}
     conn = get_db()
-    # Build dynamic UPDATE for any fields passed
+    # Ensure rental columns exist
+    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'']:
+        try:
+            execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
+            conn.commit()
+        except Exception:
+            pass
     allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
-        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
-    # Add rental columns only if they exist
-    try:
-        conn2 = get_db()
-        fetchone(conn2, 'SELECT rental_approver_emails FROM email_settings WHERE id=1')
-        conn2.close()
-        allowed.append('rental_approver_emails')
-    except Exception:
-        try: conn2.close()
-        except Exception: pass
-    try:
-        conn3 = get_db()
-        fetchone(conn3, 'SELECT rental_approval_levels FROM email_settings WHERE id=1')
-        conn3.close()
-        allowed.append('rental_approval_levels')
-    except Exception:
-        try: conn3.close()
-        except Exception: pass
+        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
+        'rental_approver_emails','rental_approval_levels']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -6400,7 +6390,10 @@ def save_email_settings_route():
     if sets:
         vals.append(1)
         execute(conn, f"UPDATE email_settings SET {','.join(sets)} WHERE id=%s", vals)
-    conn.commit(); conn.close()
+        conn.commit()
+    else:
+        app.logger.warning(f'save_email_settings: nothing to save. keys in d: {list(d.keys())}')
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/email-templates/<tid>/test', methods=['POST'])
@@ -13156,6 +13149,17 @@ def get_rental_requests():
     err = require_permission('rentals', 'view')
     if err: return err
     conn = get_db()
+    # Ensure new columns exist
+    for col_def in [
+        "approval_level INTEGER DEFAULT 0",
+        "approval_history TEXT DEFAULT '[]'",
+        "denial_reason TEXT DEFAULT ''"
+    ]:
+        try:
+            execute(conn, f'ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS {col_def}')
+            conn.commit()
+        except Exception:
+            pass
     requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
         rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
         rs.name AS space_name,

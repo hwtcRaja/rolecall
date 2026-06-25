@@ -6372,7 +6372,8 @@ def save_email_settings_route():
     allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
-        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
+        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
+        'rental_approver_emails']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -12914,6 +12915,7 @@ def run_migrations_manual():
     results = []
     migrations = [
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE audition_slots ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'",
@@ -13179,17 +13181,19 @@ def create_rental_request():
     if d.get('recurring') and d.get('start_date') and d.get('recurrence_end_date'):
         _generate_rental_occurrences(conn, rid, d)
     conn.commit()
-    # Send approval notification to board president/VP
+    # Send approval notification to configured approvers
     try:
-        board_leaders = fetchall(conn, '''SELECT v.email, v.name, bm.role FROM board_members bm
-            JOIN volunteers v ON v.id=bm.volunteer_id
-            WHERE bm.role IN ('President','Vice President') AND v.email IS NOT NULL''')
-        if board_leaders:
+        es = fetchone(conn, 'SELECT rental_approver_emails FROM email_settings WHERE id=1') or {}
+        approver_emails_raw = (es.get('rental_approver_emails') or '').strip()
+        if approver_emails_raw:
+            approver_emails = [e.strip() for e in approver_emails_raw.replace(',','\n').splitlines() if e.strip()]
             subject = f'Rental Request Pending Approval: {d.get("title","")}'
             body = f'A new venue rental request requires your approval.\n\nTitle: {d.get("title","")}\nStart: {d.get("start_date","")}\nPurpose: {d.get("purpose","")}\n\nPlease log in to RoleCall to review and approve.'
-            for bl in board_leaders:
-                if bl.get('email'):
-                    send_email_via_ses(bl['email'], subject, body)
+            for email_addr in approver_emails:
+                try:
+                    send_email_via_ses(email_addr, subject, body)
+                except Exception as email_err:
+                    app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
     except Exception as e:
         app.logger.warning(f'Rental approval notification error: {e}')
     conn.close()

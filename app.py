@@ -6373,15 +6373,22 @@ def save_email_settings_route():
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
-    # Add rental_approver_emails only if column exists
+    # Add rental columns only if they exist
     try:
         conn2 = get_db()
         fetchone(conn2, 'SELECT rental_approver_emails FROM email_settings WHERE id=1')
         conn2.close()
         allowed.append('rental_approver_emails')
-        allowed.append('rental_approval_levels')
     except Exception:
         try: conn2.close()
+        except Exception: pass
+    try:
+        conn3 = get_db()
+        fetchone(conn3, 'SELECT rental_approval_levels FROM email_settings WHERE id=1')
+        conn3.close()
+        allowed.append('rental_approval_levels')
+    except Exception:
+        try: conn3.close()
         except Exception: pass
     sets = []; vals = []
     for key in allowed:
@@ -14014,14 +14021,12 @@ def marquee_overview():
         COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
-    # Revenue from completed cart orders
+    # Revenue: cart orders + direct registrations (total - balance_due = amount paid)
     cart_rev = fetchone(conn, "SELECT COALESCE(SUM(total_cents),0) AS total FROM cart_orders WHERE status='completed'")
-    # Revenue from single registrations (discount already applied)
-    # Estimate: sum effective prices from confirmed registrations
-    single_rev = fetchone(conn, '''SELECT COALESCE(SUM(
-        COALESCE(discount_amount,0) + COALESCE(sibling_discount_amount,0) +
-        CASE WHEN balance_due > 0 THEN 0 ELSE 0 END
+    direct_rev = fetchone(conn, '''SELECT COALESCE(SUM(
+        COALESCE(total_amount,0) - COALESCE(balance_due,0)
     ),0) AS total FROM program_registrations WHERE status='confirmed' ''')
+    total_revenue = int((cart_rev or {}).get('total', 0)) + int((direct_rev or {}).get('total', 0))
     # Donations this year
     import datetime as _dt
     year = _dt.date.today().year
@@ -14040,7 +14045,7 @@ def marquee_overview():
     conn.close()
     return jsonify({
         'reg_counts': reg_counts,
-        'cart_revenue': (cart_rev or {}).get('total', 0),
+        'cart_revenue': total_revenue,
         'donations_ytd': float((donations_ytd or {}).get('total', 0)),
         'open_products': int(open_programs) + int(open_productions),
         'recent_orders': cart_orders,

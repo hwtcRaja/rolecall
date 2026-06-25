@@ -20107,6 +20107,26 @@ function renderRentalsPage(){
       + '</div>'
   }
 
+  // Approval pipeline legend
+  html += `<div style="display:flex;align-items:center;gap:0;margin-bottom:16px;overflow-x:auto;padding-bottom:4px">`
+  const pipeline = [
+    {s:'pending', l:'1. Pending Review'},
+    {s:'approved', l:'2. Approved'},
+    {s:'contracted', l:'3. Contract Ready'},
+    {s:'sent', l:'4. Awaiting Signature'},
+    {s:'signed', l:'5. Signed'},
+    {s:'active', l:'6. Active'},
+    {s:'completed', l:'7. Completed'},
+  ]
+  pipeline.forEach(function(p, i){
+    const active = statusCounts[p.s] > 0
+    html += `<div style="display:flex;align-items:center;gap:0">`
+    html += `<div style="padding:5px 10px;border-radius:${i===0?'20px 0 0 20px':i===pipeline.length-1?'0 20px 20px 0':'0'};font-size:11px;font-weight:${active?'700':'500'};background:${active?RENTAL_STATUS_COLORS[p.s].split(';')[0].replace('background:',''):'#f3f4f6'};color:${active?RENTAL_STATUS_COLORS[p.s].split('color:')[1]||'#374151':'#9ca3af'};white-space:nowrap">${p.l}${active?' ('+statusCounts[p.s]+')':''}</div>`
+    if(i < pipeline.length-1) html += `<div style="width:0;height:0;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:8px solid ${active?'#e5e7eb':'#e5e7eb'};flex-shrink:0"></div>`
+    html += `</div>`
+  })
+  html += `</div>`
+
   if(!requests.length){
     html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No rental requests yet. Click <strong>+ New Rental Request</strong> to get started.</div>'
   } else {
@@ -20133,13 +20153,22 @@ function renderRentalsPage(){
           ${r.total_amount?`<span style="font-weight:700;color:#145466">Total: ${total}</span>`:''}
           ${r.recurring?`<span style="background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:10px;font-weight:600">Recurring · ${r.recurrence_pattern||''}</span>`:''}
          </div>
+         ${r.approved_by?`<div style="font-size:12px;color:#166534;margin-top:4px;font-weight:600">Approved by ${escHtml(r.approved_by)}${r.approved_at?' on '+r.approved_at.slice(0,10):''}</div>`:''}
          ${r.purpose?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(r.purpose)}</div>`:''}
+         ${r.agreement_id?`<div style="margin-top:8px;padding:8px 12px;background:${r.partner_signed_at?'#f0fdf4':'#f5f3ff'};border-radius:8px;border:1px solid ${r.partner_signed_at?'#86efac':'#c4b5fd'}">
+          <div style="font-size:12px;font-weight:700;color:${r.partner_signed_at?'#166534':'#6d28d9'}">
+           ${r.partner_signed_at?'Contract Signed':'Contract Generated — Awaiting Signature'}
+          </div>
+          ${r.partner_signed_at?`<div style="font-size:11px;color:#166534;margin-top:2px">Signed on ${r.partner_signed_at.slice(0,10)}</div>`:''}
+          ${r.agreement_status==='sent'&&!r.partner_signed_at?`<div style="font-size:11px;color:#6d28d9;margin-top:2px">Sent to ${escHtml(r.partner_email||'')} for signature</div>`:''}
+         </div>`:''}
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-         ${r.status==='pending'?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">✓ Approve</button>`:''}
-         ${r.status==='approved'?`<button class="btn btn-primary btn-sm" onclick="openGenerateContractModal('${r.id}')">Generate Contract</button>`:''}
-         ${r.agreement_id&&r.agreement_status==='draft'?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">Send to Partner</button>`:''}
-         ${r.agreement_id&&r.partner_signed_at?`<div style="font-size:11px;color:#166534;font-weight:700">✓ Signed ${r.partner_signed_at?r.partner_signed_at.slice(0,10):''}</div>`:''}
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+         ${r.status==='pending'?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">Approve Request</button>`:''}
+         ${r.status==='approved'||r.agreement_id&&r.agreement_status==='draft'?`<button class="btn btn-primary btn-sm" onclick="openGenerateContractModal('${r.id}')">
+          ${r.agreement_id?'Regenerate Contract':'Generate Contract'}</button>`:''}
+         ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
+          ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
          ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}

@@ -20681,7 +20681,7 @@ async function renderMarqueeDashboard(el){
     ['', 'Pending Payment', rc.pending||0, '#fef3c7', '#92400e'],
     ['', 'Waitlisted', rc.waitlisted||0, '#ede9fe', '#6d28d9'],
     ['', 'Open in Catalog', data.open_products||0, '#e0f2fe', '#145466'],
-    ['', 'Cart Revenue', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
+    ['', 'Total Revenue', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
     ['', 'Donations (YTD)', '$'+(data.donations_ytd||0).toFixed(2), '#fefce8', '#92400e'],
   ]
   stats.forEach(function(s){
@@ -20875,6 +20875,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Contact</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Program</th>'
       + (mqHasSessions ? '<th style="text-align:left;padding:8px;color:var(--text-muted)">Sessions</th>' : '')
+      + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Amount</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Status</th>'
       + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Registered</th>'
       + '<th></th></tr></thead><tbody>'
@@ -20882,13 +20883,15 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           var isAdult = r.registration_form_type === 'adult'
           var sibCount = 0
           try{ sibCount = JSON.parse(r.siblings_json||'[]').length }catch(e){}
+          // Default to youth display unless explicitly adult
           var participantName = isAdult
-            ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
-            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+            ? escHtml(r.guardian_name||'')
+            : escHtml((r.child_first_name||'')+' '+(r.child_last_name||'')).trim()
+          if(!participantName) participantName = escHtml(r.guardian_name||'')
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
-          var contactCell = isAdult
-            ? '<span style="font-size:11px;color:var(--text-muted)">—</span>'
-            : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
+          var contactCell = escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
+          var amountPaid = (r.balance_due!=null && r.total_amount!=null) ? (r.total_amount - r.balance_due) : (r.total_amount||0)
+          var amountStr = amountPaid > 0 ? '$'+(amountPaid/100).toFixed(2) : r.status==='confirmed'&&r.total_amount===0?'Free':'—'
           var sessionCell = mqHasSessions ? '<td style="padding:8px;font-size:11px;color:var(--text-muted);max-width:160px">'
             + ((r.session_names||[]).length ? (r.session_names||[]).map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')
             + '</td>' : ''
@@ -20900,6 +20903,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
             + '<td style="padding:8px">'+contactCell+'</td>'
             + '<td style="padding:8px;font-size:11px">'+escHtml(r.program_name||'')+'</td>'
             + sessionCell
+            + '<td style="padding:8px;font-size:12px;font-weight:700;color:#145466">'+amountStr+'</td>'
             + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
             + '<td style="padding:8px;color:var(--text-muted);font-size:11px">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'

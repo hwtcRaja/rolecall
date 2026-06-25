@@ -14063,10 +14063,22 @@ def marquee_overview():
     import datetime as _dt
     year = _dt.date.today().year
     donations_ytd = fetchone(conn, f"SELECT COALESCE(SUM(amount),0) AS total FROM donor_donations WHERE donation_date >= '{year}-01-01' AND type='square'")
-    # Recent orders (cart + single, last 8)
-    cart_orders = fetchall(conn, '''SELECT id, guardian_name, guardian_email, total_cents, status, created_at,
-        (SELECT COUNT(*) FROM json_array_elements(items_json::json)) AS item_count
-        FROM cart_orders ORDER BY created_at DESC LIMIT 8''') or []
+    # Recent orders: cart orders + direct registrations, sorted by date, last 10
+    cart_orders = fetchall(conn, '''
+        SELECT id, guardian_name, guardian_email, total_cents, status, created_at,
+            (SELECT COUNT(*) FROM json_array_elements(items_json::json)) AS item_count,
+            'cart' AS order_type, NULL AS program_name
+        FROM cart_orders
+        UNION ALL
+        SELECT pr.id, pr.guardian_name, pr.guardian_email,
+            (COALESCE(yp.price,0)*COALESCE(pr.participant_count,1)
+             - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)) AS total_cents,
+            pr.status, pr.created_at,
+            1 AS item_count, 'direct' AS order_type, yp.name AS program_name
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.status != 'cancelled'
+        ORDER BY created_at DESC LIMIT 10''') or []
     # Open products in catalog
     open_programs = (fetchone(conn, "SELECT COUNT(*) AS c FROM youth_programs WHERE registration_status='open'") or {}).get('c', 0)
     open_productions = (fetchone(conn, "SELECT COUNT(*) AS c FROM productions WHERE registration_status='open'") or {}).get('c', 0)
@@ -14100,15 +14112,20 @@ def marquee_overview():
         COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
         COALESCE(SUM(
-            COALESCE(ps.price_override, yp.price, 0)
+            COALESCE(ps.price_override, yp.price, 0) * COALESCE(pr.participant_count, 1)
+            - COALESCE(pr.discount_amount, 0)
+            - COALESCE(pr.sibling_discount_amount, 0)
         ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
         FROM program_sessions ps
         JOIN youth_programs yp ON yp.id=ps.program_id
         LEFT JOIN program_registrations pr ON pr.program_id=ps.program_id
-            AND pr.session_ids LIKE \'%%"\' || ps.id || \'"\%%\'
+            AND pr.session_ids IS NOT NULL
+            AND pr.session_ids != \'[]\' 
+            AND pr.session_ids LIKE (\'%"\' || ps.id || \'"%\')
             AND pr.status != \'cancelled\'
         WHERE yp.registration_status != \'draft\'
-        GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override, ps.start_date, ps.start_time, ps.end_time, yp.name, yp.price
+        GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override,
+                 ps.start_date, ps.start_time, ps.end_time, ps.sort_order, yp.name, yp.price
         ORDER BY ps.program_id, ps.sort_order, ps.start_date, ps.start_time''') or []
 
     conn.close()

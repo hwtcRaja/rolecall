@@ -416,44 +416,48 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <nav class="sidebar-nav">
         <!-- MAIN THEATER -->
         <div class="nav-section">RoleCall</div>
-        <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard">📊</span>Dashboard</div>
-        <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time">🕐</span>My Time &amp; Attendance</div>
-        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers">👥</span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors">🎭</span>Directors</div>
-        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers">📄</span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours">⏱</span>Time Tracking</div>
-        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email">✉️</span>Email</div>
-        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events">📅</span>Events &amp; Calendar</div>
-        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee">🛒</span>Marquee</div>
+        <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard"></span>Dashboard</div>
+        <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time"></span>My Time &amp; Attendance</div>
+        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
+        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
+        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
+        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
 
         <!-- MAINSTAGE -->
-        <div class="nav-section">🎭 Mainstage</div>
-        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions">🎬</span>Productions</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin">📋</span>Cast Sign-In</div>
+        <div class="nav-section">Mainstage</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin"></span>Cast Sign-In</div>
 
         <!-- YOUTH EDUCATION -->
-        <div class="nav-section">🎓 Education &amp; Programming</div>
-        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth">👦</span>Participants</div>
-        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs">📚</span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars">⭐</span>Rising Stars</div>
-        <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin">🏠</span>Participant Portal</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin">📝</span>Sign-In</div>
-        <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools">🚗</span>Carpools</div>
+        <div class="nav-section">Education &amp; Programming</div>
+        <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
+        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars"></span>Rising Stars</div>
+        <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Sign-In</div>
+        <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools"></span>Carpools</div>
+
+        <!-- VENUE RENTALS -->
+        <div class="nav-section">Venue &amp; Partnerships</div>
+        <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Venue Rentals</div>
 
         <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
-        <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors">💛</span>All Donors</div>
-        <div class="nav-item" onclick="navTo('donor-campaigns',this)"><span class="nav-icon" id="ni-donor-campaigns">🎯</span>Campaigns</div>
-        <div class="nav-item" onclick="navTo('donor-tiers',this)"><span class="nav-icon" id="ni-donor-tiers">⭐</span>Tiers &amp; Benefits</div>
-        <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates">✉️</span>Email Templates</div>
+        <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors"></span>All Donors</div>
+        <div class="nav-item" onclick="navTo('donor-campaigns',this)"><span class="nav-icon" id="ni-donor-campaigns"></span>Campaigns</div>
+        <div class="nav-item" onclick="navTo('donor-tiers',this)"><span class="nav-icon" id="ni-donor-tiers"></span>Tiers &amp; Benefits</div>
+        <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates"></span>Email Templates</div>
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
-        <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page">✉️</span>Email Templates</div>
-        <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs">📋</span>Event Logs</div>
-        <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports">📊</span>Reports</div>
-        <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board">🏛️</span>Board</div>
-        <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications">🔔</span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings">⚙️</span>Settings</div>
+        <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
+        <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
+        <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
+        <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
+        <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
       </nav>
  <div class="sidebar-user">
  <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -473,6 +477,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <!-- DASHBOARD -->
+ <section class="page" id="page-rentals">
+  <div class="page-header">
+    <div><div class="page-title">Venue Rentals</div><div class="page-subtitle" id="rentals-subtitle">Partners, spaces &amp; agreements</div></div>
+    <div class="page-actions">
+      <button class="btn btn-secondary" onclick="openRentalSpacesModal()">⚙️ Manage Spaces</button>
+      <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
+    </div>
+  </div>
+  <div class="page-body" id="rentals-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
+ </section>
+
  <section class="page" id="page-my-time">
   <div class="page-header">
     <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
@@ -2968,7 +2983,8 @@ async function handleLogout(){
 // Map nav item text/id to permission section key
 const NAV_PERM_MAP = {
  'dashboard': null,
- 'my-time': null, // always visible
+ 'my-time': null,
+ 'rentals': 'rentals', // always visible
  'volunteers': 'volunteers',
  'directors': 'directors',
  'waivers': 'volunteers',
@@ -3095,6 +3111,7 @@ function navTo(page,el){
  if(page==='donor-templates') loadTemplatesPage()
  if(page==='marquee') loadMarqueePage()
  if(page==='my-time') loadMyTimePage()
+ if(page==='rentals') loadRentalsPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6349,11 +6366,11 @@ async function loadSettings(){
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
  dashboard:'', volunteers:'', waivers:'', hours:'', email:'',
- events:'', marquee:'🛒', productions:'', 'cast-signin':'', youth:'', programs:'',
- 'rising-stars':'⭐', 'portal-admin':'', 'youth-signin':'', carpools:'',
+ events:'', marquee:'', productions:'', 'cast-signin':'', youth:'', programs:'',
+ 'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
- donors:'', 'donor-campaigns':'', 'donor-tiers':'⭐', 'donor-templates':'',
- board:'', directors:'', 'my-time':''
+ donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
+ board:'', directors:'', 'my-time':'', rentals:''
 }
 
 let _currentNavIcons = {}
@@ -11784,6 +11801,7 @@ const PERM_SECTIONS = [
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
+ {key:'rentals', label:'Venue Rentals', desc:'Create and manage rental requests & agreements'},
 ]
 
 
@@ -20031,6 +20049,411 @@ async function submitMyTime(){
   if(res && res.ok){ toast('Submitted for approval!','success'); loadMyTimePage() }
   else toast((res&&res.error)||'Error submitting','error')
 }
+
+// ── Venue Rentals ────────────────────────────────────────────────────────────
+var _rentalData = {requests:[], partners:[], spaces:[]}
+
+const RENTAL_STATUS_COLORS = {
+  pending:'#fef3c7;color:#92400e', approved:'#e0f2fe;color:#0369a1',
+  contracted:'#ede9fe;color:#6d28d9', sent:'#ede9fe;color:#6d28d9',
+  signed:'#dcfce7;color:#166534', active:'#dcfce7;color:#166534',
+  completed:'#f3f4f6;color:#6b7280', cancelled:'#fee2e2;color:#991b1b'
+}
+const RENTAL_STATUS_LABELS = {
+  pending:'Pending Review', approved:'Approved', contracted:'Contract Drafted',
+  sent:'Awaiting Signature', signed:'Signed', active:'Active',
+  completed:'Completed', cancelled:'Cancelled'
+}
+
+async function loadRentalsPage(){
+  const body = document.getElementById('rentals-body')
+  if(!body) return
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
+  const [requests, partners, spaces] = await Promise.all([
+    api('/api/rental/requests'),
+    api('/api/rental/partners'),
+    api('/api/rental/spaces'),
+  ])
+  _rentalData = {
+    requests: Array.isArray(requests) ? requests : [],
+    partners: Array.isArray(partners) ? partners : [],
+    spaces: Array.isArray(spaces) ? spaces : [],
+  }
+  document.getElementById('rentals-subtitle').textContent =
+    _rentalData.partners.length + ' partners · ' + _rentalData.requests.length + ' requests'
+  renderRentalsPage()
+}
+
+function renderRentalsPage(){
+  const body = document.getElementById('rentals-body')
+  if(!body) return
+  const { requests, partners, spaces } = _rentalData
+  const tabs = ['Requests','Partners','Schedule']
+  let html = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
+    + tabs.map((t,i)=>`<button onclick="switchRentalTab(${i})" id="rtab-${i}"
+      style="padding:8px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:${i===0?'700':'600'};cursor:pointer;border-bottom:2px solid ${i===0?'#145466':'transparent'};margin-bottom:-2px;color:${i===0?'#145466':'var(--text-muted)'}">
+      ${t}</button>`).join('')
+    + '</div>'
+
+  // ── Requests tab ──
+  html += '<div id="rtab-panel-0">'
+
+  // Status summary
+  const statusCounts = {}
+  requests.forEach(r=>{ statusCounts[r.status]=(statusCounts[r.status]||0)+1 })
+  if(requests.length){
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">'
+      + Object.entries(statusCounts).map(([s,c])=>`<span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:${RENTAL_STATUS_COLORS[s]||'#f3f4f6;color:#6b7280'}">${c} ${RENTAL_STATUS_LABELS[s]||s}</span>`).join('')
+      + '</div>'
+  }
+
+  if(!requests.length){
+    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No rental requests yet. Click <strong>+ New Rental Request</strong> to get started.</div>'
+  } else {
+    html += requests.map(function(r){
+      const stColor = RENTAL_STATUS_COLORS[r.status]||'#f3f4f6;color:#6b7280'
+      const stLabel = RENTAL_STATUS_LABELS[r.status]||r.status
+      const rate = r.rate_amount ? '$'+(r.rate_amount/100).toFixed(2)+' / '+(r.rate_type||'').replace('_',' ') : '—'
+      const total = r.total_amount ? '$'+(r.total_amount/100).toFixed(2) : '—'
+      return `<div class="card" style="padding:16px 20px;margin-bottom:10px">
+       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <div style="font-size:15px;font-weight:700">${escHtml(r.title||'')}</div>
+          <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${stLabel}</span>
+         </div>
+         <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
+          ${escHtml(r.partner_name||'Unknown partner')}
+          ${r.space_name?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(r.space_name)}</span>`:''}
+         </div>
+         <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">
+          <span>${r.start_date||''}${r.end_date&&r.end_date!==r.start_date?' – '+r.end_date:''}</span>
+          ${r.start_time?`<span>${r.start_time}${r.end_time?' – '+r.end_time:''}</span>`:''}
+          <span>${rate}</span>
+          ${r.total_amount?`<span style="font-weight:700;color:#145466">Total: ${total}</span>`:''}
+          ${r.recurring?`<span style="background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:10px;font-weight:600">Recurring · ${r.recurrence_pattern||''}</span>`:''}
+         </div>
+         ${r.purpose?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(r.purpose)}</div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+         ${r.status==='pending'?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">✓ Approve</button>`:''}
+         ${r.status==='approved'?`<button class="btn btn-primary btn-sm" onclick="openGenerateContractModal('${r.id}')">Generate Contract</button>`:''}
+         ${r.agreement_id&&r.agreement_status==='draft'?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">Send to Partner</button>`:''}
+         ${r.agreement_id&&r.partner_signed_at?`<div style="font-size:11px;color:#166534;font-weight:700">✓ Signed ${r.partner_signed_at?r.partner_signed_at.slice(0,10):''}</div>`:''}
+         ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
+         <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
+         ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
+        </div>
+       </div>
+      </div>`
+    }).join('')
+  }
+  html += '</div>'
+
+  // ── Partners tab ──
+  html += '<div id="rtab-panel-1" style="display:none">'
+  html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openPartnerModal()">+ Add Partner</button></div>'
+  if(!partners.length){
+    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No partners yet.</div>'
+  } else {
+    html += '<div class="card" style="overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+      + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:10px 14px;color:var(--text-muted)">Partner</th><th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Contact</th><th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Type</th><th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Rentals</th><th></th></tr></thead><tbody>'
+      + partners.map(function(p){
+          const partnerRentals = _rentalData.requests.filter(r=>r.partner_id===p.id).length
+          return `<tr style="border-bottom:1px solid var(--border)">
+           <td style="padding:10px 14px;font-weight:700">${escHtml(p.name||'')}</td>
+           <td style="padding:10px 8px;font-size:12px"><div>${escHtml(p.contact_name||'')}</div><div style="color:var(--text-muted)">${escHtml(p.contact_email||'')}</div></td>
+           <td style="padding:10px 8px;font-size:12px;color:var(--text-muted)">${escHtml(p.organization_type||'—')}</td>
+           <td style="padding:10px 8px"><span style="background:#e0f2fe;color:#145466;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${partnerRentals}</span></td>
+           <td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" onclick="openPartnerModal('${p.id}')">Edit</button></td>
+          </tr>`
+        }).join('')
+      + '</tbody></table></div>'
+  }
+  html += '</div>'
+
+  // ── Schedule tab ──
+  html += '<div id="rtab-panel-2" style="display:none">'
+  // Collect all dated items (single + occurrences flattened)
+  const schedItems = []
+  requests.filter(r=>r.status!=='cancelled').forEach(function(r){
+    if(!r.recurring && r.start_date){
+      schedItems.push({date:r.start_date, title:r.title, partner:r.partner_name, space:r.space_name, start:r.start_time, end:r.end_time, status:r.status, id:r.id})
+    }
+  })
+  schedItems.sort(function(a,b){ return a.date.localeCompare(b.date) })
+  if(!schedItems.length){
+    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No scheduled rentals. Approve requests to add them to the schedule.</div>'
+  } else {
+    // Group by month
+    const byMonth = {}
+    schedItems.forEach(function(s){
+      const m = s.date.slice(0,7); if(!byMonth[m]) byMonth[m]=[]
+      byMonth[m].push(s)
+    })
+    html += Object.keys(byMonth).sort().map(function(m){
+      const [yr,mn] = m.split('-')
+      const mLabel = new Date(parseInt(yr),parseInt(mn)-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'})
+      return `<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#145466;padding:8px 12px;background:#f0f9ff;border-radius:8px;margin-bottom:8px">${mLabel}</div>`
+        + byMonth[m].map(function(s){
+            const stColor = RENTAL_STATUS_COLORS[s.status]||'#f3f4f6;color:#6b7280'
+            const dayLabel = (function(){ try{ return new Date(s.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return s.date } })()
+            return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+             <div style="font-size:13px;font-weight:700;color:#0d3d4d;min-width:100px">${dayLabel}</div>
+             <div style="flex:1"><div style="font-weight:700;font-size:13px">${escHtml(s.title||'')}</div><div style="font-size:12px;color:var(--text-muted)">${escHtml(s.partner||'')}${s.space?' · '+escHtml(s.space):''}</div></div>
+             ${s.start?`<div style="font-size:12px;color:var(--text-muted)">${s.start}${s.end?' – '+s.end:''}</div>`:''}
+             <span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${RENTAL_STATUS_LABELS[s.status]||s.status}</span>
+            </div>`
+          }).join('')
+        + '</div>'
+    }).join('')
+  }
+  html += '</div>'
+
+  body.innerHTML = html
+}
+
+function switchRentalTab(idx){
+  for(var i=0;i<3;i++){
+    const p=document.getElementById('rtab-panel-'+i)
+    const t=document.getElementById('rtab-'+i)
+    if(p) p.style.display=i===idx?'':'none'
+    if(t){ t.style.fontWeight=i===idx?'700':'600'; t.style.borderBottomColor=i===idx?'#145466':'transparent'; t.style.color=i===idx?'#145466':'var(--text-muted)' }
+  }
+}
+
+async function approveRentalRequest(rid){
+  const res = await api('/api/rental/requests/'+rid+'/approve','POST')
+  if(res&&res.ok){ toast('Request approved!','success'); loadRentalsPage() }
+  else toast((res&&res.error)||'Error','error')
+}
+
+async function sendRentalAgreement(aid, rid){
+  if(!confirm('Send signing link to partner by email?')) return
+  const res = await api('/api/rental/agreements/'+aid+'/send','POST')
+  if(res&&res.ok){ toast('Agreement sent!','success'); loadRentalsPage() }
+  else toast((res&&res.error)||'Error','error')
+}
+
+function viewRentalContract(aid){
+  var w = window.open('','_blank')
+  api('/api/rental/agreements/'+aid).then(function(agr){
+    if(agr&&agr.contract_html) w.document.write(agr.contract_html)
+  })
+}
+
+function openGenerateContractModal(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid)
+  if(!req) return
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">Generate Rental Agreement</div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">A contract will be generated for <strong>${escHtml(req.partner_name||'')}</strong> for <strong>${escHtml(req.title||'')}</strong>. The standard HWTC terms will be included automatically. Add any custom terms below.</div>
+   <div class="form-group" style="margin-bottom:16px">
+    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">Additional / Custom Terms (optional)</label>
+    <textarea id="gen-custom-terms" rows="6" placeholder="e.g. Partner may store equipment in the lobby between sessions. HWTC staff must be on-site during all rental periods..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="generateContract('${rid}')">Generate Contract</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function generateContract(rid){
+  const customTerms = (document.getElementById('gen-custom-terms')||{}).value||''
+  const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{custom_terms:customTerms})
+  if(res&&res.ok){
+    toast('Contract generated!','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
+}
+
+function openPartnerModal(pid){
+  const p = pid ? _rentalData.partners.find(x=>x.id===pid) : {}
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  const orgTypes = ['Dance Studio','Photography','Corporate/Private','School','Nonprofit','Community Group','Sports/Fitness','Other']
+  function fi(id,label,val,ph,type='text'){
+    return `<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">${label}</label><input type="${type}" id="pm-${id}" value="${escHtml(val||'')}" placeholder="${ph||''}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>`
+  }
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${pid?'Edit':'Add'} Partner</div>
+   ${fi('name','Organization Name',(p||{}).name,'e.g. Winter Garden Dance Academy')}
+   ${fi('contact','Contact Name',(p||{}).contact_name,'Primary contact person')}
+   ${fi('email','Email',(p||{}).contact_email,'contact@example.com','email')}
+   ${fi('phone','Phone',(p||{}).contact_phone,'(407) 555-0000')}
+   <div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Organization Type</label>
+   <select id="pm-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+   ${orgTypes.map(t=>`<option value="${t}" ${(p||{}).organization_type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+   <div class="form-group" style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Notes</label>
+   <textarea id="pm-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((p||{}).notes||'')}</textarea></div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="savePartner('${pid||''}')">Save</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function savePartner(pid){
+  const payload={
+    name:(document.getElementById('pm-name')||{}).value||'',
+    contact_name:(document.getElementById('pm-contact')||{}).value||'',
+    contact_email:(document.getElementById('pm-email')||{}).value||'',
+    contact_phone:(document.getElementById('pm-phone')||{}).value||'',
+    organization_type:(document.getElementById('pm-type')||{}).value||'',
+    notes:(document.getElementById('pm-notes')||{}).value||'',
+  }
+  if(!payload.name){ toast('Name is required','error'); return }
+  const res = pid ? await api('/api/rental/partners/'+pid,'PUT',payload) : await api('/api/rental/partners','POST',payload)
+  if(res&&res.ok){ toast(pid?'Partner updated':'Partner added','success'); document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove(); loadRentalsPage() }
+  else toast((res&&res.error)||'Error','error')
+}
+
+function openNewRentalModal(rid){
+  const req = rid ? _rentalData.requests.find(r=>r.id===rid) : {}
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  const partners = _rentalData.partners
+  const spaces = _rentalData.spaces.filter(s=>s.active)
+  const recurrencePatterns = [{v:'weekly',l:'Weekly'},{v:'biweekly',l:'Every 2 Weeks'},{v:'monthly',l:'Monthly'},{v:'daily',l:'Daily'}]
+  const rateTypes = [{v:'hourly',l:'Hourly'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Rental Request</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title / Event Name</label>
+    <input id="rm-title" value="${escHtml((req||{}).title||'')}" placeholder="e.g. Saturday Dance Classes" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Partner</label>
+    <select id="rm-partner" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    <option value="">Select partner...</option>
+    ${partners.map(p=>`<option value="${p.id}" ${(req||{}).partner_id===p.id?'selected':''}>${escHtml(p.name)}</option>`).join('')}
+    </select></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Space</label>
+    <select id="rm-space" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    <option value="">Select space...</option>
+    ${spaces.map(s=>`<option value="${s.id}" ${(req||{}).space_id===s.id?'selected':''}>${escHtml(s.name)}</option>`).join('')}
+    </select></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>
+    <input type="date" id="rm-start-date" value="${escHtml((req||{}).start_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Date (if multi-day)</label>
+    <input type="date" id="rm-end-date" value="${escHtml((req||{}).end_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Time</label>
+    <input type="time" id="rm-start-time" value="${escHtml((req||{}).start_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Time</label>
+    <input type="time" id="rm-end-time" value="${escHtml((req||{}).end_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+   </div>
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:12px">
+   <input type="checkbox" id="rm-recurring" ${(req||{}).recurring?'checked':''} style="accent-color:#145466" onchange="document.getElementById('rm-recurrence-opts').style.display=this.checked?'':'none'"/> Recurring rental</label>
+   <div id="rm-recurrence-opts" style="${(req||{}).recurring?'':'display:none'};display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Pattern</label>
+    <select id="rm-pattern" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    ${recurrencePatterns.map(p=>`<option value="${p.v}" ${(req||{}).recurrence_pattern===p.v?'selected':''}>${p.l}</option>`).join('')}
+    </select></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Recurrence End Date</label>
+    <input type="date" id="rm-recur-end" value="${escHtml((req||{}).recurrence_end_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+   </div>
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Rate Type</label>
+    <select id="rm-rate-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    ${rateTypes.map(r=>`<option value="${r.v}" ${(req||{}).rate_type===r.v?'selected':''}>${r.l}</option>`).join('')}
+    </select></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Rate ($)</label>
+    <input type="number" id="rm-rate" value="${(req||{}).rate_amount?((req.rate_amount/100).toFixed(2)):''}" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Total ($)</label>
+    <input type="number" id="rm-total" value="${(req||{}).total_amount?((req.total_amount/100).toFixed(2)):''}" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+   </div>
+   <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
+   <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveRentalRequest('${rid||''}')">Save Request</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+function openEditRentalModal(rid){ openNewRentalModal(rid) }
+
+async function saveRentalRequest(rid){
+  const rateVal = parseFloat((document.getElementById('rm-rate')||{}).value||0)
+  const totalVal = parseFloat((document.getElementById('rm-total')||{}).value||0)
+  const payload={
+    title:(document.getElementById('rm-title')||{}).value||'',
+    partner_id:(document.getElementById('rm-partner')||{}).value||null,
+    space_id:(document.getElementById('rm-space')||{}).value||null,
+    start_date:(document.getElementById('rm-start-date')||{}).value||'',
+    end_date:(document.getElementById('rm-end-date')||{}).value||'',
+    start_time:(document.getElementById('rm-start-time')||{}).value||'',
+    end_time:(document.getElementById('rm-end-time')||{}).value||'',
+    recurring:!!(document.getElementById('rm-recurring')||{}).checked,
+    recurrence_pattern:(document.getElementById('rm-pattern')||{}).value||'weekly',
+    recurrence_end_date:(document.getElementById('rm-recur-end')||{}).value||'',
+    rate_type:(document.getElementById('rm-rate-type')||{}).value||'hourly',
+    rate_amount:Math.round(rateVal*100),
+    total_amount:Math.round(totalVal*100),
+    purpose:(document.getElementById('rm-purpose')||{}).value||'',
+  }
+  if(!payload.title){ toast('Title is required','error'); return }
+  if(!payload.start_date){ toast('Start date is required','error'); return }
+  const res = rid ? await api('/api/rental/requests/'+rid,'PUT',payload) : await api('/api/rental/requests','POST',payload)
+  if(res&&res.ok){
+    toast(rid?'Request updated':'Request created — board president/VP notified for approval','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
+}
+
+function openRentalSpacesModal(){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  const spaces = _rentalData.spaces
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:500px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">Manage Spaces</div>
+   <div id="spaces-list" style="margin-bottom:16px">
+    ${spaces.length?spaces.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+     <div style="flex:1"><div style="font-weight:700;font-size:13px">${escHtml(s.name)}</div><div style="font-size:11px;color:var(--text-muted)">${s.capacity?'Capacity: '+s.capacity:''}${s.amenities?' · '+escHtml(s.amenities):''}</div></div>
+     <button class="btn btn-secondary btn-sm" onclick="openEditSpaceForm('${s.id}')">Edit</button>
+     </div>`).join(''):'<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px">No spaces configured yet.</div>'}
+   </div>
+   <div style="border-top:1px solid var(--border);padding-top:14px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">Add New Space</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Name</label>
+     <input id="ns-name" placeholder="e.g. Main Stage" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/></div>
+     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Capacity</label>
+     <input type="number" id="ns-capacity" placeholder="Max people" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/></div>
+    </div>
+    <div style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Amenities</label>
+    <input id="ns-amenities" placeholder="Sound system, piano, mirrors, barres..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/></div>
+    <button class="btn btn-primary btn-sm" onclick="addRentalSpace()">Add Space</button>
+   </div>
+   <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Done</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function addRentalSpace(){
+  const name=(document.getElementById('ns-name')||{}).value||''
+  if(!name){ toast('Name is required','error'); return }
+  const res = await api('/api/rental/spaces','POST',{
+    name, capacity:parseInt((document.getElementById('ns-capacity')||{}).value)||null,
+    amenities:(document.getElementById('ns-amenities')||{}).value||''
+  })
+  if(res&&res.ok){ toast('Space added','success'); document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove(); loadRentalsPage(); setTimeout(openRentalSpacesModal, 200) }
+  else toast((res&&res.error)||'Error','error')
+}
+
+// ── End Venue Rentals ────────────────────────────────────────────────────────
 
 function loadMarqueePage(){
   // Wire tab buttons

@@ -6379,6 +6379,7 @@ def save_email_settings_route():
         fetchone(conn2, 'SELECT rental_approver_emails FROM email_settings WHERE id=1')
         conn2.close()
         allowed.append('rental_approver_emails')
+        allowed.append('rental_approval_levels')
     except Exception:
         try: conn2.close()
         except Exception: pass
@@ -12924,6 +12925,10 @@ def run_migrations_manual():
     migrations = [
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
         "ALTER TABLE audition_slots ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'open'",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'",
@@ -13148,7 +13153,10 @@ def get_rental_requests():
         rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
         rs.name AS space_name,
         ra.id AS agreement_id, ra.status AS agreement_status,
-        ra.partner_signed_at, ra.signing_token
+        ra.partner_signed_at, ra.signing_token,
+        COALESCE(rr.approval_level, 0) AS approval_level,
+        COALESCE(rr.approval_history, '[]') AS approval_history,
+        COALESCE(rr.denial_reason, '') AS denial_reason
         FROM rental_requests rr
         LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
         LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
@@ -13265,11 +13273,142 @@ def update_rental_request(rid):
 def approve_rental_request(rid):
     err = require_auth()
     if err: return err
+    import json as _jra
+    import datetime as _dtra
+    d = request.json or {}
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (session['user_id'],))
+    req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    # Load approval levels config
+    es = fetchone(conn, 'SELECT rental_approval_levels FROM email_settings WHERE id=1') or {}
+    try:
+        levels = _jra.loads(es.get('rental_approval_levels') or '[]')
+    except Exception:
+        levels = []
+    # Load current approval history
+    try:
+        history = _jra.loads(req.get('approval_history') or '[]')
+    except Exception:
+        history = []
+    current_level = int(req.get('approval_level') or 0)
+    next_level = current_level + 1
+    approver_name = (user or {}).get('name', 'Admin')
+    approver_email = (user or {}).get('email', '')
+    # Add to history
+    history.append({
+        'level': next_level,
+        'approved_by': approver_name,
+        'approved_by_email': approver_email,
+        'approved_at': _dtra.datetime.now().isoformat(),
+        'notes': (d.get('notes') or '').strip()
+    })
+    # Check if all levels complete
+    total_levels = len(levels) if levels else 1
+    fully_approved = next_level >= total_levels
+    new_status = 'approved' if fully_approved else 'pending'
+    execute(conn, '''UPDATE rental_requests SET
+        approval_level=%s, approval_history=%s, status=%s,
+        approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        (next_level, _jra.dumps(history), new_status,
+         approver_name, rid))
+    # Notify next level approvers if not fully approved
+    if not fully_approved and levels and next_level < len(levels):
+        next_level_config = levels[next_level]
+        emails_raw = (next_level_config.get('emails') or '').strip()
+        emails = [e.strip() for e in emails_raw.replace(',', '\n').splitlines() if e.strip()]
+        for em in emails:
+            try:
+                send_email_via_ses(em,
+                    f'Rental Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
+                    f'{approver_name} has approved this request at Level {next_level}.\n\nTitle: {req.get("title","")}\n\nPlease log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
+            except Exception: pass
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'fully_approved': fully_approved, 'level': next_level})
+
+
+@app.route('/api/rental/requests/<rid>/deny', methods=['POST'])
+def deny_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    import json as _jrd
+    import datetime as _dtrd
+    d = request.json or {}
+    reason = (d.get('reason') or '').strip()
     conn = get_db()
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
-    execute(conn, '''UPDATE rental_requests SET status='approved',
-        approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
-        ((user or {}).get('name','Admin'), rid))
+    req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        history = _jrd.loads(req.get('approval_history') or '[]')
+    except Exception:
+        history = []
+    history.append({
+        'action': 'denied',
+        'by': (user or {}).get('name', 'Admin'),
+        'at': _dtrd.datetime.now().isoformat(),
+        'reason': reason
+    })
+    execute(conn, '''UPDATE rental_requests SET status='denied', denial_reason=%s,
+        approval_history=%s, updated_at=NOW() WHERE id=%s''',
+        (reason, _jrd.dumps(history), rid))
+    # Notify partner if we have their email
+    partner = fetchone(conn, '''SELECT rp.contact_email, rp.contact_name, rp.name AS pname
+        FROM rental_requests rr JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE rr.id=%s''', (rid,))
+    if partner and partner.get('contact_email'):
+        try:
+            send_email_via_ses(partner['contact_email'],
+                f'Rental Request Update: {req.get("title","")}',
+                f'Dear {partner.get("contact_name") or partner.get("pname","")},\n\nWe regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.\n\n{("Reason: "+reason) if reason else ""}\n\nPlease contact us if you have questions.\n\nHorizon West Theatre Company')
+        except Exception: pass
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/rental/requests/<rid>/sendback', methods=['POST'])
+def sendback_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    import json as _jrsb
+    import datetime as _dtrsb
+    d = request.json or {}
+    reason = (d.get('reason') or '').strip()
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        history = _jrsb.loads(req.get('approval_history') or '[]')
+    except Exception:
+        history = []
+    history.append({
+        'action': 'sent_back',
+        'by': (user or {}).get('name', 'Admin'),
+        'at': _dtrsb.datetime.now().isoformat(),
+        'reason': reason
+    })
+    execute(conn, '''UPDATE rental_requests SET status='pending', approval_level=0,
+        denial_reason=%s, approval_history=%s, updated_at=NOW() WHERE id=%s''',
+        (reason, _jrsb.dumps(history), rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/rental/requests/<rid>', methods=['DELETE'])
+def delete_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_agreements WHERE request_id=%s', (rid,))
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    execute(conn, 'DELETE FROM rental_requests WHERE id=%s', (rid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

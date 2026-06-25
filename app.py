@@ -6372,8 +6372,16 @@ def save_email_settings_route():
     allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
-        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
-        'rental_approver_emails']
+        'auto_send_checklist_report','alert_new_rsvp','alert_role_filled']
+    # Add rental_approver_emails only if column exists
+    try:
+        conn2 = get_db()
+        fetchone(conn2, 'SELECT rental_approver_emails FROM email_settings WHERE id=1')
+        conn2.close()
+        allowed.append('rental_approver_emails')
+    except Exception:
+        try: conn2.close()
+        except Exception: pass
     sets = []; vals = []
     for key in allowed:
         if key in d:

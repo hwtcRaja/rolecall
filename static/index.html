@@ -1055,16 +1055,30 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div class="page-body">
- <div class="search-bar" style="margin-bottom:20px">
- <div class="search-input-wrap"><span></span><input type="text" id="yp-search" placeholder="Search programs…" oninput="renderYouthProgramsPage()"/></div>
- <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()"><option value="">All Statuses</option><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select>
- <select class="filter-select" id="yp-filter-type" onchange="renderYouthProgramsPage()">
- <option value="">All Types</option>
- <option value="class">Class</option>
- <option value="workshop">Workshop</option>
- <option value="camp">Summer Camp</option>
- <option value="other">Other</option>
- </select>
+ <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+  <div class="search-input-wrap" style="flex:1;min-width:200px"><span></span><input type="text" id="yp-search" placeholder="Search programs…" oninput="renderYouthProgramsPage()"/></div>
+  <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()">
+   <option value="">All Statuses</option>
+   <option value="upcoming">Upcoming</option>
+   <option value="active">Active</option>
+   <option value="completed">Completed</option>
+   <option value="archived">Archived</option>
+  </select>
+  <select class="filter-select" id="yp-filter-type" onchange="renderYouthProgramsPage()">
+   <option value="">All Types</option>
+   <option value="class">Class</option>
+   <option value="workshop">Workshop</option>
+   <option value="camp">Summer Camp</option>
+   <option value="other">Other</option>
+  </select>
+  <select class="filter-select" id="yp-filter-season" onchange="renderYouthProgramsPage()">
+   <option value="">All Seasons</option>
+  </select>
+  <div style="display:flex;border:1.5px solid var(--border-md);border-radius:var(--radius);overflow:hidden">
+   <button id="yp-view-grouped" onclick="setProgView('grouped')" style="padding:7px 12px;border:none;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;background:#145466;color:#fff">Grouped</button>
+   <button id="yp-view-list" onclick="setProgView('list')" style="padding:7px 12px;border:none;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--text-muted)">List</button>
+   <button id="yp-view-grid" onclick="setProgView('grid')" style="padding:7px 12px;border:none;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--text-muted)">Grid</button>
+  </div>
  </div>
  <div id="youth-programs-grid"></div>
  </div>
@@ -15501,112 +15515,210 @@ function updateYTabScrollHint(el){
 const PROGRAM_TYPE_LABELS = {class:'Class',workshop:'Workshop',camp:'Summer Camp',production:'Production',other:'Other'}
 const PROGRAM_TYPE_COLORS = {class:['#E6F1FB','#0C447C'],workshop:['#F3EEFF','#6D28D9'],camp:['#FAEEDA','#633806'],production:['#EAF3DE','#27500A'],other:['#EFEFEC','#5F5E5A']}
 
-function renderYouthProgramsPage(){
- const search=document.getElementById('yp-search')?.value.toLowerCase()||''
- const filterType=document.getElementById('yp-filter-type')?.value||''
- const filterStatus=document.getElementById('yp-filter-status')?.value||''
- let filtered=allPrograms.filter(p=>{
- if(search&&!p.name.toLowerCase().includes(search)) return false
- if((p.program_type||'class')==='production') return false // RS handled separately
- if(filterType&&(p.program_type||'class')!==filterType) return false
- if(filterStatus&&(p.status||'active')!==filterStatus) return false
- return true
- }).sort(function(a,b){
- if(!a.start_date&&!b.start_date) return (a.name||'').localeCompare(b.name||'')
- if(!a.start_date) return 1
- if(!b.start_date) return -1
- return a.start_date.localeCompare(b.start_date)
+var _progView = 'grouped'
+
+function setProgView(v){
+ _progView = v
+ ;['grouped','list','grid'].forEach(function(k){
+  var b = document.getElementById('yp-view-'+k)
+  if(b){ b.style.background = k===v ? '#145466' : 'var(--surface)'; b.style.color = k===v ? '#fff' : 'var(--text-muted)'; b.style.fontWeight = k===v ? '700' : '600' }
  })
- const grid=document.getElementById('youth-programs-grid')
- const isAdmin=canEdit('programs')
- const sub=document.getElementById('youth-programs-subtitle')
- if(sub) sub.textContent=filtered.length+' program'+(filtered.length!==1?'s':'')+' · '+allYouth.length+' enrolled'
+ renderYouthProgramsPage()
+}
+
+function _buildSeasonOptions(){
+ var sel = document.getElementById('yp-filter-season')
+ if(!sel || sel.options.length > 1) return
+ var seasons = {}
+ allPrograms.forEach(function(p){
+  var s = _deriveSeason(p); seasons[s] = true
+ })
+ Object.keys(seasons).sort().reverse().forEach(function(s){
+  var o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o)
+ })
+}
+
+function _deriveSeason(p){
+ if(p.program_season) return p.program_season
+ if(!p.start_date) return 'Ongoing'
+ var d = new Date(p.start_date+'T12:00:00'), y = d.getFullYear(), m = d.getMonth()
+ return (m < 5 ? 'Spring' : m < 8 ? 'Summer' : 'Fall') + ' ' + y
+}
+
+function _progStatusBadge(p){
+ var regStatusMap = {open:'background:#dcfce7;color:#166534',interest_list:'background:#fef3c7;color:#92400e',closed:'background:#fee2e2;color:#991b1b',draft:'background:#f3f4f6;color:#6b7280',cancelled:'background:#fee2e2;color:#991b1b'}
+ var regStatusLabel = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Draft',cancelled:'Cancelled'}
+ var rs = p.registration_status||'draft'
+ return '<span style="'+(regStatusMap[rs]||'background:#f3f4f6;color:#6b7280')+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">'+(regStatusLabel[rs]||rs)+'</span>'
+}
+
+function _progCardActions(p, isAdmin){
+ if(!isAdmin) return ''
+ return '<div style="display:flex;gap:4px;flex-shrink:0" onclick="event.stopPropagation()">'
+  + '<button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal(\'' + p.id + '\')">Edit</button>'
+  + '<button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="deleteYouthProgram(\'' + p.id + '\')">Del</button>'
+  + '</div>'
+}
+
+function renderYouthProgramsPage(){
+ _buildSeasonOptions()
+ var search = (document.getElementById('yp-search')?.value||'').toLowerCase()
+ var filterType = document.getElementById('yp-filter-type')?.value||''
+ var filterStatus = document.getElementById('yp-filter-status')?.value||''
+ var filterSeason = document.getElementById('yp-filter-season')?.value||''
+ var isAdmin = canEdit('programs')
+ var grid = document.getElementById('youth-programs-grid')
+ if(!grid) return
+ var filtered = allPrograms.filter(function(p){
+  if((p.program_type||'class')==='production') return false
+  if(search && !p.name.toLowerCase().includes(search) && !(p.description||'').toLowerCase().includes(search)) return false
+  if(filterType && (p.program_type||'class') !== filterType) return false
+  if(filterStatus && (p.status||'active') !== filterStatus) return false
+  if(filterSeason && _deriveSeason(p) !== filterSeason) return false
+  return true
+ }).sort(function(a,b){
+  if(!a.start_date&&!b.start_date) return (a.name||'').localeCompare(b.name||'')
+  if(!a.start_date) return 1; if(!b.start_date) return -1
+  return a.start_date.localeCompare(b.start_date)
+ })
+ var sub = document.getElementById('youth-programs-subtitle')
+ if(sub) sub.textContent = filtered.length+' program'+(filtered.length!==1?'s':'')+' shown'
  if(!filtered.length){
- grid.innerHTML=`<div class="empty-state"><div class="empty-icon"></div><p>No programs yet</p>${isAdmin?'<button class="btn btn-primary" onclick="openNewProgramModal()" style="margin-top:12px">+ New Program</button>':''}</div>`
- return
+  grid.innerHTML = '<div class="empty-state"><p>No programs match your filters</p>'+(isAdmin?'<button class="btn btn-primary" onclick="openNewProgramModal()" style="margin-top:12px">+ New Program</button>':'')+'</div>'
+  return
  }
- grid.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">`+
- filtered.map(p=>{
- const type=p.program_type||'class'
- const[bg,col]=PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other
- const enrolled=allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===p.id)).length
- const instructor=volunteers.find(v=>v.id===p.instructor_id)
- const pMsgUnread = (_unreadByProgram && _unreadByProgram[p.id]) || 0
- const regStatus = p.registration_status
- const regStatusMap = {open:'background:#dcfce7;color:#166534',interest_list:'background:#fef3c7;color:#92400e',closed:'background:#fee2e2;color:#991b1b',draft:'background:#f3f4f6;color:#6b7280',cancelled:'background:#fee2e2;color:#991b1b'}
- const regStatusLabel = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Draft',cancelled:'Cancelled'}
- const regConfirmed = p.reg_confirmed || 0
- const regPending = p.reg_pending || 0
- const regWaitlisted = p.reg_waitlisted || 0
- const regEnrolled = p.reg_enrolled || 0
- return`<div class="card" style="padding:0;overflow:hidden">
- <div style="height:6px;background:${col}"></div>
- <div style="padding:20px">
- <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
- <div>
- <div style="font-size:16px;font-weight:700;margin-bottom:4px">${p.name}</div>
- <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROGRAM_TYPE_LABELS[type]||type}</span>
- ${(()=>{ const st=p.status||'active'; const sc={upcoming:'background:#EFF6FF;color:#1D4ED8',active:'background:#F0FDF4;color:#16A34A',completed:'background:#F3F4F6;color:#6B7280',archived:'background:#FEF3C7;color:#92400E'}; return '<span style="'+( sc[st]||sc.active)+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;margin-left:4px">'+st.charAt(0).toUpperCase()+st.slice(1)+'</span>' })()}
- ${pMsgUnread ? `<span style="background:#e24b4a;color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-left:4px">${pMsgUnread} new</span>` : ''}
- </div>
- ${isAdmin?`<div style="display:flex;gap:4px">
- <button class="btn btn-secondary btn-sm" style="padding:4px 8px" onclick="openEditProgramModal('${p.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:4px 8px" onclick="deleteYouthProgram('${p.id}')">Delete</button>
- </div>`:''}
- </div>
- ${p.description?`<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${p.description}</div>`:''}
- <div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px">
- ${p.start_date?`<div>${formatDate(p.start_date)}${p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''}</div>`:''}
- ${instructor?`<div>${escHtml(instructor.name)} ${bgcBadgeHTML(instructor.background_check_status, true)}</div>
- ${bgcYouthWarning(instructor)}`:''}
- </div>
- ${regStatus && regStatus !== 'draft' ? `<div style="margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
- <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Registration</div>
- <span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;${regStatusMap[regStatus]||regStatusMap.draft}">${regStatusLabel[regStatus]||regStatus}</span>
- </div>
- <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
- <div style="background:var(--surface);border-radius:6px;padding:6px 4px">
- <div style="font-size:16px;font-weight:800;color:#166534">${regEnrolled}</div>
- <div style="font-size:10px;color:var(--text-muted);font-weight:600">Enrolled</div>
- </div>
- ${regPending > 0 ? `<div style="background:var(--surface);border-radius:6px;padding:6px 4px">
- <div style="font-size:16px;font-weight:800;color:#92400e">${regPending}</div>
- <div style="font-size:10px;color:var(--text-muted);font-weight:600">Pending</div>
- </div>` : `<div style="background:var(--surface);border-radius:6px;padding:6px 4px">
- <div style="font-size:16px;font-weight:800;color:#145466">${regConfirmed}</div>
- <div style="font-size:10px;color:var(--text-muted);font-weight:600">Confirmed</div>
- </div>`}
- <div style="background:var(--surface);border-radius:6px;padding:6px 4px">
- <div style="font-size:16px;font-weight:800;color:${regWaitlisted > 0 ? '#6d28d9' : 'var(--text-muted)'}">${regWaitlisted}</div>
- <div style="font-size:10px;color:var(--text-muted);font-weight:600">Waitlisted</div>
- </div>
- </div>
- ${p.capacity ? `<div style="margin-top:6px">
- <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
- <div style="height:100%;background:${regEnrolled >= p.capacity ? '#dc2626' : '#145466'};border-radius:2px;width:${Math.min(100,Math.round(regEnrolled/p.capacity*100))}%"></div>
- </div>
- <div style="font-size:10px;color:var(--text-muted);margin-top:3px;text-align:right">${regEnrolled} / ${p.capacity} spots</div>
- </div>` : ''}
- </div>` : ''}
- <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
- <div style="font-size:13px;color:var(--text-muted)">${enrolled} enrolled</div>
- <div style="display:flex;gap:6px">
- ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}', allPrograms.find(x=>x.id==='${p.id}')?.name||'')">+ Enroll</button>`:''}\n <button class="btn btn-secondary btn-sm" onclick="openProgramDetail('${p.id}')">View →</button>
- </div>
- </div>
- ${(()=>{
- const evts=allEvents.filter(e=>e.program_id===p.id)
- const progHours=allHours.filter(h=>evts.some(e=>e.id===h.event_id)).reduce((s,h)=>s+(parseFloat(h.hours)||0),0)
- return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${evts.length} event${evts.length!==1?'s':''} · ${progHours}h logged</div>`+
- (evts.length?`<div style="font-size:11px;color:var(--text-hint)">${evts.slice(0,2).map(e=>formatDate(e.event_date)+' '+e.name).join(' · ')}${evts.length>2?' +'+(evts.length-2)+' more':''}</div>`:'')
- })()}
- ${p.default_elic_name?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Default ELIC: <span style="font-weight:600">${p.default_elic_name}</span></div>`:''}
- </div>
- </div>
- </div>`
- }).join('')+'</div>'
+ if(_progView==='grouped') _renderGrouped(grid,filtered,isAdmin)
+ else if(_progView==='list') _renderList(grid,filtered,isAdmin)
+ else _renderGrid(grid,filtered,isAdmin)
+}
+
+function toggleProgGroup(type){
+ var el=document.getElementById('yp-group-'+type)
+ var ch=document.getElementById('yp-chevron-'+type)
+ if(!el) return
+ var hidden=el.style.display==='none'
+ el.style.display=hidden?'':'none'
+ if(ch) ch.textContent=hidden?'\u25be':'\u25b8'
+}
+
+function _renderGrouped(grid, filtered, isAdmin){
+ var TYPE_ORDER=['class','workshop','camp','other']
+ var groups={}
+ filtered.forEach(function(p){ var t=p.program_type||'class'; if(!groups[t]) groups[t]=[]; groups[t].push(p) })
+ var html=''
+ TYPE_ORDER.forEach(function(type){
+  var progs=groups[type]; if(!progs||!progs.length) return
+  var bgcol=PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other, col=bgcol[1]
+  var label=PROGRAM_TYPE_LABELS[type]||type
+  var totalEnrolled=progs.reduce(function(s,p){ return s+(p.reg_enrolled||0) },0)
+  var openCount=progs.filter(function(p){ return p.registration_status==='open' }).length
+  html+='<div style="margin-bottom:24px">'
+   +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer;user-select:none" onclick="toggleProgGroup(\'' + type + '\')">'
+   +'<div style="width:4px;height:28px;background:'+col+';border-radius:2px;flex-shrink:0"></div>'
+   +'<div style="flex:1"><span style="font-size:16px;font-weight:800;color:'+col+'">'+label+'s</span>'
+   +'<span style="font-size:12px;color:var(--text-muted);margin-left:10px">'+progs.length+' program'+(progs.length!==1?'s':'')
+   +(totalEnrolled?' &middot; '+totalEnrolled+' enrolled':'')
+   +(openCount?' &middot; <span style=\"color:#166534;font-weight:700\">'+openCount+' open</span>':'')+'</span></div>'
+   +'<span id="yp-chevron-'+type+'" style="font-size:16px;color:var(--text-muted)">\u25be</span></div>'
+   +'<div id="yp-group-'+type+'">'
+  // sub-group by season
+  var byS={}; progs.forEach(function(p){ var s=_deriveSeason(p); if(!byS[s]) byS[s]=[]; byS[s].push(p) })
+  var skeys=Object.keys(byS).sort().reverse()
+  skeys.forEach(function(season){
+   var sp=byS[season]
+   if(skeys.length>1) html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin:0 0 6px 6px">'+season+'</div>'
+   html+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:'+(skeys.length>1?'14':'0')+'px">'
+   sp.forEach(function(p){
+    var type2=p.program_type||'class', bgcol2=PROGRAM_TYPE_COLORS[type2]||PROGRAM_TYPE_COLORS.other, col2=bgcol2[1]
+    var enrolled=p.reg_enrolled||0, cap=p.capacity
+    var pct=cap?Math.round((enrolled/cap)*100):null
+    var fc=pct>=90?'#d97706':pct>=70?'#f59e0b':'#145466'
+    var instructor=volunteers.find(function(v){ return v.id===p.instructor_id })
+    var pMsg=(_unreadByProgram&&_unreadByProgram[p.id])||0
+    html+='<div class="card" style="padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer" onclick="openProgramDetail(\'' + p.id + '\')">'
+     +'<div style="width:3px;height:36px;background:'+col2+';border-radius:2px;flex-shrink:0"></div>'
+     +'<div style="flex:1;min-width:0">'
+     +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+     +'<span style="font-size:13px;font-weight:700">'+escHtml(p.name)+'</span>'
+     +_progStatusBadge(p)
+     +(p.sessions_enabled?'<span style="font-size:10px;background:#e0f2fe;color:#145466;padding:1px 6px;border-radius:20px;font-weight:700">Sessions</span>':'')
+     +(pMsg?'<span style="background:#e24b4a;color:#fff;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700">'+pMsg+' new</span>':'')
+     +'</div>'
+     +'<div style="display:flex;gap:10px;margin-top:2px;flex-wrap:wrap">'
+     +(p.start_date?'<span style="font-size:11px;color:var(--text-muted)">'+formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' \u2192 '+formatDate(p.end_date):'')+'</span>':'')
+     +(instructor?'<span style="font-size:11px;color:var(--text-muted)">'+escHtml(instructor.name)+'</span>':'')
+     +'</div>'
+     +(cap?'<div style="display:flex;align-items:center;gap:6px;margin-top:3px">'
+      +'<div style="width:80px;height:3px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div>'
+      +'<span style="font-size:10px;color:var(--text-muted)">'+enrolled+'/'+cap+'</span>'
+      +(pct>=90?'<span style="font-size:10px;color:#d97706;font-weight:700">Almost Sold Out</span>':'')
+      +'</div>':'')
+     +'</div>'
+     +'<div onclick="event.stopPropagation()">'+_progCardActions(p,isAdmin)+'</div>'
+     +'</div>'
+   })
+   html+='</div>'
+  })
+  html+='</div></div>'
+ })
+ grid.innerHTML=html
+}
+
+function _renderList(grid, filtered, isAdmin){
+ var html='<div class="card" style="overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+  +'<thead><tr style="border-bottom:2px solid var(--border)">'
+  +'<th style="text-align:left;padding:10px 14px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Program</th>'
+  +'<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Type</th>'
+  +'<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Dates</th>'
+  +'<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Enrolled</th>'
+  +'<th style="text-align:left;padding:10px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Status</th>'
+  +'<th></th></tr></thead><tbody>'
+ filtered.forEach(function(p){
+  var type=p.program_type||'class', bgcol=PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other
+  var enrolled=p.reg_enrolled||0, cap=p.capacity
+  var pct=cap?Math.round((enrolled/cap)*100):null
+  var fc=pct>=90?'#d97706':pct>=70?'#f59e0b':'#145466'
+  var instructor=volunteers.find(function(v){ return v.id===p.instructor_id })
+  var pMsg=(_unreadByProgram&&_unreadByProgram[p.id])||0
+  html+='<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openProgramDetail(\'' + p.id + '\')">'
+   +'<td style="padding:10px 14px"><div style="font-weight:700">'+escHtml(p.name)+(pMsg?'<span style="background:#e24b4a;color:#fff;padding:1px 6px;border-radius:20px;font-size:10px;margin-left:6px">'+pMsg+'</span>':'')+'</div>'
+   +(instructor?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(instructor.name)+'</div>':'')+'</td>'
+   +'<td style="padding:10px 8px"><span style="background:'+bgcol[0]+';color:'+bgcol[1]+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">'+(PROGRAM_TYPE_LABELS[type]||type)+'</span></td>'
+   +'<td style="padding:10px 8px;font-size:12px;color:var(--text-muted)">'+(p.start_date?formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' \u2192 '+formatDate(p.end_date):''):'\u2014')+'</td>'
+   +'<td style="padding:10px 8px">'+(cap?'<div style="font-size:12px;font-weight:600">'+enrolled+' / '+cap+'</div><div style="width:70px;height:3px;background:#e5e7eb;border-radius:2px;margin-top:3px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div>':'<span style="font-size:12px;color:var(--text-muted)">'+enrolled+'</span>')+'</td>'
+   +'<td style="padding:10px 8px">'+_progStatusBadge(p)+'</td>'
+   +'<td style="padding:10px 8px" onclick="event.stopPropagation()">'+_progCardActions(p,isAdmin)+'</td>'
+   +'</tr>'
+ })
+ html+='</tbody></table></div>'
+ grid.innerHTML=html
+}
+
+function _renderGrid(grid, filtered, isAdmin){
+ var html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px">'
+ filtered.forEach(function(p){
+  var type=p.program_type||'class', bgcol=PROGRAM_TYPE_COLORS[type]||PROGRAM_TYPE_COLORS.other, col=bgcol[1]
+  var enrolled=p.reg_enrolled||0, cap=p.capacity
+  var pct=cap?Math.round((enrolled/cap)*100):null, fc=pct>=90?'#d97706':pct>=70?'#f59e0b':'#145466'
+  var instructor=volunteers.find(function(v){ return v.id===p.instructor_id })
+  var pMsg=(_unreadByProgram&&_unreadByProgram[p.id])||0
+  html+='<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openProgramDetail(\'' + p.id + '\')">'
+   +'<div style="height:4px;background:'+col+'"></div>'
+   +'<div style="padding:14px">'
+   +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">'
+   +'<div><div style="font-size:14px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+(pMsg?'<span style="background:#e24b4a;color:#fff;padding:1px 6px;border-radius:20px;font-size:10px;margin-left:4px">'+pMsg+'</span>':'')+'</div>'
+   +'<span style="background:'+bgcol[0]+';color:'+col+';padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">'+(PROGRAM_TYPE_LABELS[type]||type)+'</span></div>'
+   +'<div onclick="event.stopPropagation()">'+_progCardActions(p,isAdmin)+'</div></div>'
+   +(p.description?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+escHtml(p.description)+'</div>':'')
+   +'<div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:2px">'
+   +(p.start_date?'<div>'+formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' \u2192 '+formatDate(p.end_date):'')+'</div>':'')
+   +(instructor?'<div>'+escHtml(instructor.name)+'</div>':'')+'</div>'
+   +(cap?'<div style="margin-top:8px"><div style="height:3px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+enrolled+'/'+cap+' enrolled'+(pct>=90?' \u00b7 <span style=\"color:#d97706;font-weight:700\">Almost Sold Out</span>':'')+'</div></div>':'')
+   +'<div style="margin-top:8px">'+_progStatusBadge(p)+'</div>'
+   +'</div></div>'
+ })
+ html+='</div>'
+ grid.innerHTML=html
 }
 
 function navToYouthFiltered(programId){

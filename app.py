@@ -13954,7 +13954,12 @@ def marquee_orders():
         except: o['items'] = []
     # Single-program orders (have a square_order_id but not from cart_orders)
     cart_order_ids = set(o['square_order_id'] for o in (cart_orders or []) if o.get('square_order_id'))
-    single_regs = fetchall(conn, '''SELECT pr.*, yp.name AS program_name
+    single_regs = fetchall(conn, '''SELECT pr.*,
+        yp.name AS program_name,
+        COALESCE(yp.price,0) AS program_price,
+        (COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+         - COALESCE(pr.discount_amount,0)
+         - COALESCE(pr.sibling_discount_amount,0)) AS amount_paid_cents
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         WHERE pr.square_order_id IS NOT NULL
@@ -14021,11 +14026,18 @@ def marquee_overview():
         COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
-    # Revenue: cart orders + direct registrations (total - balance_due = amount paid)
+    # Revenue: cart orders + direct registrations
     cart_rev = fetchone(conn, "SELECT COALESCE(SUM(total_cents),0) AS total FROM cart_orders WHERE status='completed'")
+    # Direct reg revenue = program price × participant_count - discount - balance_due still owed
+    # Safest: use yp.price × participant_count for confirmed regs
     direct_rev = fetchone(conn, '''SELECT COALESCE(SUM(
-        COALESCE(total_amount,0) - COALESCE(balance_due,0)
-    ),0) AS total FROM program_registrations WHERE status='confirmed' ''')
+        COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+        - COALESCE(pr.discount_amount,0)
+        - COALESCE(pr.sibling_discount_amount,0)
+    ),0) AS total
+    FROM program_registrations pr
+    LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+    WHERE pr.status=\'confirmed\' ''') or {}
     total_revenue = int((cart_rev or {}).get('total', 0)) + int((direct_rev or {}).get('total', 0))
     # Donations this year
     import datetime as _dt
@@ -14063,7 +14075,10 @@ def marquee_all_registrations():
     production_id = request.args.get('production_id')
     status = request.args.get('status')
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        yp.sessions_enabled, 'program' AS context_type
+        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type,
+        (COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+         - COALESCE(pr.discount_amount,0)
+         - COALESCE(pr.sibling_discount_amount,0)) AS amount_paid_cents
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         WHERE pr.program_id IS NOT NULL'''

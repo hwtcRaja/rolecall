@@ -195,6 +195,10 @@ function renderPage(){
   const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
   const labelMap = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Coming Soon'}
   const spotsLeft = program.spots_remaining
+  const images = Array.isArray(program.program_images) ? program.program_images : []
+  const uniqueImages = images.filter(function(u,i,a){ return a.indexOf(u)===i })
+  const customFields = Array.isArray(program.custom_fields) ? program.custom_fields : []
+  const formType = program.registration_form_type || 'youth'
 
   // Capacity bar — only show if show_capacity_public is not explicitly false
   var showCap = program.show_capacity_public !== false
@@ -250,7 +254,6 @@ function renderPage(){
   }
 
   // Cover image / photo gallery — deduplicate, show cover at top, rest in body
-  var uniqueImages = images.filter(function(u,i,a){ return a.indexOf(u)===i })
   var imagesHTML = uniqueImages.length > 1
     ? '<div class="program-images" style="margin-bottom:8px">'
       + uniqueImages.slice(1).map(function(url){ return '<img src="'+escHtml(url)+'" alt="Program photo" loading="lazy">' }).join('')

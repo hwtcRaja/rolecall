@@ -195,18 +195,35 @@ function renderPage(){
   const badgeMap = {open:'badge-open',interest_list:'badge-interest',closed:'badge-closed',draft:'badge-draft'}
   const labelMap = {open:'Open',interest_list:'Interest List',closed:'Closed',draft:'Coming Soon'}
   const spotsLeft = program.spots_remaining
-  const images = Array.isArray(program.program_images) ? program.program_images : []
-  const customFields = Array.isArray(program.custom_fields) ? program.custom_fields : []
-  const formType = program.registration_form_type || 'youth'
 
-  // Capacity bar
+  // Capacity bar — only show if show_capacity_public is not explicitly false
+  var showCap = program.show_capacity_public !== false
+  var showAlmost = program.show_almost_sold_out !== false
   var capHTML = ''
-  if(program.capacity){
-    const pct = Math.round((program.registration_count/program.capacity)*100)
+  if(showCap && program.sessions_enabled && program._sessions && program._sessions.length){
+    var totalCap = 0, totalEnrolled = 0, hasAnyCap = false
+    program._sessions.forEach(function(s){
+      if(s.capacity){ hasAnyCap = true; totalCap += parseInt(s.capacity||0) }
+      totalEnrolled += parseInt(s.enrolled_count||0)
+    })
+    if(hasAnyCap){
+      var pctSess = Math.round((totalEnrolled/totalCap)*100)
+      var clsSess = pctSess>=90?'full':pctSess>=70?'near-full':''
+      var spotsLeftSess = totalCap - totalEnrolled
+      capHTML = '<div class="capacity-bar"><div class="capacity-fill '+clsSess+'" style="width:'+Math.min(pctSess,100)+'%"></div></div>'
+        + '<div style="font-size:12px;color:#6b7280">'+totalEnrolled+' / '+totalCap+' spots filled across sessions'
+        + (spotsLeftSess<=0?'<strong style="color:#dc2626"> &middot; All Full</strong>'
+          :showAlmost&&pctSess>=90?'<strong style="color:#d97706"> &middot; Almost Sold Out!</strong>'
+          :spotsLeftSess<=5?'<strong style="color:#f59e0b"> &middot; Only '+spotsLeftSess+' left!</strong>':'')+'</div>'
+    }
+  } else if(showCap && program.capacity){
+    const pct = Math.round(((program.registration_count||0)/program.capacity)*100)
     const cls = pct>=90?'full':pct>=70?'near-full':''
     capHTML = '<div class="capacity-bar"><div class="capacity-fill '+cls+'" style="width:'+Math.min(pct,100)+'%"></div></div>'
-      + '<div style="font-size:12px;color:#6b7280">'+program.registration_count+' / '+program.capacity+' spots filled'
-      + (spotsLeft===0?'<strong style="color:#dc2626"> &middot; Full</strong>':spotsLeft<=3&&spotsLeft!==null?'<strong style="color:#f59e0b"> &middot; Only '+spotsLeft+' left!</strong>':'')+'</div>'
+      + '<div style="font-size:12px;color:#6b7280">'+(program.registration_count||0)+' / '+program.capacity+' spots filled'
+      + (spotsLeft===0?'<strong style="color:#dc2626"> &middot; Full</strong>'
+        :showAlmost&&pct>=90?'<strong style="color:#d97706"> &middot; Almost Sold Out!</strong>'
+        :spotsLeft<=3&&spotsLeft!==null?'<strong style="color:#f59e0b"> &middot; Only '+spotsLeft+' left!</strong>':'')+'</div>'
   }
 
   // Instructor
@@ -332,14 +349,19 @@ function buildRegistrationForm(formType, customFields){
               + byDate[date].map(function(s){
                   var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
                   var enrolled = s.enrolled_count || 0
-                  var spotsLeft = s.capacity ? s.capacity - enrolled : null
+                  var cap = s.capacity || null
+                  var spotsLeft = cap ? cap - enrolled : null
                   var isFull = spotsLeft !== null && spotsLeft <= 0
+                  var pct = cap ? (enrolled / cap) : 0
+                  var isAlmost = !isFull && pct >= 0.9 && cap
                   var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
-                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isFull?'#e5e7eb':'#d1d5db')+';border-radius:10px;cursor:'+(isFull?'not-allowed':'pointer')+';text-align:center;background:'+(isFull?'#f9fafb':'#fff')+';opacity:'+(isFull?'0.6':'1')+'">'
+                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isFull?'not-allowed':'pointer')+';text-align:center;background:'+(isFull?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isFull?'0.6':'1')+'">'
                     + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isFull?'disabled':'')+' style="display:none"/>'
                     + '<div style="font-size:13px;font-weight:700;color:'+(isFull?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
                     + '<div style="font-size:11px;font-weight:700;color:'+(isFull?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
-                    + (spotsLeft!==null&&!isFull&&spotsLeft<=3?'<div style="font-size:10px;color:#f59e0b;font-weight:600">'+spotsLeft+' left</div>':'')
+                    + (isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
+                      : showAlmost&&isAlmost ? '<div style="font-size:10px;color:#d97706;font-weight:700;margin-top:2px">Almost Sold Out!</div>'
+                      : showCap&&cap&&spotsLeft<=5 ? '<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-top:2px">'+spotsLeft+' left</div>' : '')
                     + '</label>'
                 }).join('')
               + '</div></div>'
@@ -353,16 +375,23 @@ function buildRegistrationForm(formType, customFields){
             var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
             var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : '')
             var enrolled = s.enrolled_count || 0
-            var spotsLeft = s.capacity ? s.capacity - enrolled : null
+            var cap = s.capacity || null
+            var spotsLeft = cap ? cap - enrolled : null
             var isFull = spotsLeft !== null && spotsLeft <= 0
-            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+'" class="session-label">'
+            var pct = cap ? (enrolled / cap) : 0
+            var isAlmost = !isFull && pct >= 0.9 && cap
+            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
               + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
               + '<div style="flex:1">'
               + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
               + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
               + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
-              + (isFull ? '<div style="font-size:12px;color:#dc2626;font-weight:600">Full</div>'
-                  : spotsLeft !== null && spotsLeft <= 5 ? '<div style="font-size:12px;color:#f59e0b;font-weight:600">Only '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</div>' : '')
+              + (cap && (showCap || isFull || (showAlmost && isAlmost)) ? '<div style="font-size:12px;margin-top:3px">'
+                  + (isFull ? '<span style="color:#dc2626;font-weight:700">Full</span>'
+                    : showAlmost && isAlmost ? '<span style="color:#d97706;font-weight:700">Almost Sold Out!'+(showCap?' — '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left':'')+'</span>'
+                    : showCap && spotsLeft !== null && spotsLeft <= 5 ? '<span style="color:#f59e0b;font-weight:600">'+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</span>'
+                    : showCap ? '<span style="color:#6b7280">'+enrolled+' / '+cap+' enrolled</span>' : '')
+                  + '</div>' : '')
               + '</div>'
               + '<div style="font-weight:700;font-size:14px;color:#145466;white-space:nowrap">'+(price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
               + '</label>'

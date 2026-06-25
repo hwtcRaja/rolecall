@@ -17833,6 +17833,10 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Sessions</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:10px">If enabled, participants choose one or more sessions when registering. Price is per session.</div>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-show-capacity" '+(prog.show_capacity_public!==false?'checked':'')+' style="accent-color:var(--teal)"/> Show enrollment counts publicly (spots filled, X / Y, etc.)</label>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-show-almost" '+(prog.show_almost_sold_out!==false?'checked':'')+' style="accent-color:var(--teal)"/> Show "Almost Sold Out" badge when &ge;90% full</label>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-sessions-enabled" '+(prog.sessions_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable sessions for this program</label>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-booking-mode" '+(prog.booking_mode?'checked':'')+' style="accent-color:var(--teal)"/> Booking Mode (studio/slot reservations — one slot per booking)</label>'
@@ -18526,6 +18530,8 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     sessions_enabled: (document.getElementById('rs-sessions-enabled')||{}).checked||false,
     booking_mode: (document.getElementById('rs-booking-mode')||{}).checked||false,
     max_sessions_per_reg: parseInt((document.getElementById('rs-max-sessions')||{}).value||0)||0,
+    show_capacity_public: (document.getElementById('rs-show-capacity')||{}).checked!==false,
+    show_almost_sold_out: (document.getElementById('rs-show-almost')||{}).checked!==false,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
@@ -20701,7 +20707,88 @@ async function renderMarqueeDashboard(el){
     + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
     + '</div>'
 
-  // ── Recent orders ──
+  // ── Program breakdown ──
+  var programs = data.program_breakdown || []
+  var sessions = data.session_breakdown || []
+  if(programs.length){
+    // Group sessions by program_id for quick lookup
+    var sessByProg = {}
+    sessions.forEach(function(s){ if(!sessByProg[s.program_id]) sessByProg[s.program_id]=[]; sessByProg[s.program_id].push(s) })
+
+    html += '<div class="card" style="margin-bottom:16px">'
+      + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Programs &amp; Sessions</div>'
+
+    programs.forEach(function(p){
+      var fillPct = p.capacity ? Math.round((p.confirmed_count/p.capacity)*100) : null
+      var progSessions = sessByProg[p.id] || []
+      var progRevenue = p.revenue_cents || 0
+      // For session programs, sum session revenue instead
+      if(p.sessions_enabled && progSessions.length){
+        progRevenue = progSessions.reduce(function(s,x){ return s+(x.revenue_cents||0) },0)
+      }
+      var statusBg = p.registration_status==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
+
+      html += '<div style="border-bottom:1px solid var(--border)">'
+        // Program header row
+        + '<div style="display:flex;align-items:center;gap:10px;padding:12px 20px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\';this.querySelector(\'.prog-chevron\').textContent=this.nextElementSibling.style.display===\'none\'?\'›\':\'v\'">'
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:13px;font-weight:700">'+escHtml(p.name||'')+'</div>'
+        + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:3px">'
+        + '<span style="font-size:11px;color:var(--text-muted)">'+p.confirmed_count+' confirmed'+(p.waitlisted_count>0?' · '+p.waitlisted_count+' waitlisted':'')+'</span>'
+        + (p.capacity ? '<span style="font-size:11px;color:var(--text-muted)">'+(fillPct>=90?'<strong style="color:#d97706">'+fillPct+'% full — Almost Sold Out</strong>':fillPct+'% full')+'</span>' : '')
+        + '<span style="font-size:11px;font-weight:700;color:#166534">'+fmtMoney(progRevenue)+'</span>'
+        + '</div>'
+        + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:4px;height:4px;background:#e5e7eb;border-radius:2px;width:200px"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
+        + '</div>'
+        + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+statusBg+'">'+escHtml(p.registration_status||'')+'</span>'
+        + '<span class="prog-chevron" style="color:var(--text-muted);font-size:16px">›</span>'
+        + '</div>'
+
+      // Session detail rows (hidden by default)
+      html += '<div style="display:none">'
+      if(p.sessions_enabled && progSessions.length){
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#f9fafb">'
+          + '<thead><tr style="border-bottom:1px solid var(--border)">'
+          + '<th style="text-align:left;padding:8px 20px 8px 36px;color:var(--text-muted)">Session</th>'
+          + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Date</th>'
+          + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Confirmed</th>'
+          + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Capacity</th>'
+          + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Fill</th>'
+          + '<th style="text-align:left;padding:8px;color:var(--text-muted)">Revenue</th>'
+          + '</tr></thead><tbody>'
+          + progSessions.map(function(s){
+              var sCap = s.capacity
+              var sEnrolled = s.confirmed_count || 0
+              var sPct = sCap ? Math.round((sEnrolled/sCap)*100) : null
+              var sPrice = s.price_override!=null ? s.price_override : (s.program_price||0)
+              var sRev = s.revenue_cents || 0
+              var sFillColor = sPct>=90?'#d97706':sPct>=70?'#f59e0b':'#145466'
+              var sTime = s.start_time ? (function(t){ try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM';h=h%12||12;return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } })(s.start_time) : ''
+              return '<tr style="border-bottom:1px solid var(--border)">'
+                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+'</td>'
+                + '<td style="padding:7px 8px;color:var(--text-muted)">'+(s.start_date?s.start_date.slice(5).replace('-','/'):'')+'</td>'
+                + '<td style="padding:7px 8px;font-weight:700;color:#145466">'+sEnrolled+'</td>'
+                + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
+                + '<td style="padding:7px 8px">'
+                + (sPct!==null ? '<div style="display:flex;align-items:center;gap:6px"><div style="width:60px;height:4px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+sFillColor+';border-radius:2px;width:'+Math.min(sPct,100)+'%"></div></div>'
+                  + '<span style="font-size:11px;color:'+sFillColor+';font-weight:700">'+sPct+'%'+(sPct>=90?' Almost Sold Out!':'')+'</span></div>' : '—')
+                + '</td>'
+                + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
+                + '</tr>'
+            }).join('')
+          + '</tbody></table>'
+      } else {
+        html += '<div style="padding:10px 20px 10px 36px;font-size:12px;color:var(--text-muted)">'
+          + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
+          + (p.capacity?' · '+Math.min(fillPct||0,100)+'% full':'')
+          + '</div>'
+      }
+      html += '</div></div>' // end session detail + program row
+    })
+    html += '</div>' // end card
+  }
+
+
   var orders = data.recent_orders || []
   html += '<div class="card" style="margin-bottom:16px">'
     + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'

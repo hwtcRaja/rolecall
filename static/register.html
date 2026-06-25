@@ -263,7 +263,7 @@ function renderPage(){
   // Action section
   var actionHTML = ''
   if(status==='open' && spotsLeft!==0){
-    actionHTML = buildRegistrationForm(formType, customFields)
+    actionHTML = buildRegistrationForm(formType, customFields, showCap, showAlmost)
   } else if(status==='open' && spotsLeft===0){
     actionHTML = buildWaitlistForm(formType, customFields)
   } else if(status==='interest_list'){
@@ -320,7 +320,9 @@ function getCustomFieldValues(fields){
   return vals
 }
 
-function buildRegistrationForm(formType, customFields){
+function buildRegistrationForm(formType, customFields, showCap, showAlmost){
+  showCap = showCap !== false
+  showAlmost = showAlmost !== false
   var isYouth = formType==='youth' || !formType
   var ff = (program && program.form_fields) || {}
   function on(key, def){ return ff.hasOwnProperty(key) ? ff[key] : (def !== undefined ? def : false) }

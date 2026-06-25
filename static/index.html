@@ -20890,8 +20890,10 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           if(!participantName) participantName = escHtml(r.guardian_name||'')
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
           var contactCell = escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
-          var amountPaid = (r.balance_due!=null && r.total_amount!=null) ? (r.total_amount - r.balance_due) : (r.total_amount||0)
-          var amountStr = amountPaid > 0 ? '$'+(amountPaid/100).toFixed(2) : r.status==='confirmed'&&r.total_amount===0?'Free':'—'
+          var amountPaidCents = r.amount_paid_cents!=null ? r.amount_paid_cents
+            : (r.program_price!=null ? (r.program_price*(r.participant_count||1) - (r.discount_amount||0) - (r.sibling_discount_amount||0)) : null)
+          var amountStr = amountPaidCents > 0 ? '$'+(amountPaidCents/100).toFixed(2)
+            : amountPaidCents===0 ? 'Free' : '—'
           var sessionCell = mqHasSessions ? '<td style="padding:8px;font-size:11px;color:var(--text-muted);max-width:160px">'
             + ((r.session_names||[]).length ? (r.session_names||[]).map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')
             + '</td>' : ''
@@ -20971,7 +20973,7 @@ async function renderMarqueeOrders(el){
       email:r.guardian_email,
       summary: r.program_name,
       item_count: r.participant_count||1,
-      total: r.discount_amount!=null ? ((r.price||0)*(r.participant_count||1) - (r.discount_amount||0) - (r.sibling_discount_amount||0)) : null,
+      total: r.amount_paid_cents!=null ? r.amount_paid_cents : null,
       status: r.status, date: r.created_at,
       discount_code: r.discount_code})
   })

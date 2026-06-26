@@ -14046,11 +14046,9 @@ def marquee_overview():
         COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
-    # Revenue: cart orders + direct registrations
-    cart_rev = fetchone(conn, "SELECT COALESCE(SUM(total_cents),0) AS total FROM cart_orders WHERE status='completed'")
-    # Direct reg revenue = program price × participant_count - discount - balance_due still owed
-    # Safest: use yp.price × participant_count for confirmed regs
-    direct_rev = fetchone(conn, '''SELECT COALESCE(SUM(
+    # Revenue: sum confirmed registrations only (cart orders are the payment mechanism,
+    # not additional revenue — counting both would double-count)
+    total_revenue_row = fetchone(conn, '''SELECT COALESCE(SUM(
         COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
         - COALESCE(pr.discount_amount,0)
         - COALESCE(pr.sibling_discount_amount,0)
@@ -14058,12 +14056,12 @@ def marquee_overview():
     FROM program_registrations pr
     LEFT JOIN youth_programs yp ON yp.id=pr.program_id
     WHERE pr.status=\'confirmed\' ''') or {}
-    total_revenue = int((cart_rev or {}).get('total', 0)) + int((direct_rev or {}).get('total', 0))
+    total_revenue = int((total_revenue_row or {}).get('total', 0))
     # Donations this year
     import datetime as _dt
     year = _dt.date.today().year
     donations_ytd = fetchone(conn, f"SELECT COALESCE(SUM(amount),0) AS total FROM donor_donations WHERE donation_date >= '{year}-01-01' AND type='square'")
-    # Recent orders: cart orders + direct registrations, sorted by date, last 10
+    # Recent orders: cart orders + direct registrations (excluding those paid via cart)
     try:
         cart_orders = fetchall(conn, '''
             SELECT id, guardian_name, guardian_email, total_cents, status, created_at,
@@ -14079,6 +14077,8 @@ def marquee_overview():
             FROM program_registrations pr
             JOIN youth_programs yp ON yp.id=pr.program_id
             WHERE pr.status != 'cancelled'
+            AND pr.square_order_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL)
+            AND (pr.square_checkout_id IS NULL OR pr.square_checkout_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL))
             ORDER BY created_at DESC LIMIT 10''') or []
     except Exception as e:
         app.logger.warning(f'Recent orders union query failed: {e}')

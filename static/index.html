@@ -20828,7 +20828,7 @@ async function renderMarqueeDashboard(el){
     ['', 'Pending Payment', rc.pending||0, '#fef3c7', '#92400e'],
     ['', 'Waitlisted', rc.waitlisted||0, '#ede9fe', '#6d28d9'],
     ['', 'Open in Catalog', data.open_products||0, '#e0f2fe', '#145466'],
-    ['', 'Total Revenue', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
+    ['', 'Total Revenue (All Time)', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
     ['', 'Donations (YTD)', '$'+(data.donations_ytd||0).toFixed(2), '#fefce8', '#92400e'],
   ]
   stats.forEach(function(s){

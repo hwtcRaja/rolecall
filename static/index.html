@@ -1931,6 +1931,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  </div>
+ <!-- Lobby TV -->
+ <div class="card" style="padding:20px;margin-bottom:16px">
+ <div style="font-size:15px;font-weight:700;margin-bottom:4px">Lobby TV Display</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Manage images shown on the lobby carousel at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a></div>
+ <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-img-grid"></div>
+ <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <label class="btn btn-secondary" style="cursor:pointer;margin:0">
+   Upload Images
+   <input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/>
+  </label>
+  <button class="btn btn-primary" onclick="saveLobbyImages()">Save Changes</button>
+  <span id="lobby-img-status" style="font-size:13px;color:var(--teal-dark)"></span>
+ </div>
+ </div>
+
  <!-- User Management -->
  <div class="settings-section" style="grid-column:1/-1">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -6408,6 +6423,7 @@ async function loadSettings(){
  // Load email settings
  loadEmailSettings()
  loadNavIconSettings()
+ loadLobbyImages()
 }
 
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
@@ -6645,7 +6661,81 @@ function removeRentalApprovalLevel(i){
  renderRentalApprovalLevels()
 }
 
-function clearSendersDirty(){
+// ── Lobby TV Image Manager ────────────────────────────────────────────────
+var _lobbyImages = []
+
+async function loadLobbyImages(){
+ try{
+  const r = await api('/api/lobby/images')
+  _lobbyImages = Array.isArray(r) ? r : []
+ } catch(e){ _lobbyImages = [] }
+ renderLobbyImgGrid()
+}
+
+function renderLobbyImgGrid(){
+ const grid = document.getElementById('lobby-img-grid')
+ if(!grid) return
+ if(!_lobbyImages.length){
+  grid.innerHTML = '<div style="color:var(--text-muted);font-size:13px;grid-column:1/-1">No images yet. Upload some to display on the lobby TV.</div>'
+  return
+ }
+ grid.innerHTML = _lobbyImages.map(function(img, i){
+  const url = typeof img==='string' ? img : (img.url||'')
+  const cap = typeof img==='object' ? (img.caption||'') : ''
+  return '<div style="position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--border)">'
+   + '<div style="aspect-ratio:16/9;background:#000">'
+   + '<img src="'+escHtml(url)+'" style="width:100%;height:100%;object-fit:cover"/>'
+   + '</div>'
+   + '<input type="text" value="'+escHtml(cap)+'" placeholder="Caption (optional)"'
+   + ' oninput="_lobbyImages['+i+'].caption=this.value" '
+   + ' style="width:100%;padding:4px 6px;border:none;border-top:1px solid var(--border);font-size:11px;font-family:inherit;background:var(--bg);color:var(--text);box-sizing:border-box"/>'
+   + '<button onclick="removeLobbyImage('+i+')" style="position:absolute;top:4px;right:4px;background:rgba(220,38,38,0.85);color:#fff;border:none;border-radius:4px;padding:1px 7px;font-size:12px;cursor:pointer;font-weight:700">×</button>'
+   + '</div>'
+ }).join('')
+}
+
+function removeLobbyImage(i){
+ _lobbyImages.splice(i,1)
+ renderLobbyImgGrid()
+}
+
+async function saveLobbyImages(){
+ const status = document.getElementById('lobby-img-status')
+ if(status) status.textContent = 'Saving...'
+ const payload = _lobbyImages.map(function(img){
+  return typeof img==='string' ? {url:img,caption:''} : img
+ })
+ const res = await api('/api/lobby/images','PUT',{images:payload})
+ if(res&&res.ok){
+  if(status) status.textContent = 'Saved! ('+payload.length+' image'+(payload.length!==1?'s':'')+')'
+  setTimeout(function(){ if(status) status.textContent='' }, 4000)
+ } else {
+  if(status) status.textContent = 'Error saving: '+(res&&res.error||'Unknown error')
+ }
+}
+
+// Wire file input
+document.addEventListener('change', async function(e){
+ if(e.target.id !== 'lobby-img-input') return
+ const files = Array.from(e.target.files)
+ if(!files.length) return
+ const status = document.getElementById('lobby-img-status')
+ if(status) status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
+ let uploaded = 0
+ for(const f of files){
+  try{
+   const fd = new FormData(); fd.append('file', f)
+   const r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
+   const d = await r.json()
+   if(d.ok){ _lobbyImages.push({url:d.url,caption:''}); uploaded++ }
+  } catch(err){ console.error('Lobby upload error:', err) }
+ }
+ renderLobbyImgGrid()
+ if(status) status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded — click Save Changes'
+ e.target.value = ''
+})
+
+// ── End Lobby TV Image Manager ────────────────────────────────────────────
  const btn = document.getElementById('es-save-btn')
  if(btn){ btn.style.background=''; btn.textContent=' Save Email Settings' }
  window._senderIdentitiesSaved = JSON.stringify(window._senderIdentities||[])

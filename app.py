@@ -13061,21 +13061,30 @@ def public_lobby_data():
     conn = get_db()
     import datetime as _dtl
     today = _dtl.date.today().isoformat()
-    upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
-        FROM events
-        WHERE event_date >= %s AND COALESCE(status,\'active\') != \'cancelled\'
-        ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
-    announcements = fetchall(conn, '''SELECT pa.title, pa.content, yp.name AS program_name
-        FROM program_announcements pa
-        JOIN youth_programs yp ON yp.id=pa.program_id
-        WHERE pa.status=\'published\'
-        AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
-        ORDER BY pa.created_at DESC LIMIT 5''') or []
-    lobby_images_row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+    upcoming_events = []
+    announcements = []
+    lobby_images = []
     try:
-        lobby_images = json.loads((lobby_images_row or {}).get('value') or '[]')
-    except Exception:
-        lobby_images = []
+        upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
+            FROM events
+            WHERE event_date >= %s AND COALESCE(status,\'active\') != \'cancelled\'
+            ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
+    except Exception as e:
+        app.logger.warning(f'Lobby events query failed: {e}')
+    try:
+        announcements = fetchall(conn, '''SELECT pa.title, pa.content, yp.name AS program_name
+            FROM program_announcements pa
+            JOIN youth_programs yp ON yp.id=pa.program_id
+            WHERE pa.status=\'published\'
+            AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
+            ORDER BY pa.created_at DESC LIMIT 5''') or []
+    except Exception as e:
+        app.logger.warning(f'Lobby announcements query failed: {e}')
+    try:
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+        lobby_images = json.loads((row or {}).get('value') or '[]')
+    except Exception as e:
+        app.logger.warning(f'Lobby images query failed: {e}')
     conn.close()
     return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images})
 

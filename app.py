@@ -13050,6 +13050,82 @@ def my_delete_pending_hours(hid):
     return jsonify({'ok': True})
 
 
+# ── Lobby TV Display ──────────────────────────────────────────────────────────
+
+@app.route('/lobby')
+def lobby_page():
+    return send_from_directory('static', 'lobby.html')
+
+@app.route('/api/public/lobby-data', methods=['GET'])
+def public_lobby_data():
+    conn = get_db()
+    import datetime as _dtl
+    today = _dtl.date.today().isoformat()
+    upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
+        FROM events WHERE event_date >= %s AND status NOT IN (\'cancelled\',\'draft\')
+        ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
+    announcements = fetchall(conn, '''SELECT pa.title, pa.content, yp.name AS program_name
+        FROM program_announcements pa
+        JOIN youth_programs yp ON yp.id=pa.program_id
+        WHERE pa.status=\'published\'
+        AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
+        ORDER BY pa.created_at DESC LIMIT 5''') or []
+    lobby_images_row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+    try:
+        lobby_images = json.loads((lobby_images_row or {}).get('value') or '[]')
+    except Exception:
+        lobby_images = []
+    conn.close()
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images})
+
+@app.route('/api/lobby/images', methods=['GET'])
+def get_lobby_images():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+    conn.close()
+    try: images = json.loads((row or {}).get('value') or '[]')
+    except Exception: images = []
+    return jsonify(images)
+
+@app.route('/api/lobby/images', methods=['PUT'])
+def save_lobby_images():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, "SELECT key FROM settings WHERE key='lobby_images'")
+    val = json.dumps(d.get('images') or [])
+    if existing:
+        execute(conn, "UPDATE settings SET value=%s WHERE key='lobby_images'", (val,))
+    else:
+        execute(conn, "INSERT INTO settings (key, value) VALUES ('lobby_images',%s)", (val,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/images/upload', methods=['POST'])
+def upload_lobby_image():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid type'}), 400
+    import uuid as _uli
+    filename = f'lobby-{str(_uli.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Lobby image GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
+
+# ── End Lobby TV Display ───────────────────────────────────────────────────────
+
 # ── End My Time & Attendance ───────────────────────────────────────────────────
 
 # ── Venue Rentals ─────────────────────────────────────────────────────────────

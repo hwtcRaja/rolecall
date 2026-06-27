@@ -6705,12 +6705,14 @@ async function saveLobbyImages(){
  const payload = _lobbyImages.map(function(img){
   return typeof img==='string' ? {url:img,caption:''} : img
  })
+ console.log('Saving lobby images:', payload.length, payload)
  const res = await api('/api/lobby/images','PUT',{images:payload})
+ console.log('Save result:', res)
  if(res&&res.ok){
   if(status) status.textContent = 'Saved! ('+payload.length+' image'+(payload.length!==1?'s':'')+')'
   setTimeout(function(){ if(status) status.textContent='' }, 4000)
  } else {
-  if(status) status.textContent = 'Error saving: '+(res&&res.error||'Unknown error')
+  if(status) status.textContent = 'Error: '+(res&&res.error||JSON.stringify(res))
  }
 }
 
@@ -6727,6 +6729,7 @@ document.addEventListener('change', async function(e){
    const fd = new FormData(); fd.append('file', f)
    const r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
    const d = await r.json()
+   console.log('Upload result:', d)
    if(d.ok){ _lobbyImages.push({url:d.url,caption:''}); uploaded++ }
   } catch(err){ console.error('Lobby upload error:', err) }
  }

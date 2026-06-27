@@ -419,17 +419,21 @@ document.getElementById('img-file-input').addEventListener('change', async funct
   if(!files.length) return
   var status = document.getElementById('upload-status')
   status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
-  for(var f of files){
+  var uploaded = 0
+  for(var i=0;i<files.length;i++){
+    var f = files[i]
     try{
       var fd = new FormData(); fd.append('file', f)
       var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
+      if(!r.ok){ status.textContent = 'Upload error '+r.status; continue }
       var d = await r.json()
-      if(d.ok) _adminImages.push({url:d.url, caption:''})
-    } catch(err){ console.error('Upload error:', err) }
+      if(d.ok){ _adminImages.push({url:d.url, caption:''}); uploaded++ }
+      else status.textContent = 'Upload failed: '+(d.error||'Unknown')
+    } catch(err){ status.textContent = 'Upload error: '+err.message; console.error(err) }
   }
   renderAdminGrid()
-  status.textContent = 'Uploaded!'
-  setTimeout(function(){ status.textContent='' }, 3000)
+  status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
+  setTimeout(function(){ status.textContent='' }, 4000)
   e.target.value = ''
 })
 
@@ -461,19 +465,33 @@ async function saveImages(){
   var status = document.getElementById('save-status')
   status.textContent = 'Saving...'
   try{
-    var r = await fetch('/api/lobby/images', {
-      method:'PUT', credentials:'include',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({images:_adminImages})
+    var payload = _adminImages.map(function(img){
+      return typeof img==='string' ? {url:img,caption:''} : img
     })
+    var r = await fetch('/api/lobby/images', {
+      method:'PUT',
+      credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({images:payload})
+    })
+    if(!r.ok){
+      var text = await r.text()
+      status.textContent = 'Error '+r.status+': '+text.slice(0,80)
+      return
+    }
     var d = await r.json()
     if(d.ok){
-      _slides = _adminImages.map(function(img){ return typeof img==='string'?{url:img,caption:''}:img })
+      _slides = payload
       buildCarousel()
-      status.textContent = 'Saved!'
-      setTimeout(function(){ status.textContent='' }, 3000)
-    } else { status.textContent = 'Error saving' }
-  } catch(e){ status.textContent = 'Error: '+e.message }
+      status.textContent = 'Saved! ('+payload.length+' image'+(payload.length!==1?'s':'')+')'
+      setTimeout(function(){ status.textContent='' }, 4000)
+    } else {
+      status.textContent = 'Error: '+(d.error||'Unknown error')
+    }
+  } catch(e){
+    status.textContent = 'Error: '+e.message
+    console.error('Save error:', e)
+  }
 }
 
 function applySpeed(){

@@ -13062,7 +13062,8 @@ def public_lobby_data():
     import datetime as _dtl
     today = _dtl.date.today().isoformat()
     upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
-        FROM events WHERE event_date >= %s AND status NOT IN (\'cancelled\',\'draft\')
+        FROM events
+        WHERE event_date >= %s AND COALESCE(status,\'active\') != \'cancelled\'
         ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
     announcements = fetchall(conn, '''SELECT pa.title, pa.content, yp.name AS program_name
         FROM program_announcements pa

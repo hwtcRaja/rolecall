@@ -11,12 +11,11 @@ body{
   font-family:'DM Sans',system-ui,sans-serif;
   color:#fff;
   display:grid;
-  grid-template-rows:80px 1fr 220px;
+  grid-template-rows:80px 1fr;
   grid-template-columns:1fr 380px;
   grid-template-areas:
     "header header"
-    "carousel schedule"
-    "ticker  schedule";
+    "carousel schedule";
   height:100vh;
 }
 
@@ -78,44 +77,6 @@ header{
 #carousel-empty.show{display:flex}
 .empty-logo{font-size:72px;font-weight:900;color:rgba(255,255,255,0.08);letter-spacing:-3px}
 
-/* ── ANNOUNCEMENT TICKER ── */
-#ticker-area{
-  grid-area:ticker;
-  background:#0d2233;
-  border-top:2px solid #1b3a4d;
-  display:flex;align-items:stretch;overflow:hidden;
-}
-.ticker-label{
-  background:#145466;
-  padding:0 20px;
-  display:flex;align-items:center;
-  font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;
-  white-space:nowrap;flex-shrink:0;
-}
-.ticker-label.pulse{animation:label-pulse 2s ease-in-out infinite}
-@keyframes label-pulse{0%,100%{background:#145466}50%{background:#1b708d}}
-.ticker-track{
-  flex:1;overflow:hidden;position:relative;display:flex;align-items:center;
-}
-.ticker-inner{
-  display:flex;gap:80px;white-space:nowrap;
-  animation:ticker-scroll 30s linear infinite;
-  padding-left:100%;
-}
-.ticker-inner:hover{animation-play-state:paused}
-@keyframes ticker-scroll{
-  from{transform:translateX(0)}
-  to{transform:translateX(-50%)}
-}
-.ticker-item{
-  display:inline-flex;align-items:center;gap:10px;
-  font-size:16px;color:rgba(255,255,255,0.9);
-}
-.ticker-item .ti-dot{
-  width:6px;height:6px;border-radius:50%;background:#1b708d;flex-shrink:0;
-}
-.ticker-item strong{color:#fff;font-weight:700}
-
 /* ── SCHEDULE SIDEBAR ── */
 #schedule-area{
   grid-area:schedule;
@@ -150,7 +111,7 @@ header{
 .ei-meta span{display:flex;align-items:center;gap:3px}
 .no-events{
   padding:40px 20px;text-align:center;color:rgba(255,255,255,0.3);
-  font-size:14px;
+  font-size:13px;line-height:1.6;
 }
 
 /* ── ADMIN PANEL (hidden, toggle with ?manage) ── */
@@ -228,16 +189,6 @@ header{
   <div id="carousel-dots"></div>
 </div>
 
-<!-- TICKER -->
-<div id="ticker-area">
-  <div class="ticker-label" id="ticker-label">Announcements</div>
-  <div class="ticker-track">
-    <div class="ticker-inner" id="ticker-inner">
-      <span class="ticker-item"><span class="ti-dot"></span>Welcome to Horizon West Theatre Company!</span>
-    </div>
-  </div>
-</div>
-
 <!-- SCHEDULE -->
 <div id="schedule-area">
   <div class="schedule-header">Upcoming Events</div>
@@ -307,7 +258,6 @@ async function loadData(){
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
     renderEvents(d.events || [])
-    renderTicker(d.announcements || [])
     if((d.lobby_images || []).length){
       _slides = d.lobby_images
       buildCarousel()
@@ -322,7 +272,7 @@ loadData()
 // ── Events ─────────────────────────────────────────────────────────────────
 function renderEvents(events){
   var el = document.getElementById('events-list')
-  if(!events.length){ el.innerHTML = '<div class="no-events">No upcoming events scheduled</div>'; return }
+  if(!events.length){ el.innerHTML = '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'; return }
   var today = new Date().toISOString().slice(0,10)
   var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
   el.innerHTML = events.map(function(ev){
@@ -356,31 +306,6 @@ function fmt12(t){
 }
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML }
-
-// ── Ticker ─────────────────────────────────────────────────────────────────
-function renderTicker(announcements){
-  var inner = document.getElementById('ticker-inner')
-  var label = document.getElementById('ticker-label')
-  if(!announcements.length){
-    inner.innerHTML = '<span class="ticker-item"><span class="ti-dot"></span>Welcome to Horizon West Theatre Company — check out our upcoming events!</span>'
-    label.textContent = 'Announcements'
-    label.classList.remove('pulse')
-    return
-  }
-  label.classList.add('pulse')
-  // Duplicate items for seamless loop
-  var items = announcements.map(function(a){
-    return '<span class="ticker-item"><span class="ti-dot"></span>'
-      + (a.program_name ? '<strong>'+escH(a.program_name)+'</strong> &mdash; ' : '')
-      + escH(a.title || a.content || '')
-      + '</span>'
-  })
-  inner.innerHTML = items.concat(items).join('')
-  // Adjust animation speed based on content length
-  var totalLen = announcements.reduce(function(s,a){ return s+(a.title||'').length },0)
-  var dur = Math.max(20, Math.min(60, totalLen * 0.3))
-  inner.style.animationDuration = dur + 's'
-}
 
 // ── Carousel ───────────────────────────────────────────────────────────────
 function buildCarousel(){

@@ -13081,8 +13081,10 @@ def public_lobby_data():
     except Exception as e:
         app.logger.warning(f'Lobby announcements query failed: {e}')
     try:
-        row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_images',))
+        app.logger.info(f'Lobby images row: {row}')
         lobby_images = json.loads((row or {}).get('value') or '[]')
+        app.logger.info(f'Lobby images count: {len(lobby_images)}')
     except Exception as e:
         app.logger.warning(f'Lobby images query failed: {e}')
     conn.close()
@@ -13093,7 +13095,7 @@ def get_lobby_images():
     err = require_auth()
     if err: return err
     conn = get_db()
-    row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_images'")
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_images',))
     conn.close()
     try: images = json.loads((row or {}).get('value') or '[]')
     except Exception: images = []
@@ -13105,13 +13107,12 @@ def save_lobby_images():
     if err: return err
     d = request.json or {}
     conn = get_db()
-    existing = fetchone(conn, "SELECT key FROM settings WHERE key='lobby_images'")
     val = json.dumps(d.get('images') or [])
-    if existing:
-        execute(conn, "UPDATE settings SET value=%s WHERE key='lobby_images'", (val,))
-    else:
-        execute(conn, "INSERT INTO settings (key, value) VALUES ('lobby_images',%s)", (val,))
-    conn.commit(); conn.close()
+    app.logger.info(f'Saving lobby images, count: {len(d.get("images") or [])}')
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_images', val))
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/lobby/images/upload', methods=['POST'])

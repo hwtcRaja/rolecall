@@ -13058,36 +13058,34 @@ def lobby_page():
 
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
-    conn = get_db()
     import datetime as _dtl
     today = _dtl.date.today().isoformat()
     upcoming_events = []
     announcements = []
     lobby_images = []
+
     try:
+        conn = get_db()
         upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
             FROM events
-            WHERE event_date >= %s AND COALESCE(status,\'active\') != \'cancelled\'
+            WHERE event_date >= %s AND COALESCE(status,'active') != 'cancelled'
             ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
+        conn.close()
     except Exception as e:
         app.logger.warning(f'Lobby events query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
     try:
-        announcements = fetchall(conn, '''SELECT pa.title, pa.content, yp.name AS program_name
-            FROM program_announcements pa
-            JOIN youth_programs yp ON yp.id=pa.program_id
-            WHERE pa.status=\'published\'
-            AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
-            ORDER BY pa.created_at DESC LIMIT 5''') or []
-    except Exception as e:
-        app.logger.warning(f'Lobby announcements query failed: {e}')
-    try:
+        conn = get_db()
         row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_images',))
-        app.logger.info(f'Lobby images row: {row}')
         lobby_images = json.loads((row or {}).get('value') or '[]')
-        app.logger.info(f'Lobby images count: {len(lobby_images)}')
+        conn.close()
     except Exception as e:
         app.logger.warning(f'Lobby images query failed: {e}')
-    conn.close()
+        try: conn.close()
+        except Exception: pass
+
     return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images})
 
 @app.route('/api/lobby/images', methods=['GET'])

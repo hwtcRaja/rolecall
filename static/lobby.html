@@ -257,9 +257,15 @@ async function loadData(){
   try{
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
+    console.log('Lobby data:', d)
     renderEvents(d.events || [])
-    if((d.lobby_images || []).length){
-      _slides = d.lobby_images
+    var images = d.lobby_images || []
+    console.log('Images:', images.length, images)
+    if(images.length){
+      _slides = images.map(function(img){
+        if(typeof img === 'string') return {url:img, caption:''}
+        return {url: img.url||img, caption: img.caption||''}
+      })
       buildCarousel()
     }
   } catch(e){ console.error('Load error:', e) }

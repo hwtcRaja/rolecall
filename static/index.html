@@ -6736,6 +6736,8 @@ document.addEventListener('change', async function(e){
 })
 
 // ── End Lobby TV Image Manager ────────────────────────────────────────────
+
+function clearSendersDirty(){
  const btn = document.getElementById('es-save-btn')
  if(btn){ btn.style.background=''; btn.textContent=' Save Email Settings' }
  window._senderIdentitiesSaved = JSON.stringify(window._senderIdentities||[])

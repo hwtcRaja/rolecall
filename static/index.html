@@ -1623,6 +1623,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:4px">Default Agreement Terms</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">This is the default Terms &amp; Conditions section used when generating a Facility Use Agreement. You can edit it per-contract when generating. HTML is supported.</div>
+ <textarea id="es-rental-agreement-template" rows="16" placeholder="Paste your default T&amp;C HTML here. Leave blank to use the built-in template." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+ </div>
+
+ <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve rental requests and in what order. Leave empty to skip multi-level approval.</div>
  <div id="rental-approval-levels-list" style="margin-bottom:10px"></div>
@@ -6538,6 +6544,8 @@ async function loadEmailSettings(){
  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
  chk('es-alert-role-filled', s.alert_role_filled!==false)
  set('es-rental-approver-emails', s.rental_approver_emails||'')
+ const tmplEl = document.getElementById('es-rental-agreement-template')
+ if(tmplEl) tmplEl.value = s.rental_agreement_template||''
  try{ window._rentalApprovalLevels = JSON.parse(s.rental_approval_levels||'[]') }catch(e){ window._rentalApprovalLevels=[] }
  renderRentalApprovalLevels()
 
@@ -6768,7 +6776,8 @@ async function saveEmailSettings(){
  alert_role_filled: chk('es-alert-role-filled'),
  alert_waiver_expiry: chk('es-alert-waivers'),
  rental_approver_emails: get('es-rental-approver-emails'),
- rental_approval_levels: JSON.stringify((window._rentalApprovalLevels||[]))
+ rental_approval_levels: JSON.stringify((window._rentalApprovalLevels||[])),
+ rental_agreement_template: (document.getElementById('es-rental-agreement-template')||{}).value||''
  }
  const res = await api('/api/email-settings','PUT',data)
  const statusEl = document.getElementById('email-settings-status')
@@ -20613,27 +20622,55 @@ function openGenerateContractModal(rid){
   if(!req) return
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">Generate Rental Agreement</div>
-   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">A contract will be generated for <strong>${escHtml(req.partner_name||'')}</strong> for <strong>${escHtml(req.title||'')}</strong>. The standard HWTC terms will be included automatically. Add any custom terms below.</div>
-   <div class="form-group" style="margin-bottom:16px">
-    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">Additional / Custom Terms (optional)</label>
-    <textarea id="gen-custom-terms" rows="6" placeholder="e.g. Partner may store equipment in the lobby between sessions. HWTC staff must be on-site during all rental periods..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:680px;padding:24px;max-height:92vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">Generate Facility Use Agreement</div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">For <strong>${escHtml(req.partner_name||'')}</strong> &mdash; <strong>${escHtml(req.title||'')}</strong></div>
+
+   <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">HWTC Point of Contact</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Name</label>
+     <input type="text" id="gen-poc-name" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Email</label>
+     <input type="email" id="gen-poc-email" placeholder="e.g. raja@hwtco.org" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Phone</label>
+     <input type="tel" id="gen-poc-phone" placeholder="e.g. 407-555-0100" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
-   <div style="display:flex;gap:8px;justify-content:flex-end">
+
+   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Terms &amp; Conditions</div>
+    <button class="btn btn-secondary btn-sm" onclick="loadDefaultTermsIntoModal()" style="font-size:11px">Load Default Template</button>
+   </div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Edit the terms below for this specific agreement. Leave blank to use the default template. HTML is supported.</div>
+   <textarea id="gen-custom-terms" rows="14" placeholder="Leave blank to use the default template saved in Settings, or paste/edit custom terms here..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+
+   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
-    <button class="btn btn-primary" onclick="generateContract('${rid}')">Generate Contract</button>
+    <button class="btn btn-primary" onclick="generateContract('${rid}')">Generate Agreement</button>
    </div>
   </div>`
   overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
 }
 
+async function loadDefaultTermsIntoModal(){
+  const el = document.getElementById('gen-custom-terms')
+  if(!el) return
+  const es = await api('/api/email-settings')
+  const tmpl = (es && es.rental_agreement_template) || ''
+  if(!tmpl){ toast('No default template saved in Settings yet','info'); return }
+  el.value = tmpl
+}
+
 async function generateContract(rid){
   const customTerms = (document.getElementById('gen-custom-terms')||{}).value||''
-  const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{custom_terms:customTerms})
+  const pocName = (document.getElementById('gen-poc-name')||{}).value||''
+  const pocEmail = (document.getElementById('gen-poc-email')||{}).value||''
+  const pocPhone = (document.getElementById('gen-poc-phone')||{}).value||''
+  const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
+    custom_terms: customTerms, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone
+  })
   if(res&&res.ok){
-    toast('Contract generated!','success')
+    toast('Agreement generated!','success')
     document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
     loadRentalsPage()
   } else toast((res&&res.error)||'Error','error')

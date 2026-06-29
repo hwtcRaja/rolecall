@@ -13548,11 +13548,12 @@ def generate_rental_contract(rid):
     poc_name = (d.get('poc_name') or '').strip()
     poc_email = (d.get('poc_email') or '').strip()
     poc_phone = (d.get('poc_phone') or '').strip()
+    deposit = (d.get('deposit') or '').strip()
     # If no custom terms provided, load default template from email_settings
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone)
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -13564,7 +13565,7 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone=''):
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit=''):
     import datetime as _dtc
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
@@ -13585,9 +13586,11 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
 <p>For any questions or concerns before, during, or after the event, please contact:</p>
 <p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
 
+    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Deposit Required</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+
     terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Payment.</strong> Partner agrees to pay the fee as specified above. Payment is due no later than 48 hours prior to the event date unless otherwise agreed in writing by HWTC.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the fee. Cancellations within 48 hours will forfeit the full fee.</p>
+<p><strong>2.1 Payment &amp; Deposit.</strong> Upon signing this Agreement, Partner agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to secure the event date. Full payment of any remaining balance is due within 24 hours of the event completing. If Partner cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
+<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund of any payments made beyond the deposit. Cancellations within 14 days will forfeit 50% of the total fee. Cancellations within 24 hours will forfeit the deposit in full.</p>
 <p><strong>2.3 Use of Space.</strong> Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.</p>
 <p><strong>2.4 Care of Facility.</strong> Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner&rsquo;s guests. Partner will be charged for any repairs or cleaning required beyond normal use.</p>
 <p><strong>2.5 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.</p>
@@ -13595,7 +13598,8 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
 <p><strong>2.7 Insurance.</strong> HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.</p>
 <p><strong>2.8 Indemnification.</strong> Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner&rsquo;s use of the facility.</p>
 <p><strong>2.9 Compliance.</strong> Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
-<p><strong>2.10 Recording &amp; Photography.</strong> Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+<p><strong>2.10 Communications &amp; Marketing.</strong> Any public communications, advertising, social media posts, or promotional materials referencing this event must include acknowledgment that the event is held &ldquo;In Partnership with Horizon West Theatre Company.&rdquo; Partner agrees not to publicly advertise or promote this event without prior written approval from HWTC. HWTC reserves the right to review and approve all promotional materials that reference HWTC, its name, logo, or facilities before public distribution.</p>
+<p><strong>2.11 Recording &amp; Photography.</strong> Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
 
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
@@ -13623,6 +13627,7 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('purpose','')}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Rate</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+{deposit_row}
 </table>
 
 {poc_block}

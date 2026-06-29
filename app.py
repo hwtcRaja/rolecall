@@ -6373,7 +6373,7 @@ def save_email_settings_route():
     d = request.json or {}
     conn = get_db()
     # Ensure rental columns exist
-    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'']:
+    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6383,7 +6383,7 @@ def save_email_settings_route():
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
-        'rental_approver_emails','rental_approval_levels']
+        'rental_approver_emails','rental_approval_levels','rental_agreement_template']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -12930,6 +12930,7 @@ def run_migrations_manual():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_agreement_template TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
@@ -13387,7 +13388,7 @@ def approve_rental_request(rid):
     if err: return err
     import json as _jra
     import datetime as _dtra
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     conn = get_db()
     user = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (session['user_id'],))
     req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
@@ -13544,7 +13545,14 @@ def generate_rental_contract(rid):
         return jsonify({'error': 'Request not found'}), 404
     token = _sec.token_urlsafe(32)
     custom_terms = (d.get('custom_terms') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms)
+    poc_name = (d.get('poc_name') or '').strip()
+    poc_email = (d.get('poc_email') or '').strip()
+    poc_phone = (d.get('poc_phone') or '').strip()
+    # If no custom terms provided, load default template from email_settings
+    if not custom_terms:
+        es = get_email_settings()
+        custom_terms = (es.get('rental_agreement_template') or '').strip()
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -13556,7 +13564,7 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _build_rental_contract_html(req, custom_terms=''):
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone=''):
     import datetime as _dtc
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
@@ -13567,15 +13575,47 @@ def _build_rental_contract_html(req, custom_terms=''):
     start = req.get('start_date','')
     end = req.get('end_date','')
     date_range = start + (' through ' + end if end and end != start else '')
-    time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
-    default_terms = f'''
-<h2 style="color:#0d3d4d;margin-top:24px">VENUE RENTAL AGREEMENT</h2>
-<p>This Venue Rental Agreement ("Agreement") is entered into as of <strong>{today}</strong> by and between:</p>
-<p><strong>Horizon West Theatre Company</strong> ("HWTC"), a nonprofit performing arts organization located in Winter Garden, FL</p>
-<p>and</p>
-<p><strong>{req.get('partner_name','')}</strong> ("{req.get('organization_type','Partner')}"), hereinafter referred to as "Renter."</p>
+    time_range = (req.get('start_time','') + (' \u2013 ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
+    partner_name = req.get('partner_name','Partner Organization')
+    contact_name = req.get('contact_name','') or partner_name
 
-<h3 style="color:#0d3d4d;margin-top:20px">1. RENTAL DETAILS</h3>
+    poc_block = ''
+    if poc_name or poc_email or poc_phone:
+        poc_block = f'''<h3 style="color:#0d3d4d;margin-top:20px">HWTC POINT OF CONTACT</h3>
+<p>For any questions or concerns before, during, or after the event, please contact:</p>
+<p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
+
+    terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
+<p><strong>2.1 Payment.</strong> Partner agrees to pay the fee as specified above. Payment is due no later than 48 hours prior to the event date unless otherwise agreed in writing by HWTC.</p>
+<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the fee. Cancellations within 48 hours will forfeit the full fee.</p>
+<p><strong>2.3 Use of Space.</strong> Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.</p>
+<p><strong>2.4 Care of Facility.</strong> Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner&rsquo;s guests. Partner will be charged for any repairs or cleaning required beyond normal use.</p>
+<p><strong>2.5 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.</p>
+<p><strong>2.6 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
+<p><strong>2.7 Insurance.</strong> HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.</p>
+<p><strong>2.8 Indemnification.</strong> Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner&rsquo;s use of the facility.</p>
+<p><strong>2.9 Compliance.</strong> Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
+<p><strong>2.10 Recording &amp; Photography.</strong> Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
+h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
+h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
+<body>
+<div style="text-align:center;margin-bottom:24px">
+<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
+<div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theatre Company</div>
+<div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
+<div style="font-size:12px;color:#6b7280">hwtc.org</div>
+</div>
+
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">FACILITY USE AGREEMENT</h2>
+<p>This Facility Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<p><strong>Horizon West Theatre Company</strong> (&ldquo;Host Organization&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
+<p>and</p>
+<p><strong>{partner_name}</strong> (&ldquo;Partner&rdquo;), represented by <strong>{contact_name}</strong>.</p>
+
+<h3 style="color:#0d3d4d;margin-top:20px">1. EVENT DETAILS</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('space_name','')}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
@@ -13585,52 +13625,27 @@ def _build_rental_contract_html(req, custom_terms=''):
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
 </table>
 
-<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Payment.</strong> Renter agrees to pay the rental fee as specified above. Payment is due no later than 48 hours prior to the rental date unless otherwise agreed in writing.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the rental fee. Cancellations within 48 hours will forfeit the full rental fee.</p>
-<p><strong>2.3 Use of Space.</strong> Renter agrees to use the space only for the purpose described above. Renter shall not sublet the space or allow unauthorized parties to use it.</p>
-<p><strong>2.4 Care of Facility.</strong> Renter agrees to leave the space in the same condition as found. Renter is responsible for any damage to the facility, equipment, or property caused by Renter or Renter's guests. Renter will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.5 Capacity.</strong> Renter agrees to not exceed the posted occupancy limits of the space.</p>
-<p><strong>2.6 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Renter is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the rental immediately if this clause is violated, with no refund.</p>
-<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, etc.) must be agreed upon in advance and may incur additional fees. Renter shall not move or modify technical equipment without authorization.</p>
-<p><strong>2.8 Insurance.</strong> HWTC strongly recommends Renter carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the rental period.</p>
-<p><strong>2.9 Indemnification.</strong> Renter agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Renter's use of the facility.</p>
-<p><strong>2.10 Compliance.</strong> Renter agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Renter may not record, photograph, or livestream HWTC proprietary content, costumes, or set pieces without written permission.</p>
-'''
-    if custom_terms:
-        default_terms += f'\n<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3>\n<p>{custom_terms}</p>'
+{poc_block}
 
-    default_terms += '''
-<h3 style="color:#0d3d4d;margin-top:20px">4. SIGNATURES</h3>
+{terms_html}
+
+<h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
 <p>By signing below, both parties agree to the terms and conditions set forth in this Agreement.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theatre Company</div>
-<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Host Organization Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
 </div>
 <div id="partner-signature-block" style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">PARTNER_NAME_PLACEHOLDER</div>
-<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Partner Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
 </div>
 </div>
-'''
-    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
-h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
-h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
-<body>
-<div style="text-align:center;margin-bottom:24px">
-<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:60px" alt="HWTC"/>
-<div style="font-size:11px;color:#6b7280;margin-top:6px">horizonwesttheatre.com · Winter Garden, FL</div>
-</div>
-{default_terms}
 </body></html>'''
-
 @app.route('/api/rental/agreements/<aid>', methods=['GET'])
 def get_rental_agreement(aid):
     err = require_auth()

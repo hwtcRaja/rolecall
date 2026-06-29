@@ -124,14 +124,14 @@ def seed_system_email_templates(conn=None):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theater Company</strong> recently  -  thank you!</p>
     <p>As a <strong>Disney Cast Member</strong>, you may be eligible to submit your volunteer hours through <strong>Disney VoluntEARS</strong>, which can result in a donation to our organization at no cost to you!</p>
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong>To submit your hours:</strong><br/>
-      Visit <a href="https://disneyvoluntears.com" style="color:#145466;font-weight:600">Disney VoluntEARS</a> and log your hours for Horizon West Theatre Company.
+      Visit <a href="https://disneyvoluntears.com" style="color:#145466;font-weight:600">Disney VoluntEARS</a> and log your hours for Horizon West Theater Company.
     </div>
     <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
-    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+    <p>With gratitude,<br><strong>Horizon West Theater Company</strong></p>
   </div>
 </div>'''),
 
@@ -144,7 +144,7 @@ def seed_system_email_templates(conn=None):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
+    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
     <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>
 
     <div style="margin:20px 0">
@@ -204,7 +204,7 @@ def seed_system_email_templates(conn=None):
     {{hours_section}}
 
     <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
-    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>
+    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>
   </div>
 </div>''')
 
@@ -1507,7 +1507,7 @@ def init_db():
         c.execute("SELECT COUNT(*) FROM donor_tiers")
         if c.fetchone()[0] == 0:
             default_tiers = [
-                ('Theatregoer',              0,      100,    'gray',   8),
+                ('Theatergoer',              0,      100,    'gray',   8),
                 ('Dramaturg',                101,    499,    'blue',   7),
                 ('Playwright',               500,    1499,   'teal',   6),
                 ('Director',                 1500,   2999,   'green',  5),
@@ -3535,7 +3535,7 @@ def submit_audition():
                 '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
                 '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
                 '<p>We will be in touch soon.</p>'
-                '<p style="color:#9ca3af;font-size:13px">Horizon West Theatre Company</p></div>'
+                '<p style="color:#9ca3af;font-size:13px">Horizon West Theater Company</p></div>'
             )
             send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
     except Exception: pass
@@ -3906,12 +3906,12 @@ def send_director_form_email():
         '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
         '<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
         f'<p>Hi {name},</p>'
-        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theater Company. We are excited to learn more about you!</p>'
         '<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form:</p>'
         f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
         '<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
         '<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out at info@hwtco.org.</p>'
-        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company</p>'
+        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company</p>'
         '</div>'
     )
     ok, msg = send_email([email], 'HWTC Director Interest Form', html)
@@ -4391,7 +4391,7 @@ def reset_system_template(key):
         DEFAULTS = {
             'universal_reminder': (
                 'Reminder: Submit Your Volunteer Hours - Universal Giving',
-                '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>\n  </div>\n</div>\''
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>\n  </div>\n</div>\''
             ),
         }
         if key not in DEFAULTS:
@@ -5780,11 +5780,11 @@ def send_thank_you(donation_id):
             <h1 style="color:#fff;font-size:24px;margin:16px 0 0">Thank You!</h1></div>
         <div style="padding:32px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
             <p style="font-size:16px">Dear {name},</p>
-            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">On behalf of Horizon West Theatre Company, thank you for your generous contribution of <strong>{amount}</strong>{campaign_str}.</p>
+            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">On behalf of Horizon West Theater Company, thank you for your generous contribution of <strong>{amount}</strong>{campaign_str}.</p>
             <div style="background:#f0f8fa;border-left:4px solid #145466;padding:16px;margin:24px 0">
                 <div style="font-weight:700">{amount}</div><div style="font-size:13px;color:#5f5e5a">Date: {date}</div></div>
-            <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theatre Company</strong></p></div>
-        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theatre Company is a 501(c)(3) non-profit organization.</p>
+            <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theater Company</strong></p></div>
+        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theater Company is a 501(c)(3) non-profit organization.</p>
         </div>'''.format(name=name, amount=amount, campaign_str=campaign_str, date=date_str)
     ok, err_msg = send_email([row['email']], subject, html_body, from_addr)
     if ok:
@@ -6427,7 +6427,7 @@ def test_template_email(tid):
         '{{review_link}}': '#',
         '{{temp_password}}': 'TEMP-1234',
         '{{role}}': 'Stage Crew',
-        '{{location}}': 'HWTC Theatre',
+        '{{location}}': 'HWTC Theater',
         '{{message}}': 'We would love to have you join us!',
         '{{date}}': 'June 1, 2025',
         '{{elic_name}}': 'Test ELIC',
@@ -7736,12 +7736,12 @@ def join_submit():
                     f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
                     f'<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
                     f'<p>Hi {applicant_name},</p>'
-                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theater Company. We are excited to learn more about you!</p>'
                     f'<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form using the link below:</p>'
                     f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
                     f'<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
                     f'<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out to us at info@hwtco.org.</p>'
-                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company &mdash; rolecall.hwtco.org</p>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company &mdash; rolecall.hwtco.org</p>'
                     f'</div>'
                 )
                 send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
@@ -8142,13 +8142,13 @@ def build_report_email_html(report_type, data, params=None):
     today = date.today().strftime('%B %d, %Y')
     header = f'''<div style="font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto">
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;color:#fff">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theater Company</div>
         <div style="font-size:22px;font-weight:800">{{}}</div>
         <div style="font-size:13px;opacity:0.7;margin-top:4px">Generated {today}</div>
     </div>
     <div style="background:#fff;padding:28px 32px;border:1px solid #e0e0db;border-top:none;border-radius:0 0 12px 12px">'''
     footer = '''</div><p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
-        RoleCall  -  Horizon West Theatre Company Management System</p></div>'''
+        RoleCall  -  Horizon West Theater Company Management System</p></div>'''
 
     def stat_box(label, value, color='#145466'):
         return f'<div style="background:#f0f8fa;border-radius:10px;padding:16px 20px;text-align:center"><div style="font-size:28px;font-weight:900;color:{color}">{value}</div><div style="font-size:12px;color:#5f5e5a;margin-top:4px">{label}</div></div>'
@@ -9475,7 +9475,7 @@ def email_send_report(rid):
         {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
         {hours_html}
     </div>
-    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theatre Company</p>
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
     fi = (request.json or {}).get('from_identity') or {}
@@ -10829,7 +10829,7 @@ def create_board_meeting():
                       <tr{'style="background:#f9fafb"' if not time_line else ''}><td style="padding:8px 12px;color:#6b7280;font-weight:600">Location</td><td style="padding:8px 12px">{location}</td></tr>
                       {notes_line}
                     </table>
-                    <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theatre Company.</p>
+                    <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theater Company.</p>
                   </div>
                 </div>'''
                 fi = d.get('from_identity') or {}
@@ -11635,7 +11635,7 @@ def public_submit_registration(slug):
                     f'<a href="https://hwtco.org" style="color:#145466">hwtco.org</a>.</p>'
                     f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
                     f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">'
-                    f'Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                    f'Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                     f'</div></div>')
             except Exception as e:
                 app.logger.warning(f'Interest list thank-you email failed: {e}')
@@ -11681,7 +11681,7 @@ def public_submit_registration(slug):
                 f'<p>Hi {d.get("guardian_name","")},</p>'
                 f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
                 f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
-                f'<p>Horizon West Theatre Company</p>')
+                f'<p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
@@ -12029,7 +12029,7 @@ def public_register_production(slug):
                 f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
                 f'<h2 style="color:#0d3d4d;margin:0 0 12px">You\'re on the list!</h2>'
                 f'<p>Hi {first},</p><p>Thanks for your interest in <strong>{prod["name"]}</strong>! We\'ll reach out as soon as registration opens.</p>'
-                f'<p style="color:#6b7280;font-size:13px">Horizon West Theatre Company</p></div></div>')
+                f'<p style="color:#6b7280;font-size:13px">Horizon West Theater Company</p></div></div>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'interest'})
@@ -12239,7 +12239,7 @@ def promote_production_waitlist(pid, rid):
         try:
             name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
             send_email([reg['guardian_email']], f'You\'re confirmed — {prod["name"]}',
-                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theatre Company</p>')
+                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'confirmed_free'})
@@ -12260,7 +12260,7 @@ def promote_production_waitlist(pid, rid):
         send_email([reg['guardian_email']], f'A spot opened up — {prod["name"]}',
             f'<p>Hi {name},</p><p>A spot is available in <strong>{prod["name"]}</strong>! {hold_msg}</p>'
             + (f'<p><a href="{pay_url}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Secure My Spot</a></p>' if pay_url else '')
-            + '<p>Horizon West Theatre Company</p>')
+            + '<p>Horizon West Theater Company</p>')
     except Exception: pass
     conn.close()
     return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
@@ -12433,7 +12433,7 @@ def notify_production_interest_list(pid):
                 f'<h2 style="color:#0d3d4d;margin:0 0 12px">Registration is now open!</h2>'
                 f'<p>Hi {name},</p><p>Registration for <strong>{prod["name"]}</strong> is now open!</p>'
                 f'<p style="text-align:center;margin:20px 0"><a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700">Register Now &rarr;</a></p>'
-                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                 f'</div></div>')
             conn2 = get_db()
             execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
@@ -12664,7 +12664,7 @@ def cart_checkout():
         if is_full:
             try:
                 send_email([guardian_email], f'You\'re on the waitlist — {it["program_name"]}',
-                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theatre Company</p>')
+                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theater Company</p>')
             except Exception: pass
 
     # Save cart order
@@ -13477,7 +13477,7 @@ def deny_rental_request(rid):
         try:
             send_email(partner['contact_email'],
                 f'Rental Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theatre Company')
+                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -13590,7 +13590,7 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
 
     terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
 <p><strong>2.1 Payment &amp; Deposit.</strong> Upon signing this Agreement, Partner agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to secure the event date. Full payment of any remaining balance is due within 24 hours of the event completing. If Partner cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund of any payments made beyond the deposit. Cancellations within 14 days will forfeit 50% of the total fee. Cancellations within 24 hours will forfeit the deposit in full.</p>
+<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>
 <p><strong>2.3 Use of Space.</strong> Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.</p>
 <p><strong>2.4 Care of Facility.</strong> Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner&rsquo;s guests. Partner will be charged for any repairs or cleaning required beyond normal use.</p>
 <p><strong>2.5 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.</p>
@@ -13598,7 +13598,7 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
 <p><strong>2.7 Insurance.</strong> HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.</p>
 <p><strong>2.8 Indemnification.</strong> Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner&rsquo;s use of the facility.</p>
 <p><strong>2.9 Compliance.</strong> Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
-<p><strong>2.10 Communications &amp; Marketing.</strong> Any public communications, advertising, social media posts, or promotional materials referencing this event must include acknowledgment that the event is held &ldquo;In Partnership with Horizon West Theatre Company.&rdquo; Partner agrees not to publicly advertise or promote this event without prior written approval from HWTC. HWTC reserves the right to review and approve all promotional materials that reference HWTC, its name, logo, or facilities before public distribution.</p>
+<p><strong>2.10 Communications &amp; Marketing.</strong> Any public communications, advertising, social media posts, or promotional materials referencing this event must include acknowledgment that the event is held &ldquo;In Partnership with Horizon West Theater Company.&rdquo; Partner agrees not to publicly advertise or promote this event without prior written approval from HWTC. HWTC reserves the right to review and approve all promotional materials that reference HWTC, its name, logo, or facilities before public distribution.</p>
 <p><strong>2.11 Recording &amp; Photography.</strong> Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
 
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -13608,14 +13608,14 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
 <body>
 <div style="text-align:center;margin-bottom:24px">
 <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
-<div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theatre Company</div>
+<div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theater Company</div>
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtc.org</div>
 </div>
 
 <h2 style="color:#0d3d4d;margin-top:24px;text-align:center">FACILITY USE AGREEMENT</h2>
 <p>This Facility Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
-<p><strong>Horizon West Theatre Company</strong> (&ldquo;Host Organization&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
+<p><strong>Horizon West Theater Company</strong> (&ldquo;Host Organization&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
 <p><strong>{partner_name}</strong> (&ldquo;Partner&rdquo;), represented by <strong>{contact_name}</strong>.</p>
 
@@ -13638,13 +13638,13 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
 <p>By signing below, both parties agree to the terms and conditions set forth in this Agreement.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
-<div style="font-weight:700;font-size:14px">Horizon West Theatre Company</div>
+<div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Host Organization Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
 </div>
 <div id="partner-signature-block" style="border-top:2px solid #0d3d4d;padding-top:8px">
-<div style="font-weight:700;font-size:14px">PARTNER_NAME_PLACEHOLDER</div>
+<div style="font-weight:700;font-size:14px">{partner_name}</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Partner Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
@@ -13680,14 +13680,14 @@ def send_rental_agreement(aid):
         subject = f'Venue Rental Agreement – {agr.get("title","")}'
         body = f'''Dear {agr.get("contact_name","") or agr.get("partner_name","")},
 
-Please review and digitally sign your venue rental agreement with Horizon West Theatre Company.
+Please review and digitally sign your venue rental agreement with Horizon West Theater Company.
 
 Click the link below to review and sign:
 {signing_url}
 
 If you have any questions, please contact us.
 
-Horizon West Theatre Company'''
+Horizon West Theater Company'''
         try:
             send_email(email_to, subject, body)
             execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
@@ -14023,7 +14023,7 @@ def submit_donation():
         'idempotency_key': _ud2.uuid4().hex,
         'order': {
             'location_id': SQUARE_LOCATION_ID,
-            'line_items': [{'name': 'Donation — Horizon West Theatre Company',
+            'line_items': [{'name': 'Donation — Horizon West Theater Company',
                             'quantity': '1',
                             'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}],
             'reference_id': pending_id[:40],
@@ -14446,7 +14446,7 @@ def promote_waitlist(pid, rid):
                 f'<h2 style="color:#145466">You\'re Confirmed!</h2>'
                 f'<p>Hi {name},</p>'
                 f'<p>Great news — a spot has opened up in <strong>{prog["name"]}</strong> and you\'ve been confirmed!</p>'
-                f'<p>Horizon West Theatre Company</p></div>')
+                f'<p>Horizon West Theater Company</p></div>')
         except Exception as e:
             app.logger.warning(f'Waitlist confirm email failed: {e}')
         conn.close()
@@ -14477,7 +14477,7 @@ def promote_waitlist(pid, rid):
                f'Secure My Spot</a></p>'
                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
                if pay_url else '')
-            + f'<p>Horizon West Theatre Company</p></div>')
+            + f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Waitlist promote email failed: {e}')
     conn.close()
@@ -14522,7 +14522,7 @@ def notify_interest_list(pid):
                 f'text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Register Now &rarr;</a></p>'
                 f'<p style="color:#6b7280;font-size:13px;margin:0">Or copy this link: <a href="{reg_url}" style="color:#145466">{reg_url}</a></p>'
                 f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
-                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                 f'</div></div>')
             # Stamp notified_at so the UI reflects the notification
             conn2 = get_db()
@@ -14583,7 +14583,7 @@ def send_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Complete Payment</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>Horizon West Theatre Company</p></div>')
+            f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -14623,7 +14623,7 @@ def send_balance_payment_link(pid, rid):
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theatre Company</p></div>')
+            f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()

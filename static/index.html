@@ -20589,7 +20589,7 @@ function switchRentalTab(idx){
 }
 
 async function approveRentalRequest(rid){
-  const res = await api('/api/rental/requests/'+rid+'/approve','POST')
+  const res = await api('/api/rental/requests/'+rid+'/approve','POST',{})
   if(res&&res.ok){ toast('Request approved!','success'); loadRentalsPage() }
   else toast((res&&res.error)||'Error','error')
 }

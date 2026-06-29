@@ -13576,35 +13576,31 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     start = req.get('start_date','')
     end = req.get('end_date','')
     date_range = start + (' through ' + end if end and end != start else '')
-    time_range = (req.get('start_time','') + (' \u2013 ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
+    time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
     partner_name = req.get('partner_name','Partner Organization')
     contact_name = req.get('contact_name','') or partner_name
-
+    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
     poc_block = ''
     if poc_name or poc_email or poc_phone:
         poc_block = f'''<h3 style="color:#0d3d4d;margin-top:20px">HWTC POINT OF CONTACT</h3>
-<p>For any questions or concerns before, during, or after the event, please contact:</p>
+<p>For any questions or concerns before, during, or after the collaboration, please contact:</p>
 <p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
-
-    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Deposit Required</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
-
     terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Payment &amp; Deposit.</strong> Upon signing this Agreement, Partner agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to secure the event date. Full payment of any remaining balance is due within 24 hours of the event completing. If Partner cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
+<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm the collaboration. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this partnership. Full payment of any remaining balance is due within 24 hours of the final event date. If Partner Organization cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
 <p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>
-<p><strong>2.3 Use of Space.</strong> Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.</p>
-<p><strong>2.4 Care of Facility.</strong> Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner&rsquo;s guests. Partner will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.5 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.</p>
-<p><strong>2.6 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
-<p><strong>2.7 Insurance.</strong> HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.</p>
-<p><strong>2.8 Indemnification.</strong> Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner&rsquo;s use of the facility.</p>
-<p><strong>2.9 Compliance.</strong> Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
-<p><strong>2.10 Communications &amp; Marketing.</strong> Any public communications, advertising, social media posts, or promotional materials referencing this event must include acknowledgment that the event is held &ldquo;In Partnership with Horizon West Theater Company.&rdquo; Partner agrees not to publicly advertise or promote this event without prior written approval from HWTC. HWTC reserves the right to review and approve all promotional materials that reference HWTC, its name, logo, or facilities before public distribution.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
-
+<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization. All activities taking place under this agreement &mdash; including but not limited to rehearsals, classes, workshops, meetings, and performances &mdash; are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. This collaboration falls within HWTC&rsquo;s operational use of its facility for general administrative, educational, rehearsal, and ancillary nonprofit activities.</p>
+<p><strong>2.4 Billing &amp; Credit.</strong> All public-facing materials, programs, advertising, and communications related to this collaboration must credit the production as: <em>&ldquo;Produced by {partner_name} in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct any activities at the HWTC facility independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.</p>
+<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
+<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
+<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
+<p><strong>2.8 Insurance.</strong> HWTC strongly recommends Partner Organization carry liability insurance for their activities. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
+<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
+<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
+<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
-h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
+h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style></head>
 <body>
 <div style="text-align:center;margin-bottom:24px">
 <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
@@ -13612,40 +13608,38 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>
 </div>
-
-<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">FACILITY USE AGREEMENT</h2>
-<p>This Facility Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
-<p><strong>Horizon West Theater Company</strong> (&ldquo;Host Organization&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP &amp; CO-PRODUCTION AGREEMENT</h2>
+<p>This Artistic Partnership and Co-Production Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<p><strong>Horizon West Theater Company</strong> (&ldquo;HWTC&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
-<p><strong>{partner_name}</strong> (&ldquo;Partner&rdquo;), represented by <strong>{contact_name}</strong>.</p>
-
-<h3 style="color:#0d3d4d;margin-top:20px">1. EVENT DETAILS</h3>
+<p><strong>{partner_name}</strong> (&ldquo;Partner Organization&rdquo;), represented by <strong>{contact_name}</strong>.</p>
+<p>Together referred to as the &ldquo;Parties.&rdquo;</p>
+<h3 style="color:#0d3d4d;margin-top:20px">1. COLLABORATION DETAILS</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('space_name','')}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Project / Event</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("title","")}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("space_name","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Time</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{time_range}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('purpose','')}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Rate</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose / Nature of Activities</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("purpose","")}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
 {deposit_row}
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Produced by {partner_name} in Partnership with Horizon West Theater Company</em></td></tr>
 </table>
-
 {poc_block}
-
 {terms_html}
-
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
-<p>By signing below, both parties agree to the terms and conditions set forth in this Agreement.</p>
+<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Co-Production Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
-<div style="font-size:13px;color:#6b7280;margin-top:4px">Host Organization Representative</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
 </div>
-<div id="partner-signature-block" style="border-top:2px solid #0d3d4d;padding-top:8px">
+<div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">{partner_name}</div>
-<div style="font-size:13px;color:#6b7280;margin-top:4px">Partner Representative</div>
+<div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
 </div>

@@ -1623,12 +1623,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:4px">Default Agreement Terms</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">This is the default Terms &amp; Conditions section used when generating a Facility Use Agreement. You can edit it per-contract when generating. HTML is supported.</div>
- <textarea id="es-rental-agreement-template" rows="16" placeholder="Paste your default T&amp;C HTML here. Leave blank to use the built-in template." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
- </div>
-
- <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve rental requests and in what order. Leave empty to skip multi-level approval.</div>
  <div id="rental-approval-levels-list" style="margin-bottom:10px"></div>
@@ -20620,14 +20614,35 @@ function viewRentalContract(aid){
 function openGenerateContractModal(rid){
   const req = _rentalData.requests.find(r=>r.id===rid)
   if(!req) return
+
+  const DEFAULT_TERMS = [
+    { id:'t1', label:'2.1 Payment', text:'Partner agrees to pay the fee as specified above. Payment is due no later than 48 hours prior to the event date unless otherwise agreed in writing by HWTC.' },
+    { id:'t2', label:'2.2 Cancellation', text:'Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the fee. Cancellations within 48 hours will forfeit the full fee.' },
+    { id:'t3', label:'2.3 Use of Space', text:'Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.' },
+    { id:'t4', label:'2.4 Care of Facility', text:'Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner\'s guests. Partner will be charged for any repairs or cleaning required beyond normal use.' },
+    { id:'t5', label:'2.5 Alcohol & Conduct', text:'Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.' },
+    { id:'t6', label:'2.6 Equipment', text:'Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.' },
+    { id:'t7', label:'2.7 Insurance', text:'HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.' },
+    { id:'t8', label:'2.8 Indemnification', text:'Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner\'s use of the facility.' },
+    { id:'t9', label:'2.9 Compliance', text:'Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.' },
+    { id:'t10', label:'2.10 Recording & Photography', text:'Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.' },
+  ]
+
+  const termsHTML = DEFAULT_TERMS.map(function(t){
+    return `<div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:4px">${escHtml(t.label)}</div>
+      <textarea id="term-${t.id}" rows="3" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.5">${escHtml(t.text)}</textarea>
+    </div>`
+  }).join('')
+
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:680px;padding:24px;max-height:92vh;overflow-y:auto">
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:700px;padding:24px;max-height:94vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">Generate Facility Use Agreement</div>
-   <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">For <strong>${escHtml(req.partner_name||'')}</strong> &mdash; <strong>${escHtml(req.title||'')}</strong></div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">For <strong>${escHtml(req.partner_name||'')}</strong> &mdash; <strong>${escHtml(req.title||'')}</strong></div>
 
-   <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">HWTC Point of Contact</div>
-   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
+   <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:10px">HWTC Point of Contact</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px">
     <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Name</label>
      <input type="text" id="gen-poc-name" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Email</label>
@@ -20636,14 +20651,19 @@ function openGenerateContractModal(rid){
      <input type="tel" id="gen-poc-phone" placeholder="e.g. 407-555-0100" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
 
-   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-    <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Terms &amp; Conditions</div>
-    <button class="btn btn-secondary btn-sm" onclick="loadDefaultTermsIntoModal()" style="font-size:11px">Load Default Template</button>
+   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">Terms &amp; Conditions</div>
+    <span style="font-size:11px;color:var(--text-muted)">Edit any section below before generating</span>
    </div>
-   <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Edit the terms below for this specific agreement. Leave blank to use the default template. HTML is supported.</div>
-   <textarea id="gen-custom-terms" rows="14" placeholder="Leave blank to use the default template saved in Settings, or paste/edit custom terms here..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+   <div style="background:var(--bg);border:1.5px solid var(--border-md);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+    ${termsHTML}
+    <div style="margin-top:4px">
+     <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">Additional Terms (optional)</div>
+     <textarea id="gen-extra-terms" rows="2" placeholder="Any additional terms specific to this agreement..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box"></textarea>
+    </div>
+   </div>
 
-   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+   <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
     <button class="btn btn-primary" onclick="generateContract('${rid}')">Generate Agreement</button>
    </div>
@@ -20652,22 +20672,30 @@ function openGenerateContractModal(rid){
   document.body.appendChild(overlay)
 }
 
-async function loadDefaultTermsIntoModal(){
-  const el = document.getElementById('gen-custom-terms')
-  if(!el) return
-  const es = await api('/api/email-settings')
-  const tmpl = (es && es.rental_agreement_template) || ''
-  if(!tmpl){ toast('No default template saved in Settings yet','info'); return }
-  el.value = tmpl
-}
-
 async function generateContract(rid){
-  const customTerms = (document.getElementById('gen-custom-terms')||{}).value||''
+  // Collect edited terms sections
+  const termIds = ['t1','t2','t3','t4','t5','t6','t7','t8','t9','t10']
+  const termLabels = {
+    t1:'2.1 Payment', t2:'2.2 Cancellation', t3:'2.3 Use of Space',
+    t4:'2.4 Care of Facility', t5:'2.5 Alcohol & Conduct', t6:'2.6 Equipment',
+    t7:'2.7 Insurance', t8:'2.8 Indemnification', t9:'2.9 Compliance',
+    t10:'2.10 Recording & Photography'
+  }
+  var termsHtml = '<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>'
+  termIds.forEach(function(id){
+    const el = document.getElementById('term-'+id)
+    if(!el) return
+    const text = el.value.trim()
+    if(text) termsHtml += `<p><strong>${termLabels[id]}.</strong> ${text}</p>`
+  })
+  const extra = (document.getElementById('gen-extra-terms')||{}).value||''
+  if(extra.trim()) termsHtml += `<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3><p>${extra.trim()}</p>`
+
   const pocName = (document.getElementById('gen-poc-name')||{}).value||''
   const pocEmail = (document.getElementById('gen-poc-email')||{}).value||''
   const pocPhone = (document.getElementById('gen-poc-phone')||{}).value||''
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
-    custom_terms: customTerms, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone
+    custom_terms: termsHtml, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone
   })
   if(res&&res.ok){
     toast('Agreement generated!','success')

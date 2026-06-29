@@ -13610,7 +13610,7 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
 <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
 <div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theater Company</div>
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
-<div style="font-size:12px;color:#6b7280">hwtc.org</div>
+<div style="font-size:12px;color:#6b7280">hwtco.org</div>
 </div>
 
 <h2 style="color:#0d3d4d;margin-top:24px;text-align:center">FACILITY USE AGREEMENT</h2>

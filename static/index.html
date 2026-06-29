@@ -20616,8 +20616,8 @@ function openGenerateContractModal(rid){
   if(!req) return
 
   const DEFAULT_TERMS = [
-    { id:'t1', label:'2.1 Payment', text:'Partner agrees to pay the fee as specified above. Payment is due no later than 48 hours prior to the event date unless otherwise agreed in writing by HWTC.' },
-    { id:'t2', label:'2.2 Cancellation', text:'Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the fee. Cancellations within 48 hours will forfeit the full fee.' },
+    { id:'t1', label:'2.1 Payment & Deposit', text:'Upon signing this Agreement, Partner agrees to pay a deposit as specified below to secure the event date. Full payment of any remaining balance is due within 24 hours of the event completing. If Partner cancels within 24 hours of the scheduled event, the deposit is forfeited in full.' },
+    { id:'t2', label:'2.2 Cancellation', text:'Cancellations made more than 14 days in advance will receive a full refund of any payments made beyond the deposit. Cancellations within 14 days will forfeit 50% of the total fee. Cancellations within 24 hours will forfeit the deposit in full.' },
     { id:'t3', label:'2.3 Use of Space', text:'Partner agrees to use the space only for the purpose described above. Partner shall not sublet the space or allow unauthorized parties to use it without prior written approval from HWTC.' },
     { id:'t4', label:'2.4 Care of Facility', text:'Partner agrees to leave the space in the same condition as found. Partner is responsible for any damage to the facility, equipment, or property caused by Partner or Partner\'s guests. Partner will be charged for any repairs or cleaning required beyond normal use.' },
     { id:'t5', label:'2.5 Alcohol & Conduct', text:'Alcohol is not permitted without prior written approval from HWTC. Partner is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the agreement immediately if this clause is violated, with no refund.' },
@@ -20625,7 +20625,8 @@ function openGenerateContractModal(rid){
     { id:'t7', label:'2.7 Insurance', text:'HWTC strongly recommends Partner carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the event.' },
     { id:'t8', label:'2.8 Indemnification', text:'Partner agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner\'s use of the facility.' },
     { id:'t9', label:'2.9 Compliance', text:'Partner agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.' },
-    { id:'t10', label:'2.10 Recording & Photography', text:'Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.' },
+    { id:'t10', label:'2.10 Communications & Marketing', text:'Any public communications, advertising, social media posts, or promotional materials referencing this event must include acknowledgment that the event is held "In Partnership with Horizon West Theatre Company." Partner agrees not to publicly advertise or promote this event without prior written approval from HWTC. HWTC reserves the right to review and approve all promotional materials that reference HWTC, its name, logo, or facilities before public distribution.' },
+    { id:'t11', label:'2.11 Recording & Photography', text:'Partner is welcome to record, photograph, and share content captured within the HWTC space. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.' },
   ]
 
   const termsHTML = DEFAULT_TERMS.map(function(t){
@@ -20641,19 +20642,30 @@ function openGenerateContractModal(rid){
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">Generate Facility Use Agreement</div>
    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">For <strong>${escHtml(req.partner_name||'')}</strong> &mdash; <strong>${escHtml(req.title||'')}</strong></div>
 
-   <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:10px">HWTC Point of Contact</div>
-   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px">
-    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Name</label>
-     <input type="text" id="gen-poc-name" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Email</label>
-     <input type="email" id="gen-poc-email" placeholder="e.g. raja@hwtco.org" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:3px">Phone</label>
-     <input type="tel" id="gen-poc-phone" placeholder="e.g. 407-555-0100" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div>
+     <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">HWTC Point of Contact</div>
+     <div style="display:flex;flex-direction:column;gap:6px">
+      <input type="text" id="gen-poc-name" placeholder="Name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+      <input type="email" id="gen-poc-email" placeholder="Email" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+      <input type="tel" id="gen-poc-phone" placeholder="Phone" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+     </div>
+    </div>
+    <div>
+     <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">Deposit</div>
+     <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+       <span style="font-size:16px;font-weight:700;color:var(--text-muted)">$</span>
+       <input type="number" id="gen-deposit" placeholder="0.00" min="0" step="0.01" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:18px;font-weight:700;box-sizing:border-box"/>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.4">Required upon signing. Forfeited if cancelled within 24 hours. Full balance due within 24 hours of event completion.</div>
+     </div>
+    </div>
    </div>
 
    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">Terms &amp; Conditions</div>
-    <span style="font-size:11px;color:var(--text-muted)">Edit any section below before generating</span>
+    <span style="font-size:11px;color:var(--text-muted)">Edit any section before generating</span>
    </div>
    <div style="background:var(--bg);border:1.5px solid var(--border-md);border-radius:10px;padding:14px 16px;margin-bottom:16px">
     ${termsHTML}
@@ -20674,13 +20686,15 @@ function openGenerateContractModal(rid){
 
 async function generateContract(rid){
   // Collect edited terms sections
-  const termIds = ['t1','t2','t3','t4','t5','t6','t7','t8','t9','t10']
+  const termIds = ['t1','t2','t3','t4','t5','t6','t7','t8','t9','t10','t11']
   const termLabels = {
-    t1:'2.1 Payment', t2:'2.2 Cancellation', t3:'2.3 Use of Space',
+    t1:'2.1 Payment & Deposit', t2:'2.2 Cancellation', t3:'2.3 Use of Space',
     t4:'2.4 Care of Facility', t5:'2.5 Alcohol & Conduct', t6:'2.6 Equipment',
     t7:'2.7 Insurance', t8:'2.8 Indemnification', t9:'2.9 Compliance',
-    t10:'2.10 Recording & Photography'
+    t10:'2.10 Communications & Marketing', t11:'2.11 Recording & Photography'
   }
+  const depositVal = parseFloat((document.getElementById('gen-deposit')||{}).value||0)||0
+  const depositStr = depositVal > 0 ? '$'+depositVal.toFixed(2) : null
   var termsHtml = '<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>'
   termIds.forEach(function(id){
     const el = document.getElementById('term-'+id)
@@ -20695,7 +20709,8 @@ async function generateContract(rid){
   const pocEmail = (document.getElementById('gen-poc-email')||{}).value||''
   const pocPhone = (document.getElementById('gen-poc-phone')||{}).value||''
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
-    custom_terms: termsHtml, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone
+    custom_terms: termsHtml, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone,
+    deposit: depositStr
   })
   if(res&&res.ok){
     toast('Agreement generated!','success')

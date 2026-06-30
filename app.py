@@ -13099,17 +13099,23 @@ def public_lobby_data():
         except Exception: pass
 
     lobby_banner = ''
+    lobby_banner_pos = '50% 50%'
+    lobby_banner_zoom = 100
     try:
         conn = get_db()
         row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
         lobby_banner = (row or {}).get('value') or ''
+        row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_pos',))
+        lobby_banner_pos = (row2 or {}).get('value') or '50% 50%'
+        row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_zoom',))
+        lobby_banner_zoom = int((row3 or {}).get('value') or 100)
         conn.close()
     except Exception as e:
         app.logger.warning(f'Lobby banner query failed: {e}')
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner})
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom})
 
 @app.route('/api/lobby/theme', methods=['GET'])
 def get_lobby_theme():
@@ -13139,8 +13145,14 @@ def get_lobby_banner():
     if err: return err
     conn = get_db()
     row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_zoom',))
     conn.close()
-    return jsonify({'url': (row or {}).get('value') or ''})
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100)
+    })
 
 @app.route('/api/lobby/banner', methods=['PUT'])
 def save_lobby_banner():
@@ -13148,9 +13160,15 @@ def save_lobby_banner():
     if err: return err
     d = request.get_json(silent=True) or {}
     url = (d.get('url') or '').strip()
+    position = (d.get('position') or '50% 50%').strip()
+    zoom = int(d.get('zoom') or 100)
     conn = get_db()
     execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner', url))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_pos', position))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_zoom', str(zoom)))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

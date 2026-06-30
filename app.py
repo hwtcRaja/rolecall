@@ -13118,7 +13118,27 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit})
+    lobby_sched_bg = ''
+    lobby_sched_bg_pos = '50% 50%'
+    lobby_sched_bg_zoom = 100
+    lobby_sched_bg_fit = 'cover'
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+        lobby_sched_bg = (row or {}).get('value') or ''
+        row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+        lobby_sched_bg_pos = (row2 or {}).get('value') or '50% 50%'
+        row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+        lobby_sched_bg_zoom = int((row3 or {}).get('value') or 100)
+        row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+        lobby_sched_bg_fit = (row4 or {}).get('value') or 'cover'
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby schedule bg query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit})
 
 @app.route('/api/lobby/theme', methods=['GET'])
 def get_lobby_theme():
@@ -13197,6 +13217,65 @@ def upload_lobby_banner():
         url = gh_url
     else:
         app.logger.warning(f'Lobby banner GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
+
+@app.route('/api/lobby/sched-bg', methods=['GET'])
+def get_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+    row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+    conn.close()
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100),
+        'fit': (row4 or {}).get('value') or 'cover'
+    })
+
+@app.route('/api/lobby/sched-bg', methods=['PUT'])
+def save_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    position = (d.get('position') or '50% 50%').strip()
+    zoom = int(d.get('zoom') or 100)
+    fit = (d.get('fit') or 'cover').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg', url))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_pos', position))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_zoom', str(zoom)))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_fit', fit))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/sched-bg/upload', methods=['POST'])
+def upload_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid type'}), 400
+    import uuid as _ulsb
+    filename = f'lobby-sched-bg-{str(_ulsb.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Lobby schedule bg GitHub upload failed: {gh_err}')
         with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
         url = f'/static/images/{filename}'
     return jsonify({'ok': True, 'url': url})

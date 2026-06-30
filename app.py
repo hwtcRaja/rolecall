@@ -13098,7 +13098,18 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme})
+    lobby_banner = ''
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
+        lobby_banner = (row or {}).get('value') or ''
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby banner query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner})
 
 @app.route('/api/lobby/theme', methods=['GET'])
 def get_lobby_theme():
@@ -13121,6 +13132,48 @@ def save_lobby_theme():
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/lobby/banner', methods=['GET'])
+def get_lobby_banner():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
+    conn.close()
+    return jsonify({'url': (row or {}).get('value') or ''})
+
+@app.route('/api/lobby/banner', methods=['PUT'])
+def save_lobby_banner():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner', url))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/banner/upload', methods=['POST'])
+def upload_lobby_banner():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid type'}), 400
+    import uuid as _ulb
+    filename = f'lobby-banner-{str(_ulb.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Lobby banner GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
 
 @app.route('/api/lobby/images', methods=['GET'])
 def get_lobby_images():

@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>HWTC Lobby Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -207,14 +209,65 @@ body.theme-show{
   --sched-bg:#1a0a14; --sched-border:#3a1a2e; --sched-hdr-bg:#2e0d22;
 }
 body.theme-seuss{
-  --bg-base:#0d1a3d; --hdr-grad-1:#c8102e; --hdr-grad-2:#e8344f; --hdr-grad-3:#0d6e3f;
+  --bg-base:#0a1230; --hdr-grad-1:#e8344f; --hdr-grad-2:#e8344f; --hdr-grad-3:#c8102e;
   --hdr-border:#fcd34d; --accent:#fcd34d; --accent-bright:#fde047; --accent-warm:#60a5fa;
-  --sched-bg:#0d1a3d; --sched-border:#1e3a6f; --sched-hdr-bg:#c8102e;
+  --sched-bg:#0a1230; --sched-border:#1e3a6f; --sched-hdr-bg:#0d6e3f;
+  --seuss-yellow:#fcd34d; --seuss-blue:#3b82f6; --seuss-green:#16a34a; --seuss-red:#e8344f; --seuss-purple:#9333ea;
 }
+body.theme-seuss header{ background:var(--hdr-grad-1); }
+body.theme-seuss .hat-mark{ display:flex }
+body.theme-seuss .hdr-title{ font-family:'Baloo 2','DM Sans',system-ui,sans-serif; letter-spacing:0 }
 
-body.theme-seuss header{
-  background:repeating-linear-gradient(135deg,var(--hdr-grad-1) 0px,var(--hdr-grad-1) 40px,#fff 40px,#fff 48px,var(--hdr-grad-1) 48px,var(--hdr-grad-1) 88px,var(--hdr-grad-2) 88px,var(--hdr-grad-2) 128px);
+/* Cat-in-the-hat style icon mark, built in pure CSS (no copyrighted art) */
+.hat-mark{ display:none; width:56px;height:56px;position:relative;flex-shrink:0 }
+.hat-mark .brim{
+  position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
+  width:54px;height:14px;background:#fff;border-radius:50%;border:3px solid #1a1a1a;
 }
+.hat-mark .crown{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+  width:34px;height:38px;background:#fff;border:3px solid #1a1a1a;border-radius:6px 6px 2px 2px;
+  overflow:hidden;
+}
+.hat-mark .crown::before,.hat-mark .crown::after{
+  content:'';position:absolute;left:0;right:0;height:9px;background:var(--seuss-red);
+}
+.hat-mark .crown::before{ top:6px }
+.hat-mark .crown::after{ top:24px }
+
+/* ── SIGNPOST EVENTS (Seuss theme schedule) ── */
+body.theme-seuss #schedule-area{ background:var(--sched-bg) }
+body.theme-seuss .schedule-header{
+  background:transparent;border-bottom:none;justify-content:center;
+  font-family:'Baloo 2','DM Sans',system-ui,sans-serif;font-size:16px;
+}
+body.theme-seuss .schedule-header::before{ display:none }
+.signpost-wrap{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 0 20px;position:relative;overflow-y:auto;
+}
+.signpost-pole{
+  position:absolute;top:0;bottom:20px;left:50%;width:10px;
+  transform:translateX(-50%);
+  background:linear-gradient(90deg,#8a5a2e,#b07840,#8a5a2e);
+  border-radius:3px;z-index:0;
+}
+.signpost-plank{
+  position:relative;z-index:1;
+  width:84%;max-width:280px;
+  margin:7px 0;padding:10px 16px;
+  border-radius:4px 14px 14px 4px;
+  border:3px solid #1a1a1a;
+  font-family:'Baloo 2','DM Sans',system-ui,sans-serif;
+  color:#1a1a1a;
+  box-shadow:3px 4px 0 rgba(0,0,0,0.25);
+}
+.signpost-plank:nth-child(odd){ transform:rotate(-2.5deg); border-radius:14px 4px 4px 14px; }
+.signpost-plank:nth-child(even){ transform:rotate(2deg); }
+.signpost-plank.today{ box-shadow:3px 4px 0 rgba(0,0,0,0.25), 0 0 0 3px #fde047; }
+.signpost-plank .ei-day{ font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;opacity:0.75;margin-bottom:2px }
+.signpost-plank .ei-name{ font-size:15px;font-weight:800;line-height:1.2;margin-bottom:3px }
+.signpost-plank .ei-meta{ font-size:11px;font-weight:600;opacity:0.85;display:flex;gap:8px;flex-wrap:wrap }
 
 /* ── DECORATION LAYER ── */
 #theme-decorations{
@@ -253,6 +306,7 @@ body.theme-seuss header{
 <!-- HEADER -->
 <header>
   <div class="hdr-logo">
+    <div class="hat-mark"><div class="brim"></div><div class="crown"></div></div>
     <img src="/static/images/hwtc_logo_teal.png" alt="HWTC" style="height:48px" onerror="this.style.display='none'"/>
     <div>
       <div class="hdr-title">Horizon West Theater Company</div>
@@ -339,11 +393,15 @@ setInterval(updateClock, 1000)
 updateClock()
 
 // ── Data fetch ─────────────────────────────────────────────────────────────
+var _lastEvents = []
+
 async function loadData(){
   try{
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
-    renderEvents(d.events || [])
+    applyTheme(d.lobby_theme || 'none')
+    _lastEvents = d.events || []
+    renderEvents(_lastEvents)
     var images = d.lobby_images || []
     if(images.length){
       _slides = images.map(function(img){
@@ -352,7 +410,6 @@ async function loadData(){
       })
       buildCarousel()
     }
-    applyTheme(d.lobby_theme || 'none')
   } catch(e){ console.error('Load error:', e) }
 }
 
@@ -367,6 +424,7 @@ var THEME_LABELS = {
 
 function applyTheme(theme){
   if(theme === _currentTheme) return
+  var prevTheme = _currentTheme
   _currentTheme = theme
   // Remove all theme classes
   document.body.className = document.body.className.replace(/theme-\S+/g, '').trim()
@@ -378,7 +436,12 @@ function applyTheme(theme){
   document.getElementById('theme-decorations').innerHTML = ''
   // Start new decorations
   startThemeDecorations(theme)
+  // Re-render events if layout style changed (signpost vs standard)
+  if(prevTheme !== 'none' && (theme === 'seuss') !== (prevTheme === 'seuss') && _lastEvents.length){
+    renderEvents(_lastEvents)
+  }
 }
+
 
 function startThemeDecorations(theme){
   var deco = document.getElementById('theme-decorations')
@@ -391,7 +454,6 @@ function startThemeDecorations(theme){
     summer:  { emoji:'\u2600\ufe0f', count:0 }, // summer uses sparkle only, no falling
     halloween:{ emoji:'\ud83c\udf83', count:12, sizeMin:18, sizeMax:30, durMin:10, durMax:20, altEmoji:['\ud83e\udd87','\ud83d\udc7b'] },
     show:    { emoji:'\u2728', count:0 }, // show uses sparkle only
-    seuss:   { emoji:'\ud83c\udfa9', count:14, sizeMin:20, sizeMax:34, durMin:8, durMax:16, altEmoji:['\ud83d\udc1f','\ud83c\udf88','\ud83c\udf00'] },
   }
 
   var cfg = configs[theme]
@@ -407,8 +469,8 @@ function startThemeDecorations(theme){
     }, 1400)
   }
 
-  // Sparkle overlay for show/summer/halloween/seuss themes
-  if(theme === 'show' || theme === 'summer' || theme === 'halloween' || theme === 'seuss'){
+  // Sparkle overlay for show/summer/halloween themes
+  if(theme === 'show' || theme === 'summer' || theme === 'halloween'){
     spawnSparkles(deco, theme)
   }
 }
@@ -433,7 +495,7 @@ function spawnFallingDeco(container, cfg){
 }
 
 function spawnSparkles(container, theme){
-  var sparkleChar = theme === 'halloween' ? '\ud83d\udd76\ufe0f' : theme === 'summer' ? '\u2600\ufe0f' : theme === 'seuss' ? '\ud83c\udf2a\ufe0f' : '\u2728'
+  var sparkleChar = theme === 'halloween' ? '\ud83d\udd76\ufe0f' : theme === 'summer' ? '\u2600\ufe0f' : '\u2728'
   var count = theme === 'halloween' ? 6 : 10
   for(var i = 0; i < count; i++){
     var s = document.createElement('div')
@@ -453,11 +515,38 @@ setInterval(loadData, 5 * 60 * 1000)
 loadData()
 
 // ── Events ─────────────────────────────────────────────────────────────────
+var SEUSS_PLANK_COLORS = ['#fcd34d','#60a5fa','#4ade80','#f472b6','#fb923c','#a78bfa']
+
 function renderEvents(events){
   var el = document.getElementById('events-list')
-  if(!events.length){ el.innerHTML = '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'; return }
+  if(!events.length){
+    el.innerHTML = _currentTheme === 'seuss'
+      ? '<div class="signpost-wrap"><div class="no-events">No upcoming events<br/>scheduled at this time</div></div>'
+      : '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'
+    return
+  }
   var today = new Date().toISOString().slice(0,10)
   var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
+
+  if(_currentTheme === 'seuss'){
+    var planks = events.map(function(ev, i){
+      var isToday = ev.event_date === today
+      var isTomorrow = ev.event_date === tomorrow
+      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
+      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
+      var color = SEUSS_PLANK_COLORS[i % SEUSS_PLANK_COLORS.length]
+      return '<div class="signpost-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
+        + '<div class="ei-day">'+dayLabel+'</div>'
+        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
+        + '<div class="ei-meta">'
+        + (timeStr ? '<span>'+timeStr+'</span>' : '')
+        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
+        + '</div></div>'
+    }).join('')
+    el.innerHTML = '<div class="signpost-wrap"><div class="signpost-pole"></div>' + planks + '</div>'
+    return
+  }
+
   el.innerHTML = events.map(function(ev){
     var isToday = ev.event_date === today
     var isTomorrow = ev.event_date === tomorrow

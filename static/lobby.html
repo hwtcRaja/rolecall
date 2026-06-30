@@ -387,7 +387,7 @@ async function loadData(){
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
     applyTheme(d.lobby_theme || 'none')
-    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100)
+    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
     _lastEvents = d.events || []
     renderEvents(_lastEvents)
     var images = d.lobby_images || []
@@ -401,19 +401,21 @@ async function loadData(){
   } catch(e){ console.error('Load error:', e) }
 }
 
-function applyBanner(url, position, zoom){
+function applyBanner(url, position, zoom, fit){
   var header = document.querySelector('header')
   if(!header) return
   if(url){
     header.style.backgroundImage = "url('"+url+"')"
     header.style.backgroundPosition = position || '50% 50%'
-    header.style.backgroundSize = (zoom || 100) + '%'
+    header.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
+    header.style.backgroundRepeat = 'no-repeat'
     header.classList.add('has-banner')
   } else {
     header.classList.remove('has-banner')
     header.style.backgroundImage = ''
     header.style.backgroundPosition = ''
     header.style.backgroundSize = ''
+    header.style.backgroundRepeat = ''
   }
 }
 

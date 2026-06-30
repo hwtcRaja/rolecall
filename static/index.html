@@ -1939,10 +1939,30 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Header Banner</label>
   <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload your own image to use as the header background — great for a show poster, special event, or licensed promotional artwork. Leave unset to use the default HWTC header.</div>
-  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:420px;aspect-ratio:21/4;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover">
+  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:560px;aspect-ratio:1920/130;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover;position:relative">
+   <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.15) 55%,rgba(0,0,0,0.45) 100%)"></div>
+   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 3%;font-family:'DM Sans',system-ui,sans-serif;color:#fff">
+    <div style="display:flex;align-items:center;gap:1.5%">
+     <img src="/static/images/hwtc_logo_teal.png" style="height:44%;filter:brightness(0) invert(1)" onerror="this.style.display='none'"/>
+     <div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:-0.2px;line-height:1.1">Horizon West Theater Company</div>
+      <div style="font-size:6.5px;color:rgba(255,255,255,0.65);margin-top:1px">Welcome to HWTC Studio</div>
+     </div>
+    </div>
+    <div style="text-align:right">
+     <div id="banner-preview-clock" style="font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-0.4px;line-height:1">--:--:-- --</div>
+     <div id="banner-preview-date" style="font-size:7px;color:rgba(255,255,255,0.65);margin-top:1px"></div>
+    </div>
+   </div>
   </div>
+  <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Preview shown at the real header proportions (1920&times;130px). Logo and clock positions match exactly what appears on the TV.</div>
   <div id="lobby-banner-controls" style="display:none;margin-bottom:12px;max-width:420px">
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Fit Mode</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+   <button class="banner-fit-btn" data-fit="cover" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fill (crop to fit)</button>
+   <button class="banner-fit-btn" data-fit="contain" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fit (show full image)</button>
+  </div>
+  <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
    <div id="banner-pos-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:12px">
     <button class="banner-pos-btn" data-pos="0% 0%" title="Top Left"></button>
     <button class="banner-pos-btn" data-pos="50% 0%" title="Top Center"></button>
@@ -1973,6 +1993,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .banner-pos-btn:hover{border-color:var(--teal)}
   .banner-pos-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe)}
   .banner-pos-btn.active::after{background:var(--teal)}
+  .banner-fit-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe);color:var(--teal-dark)}
  </style>
 
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
@@ -6737,6 +6758,20 @@ async function loadLobbyImages(){
 
 var _bannerPosition = '50% 50%'
 var _bannerZoom = 100
+var _bannerFit = 'cover'
+var _bannerPreviewClockTimer = null
+
+function updateBannerPreviewClock(){
+ var clockEl = document.getElementById('banner-preview-clock')
+ var dateEl = document.getElementById('banner-preview-date')
+ if(!clockEl) return
+ var now = new Date()
+ var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds()
+ var ampm = h >= 12 ? 'PM' : 'AM'
+ h = h % 12 || 12
+ clockEl.textContent = h + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ' ' + ampm
+ if(dateEl) dateEl.textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+}
 
 async function loadLobbyBanner(){
  try{
@@ -6744,6 +6779,7 @@ async function loadLobbyBanner(){
   const url = (r && r.url) || ''
   _bannerPosition = (r && r.position) || '50% 50%'
   _bannerZoom = (r && r.zoom) || 100
+  _bannerFit = (r && r.fit) || 'cover'
   const preview = document.getElementById('lobby-banner-preview')
   const controls = document.getElementById('lobby-banner-controls')
   const clearBtn = document.getElementById('lobby-banner-clear-btn')
@@ -6752,20 +6788,44 @@ async function loadLobbyBanner(){
   if(url && preview){
    preview.style.backgroundImage = "url('"+url+"')"
    preview.style.backgroundPosition = _bannerPosition
-   preview.style.backgroundSize = _bannerZoom + '%'
+   preview.style.backgroundSize = _bannerFit === 'contain' ? 'contain' : _bannerZoom + '%'
+   preview.style.backgroundRepeat = 'no-repeat'
    preview.style.display = ''
    if(controls) controls.style.display = ''
    if(clearBtn) clearBtn.style.display = ''
    if(zoomSlider) zoomSlider.value = _bannerZoom
    if(zoomVal) zoomVal.textContent = _bannerZoom + '%'
    updateBannerPosButtons()
+   updateBannerFitButtons()
+   if(!_bannerPreviewClockTimer){
+    updateBannerPreviewClock()
+    _bannerPreviewClockTimer = setInterval(updateBannerPreviewClock, 1000)
+   }
   } else if(preview){
    preview.style.display = 'none'
    if(controls) controls.style.display = 'none'
    if(clearBtn) clearBtn.style.display = 'none'
+   if(_bannerPreviewClockTimer){ clearInterval(_bannerPreviewClockTimer); _bannerPreviewClockTimer = null }
   }
  } catch(e){}
 }
+
+function updateBannerFitButtons(){
+ document.querySelectorAll('.banner-fit-btn').forEach(function(btn){
+  btn.classList.toggle('active', btn.dataset.fit === _bannerFit)
+ })
+}
+
+document.addEventListener('click', function(e){
+ if(!e.target.classList.contains('banner-fit-btn')) return
+ _bannerFit = e.target.dataset.fit
+ updateBannerFitButtons()
+ const preview = document.getElementById('lobby-banner-preview')
+ if(preview){
+  preview.style.backgroundSize = _bannerFit === 'contain' ? 'contain' : _bannerZoom + '%'
+  preview.style.backgroundRepeat = 'no-repeat'
+ }
+})
 
 function updateBannerPosButtons(){
  document.querySelectorAll('.banner-pos-btn').forEach(function(btn){
@@ -6787,7 +6847,7 @@ document.addEventListener('input', function(e){
  const zoomVal = document.getElementById('banner-zoom-val')
  if(zoomVal) zoomVal.textContent = _bannerZoom + '%'
  const preview = document.getElementById('lobby-banner-preview')
- if(preview) preview.style.backgroundSize = _bannerZoom + '%'
+ if(preview && _bannerFit !== 'contain') preview.style.backgroundSize = _bannerZoom + '%'
 })
 
 async function saveLobbyBannerSettings(){
@@ -6795,9 +6855,9 @@ async function saveLobbyBannerSettings(){
  if(status) status.textContent = 'Saving...'
  const r = await api('/api/lobby/banner')
  const url = (r && r.url) || ''
- const res = await api('/api/lobby/banner','PUT',{url:url, position:_bannerPosition, zoom:_bannerZoom})
+ const res = await api('/api/lobby/banner','PUT',{url:url, position:_bannerPosition, zoom:_bannerZoom, fit:_bannerFit})
  if(res&&res.ok){
-  if(status) status.textContent = 'Position and zoom saved!'
+  if(status) status.textContent = 'Banner settings saved!'
   setTimeout(function(){ if(status) status.textContent='' }, 3000)
  } else {
   if(status) status.textContent = 'Error saving'
@@ -6807,7 +6867,7 @@ async function saveLobbyBannerSettings(){
 async function clearLobbyBanner(){
  const status = document.getElementById('lobby-banner-status')
  if(status) status.textContent = 'Removing...'
- const res = await api('/api/lobby/banner','PUT',{url:'', position:'50% 50%', zoom:100})
+ const res = await api('/api/lobby/banner','PUT',{url:'', position:'50% 50%', zoom:100, fit:'cover'})
  if(res&&res.ok){
   loadLobbyBanner()
   if(status) status.textContent = 'Banner removed'
@@ -6828,11 +6888,11 @@ document.addEventListener('change', async function(e){
   const r = await fetch('/api/lobby/banner/upload', {method:'POST', body:fd, credentials:'include'})
   const d = await r.json()
   if(d.ok){
-   _bannerPosition = '50% 50%'; _bannerZoom = 100
-   const saveRes = await api('/api/lobby/banner','PUT',{url:d.url, position:_bannerPosition, zoom:_bannerZoom})
+   _bannerPosition = '50% 50%'; _bannerZoom = 100; _bannerFit = 'contain'
+   const saveRes = await api('/api/lobby/banner','PUT',{url:d.url, position:_bannerPosition, zoom:_bannerZoom, fit:_bannerFit})
    if(saveRes&&saveRes.ok){
     loadLobbyBanner()
-    if(status) status.textContent = 'Banner uploaded! Adjust position/zoom below if needed.'
+    if(status) status.textContent = 'Banner uploaded! Adjust fit/position/zoom below if needed.'
     setTimeout(function(){ if(status) status.textContent='' }, 5000)
    } else {
     if(status) status.textContent = 'Save failed: '+(saveRes&&saveRes.error||'Unknown')

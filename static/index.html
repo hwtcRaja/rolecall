@@ -1939,8 +1939,24 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Header Banner</label>
   <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload your own image to use as the header background — great for a show poster, special event, or licensed promotional artwork. Leave unset to use the default HWTC header.</div>
-  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:420px;aspect-ratio:21/4;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000">
-   <img id="lobby-banner-img" style="width:100%;height:100%;object-fit:cover"/>
+  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:420px;aspect-ratio:21/4;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover">
+  </div>
+  <div id="lobby-banner-controls" style="display:none;margin-bottom:12px;max-width:420px">
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
+   <div id="banner-pos-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:12px">
+    <button class="banner-pos-btn" data-pos="0% 0%" title="Top Left"></button>
+    <button class="banner-pos-btn" data-pos="50% 0%" title="Top Center"></button>
+    <button class="banner-pos-btn" data-pos="100% 0%" title="Top Right"></button>
+    <button class="banner-pos-btn" data-pos="0% 50%" title="Middle Left"></button>
+    <button class="banner-pos-btn" data-pos="50% 50%" title="Center"></button>
+    <button class="banner-pos-btn" data-pos="100% 50%" title="Middle Right"></button>
+    <button class="banner-pos-btn" data-pos="0% 100%" title="Bottom Left"></button>
+    <button class="banner-pos-btn" data-pos="50% 100%" title="Bottom Center"></button>
+    <button class="banner-pos-btn" data-pos="100% 100%" title="Bottom Right"></button>
+   </div>
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Zoom <span id="banner-zoom-val">100%</span></div>
+   <input type="range" id="lobby-banner-zoom" min="50" max="300" value="100" style="width:100%;accent-color:var(--teal)"/>
+   <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()" style="margin-top:10px">Save Position &amp; Zoom</button>
   </div>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
    <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
@@ -1951,6 +1967,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <span id="lobby-banner-status" style="font-size:13px;color:var(--teal-dark)"></span>
   </div>
  </div>
+ <style>
+  .banner-pos-btn{aspect-ratio:1;border:1.5px solid var(--border-md);border-radius:4px;background:var(--surface);cursor:pointer;position:relative;padding:0}
+  .banner-pos-btn::after{content:'';position:absolute;inset:30%;border-radius:2px;background:var(--border-md)}
+  .banner-pos-btn:hover{border-color:var(--teal)}
+  .banner-pos-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe)}
+  .banner-pos-btn.active::after{background:var(--teal)}
+ </style>
 
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Seasonal Theme</label>
@@ -6712,28 +6735,79 @@ async function loadLobbyImages(){
  loadLobbyBanner()
 }
 
+var _bannerPosition = '50% 50%'
+var _bannerZoom = 100
+
 async function loadLobbyBanner(){
  try{
   const r = await api('/api/lobby/banner')
   const url = (r && r.url) || ''
+  _bannerPosition = (r && r.position) || '50% 50%'
+  _bannerZoom = (r && r.zoom) || 100
   const preview = document.getElementById('lobby-banner-preview')
-  const img = document.getElementById('lobby-banner-img')
+  const controls = document.getElementById('lobby-banner-controls')
   const clearBtn = document.getElementById('lobby-banner-clear-btn')
-  if(url && preview && img){
-   img.src = url
+  const zoomSlider = document.getElementById('lobby-banner-zoom')
+  const zoomVal = document.getElementById('banner-zoom-val')
+  if(url && preview){
+   preview.style.backgroundImage = "url('"+url+"')"
+   preview.style.backgroundPosition = _bannerPosition
+   preview.style.backgroundSize = _bannerZoom + '%'
    preview.style.display = ''
+   if(controls) controls.style.display = ''
    if(clearBtn) clearBtn.style.display = ''
+   if(zoomSlider) zoomSlider.value = _bannerZoom
+   if(zoomVal) zoomVal.textContent = _bannerZoom + '%'
+   updateBannerPosButtons()
   } else if(preview){
    preview.style.display = 'none'
+   if(controls) controls.style.display = 'none'
    if(clearBtn) clearBtn.style.display = 'none'
   }
  } catch(e){}
 }
 
+function updateBannerPosButtons(){
+ document.querySelectorAll('.banner-pos-btn').forEach(function(btn){
+  btn.classList.toggle('active', btn.dataset.pos === _bannerPosition)
+ })
+}
+
+document.addEventListener('click', function(e){
+ if(!e.target.classList.contains('banner-pos-btn')) return
+ _bannerPosition = e.target.dataset.pos
+ updateBannerPosButtons()
+ const preview = document.getElementById('lobby-banner-preview')
+ if(preview) preview.style.backgroundPosition = _bannerPosition
+})
+
+document.addEventListener('input', function(e){
+ if(e.target.id !== 'lobby-banner-zoom') return
+ _bannerZoom = parseInt(e.target.value)
+ const zoomVal = document.getElementById('banner-zoom-val')
+ if(zoomVal) zoomVal.textContent = _bannerZoom + '%'
+ const preview = document.getElementById('lobby-banner-preview')
+ if(preview) preview.style.backgroundSize = _bannerZoom + '%'
+})
+
+async function saveLobbyBannerSettings(){
+ const status = document.getElementById('lobby-banner-status')
+ if(status) status.textContent = 'Saving...'
+ const r = await api('/api/lobby/banner')
+ const url = (r && r.url) || ''
+ const res = await api('/api/lobby/banner','PUT',{url:url, position:_bannerPosition, zoom:_bannerZoom})
+ if(res&&res.ok){
+  if(status) status.textContent = 'Position and zoom saved!'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error saving'
+ }
+}
+
 async function clearLobbyBanner(){
  const status = document.getElementById('lobby-banner-status')
  if(status) status.textContent = 'Removing...'
- const res = await api('/api/lobby/banner','PUT',{url:''})
+ const res = await api('/api/lobby/banner','PUT',{url:'', position:'50% 50%', zoom:100})
  if(res&&res.ok){
   loadLobbyBanner()
   if(status) status.textContent = 'Banner removed'
@@ -6753,14 +6827,13 @@ document.addEventListener('change', async function(e){
   const fd = new FormData(); fd.append('file', file)
   const r = await fetch('/api/lobby/banner/upload', {method:'POST', body:fd, credentials:'include'})
   const d = await r.json()
-  console.log('Banner upload result:', d)
   if(d.ok){
-   const saveRes = await api('/api/lobby/banner','PUT',{url:d.url})
-   console.log('Banner save result:', saveRes)
+   _bannerPosition = '50% 50%'; _bannerZoom = 100
+   const saveRes = await api('/api/lobby/banner','PUT',{url:d.url, position:_bannerPosition, zoom:_bannerZoom})
    if(saveRes&&saveRes.ok){
     loadLobbyBanner()
-    if(status) status.textContent = 'Banner uploaded and applied!'
-    setTimeout(function(){ if(status) status.textContent='' }, 4000)
+    if(status) status.textContent = 'Banner uploaded! Adjust position/zoom below if needed.'
+    setTimeout(function(){ if(status) status.textContent='' }, 5000)
    } else {
     if(status) status.textContent = 'Save failed: '+(saveRes&&saveRes.error||'Unknown')
    }

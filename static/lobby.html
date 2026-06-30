@@ -221,25 +221,7 @@ body.theme-seuss{
   --seuss-yellow:#fcd34d; --seuss-blue:#3b82f6; --seuss-green:#16a34a; --seuss-red:#e8344f; --seuss-purple:#9333ea;
 }
 body.theme-seuss header{ background:var(--hdr-grad-1); }
-body.theme-seuss .hat-mark{ display:flex }
 body.theme-seuss .hdr-title{ font-family:'Baloo 2','DM Sans',system-ui,sans-serif; letter-spacing:0 }
-
-/* Cat-in-the-hat style icon mark, built in pure CSS (no copyrighted art) */
-.hat-mark{ display:none; width:56px;height:56px;position:relative;flex-shrink:0 }
-.hat-mark .brim{
-  position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
-  width:54px;height:14px;background:#fff;border-radius:50%;border:3px solid #1a1a1a;
-}
-.hat-mark .crown{
-  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
-  width:34px;height:38px;background:#fff;border:3px solid #1a1a1a;border-radius:6px 6px 2px 2px;
-  overflow:hidden;
-}
-.hat-mark .crown::before,.hat-mark .crown::after{
-  content:'';position:absolute;left:0;right:0;height:9px;background:var(--seuss-red);
-}
-.hat-mark .crown::before{ top:6px }
-.hat-mark .crown::after{ top:24px }
 
 /* ── SIGNPOST EVENTS (Seuss theme schedule) ── */
 body.theme-seuss #schedule-area{ background:var(--sched-bg) }
@@ -312,7 +294,6 @@ body.theme-seuss .schedule-header::before{ display:none }
 <!-- HEADER -->
 <header>
   <div class="hdr-logo">
-    <div class="hat-mark"><div class="brim"></div><div class="crown"></div></div>
     <img src="/static/images/hwtc_logo_teal.png" alt="HWTC" style="height:48px" onerror="this.style.display='none'"/>
     <div>
       <div class="hdr-title">Horizon West Theater Company</div>
@@ -406,7 +387,7 @@ async function loadData(){
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
     applyTheme(d.lobby_theme || 'none')
-    applyBanner(d.lobby_banner || '')
+    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100)
     _lastEvents = d.events || []
     renderEvents(_lastEvents)
     var images = d.lobby_images || []
@@ -420,15 +401,19 @@ async function loadData(){
   } catch(e){ console.error('Load error:', e) }
 }
 
-function applyBanner(url){
+function applyBanner(url, position, zoom){
   var header = document.querySelector('header')
   if(!header) return
   if(url){
     header.style.backgroundImage = "url('"+url+"')"
+    header.style.backgroundPosition = position || '50% 50%'
+    header.style.backgroundSize = (zoom || 100) + '%'
     header.classList.add('has-banner')
   } else {
     header.classList.remove('has-banner')
     header.style.backgroundImage = ''
+    header.style.backgroundPosition = ''
+    header.style.backgroundSize = ''
   }
 }
 

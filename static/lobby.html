@@ -45,9 +45,6 @@ header{
   border-bottom:3px solid var(--hdr-border);
   position:relative;z-index:10;
 }
-header.has-banner{
-  background-image:var(--hdr-banner-url);
-}
 header.has-banner::before{
   content:'';position:absolute;inset:0;
   background:linear-gradient(90deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.15) 55%,rgba(0,0,0,0.45) 100%);
@@ -427,11 +424,11 @@ function applyBanner(url){
   var header = document.querySelector('header')
   if(!header) return
   if(url){
-    header.style.setProperty('--hdr-banner-url', "url('"+url+"')")
+    header.style.backgroundImage = "url('"+url+"')"
     header.classList.add('has-banner')
   } else {
     header.classList.remove('has-banner')
-    header.style.removeProperty('--hdr-banner-url')
+    header.style.backgroundImage = ''
   }
 }
 

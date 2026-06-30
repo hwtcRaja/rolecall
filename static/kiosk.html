@@ -2277,38 +2277,38 @@ function showConfirm(icon,title,sub,note,onBack){
 </style>
 
 <script>
-// ── NFC / URL param auto-login ──
-(async function checkNFCParam(){
-  const params = new URLSearchParams(window.location.search)
-  const volId = params.get('vol')
-  if(!volId) return
-
-  // Show welcome overlay while fetching
-  const overlay = document.getElementById('nfc-welcome')
-  overlay.style.display = 'flex'
-
-  try {
-    const r = await fetch('/api/kiosk/volunteer-profile/'+volId)
-    if(!r.ok) throw new Error('Not found')
-    const vol = await r.json()
-    if(vol.error) throw new Error(vol.error)
-
-    // Show name briefly
-    document.getElementById('nfc-welcome-name').textContent = 'Welcome, '+vol.name.split(' ')[0]+'!'
-    await new Promise(res=>setTimeout(res, 1200))
-
-    // Hide overlay and load volunteer
-    overlay.style.display = 'none'
-    // Clean URL so Back button works cleanly
-    history.replaceState(null, '', window.location.pathname)
-    // Load interest types then go through normal waiver check flow
-    const ir = await fetch('/api/kiosk/interest-types')
-    allInterestTypes = await ir.json()
-    selVol = vol
-    await goWaiverCheck(false)
-  } catch(e){
-    overlay.style.display = 'none'
-    // Fall through to normal idle screen
+// ── NFC Poll loop ──
+// Volunteer taps NFC tag → opens /kiosk/nfc?vol=ID → server stores signal
+// Kiosk polls every 1.5s, detects signal, auto-logs in volunteer
+var _nfcPollActive = true
+;(async function nfcPollLoop(){
+  while(_nfcPollActive){
+    try{
+      const r = await fetch('/api/kiosk/nfc-poll')
+      const d = await r.json()
+      if(d.signal){
+        const volId = d.signal
+        const overlay = document.getElementById('nfc-welcome')
+        if(overlay) overlay.style.display = 'flex'
+        try{
+          const vr = await fetch('/api/kiosk/volunteer-profile/'+volId)
+          if(!vr.ok) throw new Error('Not found')
+          const vol = await vr.json()
+          if(vol.error) throw new Error(vol.error)
+          document.getElementById('nfc-welcome-name').textContent = 'Welcome, '+vol.name.split(' ')[0]+'!'
+          await new Promise(function(res){ setTimeout(res, 1400) })
+          if(overlay) overlay.style.display = 'none'
+          const ir = await fetch('/api/kiosk/interest-types')
+          allInterestTypes = await ir.json()
+          selVol = vol
+          await goWaiverCheck(false)
+        } catch(e){
+          if(overlay) overlay.style.display = 'none'
+          console.error('NFC volunteer load error:', e)
+        }
+      }
+    } catch(e){ /* network error, keep polling */ }
+    await new Promise(function(res){ setTimeout(res, 1500) })
   }
 })()
 </script>

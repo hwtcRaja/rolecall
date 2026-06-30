@@ -2278,8 +2278,6 @@ function showConfirm(icon,title,sub,note,onBack){
 
 <script>
 // ── NFC Poll loop ──
-// Volunteer taps NFC tag → opens /kiosk/nfc?vol=ID → server stores signal
-// Kiosk polls every 1.5s, detects signal, auto-logs in volunteer
 var _nfcPollActive = true
 ;(async function nfcPollLoop(){
   while(_nfcPollActive){
@@ -2307,8 +2305,33 @@ var _nfcPollActive = true
           console.error('NFC volunteer load error:', e)
         }
       }
-    } catch(e){ /* network error, keep polling */ }
+    } catch(e){ /* keep polling */ }
     await new Promise(function(res){ setTimeout(res, 1500) })
+  }
+})()
+
+// ── URL param auto-login (e.g. opening /kiosk?vol=ID directly) ──
+;(async function checkURLParam(){
+  const params = new URLSearchParams(window.location.search)
+  const volId = params.get('vol')
+  if(!volId) return
+  history.replaceState(null, '', window.location.pathname)
+  const overlay = document.getElementById('nfc-welcome')
+  if(overlay) overlay.style.display = 'flex'
+  try{
+    const vr = await fetch('/api/kiosk/volunteer-profile/'+volId)
+    if(!vr.ok) throw new Error('Not found')
+    const vol = await vr.json()
+    if(vol.error) throw new Error(vol.error)
+    document.getElementById('nfc-welcome-name').textContent = 'Welcome, '+vol.name.split(' ')[0]+'!'
+    await new Promise(function(res){ setTimeout(res, 1400) })
+    if(overlay) overlay.style.display = 'none'
+    const ir = await fetch('/api/kiosk/interest-types')
+    allInterestTypes = await ir.json()
+    selVol = vol
+    await goWaiverCheck(false)
+  } catch(e){
+    if(overlay) overlay.style.display = 'none'
   }
 })()
 </script>

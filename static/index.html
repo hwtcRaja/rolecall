@@ -3837,7 +3837,7 @@ function updateBulkActions(){
 // PROFILE
 // ═══════════════════════════════════════════════════════════════
 function printVolIdCard(volId, volName){
- const kioskUrl = window.location.origin + '/kiosk/nfc?vol=' + volId
+ const kioskUrl = window.location.origin + '/kiosk?vol=' + volId
  const qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(kioskUrl)
  const win = window.open('', '_blank', 'width=420,height=320')
  win.document.write(`<!DOCTYPE html><html><head><title>Volunteer ID — ${volName}</title>

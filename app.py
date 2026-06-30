@@ -13087,7 +13087,40 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images})
+    lobby_theme = 'none'
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_theme',))
+        lobby_theme = (row or {}).get('value') or 'none'
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby theme query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme})
+
+@app.route('/api/lobby/theme', methods=['GET'])
+def get_lobby_theme():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_theme',))
+    conn.close()
+    return jsonify({'theme': (row or {}).get('value') or 'none'})
+
+@app.route('/api/lobby/theme', methods=['PUT'])
+def save_lobby_theme():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    theme = (d.get('theme') or 'none').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_theme', theme))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/lobby/images', methods=['GET'])
 def get_lobby_images():

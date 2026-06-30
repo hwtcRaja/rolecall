@@ -1997,6 +1997,50 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </style>
 
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
+  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Schedule Sidebar Background</label>
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload a background image to show behind the upcoming events list on the right side of the lobby TV. Leave unset to use the default solid color.</div>
+  <div id="sched-bg-preview" style="display:none;width:140px;aspect-ratio:380/950;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover"></div>
+  <div id="sched-bg-controls" style="display:none;margin-bottom:12px;max-width:300px">
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Fit Mode</div>
+   <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="sched-bg-fit-btn" data-fit="cover" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fill (crop to fit)</button>
+    <button class="sched-bg-fit-btn" data-fit="contain" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fit (show full image)</button>
+   </div>
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
+   <div id="sched-bg-pos-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:12px">
+    <button class="sched-bg-pos-btn" data-pos="0% 0%" title="Top Left"></button>
+    <button class="sched-bg-pos-btn" data-pos="50% 0%" title="Top Center"></button>
+    <button class="sched-bg-pos-btn" data-pos="100% 0%" title="Top Right"></button>
+    <button class="sched-bg-pos-btn" data-pos="0% 50%" title="Middle Left"></button>
+    <button class="sched-bg-pos-btn" data-pos="50% 50%" title="Center"></button>
+    <button class="sched-bg-pos-btn" data-pos="100% 50%" title="Middle Right"></button>
+    <button class="sched-bg-pos-btn" data-pos="0% 100%" title="Bottom Left"></button>
+    <button class="sched-bg-pos-btn" data-pos="50% 100%" title="Bottom Center"></button>
+    <button class="sched-bg-pos-btn" data-pos="100% 100%" title="Bottom Right"></button>
+   </div>
+   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Zoom <span id="sched-bg-zoom-val">100%</span></div>
+   <input type="range" id="sched-bg-zoom" min="50" max="300" value="100" style="width:100%;accent-color:var(--teal)"/>
+   <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()" style="margin-top:10px">Save Position &amp; Zoom</button>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+   <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+    Upload Background Image
+    <input type="file" id="sched-bg-input" accept="image/*" style="display:none"/>
+   </label>
+   <button class="btn btn-secondary btn-sm" onclick="clearSchedBg()" id="sched-bg-clear-btn" style="display:none">Remove Background</button>
+   <span id="sched-bg-status" style="font-size:13px;color:var(--teal-dark)"></span>
+  </div>
+ </div>
+ <style>
+  .sched-bg-pos-btn{aspect-ratio:1;border:1.5px solid var(--border-md);border-radius:4px;background:var(--surface);cursor:pointer;position:relative;padding:0}
+  .sched-bg-pos-btn::after{content:'';position:absolute;inset:30%;border-radius:2px;background:var(--border-md)}
+  .sched-bg-pos-btn:hover{border-color:var(--teal)}
+  .sched-bg-pos-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe)}
+  .sched-bg-pos-btn.active::after{background:var(--teal)}
+  .sched-bg-fit-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe);color:var(--teal-dark)}
+ </style>
+
+ <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Seasonal Theme</label>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
    <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
@@ -6754,7 +6798,140 @@ async function loadLobbyImages(){
  renderLobbyImgGrid()
  loadLobbyTheme()
  loadLobbyBanner()
+ loadSchedBg()
 }
+
+var _schedBgPosition = '50% 50%'
+var _schedBgZoom = 100
+var _schedBgFit = 'cover'
+
+async function loadSchedBg(){
+ try{
+  const r = await api('/api/lobby/sched-bg')
+  const url = (r && r.url) || ''
+  _schedBgPosition = (r && r.position) || '50% 50%'
+  _schedBgZoom = (r && r.zoom) || 100
+  _schedBgFit = (r && r.fit) || 'cover'
+  const preview = document.getElementById('sched-bg-preview')
+  const controls = document.getElementById('sched-bg-controls')
+  const clearBtn = document.getElementById('sched-bg-clear-btn')
+  const zoomSlider = document.getElementById('sched-bg-zoom')
+  const zoomVal = document.getElementById('sched-bg-zoom-val')
+  if(url && preview){
+   preview.style.backgroundImage = "url('"+url+"')"
+   preview.style.backgroundPosition = _schedBgPosition
+   preview.style.backgroundSize = _schedBgFit === 'contain' ? 'contain' : _schedBgZoom + '%'
+   preview.style.backgroundRepeat = 'no-repeat'
+   preview.style.display = ''
+   if(controls) controls.style.display = ''
+   if(clearBtn) clearBtn.style.display = ''
+   if(zoomSlider) zoomSlider.value = _schedBgZoom
+   if(zoomVal) zoomVal.textContent = _schedBgZoom + '%'
+   updateSchedBgPosButtons()
+   updateSchedBgFitButtons()
+  } else if(preview){
+   preview.style.display = 'none'
+   if(controls) controls.style.display = 'none'
+   if(clearBtn) clearBtn.style.display = 'none'
+  }
+ } catch(e){}
+}
+
+function updateSchedBgPosButtons(){
+ document.querySelectorAll('.sched-bg-pos-btn').forEach(function(btn){
+  btn.classList.toggle('active', btn.dataset.pos === _schedBgPosition)
+ })
+}
+
+function updateSchedBgFitButtons(){
+ document.querySelectorAll('.sched-bg-fit-btn').forEach(function(btn){
+  btn.classList.toggle('active', btn.dataset.fit === _schedBgFit)
+ })
+}
+
+document.addEventListener('click', function(e){
+ if(e.target.classList.contains('sched-bg-pos-btn')){
+  _schedBgPosition = e.target.dataset.pos
+  updateSchedBgPosButtons()
+  const preview = document.getElementById('sched-bg-preview')
+  if(preview) preview.style.backgroundPosition = _schedBgPosition
+ }
+ if(e.target.classList.contains('sched-bg-fit-btn')){
+  _schedBgFit = e.target.dataset.fit
+  updateSchedBgFitButtons()
+  const preview = document.getElementById('sched-bg-preview')
+  if(preview){
+   preview.style.backgroundSize = _schedBgFit === 'contain' ? 'contain' : _schedBgZoom + '%'
+   preview.style.backgroundRepeat = 'no-repeat'
+  }
+ }
+})
+
+document.addEventListener('input', function(e){
+ if(e.target.id !== 'sched-bg-zoom') return
+ _schedBgZoom = parseInt(e.target.value)
+ const zoomVal = document.getElementById('sched-bg-zoom-val')
+ if(zoomVal) zoomVal.textContent = _schedBgZoom + '%'
+ const preview = document.getElementById('sched-bg-preview')
+ if(preview && _schedBgFit !== 'contain') preview.style.backgroundSize = _schedBgZoom + '%'
+})
+
+async function saveSchedBgSettings(){
+ const status = document.getElementById('sched-bg-status')
+ if(status) status.textContent = 'Saving...'
+ const r = await api('/api/lobby/sched-bg')
+ const url = (r && r.url) || ''
+ const res = await api('/api/lobby/sched-bg','PUT',{url:url, position:_schedBgPosition, zoom:_schedBgZoom, fit:_schedBgFit})
+ if(res&&res.ok){
+  if(status) status.textContent = 'Background settings saved!'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error saving'
+ }
+}
+
+async function clearSchedBg(){
+ const status = document.getElementById('sched-bg-status')
+ if(status) status.textContent = 'Removing...'
+ const res = await api('/api/lobby/sched-bg','PUT',{url:'', position:'50% 50%', zoom:100, fit:'cover'})
+ if(res&&res.ok){
+  loadSchedBg()
+  if(status) status.textContent = 'Background removed'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error removing background'
+ }
+}
+
+document.addEventListener('change', async function(e){
+ if(e.target.id !== 'sched-bg-input') return
+ const file = e.target.files[0]
+ if(!file) return
+ const status = document.getElementById('sched-bg-status')
+ if(status) status.textContent = 'Uploading...'
+ try{
+  const fd = new FormData(); fd.append('file', file)
+  const r = await fetch('/api/lobby/sched-bg/upload', {method:'POST', body:fd, credentials:'include'})
+  const d = await r.json()
+  if(d.ok){
+   _schedBgPosition = '50% 50%'; _schedBgZoom = 100; _schedBgFit = 'cover'
+   const saveRes = await api('/api/lobby/sched-bg','PUT',{url:d.url, position:_schedBgPosition, zoom:_schedBgZoom, fit:_schedBgFit})
+   if(saveRes&&saveRes.ok){
+    loadSchedBg()
+    if(status) status.textContent = 'Background uploaded! Adjust fit/position/zoom below if needed.'
+    setTimeout(function(){ if(status) status.textContent='' }, 5000)
+   } else {
+    if(status) status.textContent = 'Save failed: '+(saveRes&&saveRes.error||'Unknown')
+   }
+  } else {
+   if(status) status.textContent = 'Upload failed: '+(d.error||'Unknown error')
+  }
+ } catch(err){
+  if(status) status.textContent = 'Error: '+err.message
+  console.error('Schedule bg upload error:', err)
+ }
+ e.target.value = ''
+})
 
 var _bannerPosition = '50% 50%'
 var _bannerZoom = 100

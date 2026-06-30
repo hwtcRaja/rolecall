@@ -103,8 +103,22 @@ header.has-banner::before{
 #schedule-area{
   grid-area:schedule;
   background:var(--sched-bg);
+  background-size:cover;background-position:center;background-repeat:no-repeat;
   border-left:2px solid var(--sched-border);
   display:flex;flex-direction:column;overflow:hidden;
+  position:relative;
+}
+#schedule-area.has-bg::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,0.35) 0%,rgba(0,0,0,0.55) 100%);
+  z-index:0;pointer-events:none;
+}
+#schedule-area.has-bg .schedule-header,
+#schedule-area.has-bg #events-list{
+  position:relative;z-index:1;
+}
+#schedule-area.has-bg .schedule-header{
+  background:rgba(0,0,0,0.3);
 }
 .schedule-header{
   background:var(--sched-hdr-bg);
@@ -388,6 +402,7 @@ async function loadData(){
     var d = await r.json()
     applyTheme(d.lobby_theme || 'none')
     applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
+    applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover')
     _lastEvents = d.events || []
     renderEvents(_lastEvents)
     var images = d.lobby_images || []
@@ -416,6 +431,24 @@ function applyBanner(url, position, zoom, fit){
     header.style.backgroundPosition = ''
     header.style.backgroundSize = ''
     header.style.backgroundRepeat = ''
+  }
+}
+
+function applySchedBg(url, position, zoom, fit){
+  var sched = document.getElementById('schedule-area')
+  if(!sched) return
+  if(url){
+    sched.style.backgroundImage = "url('"+url+"')"
+    sched.style.backgroundPosition = position || '50% 50%'
+    sched.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
+    sched.style.backgroundRepeat = 'no-repeat'
+    sched.classList.add('has-bg')
+  } else {
+    sched.classList.remove('has-bg')
+    sched.style.backgroundImage = ''
+    sched.style.backgroundPosition = ''
+    sched.style.backgroundSize = ''
+    sched.style.backgroundRepeat = ''
   }
 }
 

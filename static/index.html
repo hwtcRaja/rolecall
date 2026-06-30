@@ -1934,7 +1934,27 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- Lobby TV -->
  <div class="card" style="padding:20px;margin-bottom:16px">
  <div style="font-size:15px;font-weight:700;margin-bottom:4px">Lobby TV Display</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Manage images shown on the lobby carousel at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a></div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Manage images and seasonal theme for the lobby carousel at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a></div>
+
+ <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
+  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Seasonal Theme</label>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+   <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
+    <option value="none">None (Default)</option>
+    <option value="winter">&#10052;&#65039; Winter Wonderland</option>
+    <option value="fall">&#127810; Autumn</option>
+    <option value="halloween">&#127875; Halloween</option>
+    <option value="spring">&#127800; Spring</option>
+    <option value="summer">&#9728;&#65039; Summer</option>
+    <option value="show">&#10024; Opening Night / Show Spotlight</option>
+    <option value="seuss">&#127913; Dr. Seuss</option>
+   </select>
+   <button class="btn btn-primary btn-sm" onclick="saveLobbyTheme()">Apply Theme</button>
+   <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
+  </div>
+  <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Changes the background colors and adds subtle themed animations (snow, leaves, sparkles, etc.) to the lobby TV display. Takes effect within 5 minutes, or immediately on page refresh.</div>
+ </div>
+
  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-img-grid"></div>
  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <label class="btn btn-secondary" style="cursor:pointer;margin:0">
@@ -6672,6 +6692,28 @@ async function loadLobbyImages(){
   _lobbyImages = Array.isArray(r) ? r : []
  } catch(e){ _lobbyImages = [] }
  renderLobbyImgGrid()
+ loadLobbyTheme()
+}
+
+async function loadLobbyTheme(){
+ try{
+  const r = await api('/api/lobby/theme')
+  const sel = document.getElementById('lobby-theme-select')
+  if(sel && r && r.theme) sel.value = r.theme
+ } catch(e){}
+}
+
+async function saveLobbyTheme(){
+ const status = document.getElementById('lobby-theme-status')
+ const theme = (document.getElementById('lobby-theme-select')||{}).value||'none'
+ if(status) status.textContent = 'Saving...'
+ const res = await api('/api/lobby/theme','PUT',{theme})
+ if(res&&res.ok){
+  if(status) status.textContent = 'Theme applied!'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error saving theme'
+ }
 }
 
 function renderLobbyImgGrid(){

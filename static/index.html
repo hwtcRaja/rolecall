@@ -1937,6 +1937,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Manage images and seasonal theme for the lobby carousel at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a></div>
 
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
+  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Header Banner</label>
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload your own image to use as the header background — great for a show poster, special event, or licensed promotional artwork. Leave unset to use the default HWTC header.</div>
+  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:420px;aspect-ratio:21/4;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000">
+   <img id="lobby-banner-img" style="width:100%;height:100%;object-fit:cover"/>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+   <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+    Upload Banner Image
+    <input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/>
+   </label>
+   <button class="btn btn-secondary btn-sm" onclick="clearLobbyBanner()" id="lobby-banner-clear-btn" style="display:none">Remove Banner</button>
+   <span id="lobby-banner-status" style="font-size:13px;color:var(--teal-dark)"></span>
+  </div>
+ </div>
+
+ <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Seasonal Theme</label>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
    <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
@@ -6693,7 +6709,66 @@ async function loadLobbyImages(){
  } catch(e){ _lobbyImages = [] }
  renderLobbyImgGrid()
  loadLobbyTheme()
+ loadLobbyBanner()
 }
+
+async function loadLobbyBanner(){
+ try{
+  const r = await api('/api/lobby/banner')
+  const url = (r && r.url) || ''
+  const preview = document.getElementById('lobby-banner-preview')
+  const img = document.getElementById('lobby-banner-img')
+  const clearBtn = document.getElementById('lobby-banner-clear-btn')
+  if(url && preview && img){
+   img.src = url
+   preview.style.display = ''
+   if(clearBtn) clearBtn.style.display = ''
+  } else if(preview){
+   preview.style.display = 'none'
+   if(clearBtn) clearBtn.style.display = 'none'
+  }
+ } catch(e){}
+}
+
+async function clearLobbyBanner(){
+ const status = document.getElementById('lobby-banner-status')
+ if(status) status.textContent = 'Removing...'
+ const res = await api('/api/lobby/banner','PUT',{url:''})
+ if(res&&res.ok){
+  loadLobbyBanner()
+  if(status) status.textContent = 'Banner removed'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error removing banner'
+ }
+}
+
+document.addEventListener('change', async function(e){
+ if(e.target.id !== 'lobby-banner-input') return
+ const file = e.target.files[0]
+ if(!file) return
+ const status = document.getElementById('lobby-banner-status')
+ if(status) status.textContent = 'Uploading...'
+ try{
+  const fd = new FormData(); fd.append('file', file)
+  const r = await fetch('/api/lobby/banner/upload', {method:'POST', body:fd, credentials:'include'})
+  const d = await r.json()
+  if(d.ok){
+   const saveRes = await api('/api/lobby/banner','PUT',{url:d.url})
+   if(saveRes&&saveRes.ok){
+    loadLobbyBanner()
+    if(status) status.textContent = 'Banner uploaded and applied!'
+    setTimeout(function(){ if(status) status.textContent='' }, 4000)
+   }
+  } else {
+   if(status) status.textContent = 'Upload failed: '+(d.error||'Unknown error')
+  }
+ } catch(err){
+  if(status) status.textContent = 'Error: '+err.message
+  console.error('Banner upload error:', err)
+ }
+ e.target.value = ''
+})
 
 async function loadLobbyTheme(){
  try{

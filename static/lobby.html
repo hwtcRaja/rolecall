@@ -39,10 +39,19 @@ body{
 header{
   grid-area:header;
   background:linear-gradient(135deg,var(--hdr-grad-1) 0%,var(--hdr-grad-2) 60%,var(--hdr-grad-3) 100%);
+  background-size:cover;background-position:center;
   display:flex;align-items:center;justify-content:space-between;
   padding:0 40px;
   border-bottom:3px solid var(--hdr-border);
   position:relative;z-index:10;
+}
+header.has-banner{
+  background-image:var(--hdr-banner-url);
+}
+header.has-banner::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.15) 55%,rgba(0,0,0,0.45) 100%);
+  z-index:-1;
 }
 .hdr-logo{display:flex;align-items:center;gap:16px}
 .hdr-logo img{height:48px;filter:brightness(0) invert(1)}
@@ -400,6 +409,7 @@ async function loadData(){
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
     applyTheme(d.lobby_theme || 'none')
+    applyBanner(d.lobby_banner || '')
     _lastEvents = d.events || []
     renderEvents(_lastEvents)
     var images = d.lobby_images || []
@@ -411,6 +421,18 @@ async function loadData(){
       buildCarousel()
     }
   } catch(e){ console.error('Load error:', e) }
+}
+
+function applyBanner(url){
+  var header = document.querySelector('header')
+  if(!header) return
+  if(url){
+    header.style.setProperty('--hdr-banner-url', "url('"+url+"')")
+    header.classList.add('has-banner')
+  } else {
+    header.classList.remove('has-banner')
+    header.style.removeProperty('--hdr-banner-url')
+  }
 }
 
 // ── Theme System ───────────────────────────────────────────────────────────

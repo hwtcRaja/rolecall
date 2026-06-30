@@ -5902,6 +5902,60 @@ def kiosk_page():
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
+@app.route('/kiosk/nfc')
+def kiosk_nfc_tap():
+    """Public endpoint hit when volunteer taps NFC tag. Stores signal then redirects."""
+    vol_id = request.args.get('vol','').strip()
+    if not vol_id:
+        return 'Missing vol parameter', 400
+    import datetime as _dtnfc, json as _jnfc
+    signal = _jnfc.dumps({'vol_id': vol_id, 'ts': _dtnfc.datetime.utcnow().isoformat()})
+    try:
+        conn = get_db()
+        execute(conn, """INSERT INTO settings (key, value) VALUES ('kiosk_nfc_signal', %s)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (signal,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'NFC signal store failed: {e}')
+    # Return a simple page that closes itself (phone browser)
+    return '''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0d3d4d;color:#fff;text-align:center}</style>
+</head><body>
+<div><div style="font-size:48px">&#10003;</div><div style="font-size:22px;font-weight:700;margin-top:12px">Signed In!</div>
+<div style="font-size:14px;color:rgba(255,255,255,0.6);margin-top:8px">Check the kiosk screen</div></div>
+<script>setTimeout(function(){ window.close() }, 2000)</script>
+</body></html>'''
+
+@app.route('/api/kiosk/nfc-poll')
+def kiosk_nfc_poll():
+    """Kiosk polls this every second to detect NFC taps."""
+    import datetime as _dtpoll, json as _jpoll
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='kiosk_nfc_signal'")
+        if not row or not row.get('value'):
+            conn.close()
+            return jsonify({'signal': None})
+        data = _jpoll.loads(row['value'])
+        # Only valid for 30 seconds
+        ts = _dtpoll.datetime.fromisoformat(data['ts'])
+        age = (_dtpoll.datetime.utcnow() - ts).total_seconds()
+        if age > 30:
+            execute(conn, "UPDATE settings SET value='' WHERE key='kiosk_nfc_signal'")
+            conn.commit()
+            conn.close()
+            return jsonify({'signal': None})
+        # Consume signal — clear it
+        execute(conn, "UPDATE settings SET value='' WHERE key='kiosk_nfc_signal'")
+        conn.commit()
+        conn.close()
+        return jsonify({'signal': data['vol_id']})
+    except Exception as e:
+        app.logger.warning(f'NFC poll error: {e}')
+        return jsonify({'signal': None})
+
 @app.route('/pickup')
 def pickup_page():
     return send_from_directory('static', 'pickup.html')

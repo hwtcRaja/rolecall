@@ -6753,12 +6753,16 @@ document.addEventListener('change', async function(e){
   const fd = new FormData(); fd.append('file', file)
   const r = await fetch('/api/lobby/banner/upload', {method:'POST', body:fd, credentials:'include'})
   const d = await r.json()
+  console.log('Banner upload result:', d)
   if(d.ok){
    const saveRes = await api('/api/lobby/banner','PUT',{url:d.url})
+   console.log('Banner save result:', saveRes)
    if(saveRes&&saveRes.ok){
     loadLobbyBanner()
     if(status) status.textContent = 'Banner uploaded and applied!'
     setTimeout(function(){ if(status) status.textContent='' }, 4000)
+   } else {
+    if(status) status.textContent = 'Save failed: '+(saveRes&&saveRes.error||'Unknown')
    }
   } else {
    if(status) status.textContent = 'Upload failed: '+(d.error||'Unknown error')

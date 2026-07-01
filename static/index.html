@@ -3373,6 +3373,12 @@ async function loadAllData(){
  populateProgramsDropdown()
  populateProdVolSelect()
  // Load applications count for nav badge on startup and store for sub-interest filtering
+ // Apply nav icons — await so they're ready before first render
+ try{
+  const icons = await api('/api/nav-icons')
+  if(icons&&!icons.error) applyNavIcons(icons)
+ } catch(e){}
+ // Load unread message count and applications badge in background
  api('/api/applications').then(apps=>{
  if(!Array.isArray(apps)) return
  allApplications = apps
@@ -3382,9 +3388,6 @@ async function loadAllData(){
  const tabBadge = document.getElementById('app-pending-badge')
  if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
  }).catch(()=>{})
- // Apply saved nav icons immediately (Lucide loads synchronously now)
- api('/api/nav-icons').then(function(icons){ if(icons&&!icons.error) applyNavIcons(icons) }).catch(function(){})
- // Load unread message count
  refreshUnreadMessageBadge()
 }
 

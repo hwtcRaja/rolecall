@@ -1643,7 +1643,8 @@ def get_recipient_emails(settings=None):
 
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
-    footer_note = footer_note or 'Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>'
+    footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -1652,9 +1653,10 @@ def build_hwtc_email_html(subject, body_html, footer_note=''):
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{font-family:Georgia,'Times New Roman',serif;background:#f5f4f0;color:#1a1a18}}
 .wrapper{{max-width:620px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08)}}
-.header{{background:#0d3d4d;padding:32px 40px;text-align:center}}
-.header-eyebrow{{font-size:11px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:10px;font-family:-apple-system,sans-serif}}
-.header h1{{font-size:24px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
+.header{{background:#0d3d4d;padding:28px 40px;text-align:center}}
+.header-logo{{margin-bottom:12px}}
+.header-logo img{{height:48px;display:inline-block}}
+.header h1{{font-size:22px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
 .header-rule{{width:40px;height:2px;background:#1b708d;margin:14px auto 0}}
 .body{{padding:36px 40px}}
 p{{font-size:15px;line-height:1.75;margin-bottom:1rem;color:#2c2c2a}}
@@ -1671,7 +1673,7 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
 <body>
 <div class="wrapper">
   <div class="header">
-    <div class="header-eyebrow">Horizon West Theater Company</div>
+    <div class="header-logo"><img src="{logo_url}" alt="Horizon West Theater Company" style="height:48px"/></div>
     <h1>{subject}</h1>
     <div class="header-rule"></div>
   </div>
@@ -1679,8 +1681,8 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
     {body_html}
   </div>
   <div class="footer">
-    <p>Horizon West Theater Company &mdash; hwtco.org</p>
-    <p>{footer_note}</p>
+    <p><strong>Horizon West Theater Company</strong> &mdash; <a href="https://hwtco.org" style="color:#0F6E56">hwtco.org</a></p>
+    <p style="margin-top:6px">{footer_note}</p>
   </div>
 </div>
 </body></html>'''
@@ -4519,10 +4521,22 @@ def retry_email():
 def get_email_templates():
     err = require_auth()
     if err: return err
-    conn = get_db()
-    templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name')
-    conn.close()
-    return jsonify(templates)
+    try:
+        conn = get_db()
+        templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+        conn.close()
+        if not templates:
+            conn2 = get_db()
+            seed_system_email_templates(conn2)
+            conn2.commit()
+            conn2.close()
+            conn3 = get_db()
+            templates = fetchall(conn3, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+            conn3.close()
+        return jsonify(templates)
+    except Exception as e:
+        app.logger.error(f'get_email_templates error: {e}')
+        return jsonify([])
 
 
 @app.route('/api/email-templates/reset/<key>', methods=['POST'])

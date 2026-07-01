@@ -4908,11 +4908,12 @@ async function sendEmailDirect(){
  const body = (document.getElementById('email-body')?.value||'').trim()
  if(!subject){ toast('Please enter a subject','error'); return }
  if(!body){ toast('Please enter a message','error'); return }
+ const _fi = await new Promise(r=>pickSender(r)); if(_fi===null) return
  const status = document.getElementById('email-send-status')
  if(status) status.textContent = 'Sending to '+sel.length+' recipient'+(sel.length!==1?'s':'')+'...'
  const res = await api('/api/email/bulk','POST',{
   recipients: sel.map(function(v){ return {name:v.name||'', email:v.email} }),
-  subject: subject, body: body
+  subject: subject, body: body, from_identity: _fi
  })
  if(res&&res.ok){
   const sent = res.sent || 0

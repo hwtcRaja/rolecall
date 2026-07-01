@@ -3123,12 +3123,23 @@ async function loginSuccess(user){
  loadingEl.id = 'app-loading-overlay'
  loadingEl.style.cssText = 'position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px'
  loadingEl.innerHTML = '<img src="/static/images/hwtc_logo_teal.png" style="height:52px;opacity:0.8"/>'
-  + '<div style="font-size:14px;font-weight:600;color:var(--text-muted)">Loading RoleCall…</div>'
+  + '<div id="app-loading-msg" style="font-size:14px;font-weight:600;color:var(--text-muted)">Loading RoleCall…</div>'
   + '<div style="width:200px;height:3px;background:var(--border);border-radius:2px;overflow:hidden"><div style="height:100%;background:var(--teal);border-radius:2px;animation:rc-load-bar 1.4s ease-in-out infinite"></div></div>'
   + '<style>@keyframes rc-load-bar{0%{width:0%;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0%;margin-left:100%}}</style>'
  document.body.appendChild(loadingEl)
- await loadAllData()
- loadingEl.remove()
+ // Safety timeout — remove overlay after 15s no matter what
+ const loadTimeout = setTimeout(function(){
+  const overlay = document.getElementById('app-loading-overlay')
+  if(overlay) overlay.remove()
+ }, 15000)
+ try{
+  await loadAllData()
+ } catch(e){
+  console.error('loadAllData error:', e)
+ }
+ clearTimeout(loadTimeout)
+ const overlay = document.getElementById('app-loading-overlay')
+ if(overlay) overlay.remove()
  navTo('dashboard')
  pollPendingCount()
  setInterval(pollPendingCount, 60000)

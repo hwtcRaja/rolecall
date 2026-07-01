@@ -1673,7 +1673,7 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
 <body>
 <div class="wrapper">
   <div class="header">
-    <div class="header-logo"><img src="{logo_url}" alt="Horizon West Theater Company" style="height:48px"/></div>
+    <div class="header-logo"><img src="{logo_url}" alt="Horizon West Theater Company" style="height:64px"/></div>
     <h1>{subject}</h1>
     <div class="header-rule"></div>
   </div>
@@ -4457,6 +4457,9 @@ def send_bulk_email():
     recipients = d.get('recipients') or []
     subject = (d.get('subject') or '').strip()
     body_text = (d.get('body') or '').strip()
+    from_identity = d.get('from_identity') or {}
+    from_email = (from_identity.get('email') or '').strip() or None
+    from_name = (from_identity.get('name') or '').strip() or None
     if not recipients: return jsonify({'error': 'No recipients'}), 400
     if not subject: return jsonify({'error': 'No subject'}), 400
     if not body_text: return jsonify({'error': 'No message body'}), 400
@@ -4466,11 +4469,9 @@ def send_bulk_email():
         email_addr = (rec.get('email') or '').strip()
         if not email_addr: continue
         personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
-        # Convert newlines to HTML paragraphs
         html_content = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
-        # Wrap in branded HWTC email template
         html_body = build_hwtc_email_html(subject, html_content)
-        ok, err_msg = send_email([email_addr], subject, html_body, source='Email Composer')
+        ok, err_msg = send_email([email_addr], subject, html_body, from_email=from_email, from_name=from_name, source='Email Composer')
         if ok:
             sent += 1
         else:

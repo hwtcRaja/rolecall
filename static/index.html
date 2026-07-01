@@ -852,7 +852,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <section class="page" id="page-email">
  <div class="page-header">
- <div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send groups via Gmail</div></div>
+ <div><div class="page-title">Email Volunteers</div><div class="page-subtitle">Compose and send emails directly</div></div>
  </div>
  <div class="page-body">
  <div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
@@ -872,10 +872,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <textarea id="email-body" style="min-height:200px" placeholder="Write your message here…&#10;&#10;Use {name} to personalize with the recipient's name."></textarea>
  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Tip: use {name} for personalization — e.g. "Hi {name},"</div>
  </div>
- <div style="display:flex;gap:8px;flex-wrap:wrap">
- <button class="btn btn-primary" onclick="openGmailCompose()">Open in Gmail</button>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+ <button class="btn btn-primary" onclick="sendEmailDirect()">Send Email</button>
+ <button class="btn btn-secondary" onclick="openGmailCompose()">Open in Gmail</button>
  <button class="btn btn-secondary" onclick="copyEmailList()">Copy Addresses</button>
  <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">Save Template</button>
+ <span id="email-send-status" style="font-size:13px;color:var(--teal-dark)"></span>
  </div>
  </div>
  </div>
@@ -928,6 +930,25 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  </div>
+
+ <!-- Email Delivery Log -->
+ <div class="card" style="margin-top:24px;padding:0;overflow:hidden">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)">
+   <div style="font-size:14px;font-weight:700">Email Delivery Log</div>
+   <div style="display:flex;gap:8px;align-items:center">
+    <select id="email-log-filter" onchange="loadEmailLog()" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)">
+     <option value="">All</option>
+     <option value="sent">Sent</option>
+     <option value="failed">Failed Only</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" onclick="loadEmailLog()">Refresh</button>
+   </div>
+  </div>
+  <div id="email-log-table" style="overflow-x:auto">
+   <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading delivery log…</div>
+  </div>
+ </div>
+
  </section>
 
  <!-- PRODUCTIONS -->
@@ -3272,7 +3293,7 @@ function navTo(page,el){
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
  if(page==='hours') renderHours()
  if(page==='waivers') renderWaivers()
- if(page==='email') renderEmailPage()
+ if(page==='email'){ renderEmailPage(); loadEmailLog() }
  if(page==='productions') renderProductions()
  if(page==='events') renderEventsPage()
  if(page==='notifications') loadPendingHours()
@@ -4846,6 +4867,137 @@ function applyEmailTemplate(){
 function getEmailRecipients(){
  if(selectedVolIds.size>0) return [...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean)
  return volunteers.filter(v=>v.status==='active')
+}
+
+async function sendEmailDirect(){
+ const sel = getEmailRecipients()
+ if(!sel.length){ toast('No recipients selected','error'); return }
+ const subject = (document.getElementById('email-subject')?.value||'').trim()
+ const body = (document.getElementById('email-body')?.value||'').trim()
+ if(!subject){ toast('Please enter a subject','error'); return }
+ if(!body){ toast('Please enter a message','error'); return }
+ const status = document.getElementById('email-send-status')
+ if(status) status.textContent = 'Sending to '+sel.length+' recipient'+(sel.length!==1?'s':'')+'...'
+ const res = await api('/api/email/bulk','POST',{
+  recipients: sel.map(function(v){ return {name:v.name||'', email:v.email} }),
+  subject: subject, body: body
+ })
+ if(res&&res.ok){
+  const sent = res.sent || 0
+  const failed = res.failed || 0
+  if(status) status.textContent = sent+' sent'+(failed?' · '+failed+' failed':'')+'!'
+  toast('Email sent to '+sent+' recipient'+(sent!==1?'s':'')+(failed?' ('+failed+' failed)':''),'success')
+  if(failed && res.failed_list && res.failed_list.length){
+   showEmailFailedModal(res.failed_list, subject, body)
+  }
+  setTimeout(function(){ if(status) status.textContent='' }, 5000)
+  loadEmailLog()
+ } else {
+  const msg = (res&&res.error)||'Error sending — check Email Settings has a valid Resend API key'
+  if(status) status.textContent = msg
+  toast(msg,'error')
+  setTimeout(function(){ if(status) status.textContent='' }, 8000)
+ }
+}
+
+function showEmailFailedModal(failedList, subject, body){
+ const overlay = document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:80vh;overflow-y:auto">
+  <div style="font-size:16px;font-weight:800;color:#991b1b;margin-bottom:4px">&#x26a0; ${failedList.length} Email${failedList.length!==1?'s':''} Failed to Send</div>
+  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click "Retry" to resend individually, or fix the issue and try again.</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+  ${failedList.map(function(f,i){
+   return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fef2f2;border-radius:8px;border:1px solid #fecaca">
+    <div style="flex:1;min-width:0">
+     <div style="font-size:13px;font-weight:700">${escHtml(f.name||f.email)}</div>
+     <div style="font-size:12px;color:var(--text-muted)">${escHtml(f.email)}</div>
+     <div style="font-size:11px;color:#dc2626;margin-top:2px">${escHtml(f.error)}</div>
+    </div>
+    <button class="btn btn-sm" onclick="retryFailedEmail(this,'${escHtml(f.email)}','${escHtml(f.name||'')}','${escHtml(subject)}','${escHtml(body)}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;white-space:nowrap">Retry</button>
+   </div>`
+  }).join('')}
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px">
+   <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+  </div>
+ </div>`
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+async function retryFailedEmail(btn, email, name, subject, body){
+ btn.textContent = 'Sending...'
+ btn.disabled = true
+ const personalized = body.replace('{name}', name.split(' ')[0]||'there')
+ const html = '<p>'+personalized.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'
+ const res = await api('/api/email/bulk','POST',{
+  recipients:[{name:name,email:email}], subject:subject, body:body
+ })
+ if(res&&res.ok&&res.sent>0){
+  btn.textContent = 'Sent!'
+  btn.style.background='#dcfce7'; btn.style.color='#166534'
+ } else {
+  btn.textContent = 'Failed'
+  btn.disabled = false
+ }
+}
+
+async function loadEmailLog(){
+ const el = document.getElementById('email-log-table')
+ if(!el) return
+ const filter = (document.getElementById('email-log-filter')||{}).value||''
+ const url = '/api/email/log?limit=100'+(filter?'&status='+filter:'')
+ const rows = await api(url)
+ if(!rows||!rows.length){
+  el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No emails logged yet</div>'
+  return
+ }
+ const failedCount = rows.filter(function(r){ return r.status==='failed' }).length
+ el.innerHTML = (failedCount>0?'<div style="padding:10px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:13px;color:#991b1b;font-weight:600">&#x26a0; '+failedCount+' failed email'+(failedCount!==1?'s':'')+' — click Retry to resend</div>':'')
+  + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+  + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg)">'
+  + '<th style="text-align:left;padding:8px 14px;color:var(--text-muted);font-size:11px;text-transform:uppercase">To</th>'
+  + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Subject</th>'
+  + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Source</th>'
+  + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Status</th>'
+  + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Time</th>'
+  + '<th></th>'
+  + '</tr></thead><tbody>'
+  + rows.map(function(r){
+   const isFailed = r.status === 'failed'
+   const statusBadge = isFailed
+    ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:20px;font-weight:700">Failed</span>'
+    : '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:20px;font-weight:700">Sent</span>'
+   const time = r.sent_at ? new Date(r.sent_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : ''
+   return '<tr style="border-bottom:1px solid var(--border)'+(isFailed?';background:#fffbfb':'')+'">'
+    + '<td style="padding:8px 14px"><div style="font-weight:600">'+escHtml(r.to_email||'')+'</div>'
+    + (isFailed&&r.error_message?'<div style="font-size:11px;color:#dc2626;margin-top:2px">'+escHtml(r.error_message)+'</div>':'')
+    + '</td>'
+    + '<td style="padding:8px;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(r.subject||'')+'</td>'
+    + '<td style="padding:8px;color:var(--text-muted)">'+escHtml(r.source||'—')+'</td>'
+    + '<td style="padding:8px">'+statusBadge+'</td>'
+    + '<td style="padding:8px;color:var(--text-muted);white-space:nowrap">'+time+'</td>'
+    + '<td style="padding:8px">'+(isFailed?'<button class="btn btn-sm" onclick="retryEmailById(this,\''+r.id+'\')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer">Retry</button>':'')+'</td>'
+    + '</tr>'
+  }).join('')
+  + '</tbody></table>'
+}
+
+async function retryEmailById(btn, logId){
+ btn.textContent = 'Retrying...'
+ btn.disabled = true
+ const res = await api('/api/email/retry','POST',{log_id:logId})
+ if(res&&res.ok){
+  btn.textContent = 'Sent!'
+  btn.style.background='#dcfce7'; btn.style.color='#166534'
+  setTimeout(loadEmailLog, 1500)
+ } else {
+  btn.textContent = 'Failed again'
+  btn.style.background='#fee2e2'; btn.style.color='#991b1b'
+  btn.disabled = false
+  toast('Retry failed: '+(res&&res.error||'Unknown error'),'error')
+ }
 }
 
 function openGmailCompose(){

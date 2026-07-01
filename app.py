@@ -1641,6 +1641,51 @@ def get_recipient_emails(settings=None):
         pass
     return emails
 
+def build_hwtc_email_html(subject, body_html, footer_note=''):
+    """Wrap content in the standard HWTC branded email template."""
+    footer_note = footer_note or 'Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>'
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>{subject}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:Georgia,'Times New Roman',serif;background:#f5f4f0;color:#1a1a18}}
+.wrapper{{max-width:620px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08)}}
+.header{{background:#0d3d4d;padding:32px 40px;text-align:center}}
+.header-eyebrow{{font-size:11px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:10px;font-family:-apple-system,sans-serif}}
+.header h1{{font-size:24px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
+.header-rule{{width:40px;height:2px;background:#1b708d;margin:14px auto 0}}
+.body{{padding:36px 40px}}
+p{{font-size:15px;line-height:1.75;margin-bottom:1rem;color:#2c2c2a}}
+strong{{font-weight:600}}
+a{{color:#0F6E56}}
+h2{{font-size:18px;font-weight:600;color:#0d3d4d;margin:1.5rem 0 0.75rem;font-family:-apple-system,sans-serif}}
+h3{{font-size:15px;font-weight:600;color:#0d3d4d;margin:1.25rem 0 0.5rem;font-family:-apple-system,sans-serif}}
+ul,ol{{padding-left:20px;margin-bottom:1rem}}
+li{{font-size:15px;line-height:1.75;color:#2c2c2a;margin-bottom:4px}}
+hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
+.footer{{background:#f5f4f0;border-top:1px solid #e8e6e0;padding:20px 40px;text-align:center}}
+.footer p{{font-size:12px;color:#888780;font-family:-apple-system,sans-serif;margin-bottom:4px}}
+</style></head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <div class="header-eyebrow">Horizon West Theater Company</div>
+    <h1>{subject}</h1>
+    <div class="header-rule"></div>
+  </div>
+  <div class="body">
+    {body_html}
+  </div>
+  <div class="footer">
+    <p>Horizon West Theater Company &mdash; hwtco.org</p>
+    <p>{footer_note}</p>
+  </div>
+</div>
+</body></html>'''
+
+
 def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source=''):
     """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
@@ -4419,7 +4464,10 @@ def send_bulk_email():
         email_addr = (rec.get('email') or '').strip()
         if not email_addr: continue
         personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
-        html_body = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
+        # Convert newlines to HTML paragraphs
+        html_content = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
+        # Wrap in branded HWTC email template
+        html_body = build_hwtc_email_html(subject, html_content)
         ok, err_msg = send_email([email_addr], subject, html_body, source='Email Composer')
         if ok:
             sent += 1

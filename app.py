@@ -1252,6 +1252,16 @@ def init_db():
             source TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS email_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            to_email TEXT NOT NULL,
+            to_name TEXT DEFAULT '',
+            subject TEXT NOT NULL,
+            html_body TEXT DEFAULT '',
+            status TEXT DEFAULT 'sent',
+            error_message TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            sent_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -1631,19 +1641,19 @@ def get_recipient_emails(settings=None):
         pass
     return emails
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source=''):
     """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured  -  email not sent')
+        _log_email(to_emails, subject, html_body, 'failed', 'Resend API key not configured', source)
         return False, 'Resend API key not configured'
     # Build from address
     if from_email:
         base_email = from_email
         base_name  = from_name or ''
     else:
-        # Use first sender identity as default, fall back to from_email setting
         try:
             identities = json.loads(settings.get('sender_identities') or '[]')
         except Exception:
@@ -1666,12 +1676,33 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
             json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
             timeout=10)
         if resp.status_code not in (200, 201, 202):
+            err = f'Resend error {resp.status_code}: {resp.text[:200]}'
             app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
-            return False, f'Resend error {resp.status_code}: {resp.text[:200]}'
+            _log_email(to_emails, subject, html_body, 'failed', err, source)
+            return False, err
+        _log_email(to_emails, subject, html_body, 'sent', '', source)
         return True, None
     except Exception as e:
         app.logger.error(f'Email send error: {e}')
+        _log_email(to_emails, subject, html_body, 'failed', str(e), source)
         return False, str(e)
+
+def _log_email(to_emails, subject, html_body, status, error_msg='', source=''):
+    """Log email send attempt to email_log table."""
+    try:
+        if isinstance(to_emails, str):
+            to_emails = [to_emails]
+        conn = get_db()
+        for addr in (to_emails or []):
+            if not addr: continue
+            execute(conn, '''INSERT INTO email_log (to_email, subject, html_body, status, error_message, source)
+                VALUES (%s, %s, %s, %s, %s, %s)''',
+                (addr.strip(), subject[:500], html_body[:5000], status, error_msg[:500], source[:100]))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Email log failed: {e}')
+
 
 def link_director_submission(conn, volunteer_id, email):
     """Link a director interest submission to a volunteer if not already linked."""
@@ -4371,7 +4402,72 @@ def square_create_discount(name, discount_type, value):
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
 
-@app.route('/api/email-templates')
+@app.route('/api/email/bulk', methods=['POST'])
+def send_bulk_email():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    recipients = d.get('recipients') or []
+    subject = (d.get('subject') or '').strip()
+    body_text = (d.get('body') or '').strip()
+    if not recipients: return jsonify({'error': 'No recipients'}), 400
+    if not subject: return jsonify({'error': 'No subject'}), 400
+    if not body_text: return jsonify({'error': 'No message body'}), 400
+    sent = 0; failed = 0; failed_list = []
+    for rec in recipients:
+        name = (rec.get('name') or '').strip()
+        email_addr = (rec.get('email') or '').strip()
+        if not email_addr: continue
+        personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
+        html_body = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
+        ok, err_msg = send_email([email_addr], subject, html_body, source='Email Composer')
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+            failed_list.append({'email': email_addr, 'name': name, 'error': err_msg or 'Unknown error'})
+            app.logger.warning(f'Bulk email to {email_addr} failed: {err_msg}')
+    return jsonify({'ok': True, 'sent': sent, 'failed': failed, 'failed_list': failed_list})
+
+
+@app.route('/api/email/log', methods=['GET'])
+def get_email_log():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    limit = int(request.args.get('limit', 100))
+    status_filter = request.args.get('status', '')
+    q = 'SELECT * FROM email_log'
+    params = []
+    if status_filter:
+        q += ' WHERE status=%s'
+        params.append(status_filter)
+    q += ' ORDER BY sent_at DESC LIMIT %s'
+    params.append(limit)
+    rows = fetchall(conn, q, params) or []
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/email/retry', methods=['POST'])
+def retry_email():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    log_id = d.get('log_id','').strip()
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM email_log WHERE id=%s', (log_id,))
+    conn.close()
+    if not row: return jsonify({'error': 'Not found'}), 404
+    ok, err_msg = send_email([row['to_email']], row['subject'], row['html_body'], source='Retry')
+    if ok:
+        conn2 = get_db()
+        execute(conn2, "UPDATE email_log SET status='sent', error_message='', sent_at=NOW() WHERE id=%s", (log_id,))
+        conn2.commit(); conn2.close()
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': err_msg})
+
+
 def get_email_templates():
     err = require_auth()
     if err: return err

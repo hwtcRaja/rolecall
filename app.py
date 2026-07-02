@@ -1269,6 +1269,11 @@ def init_db():
             person_name TEXT NOT NULL,
             phone TEXT NOT NULL,
             notes TEXT DEFAULT '',
+            start_time TEXT DEFAULT '08:00',
+            end_time TEXT DEFAULT '22:00',
+            days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]',
+            recurrence TEXT DEFAULT 'once',
+            color TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
@@ -6641,9 +6646,20 @@ def save_email_settings_route():
                 'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
                 'twilio_voice_greeting TEXT DEFAULT \'\'',
                 'twilio_voice_no_answer TEXT DEFAULT \'\'',
-                'twilio_voice_unavailable TEXT DEFAULT \'\'']:
+                'twilio_voice_unavailable TEXT DEFAULT \'\'',
+                'twilio_after_hours_msg TEXT DEFAULT \'\'',
+                'twilio_coverage_start TEXT DEFAULT \'08:00\'',
+                'twilio_coverage_end TEXT DEFAULT \'22:00\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
+            conn.commit()
+        except Exception:
+            pass
+    # on_call_schedule column migrations
+    for col in ["start_time TEXT DEFAULT '08:00'", "end_time TEXT DEFAULT '22:00'",
+                "days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]'", "recurrence TEXT DEFAULT 'once'", "color TEXT DEFAULT ''"]:
+        try:
+            execute(conn, f'ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
         except Exception:
             pass
@@ -6653,7 +6669,8 @@ def save_email_settings_route():
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
-        'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable']
+        'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
+        'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13541,15 +13558,32 @@ def get_twilio_settings():
     }
 
 def get_oncall_now():
-    """Return the on-call person for right now, or None."""
-    import datetime as _dtoc
-    today = _dtoc.date.today().isoformat()
+    """Return the on-call person for right now based on date, time, and day of week."""
+    import datetime as _dtoc, json as _joc
+    now = _dtoc.datetime.now()
+    today = now.date().isoformat()
+    now_time = now.strftime('%H:%M')
+    weekday = now.weekday()  # 0=Monday, 6=Sunday
     conn = get_db()
-    row = fetchone(conn, '''SELECT * FROM on_call_schedule
+    rows = fetchall(conn, '''SELECT * FROM on_call_schedule
         WHERE start_date <= %s AND end_date >= %s
-        ORDER BY start_date DESC LIMIT 1''', (today, today))
+        ORDER BY start_date DESC''', (today, today))
     conn.close()
-    return row
+    for row in (rows or []):
+        # Check time window
+        start_t = (row.get('start_time') or '00:00')
+        end_t = (row.get('end_time') or '23:59')
+        if not (start_t <= now_time <= end_t):
+            continue
+        # Check day of week
+        try:
+            days = _joc.loads(row.get('days_of_week') or '[0,1,2,3,4,5,6]')
+            if weekday not in days:
+                continue
+        except Exception:
+            pass
+        return row
+    return None
 
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
@@ -13563,6 +13597,24 @@ def twilio_voice():
     greeting = (es.get('twilio_voice_greeting') or '').strip()
     no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
     unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
+    coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
+    coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
+    # Check if we're within coverage hours
+    import datetime as _dtv
+    now = _dtv.datetime.now()
+    now_time = now.strftime('%H:%M')
+    in_hours = coverage_start <= now_time <= coverage_end
+    if not in_hours:
+        msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">{msg}</Say>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    oncall = get_oncall_now()
+    forward_to = (oncall or {}).get('phone') or ts['fallback']
+    person_name = (oncall or {}).get('person_name') or 'our team'
+    caller = request.form.get('From','someone')
     if not greeting:
         greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
     else:
@@ -13632,9 +13684,11 @@ def create_oncall():
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, '''INSERT INTO on_call_schedule (start_date,end_date,person_name,phone,notes)
-        VALUES (%s,%s,%s,%s,%s)''',
-        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes','')))
+    execute(conn, '''INSERT INTO on_call_schedule (start_date,end_date,person_name,phone,notes,start_time,end_time,days_of_week,recurrence,color)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''),
+         d.get('notes',''), d.get('start_time','08:00'), d.get('end_time','22:00'),
+         d.get('days_of_week','[0,1,2,3,4,5,6]'), d.get('recurrence','once'), d.get('color','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM on_call_schedule ORDER BY created_at DESC LIMIT 1')
     conn.close()
@@ -13646,8 +13700,11 @@ def update_oncall(oid):
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, '''UPDATE on_call_schedule SET start_date=%s,end_date=%s,person_name=%s,phone=%s,notes=%s WHERE id=%s''',
-        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes',''), oid))
+    execute(conn, '''UPDATE on_call_schedule SET start_date=%s,end_date=%s,person_name=%s,phone=%s,notes=%s,
+        start_time=%s,end_time=%s,days_of_week=%s,recurrence=%s,color=%s WHERE id=%s''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes',''),
+         d.get('start_time','08:00'), d.get('end_time','22:00'),
+         d.get('days_of_week','[0,1,2,3,4,5,6]'), d.get('recurrence','once'), d.get('color',''), oid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

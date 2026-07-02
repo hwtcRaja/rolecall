@@ -1753,6 +1753,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    </div>
   </div>
  </div>
+ <div class="form-group" style="margin-bottom:16px">
+  <label>Slack Webhook URL <span style="font-weight:400;color:var(--text-muted)">— for phone triage channel notifications</span></label>
+  <input type="password" id="es-twilio-slack-webhook" placeholder="https://hooks.slack.com/services/..."/>
+  <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Get this from api.slack.com/apps → HWTC Calls → Incoming Webhooks. Never share this URL publicly.</div>
+ </div>
  <div style="display:flex;gap:10px">
   <button class="btn btn-primary" onclick="saveTwilioSettings()">Save Twilio Settings</button>
   <button class="btn btn-secondary" onclick="testTwilioSms()">Send Test SMS</button>
@@ -7533,10 +7538,12 @@ async function saveTwilioSettings(){
   twilio_after_hours_msg: (document.getElementById('es-twilio-after-hours')||{}).value||'',
   twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
   twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00',
+  slack_call_webhook: (document.getElementById('es-twilio-slack-webhook')||{}).value||''
   twilio_audio_greeting: window._twilioAudio?.greeting||'',
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
   twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
-  twilio_audio_after_hours: window._twilioAudio?.after_hours||''
+  twilio_audio_after_hours: window._twilioAudio?.after_hours||'',
+  slack_call_webhook: (document.getElementById('es-twilio-slack-webhook')||{}).value||''
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -7559,6 +7566,8 @@ function loadTwilioSettings(s){
  set('es-twilio-after-hours', s.twilio_after_hours_msg)
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
+ set('es-twilio-slack-webhook', s.slack_call_webhook||'')
+ set('es-twilio-slack-webhook', s.slack_call_webhook||'')
  window._twilioAudio = {
   greeting: s.twilio_audio_greeting||'',
   no_answer: s.twilio_audio_no_answer||'',

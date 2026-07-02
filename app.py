@@ -6620,7 +6620,9 @@ def save_email_settings_route():
     d = request.json or {}
     conn = get_db()
     # Ensure rental columns exist
-    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'']:
+    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
+                'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
+                'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -13181,6 +13183,10 @@ def run_migrations_manual():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_agreement_template TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",

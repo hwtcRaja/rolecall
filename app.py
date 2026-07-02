@@ -6317,11 +6317,15 @@ def get_checklist_items():
 def create_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     iid = str(uuid.uuid4())
+    max_order = 0
     conn = get_db()
-    execute(conn, 'INSERT INTO checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('required',False), d.get('sort_order',0)))
+    row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM checklist_items')
+    if row_max and row_max.get('m') is not None:
+        max_order = int(row_max['m']) + 1
+    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -6331,10 +6335,24 @@ def create_checklist_item():
 def update_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
+    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/checklist-items/reorder', methods=['POST'])
+def reorder_checklist_items():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    ids = d.get('ids', [])
+    conn = get_db()
+    for i, iid in enumerate(ids):
+        execute(conn, 'UPDATE checklist_items SET sort_order=%s WHERE id=%s', (i, iid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6359,26 +6377,42 @@ def get_opening_checklist_items():
 def create_opening_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     iid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO opening_checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('required',False), d.get('sort_order',0)))
+    row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM opening_checklist_items')
+    max_order = int((row_max or {}).get('m') or 0) + 1
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()
     return jsonify(row)
 
+@app.route('/api/opening-checklist-items/reorder', methods=['POST'])
+def reorder_opening_checklist_items():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    ids = d.get('ids', [])
+    conn = get_db()
+    for i, iid in enumerate(ids):
+        execute(conn, 'UPDATE opening_checklist_items SET sort_order=%s WHERE id=%s', (i, iid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/opening-checklist-items/<iid>', methods=['PUT'])
 def update_opening_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE opening_checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
 
 @app.route('/api/opening-checklist-items/<iid>', methods=['DELETE'])
 def delete_opening_checklist_item(iid):

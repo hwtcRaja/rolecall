@@ -458,6 +458,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
+        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall">📞</span>On-Call Schedule</div>
       </nav>
  <div class="sidebar-user">
  <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -1661,6 +1662,53 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div>
 
+ <!-- Twilio Settings -->
+ <div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
+ <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
+  <div style="font-weight:700;margin-bottom:6px">Webhook URLs — set these in your Twilio number settings:</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+   <div style="display:flex;align-items:center;gap:8px">
+    <span style="font-size:11px;font-weight:700;color:var(--text-muted);width:60px">VOICE</span>
+    <code id="twilio-voice-url" style="font-size:12px;background:#1a1a1a;color:#4ade80;padding:4px 10px;border-radius:4px;flex:1">https://rolecall.hwtco.org/twilio/voice</code>
+    <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('twilio-voice-url').textContent)">Copy</button>
+   </div>
+   <div style="display:flex;align-items:center;gap:8px">
+    <span style="font-size:11px;font-weight:700;color:var(--text-muted);width:60px">SMS</span>
+    <code id="twilio-sms-url" style="font-size:12px;background:#1a1a1a;color:#4ade80;padding:4px 10px;border-radius:4px;flex:1">https://rolecall.hwtco.org/twilio/sms</code>
+    <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('twilio-sms-url').textContent)">Copy</button>
+   </div>
+  </div>
+  <div style="font-size:11px;color:var(--text-muted);margin-top:8px">In Twilio Console → Phone Numbers → your number → set "A call comes in" and "A message comes in" to Webhook, HTTP POST, and paste the URLs above.</div>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+  <div class="form-group">
+   <label>Account SID</label>
+   <input type="password" id="es-twilio-sid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+  </div>
+  <div class="form-group">
+   <label>Auth Token</label>
+   <input type="password" id="es-twilio-token" placeholder="••••••••••••••••••••••••••••••••"/>
+  </div>
+  <div class="form-group">
+   <label>Your Twilio Phone Number</label>
+   <input type="text" id="es-twilio-phone" placeholder="+14075550100"/>
+   <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Include country code e.g. +1</div>
+  </div>
+  <div class="form-group">
+   <label>Fallback Phone Number</label>
+   <input type="text" id="es-twilio-fallback" placeholder="+14075550199"/>
+   <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Calls/texts forward here when nobody is on call</div>
+  </div>
+ </div>
+ <div style="display:flex;gap:10px">
+  <button class="btn btn-primary" onclick="saveTwilioSettings()">Save Twilio Settings</button>
+  <button class="btn btn-secondary" onclick="testTwilioSms()">Send Test SMS</button>
+ </div>
+ <div id="twilio-settings-status" style="font-size:13px;margin-top:10px"></div>
+ </div>
+
  <!-- Nav Icons Settings -->
  <div class="settings-section" style="grid-column:1/-1">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
@@ -2113,6 +2161,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  </div>
+ </div>
+ </section>
+
+ <!-- ON-CALL SCHEDULE -->
+ <section class="page" id="page-oncall">
+ <div class="page-header">
+  <div><div class="page-title">📞 On-Call Schedule</div><div class="page-subtitle">Who answers calls & texts to your Twilio number</div></div>
+  <div class="page-actions"><button class="btn btn-primary" onclick="openOncallModal()">+ Add Schedule</button></div>
+ </div>
+ <div class="page-body">
+  <div class="card" style="padding:16px;margin-bottom:20px;background:#eff6ff;border:1px solid #bfdbfe">
+   <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:4px">How it works</div>
+   <div style="font-size:13px;color:#1e3a8a">When someone calls or texts your HWTC Twilio number, RoleCall checks who is on call right now and forwards to their personal cell. Set up your webhook URLs in Twilio Console → Phone Numbers first (copy them from Settings → Twilio).</div>
+  </div>
+  <div id="oncall-now" style="margin-bottom:20px"></div>
+  <div id="oncall-list"></div>
  </div>
  </section>
 
@@ -3323,6 +3387,7 @@ function navTo(page,el){
  if(page==='hours') renderHours()
  if(page==='waivers') renderWaivers()
  if(page==='email'){ renderEmailPage(); loadEmailLog() }
+ if(page==='oncall') loadOncallPage()
  if(page==='productions') renderProductions()
  if(page==='events') renderEventsPage()
  if(page==='notifications') loadPendingHours()
@@ -6865,6 +6930,7 @@ async function loadEmailSettings(){
  set('es-rental-approver-emails', s.rental_approver_emails||'')
  const tmplEl = document.getElementById('es-rental-agreement-template')
  if(tmplEl) tmplEl.value = s.rental_agreement_template||''
+ loadTwilioSettings(s)
  try{ window._rentalApprovalLevels = JSON.parse(s.rental_approval_levels||'[]') }catch(e){ window._rentalApprovalLevels=[] }
  renderRentalApprovalLevels()
 
@@ -7373,6 +7439,165 @@ document.addEventListener('change', async function(e){
 })
 
 // ── End Lobby TV Image Manager ────────────────────────────────────────────
+
+// ── Twilio Settings ───────────────────────────────────────────────────────
+async function saveTwilioSettings(){
+ const status = document.getElementById('twilio-settings-status')
+ if(status) status.textContent = 'Saving...'
+ const data = {
+  twilio_account_sid: (document.getElementById('es-twilio-sid')||{}).value||'',
+  twilio_auth_token:  (document.getElementById('es-twilio-token')||{}).value||'',
+  twilio_phone:       (document.getElementById('es-twilio-phone')||{}).value||'',
+  twilio_fallback_phone: (document.getElementById('es-twilio-fallback')||{}).value||''
+ }
+ const res = await api('/api/email-settings','PUT',data)
+ if(res&&res.ok){
+  if(status) status.textContent = 'Twilio settings saved!'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else {
+  if(status) status.textContent = 'Error saving: '+(res&&res.error||'Unknown')
+ }
+}
+
+function loadTwilioSettings(s){
+ const set = (id,v) => { const el=document.getElementById(id); if(el) el.value=v||'' }
+ set('es-twilio-sid', s.twilio_account_sid)
+ set('es-twilio-token', s.twilio_auth_token)
+ set('es-twilio-phone', s.twilio_phone)
+ set('es-twilio-fallback', s.twilio_fallback_phone)
+}
+
+async function testTwilioSms(){
+ const phone = prompt('Send a test SMS to which number? (include +1)')
+ if(!phone) return
+ const res = await api('/api/twilio/send-sms','POST',{to:phone, body:'Test SMS from RoleCall / Horizon West Theater Company ✓'})
+ if(res&&res.ok) toast('Test SMS sent!','success')
+ else toast('Failed: '+(res&&res.error||'Check Twilio settings'),'error')
+}
+
+// ── On-Call Schedule ──────────────────────────────────────────────────────
+var _oncallList = []
+
+async function loadOncallPage(){
+ const res = await api('/api/oncall')
+ _oncallList = Array.isArray(res) ? res : []
+ renderOncallNow()
+ renderOncallList()
+}
+
+function renderOncallNow(){
+ const el = document.getElementById('oncall-now')
+ if(!el) return
+ const today = new Date().toISOString().slice(0,10)
+ const current = _oncallList.find(function(r){ return r.start_date <= today && r.end_date >= today })
+ if(current){
+  el.innerHTML = '<div style="background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:14px">'
+   +'<div style="font-size:28px">📞</div>'
+   +'<div><div style="font-size:13px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:0.4px">On Call Right Now</div>'
+   +'<div style="font-size:18px;font-weight:800;color:#14532d">'+escHtml(current.person_name)+'</div>'
+   +'<div style="font-size:13px;color:#166534">'+escHtml(current.phone)
+   +(current.notes?' &mdash; '+escHtml(current.notes):'')+'</div>'
+   +'<div style="font-size:11px;color:#16a34a;margin-top:2px">'+formatDate(current.start_date)+' – '+formatDate(current.end_date)+'</div>'
+   +'</div></div>'
+ } else {
+  el.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:14px">'
+   +'<div style="font-size:28px">⚠️</div>'
+   +'<div><div style="font-size:13px;font-weight:700;color:#991b1b">Nobody On Call Right Now</div>'
+   +'<div style="font-size:13px;color:#7f1d1d">Inbound calls/texts will forward to your fallback number. Add a schedule below.</div>'
+   +'</div></div>'
+ }
+}
+
+function renderOncallList(){
+ const el = document.getElementById('oncall-list')
+ if(!el) return
+ if(!_oncallList.length){
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No schedule set up yet. Click "+ Add Schedule" to get started.</div>'
+  return
+ }
+ const today = new Date().toISOString().slice(0,10)
+ const sorted = _oncallList.slice().sort(function(a,b){ return a.start_date > b.start_date ? -1 : 1 })
+ el.innerHTML = '<table style="width:100%;border-collapse:collapse">'
+  +'<thead><tr style="border-bottom:2px solid var(--border)">'
+  +'<th style="text-align:left;padding:10px 14px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Person</th>'
+  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Phone</th>'
+  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Dates</th>'
+  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Notes</th>'
+  +'<th></th>'
+  +'</tr></thead><tbody>'
+  +sorted.map(function(r){
+   const isNow = r.start_date <= today && r.end_date >= today
+   const isPast = r.end_date < today
+   return '<tr style="border-bottom:1px solid var(--border)'+(isPast?';opacity:0.5':'')+'">'
+    +'<td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px">'
+    +(isNow?'<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 6px #22c55e"></span>':'')
+    +'<div style="font-weight:700">'+escHtml(r.person_name)+'</div></div></td>'
+    +'<td style="padding:10px 8px;color:var(--text-muted)">'+escHtml(r.phone)+'</td>'
+    +'<td style="padding:10px 8px;white-space:nowrap">'+formatDate(r.start_date)+' – '+formatDate(r.end_date)+'</td>'
+    +'<td style="padding:10px 8px;color:var(--text-muted);font-size:12px">'+escHtml(r.notes||'')+'</td>'
+    +'<td style="padding:10px 8px;text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end">'
+    +'<button class="btn btn-secondary btn-sm" onclick="openOncallModal(\''+r.id+'\')">Edit</button>'
+    +'<button class="btn btn-danger btn-sm" onclick="deleteOncall(\''+r.id+'\')">Delete</button>'
+    +'</div></td>'
+    +'</tr>'
+  }).join('')
+  +'</tbody></table>'
+}
+
+function openOncallModal(id){
+ const item = id ? _oncallList.find(function(r){ return r.id===id }) : null
+ const today = new Date().toISOString().slice(0,10)
+ const nextWeek = new Date(Date.now()+7*86400000).toISOString().slice(0,10)
+ const overlay = document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML='<div style="background:var(--surface);border-radius:14px;width:100%;max-width:440px;padding:24px">'
+  +'<div style="font-size:16px;font-weight:800;margin-bottom:20px">'+(item?'Edit':'Add')+'  On-Call Entry</div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Person Name</label>'
+  +'<input type="text" id="oc-name" value="'+escHtml(item?.person_name||'')+'" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Phone Number (calls/texts forward here)</label>'
+  +'<input type="tel" id="oc-phone" value="'+escHtml(item?.phone||'')+'" placeholder="+14075550100" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+  +'<div class="form-group"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Date</label>'
+  +'<input type="date" id="oc-start" value="'+(item?.start_date||today)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Date</label>'
+  +'<input type="date" id="oc-end" value="'+(item?.end_date||nextWeek)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'</div>'
+  +'<div class="form-group" style="margin-bottom:20px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Notes (optional)</label>'
+  +'<input type="text" id="oc-notes" value="'+escHtml(item?.notes||'')+'" placeholder="e.g. Available after 6pm" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+  +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
+  +'<button class="btn btn-primary" onclick="saveOncall('+(id?'\''+id+'\'':'null')+')">Save</button>'
+  +'</div></div>'
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+async function saveOncall(id){
+ const name=(document.getElementById('oc-name')||{}).value.trim()
+ const phone=(document.getElementById('oc-phone')||{}).value.trim()
+ const start=(document.getElementById('oc-start')||{}).value
+ const end=(document.getElementById('oc-end')||{}).value
+ const notes=(document.getElementById('oc-notes')||{}).value.trim()
+ if(!name||!phone||!start||!end){toast('Name, phone, and dates are required','error');return}
+ if(end<start){toast('End date must be after start date','error');return}
+ const payload={person_name:name,phone:phone,start_date:start,end_date:end,notes:notes}
+ const res = id ? await api('/api/oncall/'+id,'PUT',payload) : await api('/api/oncall','POST',payload)
+ if(res&&(res.ok||res.id)){
+  if(!id && res.id) _oncallList.push(res)
+  else if(id) _oncallList=_oncallList.map(function(r){ return r.id===id?Object.assign({},r,payload):r })
+  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
+  renderOncallNow(); renderOncallList()
+  toast(id?'Updated!':'Schedule added!','success')
+ } else toast((res&&res.error)||'Error saving','error')
+}
+
+async function deleteOncall(id){
+ if(!confirm('Remove this on-call entry?')) return
+ await api('/api/oncall/'+id,'DELETE')
+ _oncallList=_oncallList.filter(function(r){ return r.id!==id })
+ renderOncallNow(); renderOncallList()
+ toast('Removed')
+}
 
 function clearSendersDirty(){
  const btn = document.getElementById('es-save-btn')

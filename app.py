@@ -6055,6 +6055,14 @@ def set_donor_tier(did):
 #  STATIC PAGES
 # ─────────────────────────────────────────────
 
+@app.route('/privacy')
+def privacy_page():
+    return send_from_directory('static', 'privacy.html')
+
+@app.route('/terms')
+def terms_page():
+    return send_from_directory('static', 'terms.html')
+
 @app.route('/kiosk')
 def kiosk_page():
     resp = send_from_directory('static', 'kiosk.html')

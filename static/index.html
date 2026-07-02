@@ -1704,22 +1704,44 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div style="margin-bottom:16px">
   <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;font-size:11px">Voice Greeting Messages</div>
-  <div class="form-group" style="margin-bottom:10px">
-   <label>Greeting (before transfer) <span style="font-weight:400;color:var(--text-muted)">— use {name} for on-call person's name</span></label>
-   <input type="text" id="es-twilio-greeting" placeholder="Thank you for calling Horizon West Theater Company. Please hold while we connect you to {name}."/>
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px">For each message, either type text (read by AI voice) <strong>or</strong> upload your own recording (MP3/WAV). Recording takes priority if both are set.</div>
+
+  <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Greeting (before transfer) — use {name} for on-call person's name</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-greeting" placeholder="Thank you for calling Horizon West Theater Company. Please hold while we connect you to {name}." style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'greeting')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-greeting-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
-  <div class="form-group" style="margin-bottom:10px">
-   <label>No Answer Message (if on-call doesn't pick up)</label>
-   <input type="text" id="es-twilio-no-answer" placeholder="We were unable to reach our team right now. Please try again later or send us a text message."/>
+
+  <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">No Answer Message (if on-call doesn't pick up)</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-no-answer" placeholder="We were unable to reach our team right now. Please try again later or send us a text message." style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'no_answer')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-no_answer-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
-  <div class="form-group" style="margin-bottom:10px">
-   <label>Unavailable Message (when nobody is on call)</label>
-   <input type="text" id="es-twilio-unavailable" placeholder="Thank you for calling Horizon West Theater Company. We are unable to take your call right now."/>
+
+  <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Unavailable Message (when nobody is on call)</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-unavailable" placeholder="Thank you for calling Horizon West Theater Company. We are unable to take your call right now." style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'unavailable')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-unavailable-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
-  <div class="form-group" style="margin-bottom:10px">
-   <label>After Hours Message (outside coverage window)</label>
-   <input type="text" id="es-twilio-after-hours" placeholder="Our team is available 8am–10pm. Please leave a text and we'll get back to you shortly."/>
+
+  <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">After Hours Message (outside coverage window)</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-after-hours" placeholder="Our team is available 8am–10pm. Please leave a text and we'll get back to you shortly." style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'after_hours')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-after_hours-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
    <div class="form-group">
     <label>Coverage Start Time</label>
@@ -7499,7 +7521,11 @@ async function saveTwilioSettings(){
   twilio_voice_unavailable: (document.getElementById('es-twilio-unavailable')||{}).value||'',
   twilio_after_hours_msg: (document.getElementById('es-twilio-after-hours')||{}).value||'',
   twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
-  twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00'
+  twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00',
+  twilio_audio_greeting: window._twilioAudio?.greeting||'',
+  twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
+  twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
+  twilio_audio_after_hours: window._twilioAudio?.after_hours||''
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -7522,6 +7548,40 @@ function loadTwilioSettings(s){
  set('es-twilio-after-hours', s.twilio_after_hours_msg)
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
+ window._twilioAudio = {
+  greeting: s.twilio_audio_greeting||'',
+  no_answer: s.twilio_audio_no_answer||'',
+  unavailable: s.twilio_audio_unavailable||'',
+  after_hours: s.twilio_audio_after_hours||''
+ }
+ // Show existing audio status
+ Object.keys(window._twilioAudio).forEach(function(key){
+  var url = window._twilioAudio[key]
+  var el = document.getElementById('twilio-audio-'+key+'-status')
+  if(el) el.textContent = url ? '✓ Custom recording set: '+url.split('/').pop() : ''
+ })
+}
+
+async function uploadTwilioAudio(input, key){
+ const file = input.files[0]
+ if(!file) return
+ const status = document.getElementById('twilio-audio-'+key+'-status')
+ if(status) status.textContent = 'Uploading...'
+ try{
+  const fd = new FormData(); fd.append('file', file)
+  const r = await fetch('/api/twilio/audio/upload', {method:'POST', body:fd, credentials:'include'})
+  const d = await r.json()
+  if(d.ok){
+   if(!window._twilioAudio) window._twilioAudio = {}
+   window._twilioAudio[key] = d.url
+   if(status) status.textContent = '✓ Recording uploaded: '+d.url.split('/').pop()+' — click Save to apply'
+  } else {
+   if(status) status.textContent = 'Upload failed: '+(d.error||'Unknown')
+  }
+ } catch(err){
+  if(status) status.textContent = 'Error: '+err.message
+ }
+ input.value = ''
 }
 
 async function testTwilioSms(){

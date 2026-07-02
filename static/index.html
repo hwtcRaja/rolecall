@@ -3354,16 +3354,36 @@ function navTo(page,el){
 // LOAD DATA
 // ═══════════════════════════════════════════════════════════════
 async function loadAllData(){
- const [vols,hrs,events,itypes,wtypes,etemplates,youth,programs,prods,elicsData,evTypes,fams]=await Promise.all([
- api('/api/volunteers'),api('/api/hours'),api('/api/events'),
- api('/api/interest-types'),api('/api/waiver-types'),api('/api/email-templates'),
- api('/api/youth'),api('/api/youth-programs'),api('/api/productions'),api('/api/elics'),api('/api/event-types'),
- api('/api/families')
+ // Use allSettled so one failing endpoint doesn't break the entire load
+ const results = await Promise.allSettled([
+  api('/api/volunteers'),   // 0
+  api('/api/hours'),        // 1
+  api('/api/events'),       // 2
+  api('/api/interest-types'), // 3
+  api('/api/waiver-types'), // 4
+  api('/api/email-templates'), // 5
+  api('/api/youth'),        // 6
+  api('/api/youth-programs'), // 7
+  api('/api/productions'),  // 8
+  api('/api/elics'),        // 9
+  api('/api/event-types'),  // 10
+  api('/api/families'),     // 11
+  api('/api/nav-icons'),    // 12
  ])
- volunteers=vols; allHours=hrs; allEvents=events
- interestTypes=itypes; waiverTypes=wtypes; emailTemplates=etemplates
- allYouth=youth; allPrograms=programs; allProductions=prods; allElics=elicsData; allEventTypes=evTypes
- allFamilies=fams
+ const val = (i, fallback=[]) => results[i].status==='fulfilled' ? (results[i].value ?? fallback) : fallback
+ volunteers    = val(0)
+ allHours      = val(1)
+ allEvents     = val(2)
+ interestTypes = val(3)
+ waiverTypes   = val(4)
+ emailTemplates= val(5)
+ allYouth      = val(6)
+ allPrograms   = val(7)
+ allProductions= val(8)
+ allElics      = val(9)
+ allEventTypes = val(10)
+ allFamilies   = val(11)
+ const icons   = val(12, null)
  populateHoursFilters()
  populateInterestFilter()
  buildInterestCheckboxes()
@@ -3372,21 +3392,17 @@ async function loadAllData(){
  populateYouthFilters()
  populateProgramsDropdown()
  populateProdVolSelect()
- // Load applications count for nav badge on startup and store for sub-interest filtering
- // Apply nav icons — await so they're ready before first render
- try{
-  const icons = await api('/api/nav-icons')
-  if(icons&&!icons.error) applyNavIcons(icons)
- } catch(e){}
- // Load unread message count and applications badge in background
+ // Apply nav icons synchronously before first render
+ if(icons && !icons.error) applyNavIcons(icons)
+ // Background loads — don't block initial render
  api('/api/applications').then(apps=>{
- if(!Array.isArray(apps)) return
- allApplications = apps
- const pending = apps.filter(a=>a.status==='pending').length
- const navBadge = document.getElementById('vol-interest-badge')
- if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
- const tabBadge = document.getElementById('app-pending-badge')
- if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
+  if(!Array.isArray(apps)) return
+  allApplications = apps
+  const pending = apps.filter(a=>a.status==='pending').length
+  const navBadge = document.getElementById('vol-interest-badge')
+  if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
+  const tabBadge = document.getElementById('app-pending-badge')
+  if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
  }).catch(()=>{})
  refreshUnreadMessageBadge()
 }
@@ -13144,30 +13160,59 @@ async function removeEventElicUI(evid, rid){
 function renderChecklistSettings(){
  const el=document.getElementById('checklist-items-list')
  if(!el) return
- if(!allChecklistItems.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet</div>';return}
- const typeIcon={checkbox:'',text:'',rating:'⭐'}
- el.innerHTML=allChecklistItems.map(item=>`
- <div class="setting-item" style="flex-wrap:wrap;gap:8px">
- <div style="flex:1;min-width:180px">
- <div style="font-size:13px;font-weight:500">${typeIcon[item.item_type]||''} ${item.label}</div>
- ${item.hint?`<div style="font-size:11px;color:var(--text-hint)">${item.hint}</div>`:''}
- <div style="font-size:11px;margin-top:2px"><span style="color:${item.required?'var(--red-600)':'var(--text-hint)'}">${item.required?'Required':'Optional'}</span> · ${item.item_type}</div>
- </div>
- <div style="display:flex;gap:4px">
- <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditChecklistItem('${item.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteChecklistItem('${item.id}')">Delete</button>
- </div>
- </div>`).join('')
+ if(!allChecklistItems||!allChecklistItems.length){
+  el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet. Add one below.</div>'
+  return
+ }
+ const typeLabel={checkbox:'Checkbox',text:'Text / Notes',rating:'1–5 Rating'}
+ el.innerHTML=allChecklistItems.map(function(item,i){
+  return '<div class="cl-row" data-id="'+item.id+'" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:grab">'
+   +'<span style="color:var(--text-muted);font-size:16px;cursor:grab;flex-shrink:0">⠿</span>'
+   +'<div style="flex:1;min-width:0">'
+   +'<div style="font-size:13px;font-weight:600">'+escHtml(item.label)+'</div>'
+   +(item.hint?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(item.hint)+'</div>':'')
+   +'<div style="font-size:11px;margin-top:2px">'
+   +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
+   +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +'</div></div>'
+   +'<div style="display:flex;gap:4px;flex-shrink:0">'
+   +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditChecklistItem(\''+item.id+'\')">Edit</button>'
+   +'<button class="btn btn-danger btn-sm" style="font-size:11px;padding:3px 8px" onclick="deleteChecklistItem(\''+item.id+'\')">Delete</button>'
+   +'</div></div>'
+ }).join('')
+ initChecklistDrag(el, 'checklist-items')
+}
+
+function initChecklistDrag(container, listKey){
+ var dragging=null, over=null
+ container.querySelectorAll('.cl-row').forEach(function(row){
+  row.addEventListener('dragstart',function(e){ dragging=row; row.style.opacity='0.4'; e.dataTransfer.effectAllowed='move' })
+  row.addEventListener('dragend',function(){ row.style.opacity=''; dragging=null; over=null })
+  row.addEventListener('dragover',function(e){ e.preventDefault(); if(dragging&&row!==dragging){ over=row; container.insertBefore(dragging,row) } })
+  row.setAttribute('draggable','true')
+ })
+ container.addEventListener('drop',function(e){
+  e.preventDefault()
+  var ids=Array.from(container.querySelectorAll('.cl-row')).map(function(r){ return r.dataset.id })
+  var endpoint = listKey==='checklist-items' ? '/api/checklist-items/reorder' : '/api/opening-checklist-items/reorder'
+  api(endpoint,'POST',{ids:ids}).then(function(r){
+   if(r&&r.ok){
+    if(listKey==='checklist-items') allChecklistItems=ids.map(function(id){ return allChecklistItems.find(function(i){ return i.id===id }) }).filter(Boolean)
+    else allOpeningChecklistItems=ids.map(function(id){ return allOpeningChecklistItems.find(function(i){ return i.id===id }) }).filter(Boolean)
+    toast('Order saved','success')
+   }
+  }).catch(function(){})
+ })
 }
 
 async function addChecklistItem(){
- const label=document.getElementById('new-cl-label').value.trim()
- const item_type=document.getElementById('new-cl-type').value
- const required=document.getElementById('new-cl-required').checked
+ const label=(document.getElementById('new-cl-label')||{}).value.trim()
+ const item_type=(document.getElementById('new-cl-type')||{}).value||'checkbox'
+ const required=(document.getElementById('new-cl-required')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
  const res=await api('/api/checklist-items','POST',{label,item_type,required})
- if(res.error){toast(res.error,'error');return}
- allChecklistItems.push(res)
+ if(res&&res.error){toast(res.error,'error');return}
+ if(res&&res.id){ allChecklistItems.push(res) }
  document.getElementById('new-cl-label').value=''
  renderChecklistSettings()
  toast('Item added!','success')
@@ -13175,25 +13220,50 @@ async function addChecklistItem(){
 
 async function deleteChecklistItem(cid){
  if(!confirm('Delete this checklist item?')) return
- await api(`/api/checklist-items/${cid}`,'DELETE')
- allChecklistItems=allChecklistItems.filter(i=>i.id!==cid)
+ await api('/api/checklist-items/'+cid,'DELETE')
+ allChecklistItems=allChecklistItems.filter(function(i){ return i.id!==cid })
  renderChecklistSettings()
  toast('Deleted')
 }
 
 function openEditChecklistItem(cid){
- const item=allChecklistItems.find(i=>i.id===cid)
+ const item=allChecklistItems.find(function(i){ return i.id===cid })
  if(!item) return
- const label=prompt('Label:',item.label)
- if(!label) return
- const hint=prompt('Hint/prompt (optional):',item.hint||'')
- saveChecklistItem(cid,{...item,label,hint:hint||''})
+ const overlay=document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML='<div style="background:var(--surface);border-radius:12px;width:100%;max-width:420px;padding:24px">'
+  +'<div style="font-size:15px;font-weight:700;margin-bottom:16px">Edit Checklist Item</div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Label</label>'
+  +'<input type="text" id="edit-cl-label" value="'+escHtml(item.label)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Type</label>'
+  +'<select id="edit-cl-type" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+  +'<option value="checkbox"'+(item.item_type==='checkbox'?' selected':'')+'>Checkbox</option>'
+  +'<option value="text"'+(item.item_type==='text'?' selected':'')+'>Text / Notes</option>'
+  +'<option value="rating"'+(item.item_type==='rating'?' selected':'')+'>1–5 Rating</option>'
+  +'</select></div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Hint / Prompt (optional)</label>'
+  +'<input type="text" id="edit-cl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check behind the curtain too" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-cl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+  +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
+  +'<button class="btn btn-primary" onclick="submitEditChecklistItem(\''+cid+'\')">Save</button>'
+  +'</div></div>'
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
 }
 
-async function saveChecklistItem(cid, data){
- const res=await api(`/api/checklist-items/${cid}`,'PUT',data)
- if(res.error){toast(res.error,'error');return}
- allChecklistItems=allChecklistItems.map(i=>i.id===cid?res:i)
+async function submitEditChecklistItem(cid){
+ const label=(document.getElementById('edit-cl-label')||{}).value.trim()
+ const item_type=(document.getElementById('edit-cl-type')||{}).value||'checkbox'
+ const hint=(document.getElementById('edit-cl-hint')||{}).value.trim()
+ const required=(document.getElementById('edit-cl-required')||{}).checked
+ if(!label){toast('Label is required','error');return}
+ const item=allChecklistItems.find(function(i){ return i.id===cid })
+ const res=await api('/api/checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ if(res&&res.error){toast(res.error,'error');return}
+ allChecklistItems=allChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderChecklistSettings()
  toast('Updated!','success')
 }
@@ -15619,30 +15689,37 @@ async function deleteEventType(tid){
 function renderOpeningChecklistSettings(){
  const el=document.getElementById('opening-checklist-items-list')
  if(!el) return
- if(!allOpeningChecklistItems.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet</div>';return}
- const typeIcon={checkbox:'',text:'',rating:'⭐'}
- el.innerHTML=allOpeningChecklistItems.map(item=>`
- <div class="setting-item" style="flex-wrap:wrap;gap:8px">
- <div style="flex:1;min-width:180px">
- <div style="font-size:13px;font-weight:500">${typeIcon[item.item_type]||''} ${item.label}</div>
- ${item.hint?`<div style="font-size:11px;color:var(--text-hint)">${item.hint}</div>`:''}
- <div style="font-size:11px;margin-top:2px"><span style="color:${item.required?'var(--red-600)':'var(--text-hint)'}">${item.required?'Required':'Optional'}</span> · ${item.item_type}</div>
- </div>
- <div style="display:flex;gap:4px">
- <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEditOpeningChecklistItem('${item.id}')">Edit</button>
- <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteOpeningChecklistItem('${item.id}')">Delete</button>
- </div>
- </div>`).join('')
+ if(!allOpeningChecklistItems||!allOpeningChecklistItems.length){
+  el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No items yet. Add one below.</div>'
+  return
+ }
+ const typeLabel={checkbox:'Checkbox',text:'Text / Notes',rating:'1–5 Rating'}
+ el.innerHTML=allOpeningChecklistItems.map(function(item){
+  return '<div class="cl-row" data-id="'+item.id+'" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:grab">'
+   +'<span style="color:var(--text-muted);font-size:16px;cursor:grab;flex-shrink:0">⠿</span>'
+   +'<div style="flex:1;min-width:0">'
+   +'<div style="font-size:13px;font-weight:600">'+escHtml(item.label)+'</div>'
+   +(item.hint?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(item.hint)+'</div>':'')
+   +'<div style="font-size:11px;margin-top:2px">'
+   +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
+   +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +'</div></div>'
+   +'<div style="display:flex;gap:4px;flex-shrink:0">'
+   +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditOpeningChecklistItem(\''+item.id+'\')">Edit</button>'
+   +'<button class="btn btn-danger btn-sm" style="font-size:11px;padding:3px 8px" onclick="deleteOpeningChecklistItem(\''+item.id+'\')">Delete</button>'
+   +'</div></div>'
+ }).join('')
+ initChecklistDrag(el, 'opening-checklist-items')
 }
 
 async function addOpeningChecklistItem(){
- const label=document.getElementById('new-ocl-label').value.trim()
- const item_type=document.getElementById('new-ocl-type').value
- const required=document.getElementById('new-ocl-required').checked
+ const label=(document.getElementById('new-ocl-label')||{}).value.trim()
+ const item_type=(document.getElementById('new-ocl-type')||{}).value||'checkbox'
+ const required=(document.getElementById('new-ocl-required')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
  const res=await api('/api/opening-checklist-items','POST',{label,item_type,required})
- if(res.error){toast(res.error,'error');return}
- allOpeningChecklistItems.push(res)
+ if(res&&res.error){toast(res.error,'error');return}
+ if(res&&res.id){ allOpeningChecklistItems.push(res) }
  document.getElementById('new-ocl-label').value=''
  renderOpeningChecklistSettings()
  toast('Opening checklist item added!','success')
@@ -15650,25 +15727,50 @@ async function addOpeningChecklistItem(){
 
 async function deleteOpeningChecklistItem(cid){
  if(!confirm('Delete this item?')) return
- await api(`/api/opening-checklist-items/${cid}`,'DELETE')
- allOpeningChecklistItems=allOpeningChecklistItems.filter(i=>i.id!==cid)
+ await api('/api/opening-checklist-items/'+cid,'DELETE')
+ allOpeningChecklistItems=allOpeningChecklistItems.filter(function(i){ return i.id!==cid })
  renderOpeningChecklistSettings()
  toast('Deleted')
 }
 
 function openEditOpeningChecklistItem(cid){
- const item=allOpeningChecklistItems.find(i=>i.id===cid)
+ const item=allOpeningChecklistItems.find(function(i){ return i.id===cid })
  if(!item) return
- const label=prompt('Label:',item.label)
- if(!label) return
- const hint=prompt('Hint/prompt (optional):',item.hint||'')
- saveOpeningChecklistItem(cid,{...item,label,hint:hint||''})
+ const overlay=document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML='<div style="background:var(--surface);border-radius:12px;width:100%;max-width:420px;padding:24px">'
+  +'<div style="font-size:15px;font-weight:700;margin-bottom:16px">Edit Opening Checklist Item</div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Label</label>'
+  +'<input type="text" id="edit-ocl-label" value="'+escHtml(item.label)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Type</label>'
+  +'<select id="edit-ocl-type" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+  +'<option value="checkbox"'+(item.item_type==='checkbox'?' selected':'')+'>Checkbox</option>'
+  +'<option value="text"'+(item.item_type==='text'?' selected':'')+'>Text / Notes</option>'
+  +'<option value="rating"'+(item.item_type==='rating'?' selected':'')+'>1–5 Rating</option>'
+  +'</select></div>'
+  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Hint / Prompt (optional)</label>'
+  +'<input type="text" id="edit-ocl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check all entrances" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-ocl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+  +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
+  +'<button class="btn btn-primary" onclick="submitEditOpeningChecklistItem(\''+cid+'\')">Save</button>'
+  +'</div></div>'
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
 }
 
-async function saveOpeningChecklistItem(cid,data){
- const res=await api(`/api/opening-checklist-items/${cid}`,'PUT',data)
- if(res.error){toast(res.error,'error');return}
- allOpeningChecklistItems=allOpeningChecklistItems.map(i=>i.id===cid?res:i)
+async function submitEditOpeningChecklistItem(cid){
+ const label=(document.getElementById('edit-ocl-label')||{}).value.trim()
+ const item_type=(document.getElementById('edit-ocl-type')||{}).value||'checkbox'
+ const hint=(document.getElementById('edit-ocl-hint')||{}).value.trim()
+ const required=(document.getElementById('edit-ocl-required')||{}).checked
+ if(!label){toast('Label is required','error');return}
+ const item=allOpeningChecklistItems.find(function(i){ return i.id===cid })
+ const res=await api('/api/opening-checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ if(res&&res.error){toast(res.error,'error');return}
+ allOpeningChecklistItems=allOpeningChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderOpeningChecklistSettings()
  toast('Updated!','success')
 }

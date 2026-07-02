@@ -1275,6 +1275,19 @@ def init_db():
             recurrence TEXT DEFAULT 'once',
             color TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS call_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            call_sid TEXT DEFAULT '',
+            from_number TEXT NOT NULL,
+            to_number TEXT DEFAULT '',
+            routed_to_name TEXT DEFAULT '',
+            routed_to_phone TEXT DEFAULT '',
+            status TEXT DEFAULT 'initiated',
+            duration INTEGER DEFAULT 0,
+            is_after_hours BOOLEAN DEFAULT FALSE,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -6653,7 +6666,8 @@ def save_email_settings_route():
                 'twilio_audio_greeting TEXT DEFAULT \'\'',
                 'twilio_audio_no_answer TEXT DEFAULT \'\'',
                 'twilio_audio_unavailable TEXT DEFAULT \'\'',
-                'twilio_audio_after_hours TEXT DEFAULT \'\'']:
+                'twilio_audio_after_hours TEXT DEFAULT \'\'',
+                'slack_call_webhook TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6675,7 +6689,8 @@ def save_email_settings_route():
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
-        'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours']
+        'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
+        'slack_call_webhook']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13583,6 +13598,42 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
+SLACK_CALL_WEBHOOK = 'https://hooks.slack.com/services/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'
+
+def post_to_slack_calls(blocks, text=''):
+    """Post a message to the HWTC phone triage Slack channel."""
+    es = get_email_settings()
+    webhook = (es.get('slack_call_webhook') or SLACK_CALL_WEBHOOK).strip()
+    if not webhook: return
+    try:
+        import requests as _rslk
+        _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=5)
+    except Exception as e:
+        app.logger.warning(f'Slack call post failed: {e}')
+
+def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False):
+    """Insert or update a call log entry."""
+    try:
+        conn = get_db()
+        existing = fetchone(conn, 'SELECT id FROM call_log WHERE call_sid=%s', (call_sid,))
+        if existing:
+            execute(conn, '''UPDATE call_log SET status=%s, updated_at=NOW() WHERE call_sid=%s''',
+                (status, call_sid))
+        else:
+            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours)
+                VALUES (%s,%s,%s,%s,%s,%s)''',
+                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Call log error: {e}')
+
+def fmt_phone(p):
+    """Format a phone number nicely."""
+    p = (p or '').strip().replace(' ','').replace('-','').replace('(','').replace(')','')
+    if p.startswith('+1') and len(p)==12:
+        return f'({p[2:5]}) {p[5:8]}-{p[8:]}'
+    return p
+
 def get_oncall_now():
     """Return the on-call person for right now based on date, time, and day of week."""
     import datetime as _dtoc, json as _joc
@@ -13620,20 +13671,27 @@ def twilio_voice():
     coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
     after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
     audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
+    caller = request.form.get('From', 'Unknown')
+    call_sid = request.form.get('CallSid', '')
+    host = request.host_url.rstrip('/')
 
     def say_or_play(text, audio_url):
-        """Return TwiML element — Play if audio_url set, else Say."""
-        if audio_url:
-            return f'<Play>{audio_url}</Play>'
+        if audio_url: return f'<Play>{audio_url}</Play>'
         return f'<Say voice="Polly.Joanna">{text}</Say>'
 
-    # Check coverage hours
     import datetime as _dtv
     now = _dtv.datetime.now()
     now_time = now.strftime('%H:%M')
+    now_str = now.strftime('%b %d, %Y at %I:%M %p')
     in_hours = coverage_start <= now_time <= coverage_end
+
     if not in_hours:
         msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
+        log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No one available — after hours message played'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'}]}
+        ], text=f'After hours call from {fmt_phone(caller)}')
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(msg, audio_after_hours)}
@@ -13641,8 +13699,7 @@ def twilio_voice():
 
     oncall = get_oncall_now()
     forward_to = (oncall or {}).get('phone') or ts['fallback']
-    person_name = (oncall or {}).get('person_name') or 'our team'
-    caller = request.form.get('From','someone')
+    person_name = (oncall or {}).get('person_name') or 'Unknown'
     greeting = (es.get('twilio_voice_greeting') or '').strip()
     no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
     unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
@@ -13658,21 +13715,90 @@ def twilio_voice():
     if not unavailable_msg:
         unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
     app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
+
     if forward_to:
+        log_call(call_sid, caller, person_name, forward_to, 'ringing')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+            {'type':'actions','elements':[
+                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'},
+                {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+            ]}
+        ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial callerId="{request.form.get('To','')}">
-    <Number>{forward_to}</Number>
+  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
+    <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
   </Dial>
   {say_or_play(no_answer_msg, audio_no_answer)}
 </Response>'''
     else:
+        log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person scheduled and no fallback set'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'}]}
+        ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(unavailable_msg, audio_unavailable)}
 </Response>'''
     return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/call-status', methods=['POST'])
+def twilio_call_status():
+    """Status callback — update call log and post outcome to Slack."""
+    call_sid = request.form.get('CallSid','')
+    dial_status = request.form.get('DialCallStatus', request.form.get('CallStatus',''))
+    duration = int(request.form.get('DialCallDuration', request.form.get('CallDuration', 0)) or 0)
+    caller = request.form.get('From','')
+    import datetime as _dtcs
+    now_str = _dtcs.datetime.now().strftime('%b %d, %Y at %I:%M %p')
+    # Fetch existing log entry
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+    except Exception:
+        row = None
+    person_name = (row or {}).get('routed_to_name','Unknown')
+    from_num = (row or {}).get('from_number', caller)
+    def mins(s): return f'{s//60}m {s%60}s' if s>=60 else f'{s}s'
+    if dial_status == 'completed':
+        status = 'answered'
+        emoji = '✅'
+        status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
+    elif dial_status in ('no-answer','busy'):
+        status = 'missed'
+        emoji = '❌'
+        status_text = f'*MISSED* — {person_name} did not answer'
+    elif dial_status == 'failed':
+        status = 'failed'
+        emoji = '🔴'
+        status_text = f'Call failed to connect to {person_name}'
+    else:
+        status = dial_status or 'unknown'
+        emoji = '❓'
+        status_text = f'Status: {dial_status}'
+    # Update DB
+    try:
+        conn2 = get_db()
+        execute(conn2, 'UPDATE call_log SET status=%s, duration=%s, updated_at=NOW() WHERE call_sid=%s',
+            (status, duration, call_sid))
+        conn2.commit(); conn2.close()
+    except Exception as e:
+        app.logger.warning(f'Call status update error: {e}')
+    # Post outcome to Slack
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'{emoji} *Call Update*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
+        {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{from_num}','action_id':'callback'}]}
+    ], text=f'{emoji} Call from {fmt_phone(from_num)}: {status_text}')
+    return '', 204
+
+
 
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
@@ -13680,8 +13806,11 @@ def twilio_sms():
     oncall = get_oncall_now()
     ts = get_twilio_settings()
     forward_to = (oncall or {}).get('phone') or ts['fallback']
+    person_name = (oncall or {}).get('person_name') or 'fallback'
     from_num = request.form.get('From','Unknown')
     body = request.form.get('Body','').strip()
+    import datetime as _dtsms
+    now_str = _dtsms.datetime.now().strftime('%b %d, %Y at %I:%M %p')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:
@@ -13689,12 +13818,17 @@ def twilio_sms():
             from twilio.rest import Client as _TwClient
             client = _TwClient(ts['account_sid'], ts['auth_token'])
             client.messages.create(
-                body=f'[HWTC] From {from_num}: {body}',
+                body=f'[HWTC] From {fmt_phone(from_num)}: {body}',
                 from_=ts['from_phone'],
                 to=forward_to
             )
         except Exception as e:
             app.logger.warning(f'Twilio forward SMS failed: {e}')
+    # Post to Slack
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'💬 *Inbound Text Message*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+    ], text=f'Text from {fmt_phone(from_num)}: {body[:100]}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
     twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -13702,6 +13836,16 @@ def twilio_sms():
   <Message>{auto_reply}</Message>
 </Response>'''
     return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/api/call-log', methods=['GET'])
+def get_call_log():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    limit = int(request.args.get('limit', 50))
+    rows = fetchall(conn, 'SELECT * FROM call_log ORDER BY created_at DESC LIMIT %s', (limit,)) or []
+    conn.close()
+    return jsonify(rows)
 
 @app.route('/api/oncall', methods=['GET'])
 def get_oncall_schedule():

@@ -6081,6 +6081,62 @@ def set_donor_tier(did):
 #  STATIC PAGES
 # ─────────────────────────────────────────────
 
+@app.route('/callback')
+def callback_page():
+    """Simple page for initiating a masked callback from a Slack link."""
+    to_number = request.args.get('to','')
+    from_number = request.args.get('from_number','') or to_number
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Call Back via HWTC</title>
+<style>*{{box-sizing:border-box}}body{{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
+.card{{background:#fff;border-radius:16px;padding:32px;max-width:400px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}}
+.logo{{height:48px;margin-bottom:16px}}h1{{font-size:20px;font-weight:700;color:#0d3d4d;margin-bottom:6px}}
+.sub{{font-size:14px;color:#888;margin-bottom:24px}}
+.num{{font-size:22px;font-weight:800;color:#0d3d4d;background:#eff6ff;padding:10px 20px;border-radius:8px;margin-bottom:20px;letter-spacing:1px}}
+label{{display:block;text-align:left;font-size:13px;font-weight:600;margin-bottom:6px;color:#555}}
+input{{width:100%;padding:12px 16px;border:1.5px solid #d1d5db;border-radius:8px;font-size:16px;margin-bottom:16px;font-family:inherit}}
+button{{width:100%;padding:14px;background:#0d3d4d;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer}}
+button:disabled{{opacity:0.6}}
+#status{{margin-top:16px;font-size:14px;font-weight:600;color:#0d3d4d;min-height:20px}}</style></head>
+<body><div class="card">
+<img src="/static/images/hwtc_logo_teal.png" class="logo" alt="HWTC"/>
+<h1>Call Back via HWTC</h1>
+<div class="sub">Your call will show as the HWTC number</div>
+<div class="num">{from_number or to_number}</div>
+<label>Your cell number (we'll call you first)</label>
+<input type="tel" id="agent" placeholder="+14075550100" value=""/>
+<button onclick="startCall()">📞 Connect Call</button>
+<div id="status"></div>
+</div>
+<script>
+var to = '{to_number or from_number}';
+var saved = localStorage.getItem('hwtc_agent_phone');
+if(saved) document.getElementById('agent').value = saved;
+async function startCall(){{
+  var agent = document.getElementById('agent').value.trim();
+  if(!agent){{alert('Enter your cell number first.');return}}
+  localStorage.setItem('hwtc_agent_phone', agent);
+  var btn = document.querySelector('button'); btn.disabled=true; btn.textContent='Calling…';
+  var status = document.getElementById('status');
+  try{{
+    var r = await fetch('/api/twilio/callback', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{to: to, agent: agent}})
+    }});
+    var d = await r.json();
+    if(d.ok){{
+      status.textContent = '✓ Calling your phone now — pick up to be connected!';
+      status.style.color = '#166534';
+      btn.textContent = '✓ Call initiated';
+    }} else {{
+      status.textContent = 'Error: ' + (d.error||'Unknown');
+      status.style.color = '#991b1b';
+      btn.disabled=false; btn.textContent='📞 Try Again';
+    }}
+  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent='📞 Try Again'; }}
+}}
+</script></body></html>''', 200, {'Content-Type': 'text/html'}
+
 @app.route('/privacy')
 def privacy_page():
     return send_from_directory('static', 'privacy.html')
@@ -13690,7 +13746,7 @@ def twilio_voice():
         log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No one available — after hours message played'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'}]}
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
         ], text=f'After hours call from {fmt_phone(caller)}')
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -13722,7 +13778,7 @@ def twilio_voice():
             {'type':'section','text':{'type':'mrkdwn','text':
                 f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
             {'type':'actions','elements':[
-                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'},
+                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
                 {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
             ]}
         ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
@@ -13739,7 +13795,7 @@ def twilio_voice():
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
                 f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person scheduled and no fallback set'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{caller}','action_id':'callback'}]}
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
         ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -13794,7 +13850,7 @@ def twilio_call_status():
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
             f'{emoji} *Call Update*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
-        {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back'},'url':f'tel:{from_num}','action_id':'callback'}]}
+        {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
     ], text=f'{emoji} Call from {fmt_phone(from_num)}: {status_text}')
     return '', 204
 
@@ -13809,6 +13865,7 @@ def twilio_sms():
     person_name = (oncall or {}).get('person_name') or 'fallback'
     from_num = request.form.get('From','Unknown')
     body = request.form.get('Body','').strip()
+    host = request.host_url.rstrip('/')
     import datetime as _dtsms
     now_str = _dtsms.datetime.now().strftime('%b %d, %Y at %I:%M %p')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
@@ -13894,6 +13951,49 @@ def delete_oncall(oid):
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/twilio/callback', methods=['POST'])
+def twilio_callback_bridge():
+    """Initiate a masked outbound call — calls the agent first, then bridges to the target."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    to_number = (d.get('to') or '').strip()      # number to call back (the original caller)
+    agent_number = (d.get('agent') or '').strip() # agent's personal cell to ring first
+    if not to_number or not agent_number:
+        return jsonify({'error': 'Missing to or agent number'}), 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token'] or not ts['from_phone']:
+        return jsonify({'error': 'Twilio not configured'}), 400
+    try:
+        from twilio.rest import Client as _TwCb
+        client = _TwCb(ts['account_sid'], ts['auth_token'])
+        host = request.host_url.rstrip('/')
+        # Call the agent first — when they pick up, bridge to the target
+        call = client.calls.create(
+            to=agent_number,
+            from_=ts['from_phone'],
+            url=f'{host}/twilio/bridge-twiml?target={to_number}&hwtc={ts["from_phone"]}',
+            status_callback=f'{host}/twilio/call-status',
+            status_callback_method='POST'
+        )
+        return jsonify({'ok': True, 'sid': call.sid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/twilio/bridge-twiml', methods=['GET','POST'])
+def twilio_bridge_twiml():
+    """TwiML served to the agent once they pick up — bridges them to the target caller."""
+    target = request.args.get('target','')
+    hwtc_num = request.args.get('hwtc','')
+    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Connecting you now. You are calling back via the H W T C number.</Say>
+  <Dial callerId="{hwtc_num}" answerOnBridge="true">
+    <Number>{target}</Number>
+  </Dial>
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
 
 @app.route('/api/twilio/send-sms', methods=['POST'])
 def send_twilio_sms():

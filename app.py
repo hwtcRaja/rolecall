@@ -6638,7 +6638,10 @@ def save_email_settings_route():
     # Ensure rental columns exist
     for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
                 'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
-                'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'']:
+                'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
+                'twilio_voice_greeting TEXT DEFAULT \'\'',
+                'twilio_voice_no_answer TEXT DEFAULT \'\'',
+                'twilio_voice_unavailable TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6649,7 +6652,8 @@ def save_email_settings_route():
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
-        'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone']
+        'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
+        'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13555,20 +13559,32 @@ def twilio_voice():
     forward_to = (oncall or {}).get('phone') or ts['fallback']
     person_name = (oncall or {}).get('person_name') or 'our team'
     caller = request.form.get('From','someone')
+    es = get_email_settings()
+    greeting = (es.get('twilio_voice_greeting') or '').strip()
+    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+    if not greeting:
+        greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
+    else:
+        greeting = greeting.replace('{name}', person_name)
+    if not no_answer_msg:
+        no_answer_msg = 'We were unable to reach our team right now. Please try again later or send us a text message.'
+    if not unavailable_msg:
+        unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
     app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
     if forward_to:
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.</Say>
+  <Say voice="Polly.Joanna">{greeting}</Say>
   <Dial callerId="{request.form.get('To','')}">
     <Number>{forward_to}</Number>
   </Dial>
-  <Say voice="Polly.Joanna">We were unable to reach our team right now. Please try again later or send us a text message.</Say>
+  <Say voice="Polly.Joanna">{no_answer_msg}</Say>
 </Response>'''
     else:
-        twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.</Say>
+  <Say voice="Polly.Joanna">{unavailable_msg}</Say>
 </Response>'''
     return twiml, 200, {'Content-Type': 'text/xml'}
 

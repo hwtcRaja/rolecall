@@ -1702,6 +1702,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Calls/texts forward here when nobody is on call</div>
   </div>
  </div>
+ <div style="margin-bottom:16px">
+  <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;font-size:11px">Voice Greeting Messages</div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label>Greeting (before transfer) <span style="font-weight:400;color:var(--text-muted)">— use {name} for on-call person's name</span></label>
+   <input type="text" id="es-twilio-greeting" placeholder="Thank you for calling Horizon West Theater Company. Please hold while we connect you to {name}."/>
+  </div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label>No Answer Message (if on-call doesn't pick up)</label>
+   <input type="text" id="es-twilio-no-answer" placeholder="We were unable to reach our team right now. Please try again later or send us a text message."/>
+  </div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label>Unavailable Message (when nobody is on call)</label>
+   <input type="text" id="es-twilio-unavailable" placeholder="Thank you for calling Horizon West Theater Company. We are unable to take your call right now."/>
+  </div>
+ </div>
  <div style="display:flex;gap:10px">
   <button class="btn btn-primary" onclick="saveTwilioSettings()">Save Twilio Settings</button>
   <button class="btn btn-secondary" onclick="testTwilioSms()">Send Test SMS</button>
@@ -7448,7 +7463,10 @@ async function saveTwilioSettings(){
   twilio_account_sid: (document.getElementById('es-twilio-sid')||{}).value||'',
   twilio_auth_token:  (document.getElementById('es-twilio-token')||{}).value||'',
   twilio_phone:       (document.getElementById('es-twilio-phone')||{}).value||'',
-  twilio_fallback_phone: (document.getElementById('es-twilio-fallback')||{}).value||''
+  twilio_fallback_phone: (document.getElementById('es-twilio-fallback')||{}).value||'',
+  twilio_voice_greeting: (document.getElementById('es-twilio-greeting')||{}).value||'',
+  twilio_voice_no_answer: (document.getElementById('es-twilio-no-answer')||{}).value||'',
+  twilio_voice_unavailable: (document.getElementById('es-twilio-unavailable')||{}).value||''
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -7465,6 +7483,9 @@ function loadTwilioSettings(s){
  set('es-twilio-token', s.twilio_auth_token)
  set('es-twilio-phone', s.twilio_phone)
  set('es-twilio-fallback', s.twilio_fallback_phone)
+ set('es-twilio-greeting', s.twilio_voice_greeting)
+ set('es-twilio-no-answer', s.twilio_voice_no_answer)
+ set('es-twilio-unavailable', s.twilio_voice_unavailable)
 }
 
 async function testTwilioSms(){

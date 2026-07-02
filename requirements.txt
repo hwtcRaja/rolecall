@@ -3,3 +3,4 @@ flask-cors==4.0.1
 gunicorn
 psycopg2-binary
 requests
+twilio

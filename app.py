@@ -6630,7 +6630,8 @@ def save_email_settings_route():
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
-        'rental_approver_emails','rental_approval_levels','rental_agreement_template']
+        'rental_approver_emails','rental_approval_levels','rental_agreement_template',
+        'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -8881,14 +8882,15 @@ def kiosk_open_event():
     elic_id  = d.get('elic_id')
     event_id = d.get('event_id')
     responses = d.get('responses', [])
+    signature = d.get('signature', '')
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
     try:
         # Log the opening
         log_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes)
-            VALUES (%s,%s,%s,'open','Event opened via kiosk')''', (log_id, event_id, elic_id))
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+            VALUES (%s,%s,%s,'open','Event opened via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         # Save checklist responses
         for r in responses:
             rid = str(uuid.uuid4())
@@ -8911,13 +8913,14 @@ def kiosk_close_event():
     elic_id  = d.get('elic_id')
     event_id = d.get('event_id')
     responses = d.get('responses', [])
+    signature = d.get('signature', '')
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
     try:
         log_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes)
-            VALUES (%s,%s,%s,'close','Event closed via kiosk')''', (log_id, event_id, elic_id))
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+            VALUES (%s,%s,%s,'close','Event closed via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         for r in responses:
             rid = str(uuid.uuid4())
             execute(conn, '''INSERT INTO event_checklist_responses
@@ -13185,6 +13188,19 @@ def run_migrations_manual():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'",
         "UPDATE audition_settings SET context_type='production' WHERE context_type IS NULL",
+        "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS signature TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS on_call_schedule (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            person_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
     ]
     for m in migrations:
         try:
@@ -13470,6 +13486,164 @@ def upload_lobby_banner():
 
 @app.route('/api/lobby/sched-bg', methods=['GET'])
 def get_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+    row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+    conn.close()
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100),
+        'fit': (row4 or {}).get('value') or 'cover'
+    })
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWILIO — Inbound voice & SMS webhooks + on-call schedule
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_twilio_settings():
+    es = get_email_settings()
+    return {
+        'account_sid': es.get('twilio_account_sid','').strip(),
+        'auth_token':  es.get('twilio_auth_token','').strip(),
+        'from_phone':  es.get('twilio_phone','').strip(),
+        'fallback':    es.get('twilio_fallback_phone','').strip(),
+    }
+
+def get_oncall_now():
+    """Return the on-call person for right now, or None."""
+    import datetime as _dtoc
+    today = _dtoc.date.today().isoformat()
+    conn = get_db()
+    row = fetchone(conn, '''SELECT * FROM on_call_schedule
+        WHERE start_date <= %s AND end_date >= %s
+        ORDER BY start_date DESC LIMIT 1''', (today, today))
+    conn.close()
+    return row
+
+@app.route('/twilio/voice', methods=['POST'])
+def twilio_voice():
+    """Inbound call webhook — forward to on-call person."""
+    oncall = get_oncall_now()
+    ts = get_twilio_settings()
+    forward_to = (oncall or {}).get('phone') or ts['fallback']
+    person_name = (oncall or {}).get('person_name') or 'our team'
+    caller = request.form.get('From','someone')
+    app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
+    if forward_to:
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.</Say>
+  <Dial callerId="{request.form.get('To','')}">
+    <Number>{forward_to}</Number>
+  </Dial>
+  <Say voice="Polly.Joanna">We were unable to reach our team right now. Please try again later or send us a text message.</Say>
+</Response>'''
+    else:
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.</Say>
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/sms', methods=['POST'])
+def twilio_sms():
+    """Inbound SMS webhook — forward to on-call person."""
+    oncall = get_oncall_now()
+    ts = get_twilio_settings()
+    forward_to = (oncall or {}).get('phone') or ts['fallback']
+    from_num = request.form.get('From','Unknown')
+    body = request.form.get('Body','').strip()
+    app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
+    # Forward to on-call person via Twilio SMS
+    if forward_to and ts['account_sid'] and ts['auth_token']:
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(
+                body=f'[HWTC] From {from_num}: {body}',
+                from_=ts['from_phone'],
+                to=forward_to
+            )
+        except Exception as e:
+            app.logger.warning(f'Twilio forward SMS failed: {e}')
+    # Auto-reply to sender
+    auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
+    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>{auto_reply}</Message>
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/api/oncall', methods=['GET'])
+def get_oncall_schedule():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM on_call_schedule ORDER BY start_date') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/oncall', methods=['POST'])
+def create_oncall():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    execute(conn, '''INSERT INTO on_call_schedule (start_date,end_date,person_name,phone,notes)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM on_call_schedule ORDER BY created_at DESC LIMIT 1')
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/oncall/<oid>', methods=['PUT'])
+def update_oncall(oid):
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    execute(conn, '''UPDATE on_call_schedule SET start_date=%s,end_date=%s,person_name=%s,phone=%s,notes=%s WHERE id=%s''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes',''), oid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/oncall/<oid>', methods=['DELETE'])
+def delete_oncall(oid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/twilio/send-sms', methods=['POST'])
+def send_twilio_sms():
+    """Send an outbound SMS to a phone number."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    to_phone = (d.get('to') or '').strip()
+    body = (d.get('body') or '').strip()
+    if not to_phone or not body:
+        return jsonify({'error': 'Missing to or body'}), 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token'] or not ts['from_phone']:
+        return jsonify({'error': 'Twilio not configured in Settings'}), 400
+    try:
+        from twilio.rest import Client as _TwClient
+        client = _TwClient(ts['account_sid'], ts['auth_token'])
+        msg = client.messages.create(body=body, from_=ts['from_phone'], to=to_phone)
+        return jsonify({'ok': True, 'sid': msg.sid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
     err = require_auth()
     if err: return err
     conn = get_db()

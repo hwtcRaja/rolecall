@@ -6649,7 +6649,11 @@ def save_email_settings_route():
                 'twilio_voice_unavailable TEXT DEFAULT \'\'',
                 'twilio_after_hours_msg TEXT DEFAULT \'\'',
                 'twilio_coverage_start TEXT DEFAULT \'08:00\'',
-                'twilio_coverage_end TEXT DEFAULT \'22:00\'']:
+                'twilio_coverage_end TEXT DEFAULT \'22:00\'',
+                'twilio_audio_greeting TEXT DEFAULT \'\'',
+                'twilio_audio_no_answer TEXT DEFAULT \'\'',
+                'twilio_audio_unavailable TEXT DEFAULT \'\'',
+                'twilio_audio_after_hours TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6670,7 +6674,8 @@ def save_email_settings_route():
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
-        'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end']
+        'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
+        'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13507,6 +13512,27 @@ def save_lobby_banner():
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/twilio/audio/upload', methods=['POST'])
+def upload_twilio_audio():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.mp3','.wav','.ogg','.m4a'): return jsonify({'error': 'Invalid type — use MP3, WAV, OGG, or M4A'}), 400
+    import uuid as _uta
+    filename = f'twilio-audio-{str(_uta.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    # Upload to GitHub (same as images)
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Twilio audio GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
+
 @app.route('/api/lobby/banner/upload', methods=['POST'])
 def upload_lobby_banner():
     err = require_auth()
@@ -13588,19 +13614,20 @@ def get_oncall_now():
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
     """Inbound call webhook — forward to on-call person."""
-    oncall = get_oncall_now()
     ts = get_twilio_settings()
-    forward_to = (oncall or {}).get('phone') or ts['fallback']
-    person_name = (oncall or {}).get('person_name') or 'our team'
-    caller = request.form.get('From','someone')
     es = get_email_settings()
-    greeting = (es.get('twilio_voice_greeting') or '').strip()
-    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
-    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
-    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
     coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
     coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
-    # Check if we're within coverage hours
+    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
+    audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
+
+    def say_or_play(text, audio_url):
+        """Return TwiML element — Play if audio_url set, else Say."""
+        if audio_url:
+            return f'<Play>{audio_url}</Play>'
+        return f'<Say voice="Polly.Joanna">{text}</Say>'
+
+    # Check coverage hours
     import datetime as _dtv
     now = _dtv.datetime.now()
     now_time = now.strftime('%H:%M')
@@ -13609,12 +13636,19 @@ def twilio_voice():
         msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">{msg}</Say>
+  {say_or_play(msg, audio_after_hours)}
 </Response>''', 200, {'Content-Type': 'text/xml'}
+
     oncall = get_oncall_now()
     forward_to = (oncall or {}).get('phone') or ts['fallback']
     person_name = (oncall or {}).get('person_name') or 'our team'
     caller = request.form.get('From','someone')
+    greeting = (es.get('twilio_voice_greeting') or '').strip()
+    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+    audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
+    audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
+    audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
     if not greeting:
         greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
     else:
@@ -13627,16 +13661,16 @@ def twilio_voice():
     if forward_to:
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">{greeting}</Say>
+  {say_or_play(greeting, audio_greeting)}
   <Dial callerId="{request.form.get('To','')}">
     <Number>{forward_to}</Number>
   </Dial>
-  <Say voice="Polly.Joanna">{no_answer_msg}</Say>
+  {say_or_play(no_answer_msg, audio_no_answer)}
 </Response>'''
     else:
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">{unavailable_msg}</Say>
+  {say_or_play(unavailable_msg, audio_unavailable)}
 </Response>'''
     return twiml, 200, {'Content-Type': 'text/xml'}
 

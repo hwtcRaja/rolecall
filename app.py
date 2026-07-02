@@ -13658,12 +13658,18 @@ SLACK_CALL_WEBHOOK = 'https://hooks.slack.com/services/T0130J4LGNQ/B0BERJU2VAS/7
 
 def post_to_slack_calls(blocks, text=''):
     """Post a message to the HWTC phone triage Slack channel."""
-    es = get_email_settings()
-    webhook = (es.get('slack_call_webhook') or SLACK_CALL_WEBHOOK).strip()
+    webhook = SLACK_CALL_WEBHOOK
+    try:
+        es = get_email_settings()
+        custom = (es.get('slack_call_webhook') or '').strip()
+        if custom: webhook = custom
+    except Exception as e:
+        app.logger.warning(f'Slack: could not load settings: {e}')
     if not webhook: return
     try:
         import requests as _rslk
-        _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=5)
+        resp = _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=10)
+        app.logger.info(f'Slack post status: {resp.status_code} {resp.text[:100]}')
     except Exception as e:
         app.logger.warning(f'Slack call post failed: {e}')
 

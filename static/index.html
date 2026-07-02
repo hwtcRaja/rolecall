@@ -1716,6 +1716,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label>Unavailable Message (when nobody is on call)</label>
    <input type="text" id="es-twilio-unavailable" placeholder="Thank you for calling Horizon West Theater Company. We are unable to take your call right now."/>
   </div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label>After Hours Message (outside coverage window)</label>
+   <input type="text" id="es-twilio-after-hours" placeholder="Our team is available 8am–10pm. Please leave a text and we'll get back to you shortly."/>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
+   <div class="form-group">
+    <label>Coverage Start Time</label>
+    <input type="time" id="es-twilio-cov-start" value="08:00"/>
+   </div>
+   <div class="form-group">
+    <label>Coverage End Time</label>
+    <input type="time" id="es-twilio-cov-end" value="22:00"/>
+   </div>
+  </div>
  </div>
  <div style="display:flex;gap:10px">
   <button class="btn btn-primary" onclick="saveTwilioSettings()">Save Twilio Settings</button>
@@ -2182,16 +2196,32 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- ON-CALL SCHEDULE -->
  <section class="page" id="page-oncall">
  <div class="page-header">
-  <div><div class="page-title">📞 On-Call Schedule</div><div class="page-subtitle">Who answers calls & texts to your Twilio number</div></div>
-  <div class="page-actions"><button class="btn btn-primary" onclick="openOncallModal()">+ Add Schedule</button></div>
+  <div><div class="page-title">📞 On-Call Schedule</div><div class="page-subtitle">Who answers calls &amp; texts to your Twilio number</div></div>
+  <div class="page-actions" style="display:flex;gap:8px;align-items:center">
+   <button class="btn btn-secondary" id="oncall-view-week" onclick="setOncallView('week')">Week</button>
+   <button class="btn btn-secondary" id="oncall-view-month" onclick="setOncallView('month')">Month</button>
+   <button class="btn btn-primary" onclick="openOncallModal()">+ Add Shift</button>
+  </div>
  </div>
  <div class="page-body">
-  <div class="card" style="padding:16px;margin-bottom:20px;background:#eff6ff;border:1px solid #bfdbfe">
-   <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:4px">How it works</div>
-   <div style="font-size:13px;color:#1e3a8a">When someone calls or texts your HWTC Twilio number, RoleCall checks who is on call right now and forwards to their personal cell. Set up your webhook URLs in Twilio Console → Phone Numbers first (copy them from Settings → Twilio).</div>
+  <div class="card" style="padding:16px;margin-bottom:16px;background:#eff6ff;border:1px solid #bfdbfe">
+   <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:4px">Coverage Hours: 8:00 AM – 10:00 PM</div>
+   <div style="font-size:13px;color:#1e3a8a">Outside these hours, callers hear your after-hours message. Gaps in the schedule (shown in red) mean calls fall through to your fallback number.</div>
   </div>
-  <div id="oncall-now" style="margin-bottom:20px"></div>
-  <div id="oncall-list"></div>
+  <div id="oncall-now" style="margin-bottom:16px"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+   <button class="btn btn-secondary btn-sm" onclick="oncallNav(-1)">← Prev</button>
+   <div id="oncall-period-label" style="font-size:15px;font-weight:700"></div>
+   <button class="btn btn-secondary btn-sm" onclick="oncallNav(1)">Next →</button>
+  </div>
+  <div id="oncall-calendar" style="overflow-x:auto"></div>
+  <style>
+   .oc-slot{padding:3px 6px;border-radius:4px;font-size:11px;font-weight:700;margin:1px 0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+   .oc-gap{background:#fee2e2;color:#991b1b;padding:2px 4px;border-radius:3px;font-size:10px;font-style:italic}
+   .oc-grid-cell{border:1px solid var(--border);padding:4px;min-height:32px;vertical-align:top;position:relative}
+   .oc-grid-cell.today-col{background:rgba(var(--teal-rgb,13,61,77),0.05)}
+   .oc-time-label{font-size:11px;color:var(--text-muted);padding:2px 6px;white-space:nowrap;width:52px}
+  </style>
  </div>
  </section>
 
@@ -7466,7 +7496,10 @@ async function saveTwilioSettings(){
   twilio_fallback_phone: (document.getElementById('es-twilio-fallback')||{}).value||'',
   twilio_voice_greeting: (document.getElementById('es-twilio-greeting')||{}).value||'',
   twilio_voice_no_answer: (document.getElementById('es-twilio-no-answer')||{}).value||'',
-  twilio_voice_unavailable: (document.getElementById('es-twilio-unavailable')||{}).value||''
+  twilio_voice_unavailable: (document.getElementById('es-twilio-unavailable')||{}).value||'',
+  twilio_after_hours_msg: (document.getElementById('es-twilio-after-hours')||{}).value||'',
+  twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
+  twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00'
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -7486,6 +7519,9 @@ function loadTwilioSettings(s){
  set('es-twilio-greeting', s.twilio_voice_greeting)
  set('es-twilio-no-answer', s.twilio_voice_no_answer)
  set('es-twilio-unavailable', s.twilio_voice_unavailable)
+ set('es-twilio-after-hours', s.twilio_after_hours_msg)
+ set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
+ set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
 }
 
 async function testTwilioSms(){
@@ -7496,128 +7532,208 @@ async function testTwilioSms(){
  else toast('Failed: '+(res&&res.error||'Check Twilio settings'),'error')
 }
 
-// ── On-Call Schedule ──────────────────────────────────────────────────────
+// ── On-Call Schedule Calendar ─────────────────────────────────────────────
 var _oncallList = []
+var _oncallView = 'week'
+var _oncallOffset = 0
+
+var OC_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#0ea5e9','#a855f7']
+var OC_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+
+function setOncallView(v){
+ _oncallView=v; _oncallOffset=0
+ document.getElementById('oncall-view-week').style.fontWeight=v==='week'?'800':'400'
+ document.getElementById('oncall-view-month').style.fontWeight=v==='month'?'800':'400'
+ renderOncallCalendar()
+}
+function oncallNav(dir){ _oncallOffset+=dir; renderOncallCalendar() }
+
+function getPersonColor(name){
+ var names=[...new Set(_oncallList.map(function(r){return r.person_name}))]
+ var existing=_oncallList.find(function(r){return r.person_name===name&&r.color})
+ if(existing&&existing.color) return existing.color
+ return OC_COLORS[names.indexOf(name)%OC_COLORS.length]
+}
+
+function timeToMins(t){var p=(t||'00:00').split(':');return parseInt(p[0])*60+parseInt(p[1]||0)}
+function fmt12h(t){var p=(t||'00:00').split(':'),h=parseInt(p[0]),m=parseInt(p[1]||0),ap=h>=12?'PM':'AM';h=h%12||12;return h+(m?':'+String(m).padStart(2,'0'):'')+' '+ap}
+
+function shiftsForDate(dateStr){
+ var dow=new Date(dateStr+'T12:00:00').getDay();var monDow=dow===0?6:dow-1
+ return _oncallList.filter(function(r){
+  if(r.start_date>dateStr||r.end_date<dateStr) return false
+  try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(monDow))return false}catch(e){}
+  return true
+ })
+}
+
+function hasCoverageGap(dateStr){
+ var shifts=shiftsForDate(dateStr); if(!shifts.length) return true
+ var covered=new Set()
+ shifts.forEach(function(s){var st=timeToMins(s.start_time||'08:00'),en=timeToMins(s.end_time||'22:00');for(var m=st;m<en;m++)covered.add(m)})
+ for(var m=480;m<1320;m++){if(!covered.has(m))return true}
+ return false
+}
+
+function renderOncallCalendar(){
+ renderOncallNow()
+ if(_oncallView==='week') renderWeekView()
+ else renderMonthView()
+}
+
+function renderWeekView(){
+ var today=new Date(),todayStr=today.toISOString().slice(0,10)
+ var dow=today.getDay()===0?6:today.getDay()-1
+ var ws=new Date(today); ws.setDate(today.getDate()-dow+(_oncallOffset*7))
+ var days=[];for(var i=0;i<7;i++){var d=new Date(ws);d.setDate(ws.getDate()+i);days.push(d.toISOString().slice(0,10))}
+ var label=new Date(days[0]+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+new Date(days[6]+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+ document.getElementById('oncall-period-label').textContent=label
+ var html='<table style="width:100%;border-collapse:collapse;min-width:600px"><thead><tr><th style="width:52px"></th>'
+ days.forEach(function(d,i){var isToday=d===todayStr;html+='<th style="padding:6px 4px;text-align:center;font-size:12px;'+(isToday?'color:var(--teal);':'color:var(--text-muted)')+'">'+OC_DAY_NAMES[i]+'<br/><span style="font-size:15px;font-weight:'+(isToday?800:500)+'">'+new Date(d+'T12:00:00').getDate()+'</span></th>'})
+ html+='</tr></thead><tbody>'
+ for(var h=8;h<22;h++){
+  html+='<tr><td style="border:1px solid var(--border);padding:2px 4px;font-size:10px;color:var(--text-muted);text-align:right;vertical-align:top;white-space:nowrap">'+(h<12?h+' AM':h===12?'12 PM':(h-12)+' PM')+'</td>'
+  days.forEach(function(d){
+   var isToday=d===todayStr
+   var shifts=shiftsForDate(d).filter(function(s){var st=timeToMins(s.start_time||'08:00'),en=timeToMins(s.end_time||'22:00');return st<=h*60&&en>h*60})
+   html+='<td style="border:1px solid var(--border);padding:2px;vertical-align:top;min-height:28px;background:'+(isToday?'rgba(13,61,77,0.04)':'')+'" onclick="openOncallModalForDate(\''+d+'\','+h+')">'
+   if(shifts.length){shifts.forEach(function(s){var c=getPersonColor(s.person_name);html+='<div style="padding:2px 4px;border-radius:3px;font-size:10px;font-weight:700;background:'+c+'20;color:'+c+';border-left:2px solid '+c+';cursor:pointer;margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')" title="'+s.person_name+' '+fmt12h(s.start_time)+'-'+fmt12h(s.end_time)+'">'+s.person_name+'</div>'})}
+   else html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">gap</div>'
+   html+='</td>'
+  })
+  html+='</tr>'
+ }
+ html+='</tbody></table>'
+ var people=[...new Set(_oncallList.map(function(r){return r.person_name}))]
+ if(people.length){html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">'+people.map(function(n){var c=getPersonColor(n);return '<div style="display:flex;align-items:center;gap:5px;font-size:12px"><span style="width:9px;height:9px;border-radius:50%;background:'+c+'"></span>'+escHtml(n)+'</div>'}).join('')+'</div>'}
+ document.getElementById('oncall-calendar').innerHTML=html
+}
+
+function renderMonthView(){
+ var today=new Date(),todayStr=today.toISOString().slice(0,10)
+ var vd=new Date(today.getFullYear(),today.getMonth()+_oncallOffset,1)
+ var y=vd.getFullYear(),m=vd.getMonth()
+ document.getElementById('oncall-period-label').textContent=vd.toLocaleDateString('en-US',{month:'long',year:'numeric'})
+ var fd=new Date(y,m,1).getDay(),firstMon=fd===0?6:fd-1,dim=new Date(y,m+1,0).getDate()
+ var html='<table style="width:100%;border-collapse:collapse"><thead><tr>'+OC_DAY_NAMES.map(function(d){return '<th style="padding:8px;text-align:center;font-size:12px;color:var(--text-muted);font-weight:700">'+d+'</th>'}).join('')+'</tr></thead><tbody>'
+ var day=1-firstMon
+ for(var row=0;row<6;row++){
+  html+='<tr>'
+  for(var col=0;col<7;col++,day++){
+   if(day<1||day>dim){html+='<td style="border:1px solid var(--border);background:var(--bg);min-height:72px"></td>'}
+   else{
+    var ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(day).padStart(2,'0')
+    var isToday=ds===todayStr,shifts=shiftsForDate(ds),hasGap=hasCoverageGap(ds)
+    var bg=isToday?'rgba(13,61,77,0.06)':hasGap&&shifts.length?'#fffbeb':hasGap?'#fef2f2':''
+    html+='<td style="border:1px solid var(--border);vertical-align:top;padding:5px;min-height:72px;background:'+bg+';cursor:pointer" onclick="openOncallModalForDate(\''+ds+'\')">'
+    html+='<div style="font-size:13px;font-weight:'+(isToday?800:500)+';color:'+(isToday?'var(--teal)':'inherit')+';margin-bottom:3px">'+day+'</div>'
+    if(!shifts.length){html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">no coverage</div>'}
+    else{shifts.forEach(function(s){var c=getPersonColor(s.person_name);html+='<div style="font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;background:'+c+'20;color:'+c+';border-left:2px solid '+c+';margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')">'+s.person_name+'</div>'});if(hasGap)html+='<div style="font-size:9px;color:#f59e0b;font-style:italic">partial gap</div>'}
+    html+='</td>'
+   }
+  }
+  html+='</tr>';if(day>dim)break
+ }
+ html+='</tbody></table>'
+ document.getElementById('oncall-calendar').innerHTML=html
+}
 
 async function loadOncallPage(){
- const res = await api('/api/oncall')
- _oncallList = Array.isArray(res) ? res : []
- renderOncallNow()
- renderOncallList()
+ const res=await api('/api/oncall')
+ _oncallList=Array.isArray(res)?res:[]
+ setOncallView('week')
 }
 
 function renderOncallNow(){
- const el = document.getElementById('oncall-now')
- if(!el) return
- const today = new Date().toISOString().slice(0,10)
- const current = _oncallList.find(function(r){ return r.start_date <= today && r.end_date >= today })
+ var el=document.getElementById('oncall-now'); if(!el) return
+ var today=new Date(),todayStr=today.toISOString().slice(0,10),nowTime=today.toTimeString().slice(0,5)
+ var nowDow=today.getDay()===0?6:today.getDay()-1
+ var current=_oncallList.find(function(r){
+  if(r.start_date>todayStr||r.end_date<todayStr)return false
+  if((r.start_time||'08:00')>nowTime||(r.end_time||'22:00')<=nowTime)return false
+  try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(nowDow))return false}catch(e){}
+  return true
+ })
  if(current){
-  el.innerHTML = '<div style="background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:14px">'
-   +'<div style="font-size:28px">📞</div>'
-   +'<div><div style="font-size:13px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:0.4px">On Call Right Now</div>'
-   +'<div style="font-size:18px;font-weight:800;color:#14532d">'+escHtml(current.person_name)+'</div>'
-   +'<div style="font-size:13px;color:#166534">'+escHtml(current.phone)
-   +(current.notes?' &mdash; '+escHtml(current.notes):'')+'</div>'
-   +'<div style="font-size:11px;color:#16a34a;margin-top:2px">'+formatDate(current.start_date)+' – '+formatDate(current.end_date)+'</div>'
-   +'</div></div>'
+  var col=getPersonColor(current.person_name)
+  el.innerHTML='<div style="background:'+col+'15;border:1.5px solid '+col+';border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px"><div style="width:10px;height:10px;border-radius:50%;background:'+col+';flex-shrink:0"></div><div><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:'+col+'">On Call Now</div><div style="font-size:16px;font-weight:800">'+escHtml(current.person_name)+'</div><div style="font-size:12px;color:var(--text-muted)">'+escHtml(current.phone)+' &middot; until '+fmt12h(current.end_time||'22:00')+'</div></div><button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="openOncallModal(\''+current.id+'\')">Edit</button></div>'
  } else {
-  el.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:16px 20px;display:flex;align-items:center;gap:14px">'
-   +'<div style="font-size:28px">⚠️</div>'
-   +'<div><div style="font-size:13px;font-weight:700;color:#991b1b">Nobody On Call Right Now</div>'
-   +'<div style="font-size:13px;color:#7f1d1d">Inbound calls/texts will forward to your fallback number. Add a schedule below.</div>'
-   +'</div></div>'
+  el.innerHTML='<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px 16px;font-size:13px;color:#991b1b"><strong>No one on call right now</strong> — inbound calls go to your fallback number.</div>'
  }
 }
 
-function renderOncallList(){
- const el = document.getElementById('oncall-list')
- if(!el) return
- if(!_oncallList.length){
-  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">No schedule set up yet. Click "+ Add Schedule" to get started.</div>'
-  return
- }
- const today = new Date().toISOString().slice(0,10)
- const sorted = _oncallList.slice().sort(function(a,b){ return a.start_date > b.start_date ? -1 : 1 })
- el.innerHTML = '<table style="width:100%;border-collapse:collapse">'
-  +'<thead><tr style="border-bottom:2px solid var(--border)">'
-  +'<th style="text-align:left;padding:10px 14px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Person</th>'
-  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Phone</th>'
-  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Dates</th>'
-  +'<th style="text-align:left;padding:10px 8px;font-size:12px;text-transform:uppercase;color:var(--text-muted)">Notes</th>'
-  +'<th></th>'
-  +'</tr></thead><tbody>'
-  +sorted.map(function(r){
-   const isNow = r.start_date <= today && r.end_date >= today
-   const isPast = r.end_date < today
-   return '<tr style="border-bottom:1px solid var(--border)'+(isPast?';opacity:0.5':'')+'">'
-    +'<td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px">'
-    +(isNow?'<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;box-shadow:0 0 6px #22c55e"></span>':'')
-    +'<div style="font-weight:700">'+escHtml(r.person_name)+'</div></div></td>'
-    +'<td style="padding:10px 8px;color:var(--text-muted)">'+escHtml(r.phone)+'</td>'
-    +'<td style="padding:10px 8px;white-space:nowrap">'+formatDate(r.start_date)+' – '+formatDate(r.end_date)+'</td>'
-    +'<td style="padding:10px 8px;color:var(--text-muted);font-size:12px">'+escHtml(r.notes||'')+'</td>'
-    +'<td style="padding:10px 8px;text-align:right"><div style="display:flex;gap:4px;justify-content:flex-end">'
-    +'<button class="btn btn-secondary btn-sm" onclick="openOncallModal(\''+r.id+'\')">Edit</button>'
-    +'<button class="btn btn-danger btn-sm" onclick="deleteOncall(\''+r.id+'\')">Delete</button>'
-    +'</div></td>'
-    +'</tr>'
-  }).join('')
-  +'</tbody></table>'
-}
+function openOncallModalForDate(dateStr,hour){openOncallModal(null,dateStr,hour)}
 
-function openOncallModal(id){
- const item = id ? _oncallList.find(function(r){ return r.id===id }) : null
- const today = new Date().toISOString().slice(0,10)
- const nextWeek = new Date(Date.now()+7*86400000).toISOString().slice(0,10)
- const overlay = document.createElement('div')
+function openOncallModal(id,prefillDate,prefillHour){
+ var item=id?_oncallList.find(function(r){return r.id===id}):null
+ var today=prefillDate||new Date().toISOString().slice(0,10)
+ var nextWeek=new Date(new Date(today+'T12:00:00').getTime()+6*86400000).toISOString().slice(0,10)
+ var defaultStart=prefillHour!=null?String(prefillHour).padStart(2,'0')+':00':(item?item.start_time||'08:00':'08:00')
+ var defaultEnd=prefillHour!=null?String(Math.min((prefillHour||8)+2,22)).padStart(2,'0')+':00':(item?item.end_time||'22:00':'22:00')
+ var days=[0,1,2,3,4,5,6];try{if(item&&item.days_of_week)days=JSON.parse(item.days_of_week)}catch(e){}
+ var dayL=['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+ var overlay=document.createElement('div')
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML='<div style="background:var(--surface);border-radius:14px;width:100%;max-width:440px;padding:24px">'
-  +'<div style="font-size:16px;font-weight:800;margin-bottom:20px">'+(item?'Edit':'Add')+'  On-Call Entry</div>'
-  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Person Name</label>'
-  +'<input type="text" id="oc-name" value="'+escHtml(item?.person_name||'')+'" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
-  +'<div class="form-group" style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Phone Number (calls/texts forward here)</label>'
-  +'<input type="tel" id="oc-phone" value="'+escHtml(item?.phone||'')+'" placeholder="+14075550100" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+ overlay.innerHTML='<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px;max-height:90vh;overflow-y:auto">'
+  +'<div style="font-size:16px;font-weight:800;margin-bottom:20px">'+(item?'Edit':'Add')+' On-Call Shift</div>'
   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
-  +'<div class="form-group"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Date</label>'
-  +'<input type="date" id="oc-start" value="'+(item?.start_date||today)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
-  +'<div class="form-group"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Date</label>'
-  +'<input type="date" id="oc-end" value="'+(item?.end_date||nextWeek)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Person Name</label><input type="text" id="oc-name" value="'+escHtml(item?item.person_name||'':'')+'" placeholder="e.g. Raja" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Phone (+1...)</label><input type="tel" id="oc-phone" value="'+escHtml(item?item.phone||'':'')+'" placeholder="+14075550100" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'</div>'
-  +'<div class="form-group" style="margin-bottom:20px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Notes (optional)</label>'
-  +'<input type="text" id="oc-notes" value="'+escHtml(item?.notes||'')+'" placeholder="e.g. Available after 6pm" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
-  +'<div style="display:flex;gap:8px;justify-content:flex-end">'
-  +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
-  +'<button class="btn btn-primary" onclick="saveOncall('+(id?'\''+id+'\'':'null')+')">Save</button>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Date</label><input type="date" id="oc-start" value="'+(item?item.start_date:today)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Date</label><input type="date" id="oc-end" value="'+(item?item.end_date:nextWeek)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Time</label><input type="time" id="oc-stime" value="'+defaultStart+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Time</label><input type="time" id="oc-etime" value="'+defaultEnd+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'</div>'
+  +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Days of Week</label><div style="display:flex;gap:8px">'
+  +dayL.map(function(d,i){return '<label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;font-size:11px;font-weight:600"><input type="checkbox" id="oc-day-'+i+'"'+(days.includes(i)?' checked':'')+' style="accent-color:var(--teal)"/>'+d+'</label>'}).join('')
   +'</div></div>'
- overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Recurrence</label>'
+  +'<select id="oc-recur" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+  +'<option value="once"'+(!item||item.recurrence==='once'?' selected':'')+'>One-time (date range above)</option>'
+  +'<option value="weekly"'+(item&&item.recurrence==='weekly'?' selected':'')+'>Weekly repeating</option>'
+  +'</select></div>'
+  +'<div style="margin-bottom:16px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Notes</label><input type="text" id="oc-notes" value="'+escHtml(item?item.notes||'':'')+'" placeholder="e.g. Available after 6pm only" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+  +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+  +(id?'<button class="btn btn-danger btn-sm" onclick="deleteOncall(\''+id+'\')" style="margin-right:auto">Delete</button>':'')
+  +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
+  +'<button class="btn btn-primary" onclick="saveOncall('+(id?'\''+id+'\'':'null')+')">Save Shift</button>'
+  +'</div></div>'
+ overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
  document.body.appendChild(overlay)
 }
 
 async function saveOncall(id){
- const name=(document.getElementById('oc-name')||{}).value.trim()
- const phone=(document.getElementById('oc-phone')||{}).value.trim()
- const start=(document.getElementById('oc-start')||{}).value
- const end=(document.getElementById('oc-end')||{}).value
- const notes=(document.getElementById('oc-notes')||{}).value.trim()
+ var name=(document.getElementById('oc-name')||{}).value.trim()
+ var phone=(document.getElementById('oc-phone')||{}).value.trim()
+ var start=(document.getElementById('oc-start')||{}).value
+ var end=(document.getElementById('oc-end')||{}).value
+ var stime=(document.getElementById('oc-stime')||{}).value||'08:00'
+ var etime=(document.getElementById('oc-etime')||{}).value||'22:00'
+ var recur=(document.getElementById('oc-recur')||{}).value||'once'
+ var notes=(document.getElementById('oc-notes')||{}).value.trim()
+ var selDays=[];for(var i=0;i<7;i++){if(document.getElementById('oc-day-'+i)?.checked)selDays.push(i)}
  if(!name||!phone||!start||!end){toast('Name, phone, and dates are required','error');return}
  if(end<start){toast('End date must be after start date','error');return}
- const payload={person_name:name,phone:phone,start_date:start,end_date:end,notes:notes}
- const res = id ? await api('/api/oncall/'+id,'PUT',payload) : await api('/api/oncall','POST',payload)
+ if(!selDays.length){toast('Select at least one day','error');return}
+ var payload={person_name:name,phone:phone,start_date:start,end_date:end,start_time:stime,end_time:etime,days_of_week:JSON.stringify(selDays),recurrence:recur,notes:notes}
+ var res=id?await api('/api/oncall/'+id,'PUT',payload):await api('/api/oncall','POST',payload)
  if(res&&(res.ok||res.id)){
-  if(!id && res.id) _oncallList.push(res)
-  else if(id) _oncallList=_oncallList.map(function(r){ return r.id===id?Object.assign({},r,payload):r })
+  var reloaded=await api('/api/oncall'); _oncallList=Array.isArray(reloaded)?reloaded:_oncallList
   document.querySelector('[style*=fixed][style*=z-index]')?.remove()
-  renderOncallNow(); renderOncallList()
-  toast(id?'Updated!':'Schedule added!','success')
+  renderOncallCalendar(); toast(id?'Shift updated!':'Shift added!','success')
  } else toast((res&&res.error)||'Error saving','error')
 }
 
 async function deleteOncall(id){
- if(!confirm('Remove this on-call entry?')) return
+ if(!confirm('Remove this shift?')) return
  await api('/api/oncall/'+id,'DELETE')
- _oncallList=_oncallList.filter(function(r){ return r.id!==id })
- renderOncallNow(); renderOncallList()
- toast('Removed')
+ _oncallList=_oncallList.filter(function(r){return r.id!==id})
+ document.querySelector('[style*=fixed][style*=z-index]')?.remove()
+ renderOncallCalendar(); toast('Shift removed')
 }
 
 function clearSendersDirty(){

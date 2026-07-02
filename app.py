@@ -13654,7 +13654,7 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-SLACK_CALL_WEBHOOK = 'https://hooks.slack.com/services/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'
+SLACK_CALL_WEBHOOK = 'https://hooks.slack.com/services/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'
 
 def post_to_slack_calls(blocks, text=''):
     """Post a message to the HWTC phone triage Slack channel."""
@@ -13669,9 +13669,9 @@ def post_to_slack_calls(blocks, text=''):
     try:
         import requests as _rslk
         resp = _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=10)
-        app.logger.info(f'Slack post status: {resp.status_code} {resp.text[:100]}')
+        app.logger.error(f'SLACK POST: status={resp.status_code} response={resp.text[:200]}')
     except Exception as e:
-        app.logger.warning(f'Slack call post failed: {e}')
+        app.logger.error(f'SLACK POST FAILED: {e}')
 
 def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False):
     """Insert or update a call log entry."""
@@ -15220,7 +15220,7 @@ def marquee_overview():
             LEFT JOIN program_registrations pr ON pr.program_id=ps.program_id
                 AND pr.session_ids IS NOT NULL
                 AND pr.session_ids != \'[]\'
-                AND pr.session_ids LIKE (\'%"\' || ps.id || \'"%\')
+                AND pr.session_ids LIKE ('%%"' || ps.id || '"%%')
                 AND pr.status != \'cancelled\'
             WHERE yp.registration_status != \'draft\'
             GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override,

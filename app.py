@@ -1262,6 +1262,14 @@ def init_db():
             error_message TEXT DEFAULT '',
             source TEXT DEFAULT '',
             sent_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS on_call_schedule (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            person_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,

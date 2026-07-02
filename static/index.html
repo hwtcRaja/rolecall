@@ -7709,6 +7709,19 @@ function renderMonthView(){
  document.getElementById('oncall-calendar').innerHTML=html
 }
 
+async function initMaskedCallback(toNumber){
+ // Prompt for the agent's number to ring first
+ var agent = prompt('Your cell number to ring first? (include +1)\nThe caller will see the HWTC number, not yours.', localStorage.getItem('hwtc_agent_phone')||'')
+ if(!agent) return
+ localStorage.setItem('hwtc_agent_phone', agent)
+ const res = await api('/api/twilio/callback','POST',{to:toNumber, agent:agent})
+ if(res&&res.ok){
+  toast('Calling you now — pick up and you\'ll be connected to '+toNumber,'success')
+ } else {
+  toast('Call failed: '+(res&&res.error||'Check Twilio settings'),'error')
+ }
+}
+
 async function loadOncallPage(){
  const res=await api('/api/oncall')
  _oncallList=Array.isArray(res)?res:[]
@@ -7749,7 +7762,7 @@ async function loadCallLog(){
     +'<td style="padding:10px 8px">'+statusBadge(r.status)+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted)">'+dur+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted);white-space:nowrap;font-size:12px">'+time+'</td>'
-    +'<td style="padding:10px 8px"><a href="tel:'+escHtml(phone)+'" class="btn btn-secondary btn-sm" style="text-decoration:none;font-size:11px">📞 Call Back</a></td>'
+    +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')">📞 Call Back via HWTC</button></td>'
     +'</tr>'
   }).join('')
   +'</tbody></table>'

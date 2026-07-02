@@ -13654,22 +13654,21 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-SLACK_CALL_WEBHOOK = 'https://hooks.slack.com/services/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'
-
 def post_to_slack_calls(blocks, text=''):
     """Post a message to the HWTC phone triage Slack channel."""
-    webhook = SLACK_CALL_WEBHOOK
     try:
         es = get_email_settings()
-        custom = (es.get('slack_call_webhook') or '').strip()
-        if custom: webhook = custom
+        webhook = (es.get('slack_call_webhook') or '').strip()
     except Exception as e:
         app.logger.warning(f'Slack: could not load settings: {e}')
-    if not webhook: return
+        webhook = ''
+    if not webhook:
+        app.logger.warning('Slack webhook not configured — skipping post')
+        return
     try:
         import requests as _rslk
         resp = _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=10)
-        app.logger.error(f'SLACK POST: status={resp.status_code} response={resp.text[:200]}')
+        app.logger.info(f'Slack post: status={resp.status_code}')
     except Exception as e:
         app.logger.error(f'SLACK POST FAILED: {e}')
 

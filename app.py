@@ -13702,7 +13702,8 @@ def fmt_phone(p):
 def get_oncall_now():
     """Return the on-call person for right now based on date, time, and day of week."""
     import datetime as _dtoc, json as _joc
-    now = _dtoc.datetime.now()
+    from zoneinfo import ZoneInfo as _ZIoc
+    now = _dtoc.datetime.now(_ZIoc('America/New_York'))
     today = now.date().isoformat()
     now_time = now.strftime('%H:%M')
     weekday = now.weekday()  # 0=Monday, 6=Sunday
@@ -13745,9 +13746,10 @@ def twilio_voice():
         return f'<Say voice="Polly.Joanna">{text}</Say>'
 
     import datetime as _dtv
-    now = _dtv.datetime.now()
+    from zoneinfo import ZoneInfo as _ZI
+    now = _dtv.datetime.now(_ZI('America/New_York'))
     now_time = now.strftime('%H:%M')
-    now_str = now.strftime('%b %d, %Y at %I:%M %p')
+    now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
     in_hours = coverage_start <= now_time <= coverage_end
 
     if not in_hours:
@@ -13822,7 +13824,7 @@ def twilio_call_status():
     caller = request.form.get('From','')
     app.logger.info(f'Call status: sid={call_sid} CallStatus={call_status} DialCallStatus={dial_status} duration={duration}')
     import datetime as _dtcs
-    now_str = _dtcs.datetime.now().strftime('%b %d, %Y at %I:%M %p')
+    now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
     try:
         conn = get_db()
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
@@ -13895,7 +13897,7 @@ def twilio_sms():
     body = request.form.get('Body','').strip()
     host = request.host_url.rstrip('/')
     import datetime as _dtsms
-    now_str = _dtsms.datetime.now().strftime('%b %d, %Y at %I:%M %p')
+    now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:

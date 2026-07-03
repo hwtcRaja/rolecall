@@ -521,13 +521,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Today — <span id="dash-today-date" style="color:var(--teal-dark);font-weight:600"></span></div>
  <div id="dash-today-events"><div style="font-size:13px;color:var(--text-muted)">No events today</div></div>
  </div>
+ <!-- On-Call -->
+ <div class="card" style="padding:20px">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+  <div style="font-size:15px;font-weight:700">📞 On-Call</div>
+  <button class="btn btn-secondary btn-sm" onclick="navTo('oncall')">Manage</button>
+ </div>
+ <div id="dash-oncall"><div style="font-size:13px;color:var(--text-muted)">Loading…</div></div>
+ </div>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
  <!-- Upcoming -->
  <div class="card" style="padding:20px">
  <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Next 7 Days</div>
  <div id="dash-upcoming-events"><div style="font-size:13px;color:var(--text-muted)">No upcoming events</div></div>
  </div>
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
  <!-- Alerts -->
  <div class="card" style="padding:20px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -3740,6 +3748,66 @@ async function renderDashboard(){
  + mkTable('/static/images/universial.png','Universal Team Members',universal)
  }
  }
+
+ // On-Call widget
+ renderDashboardOncall()
+}
+
+async function renderDashboardOncall(){
+ const el = document.getElementById('dash-oncall')
+ if(!el) return
+ const today = new Date().toISOString().slice(0,10)
+ const nowTime = new Date().toTimeString().slice(0,5)
+ const nowDow = new Date().getDay()===0?6:new Date().getDay()-1
+ // Load schedule if not already loaded
+ if(!_oncallList || !_oncallList.length){
+  try{ const r = await api('/api/oncall'); _oncallList = Array.isArray(r)?r:[] } catch(e){ _oncallList=[] }
+ }
+ // Current on-call
+ const current = _oncallList.find(function(r){
+  if(r.start_date>today||r.end_date<today) return false
+  if((r.start_time||'08:00')>nowTime||(r.end_time||'22:00')<=nowTime) return false
+  try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(nowDow))return false}catch(e){}
+  return true
+ })
+ // Today's full schedule
+ const todayShifts = _oncallList.filter(function(r){
+  if(r.start_date>today||r.end_date<today) return false
+  try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(nowDow))return false}catch(e){}
+  return true
+ }).sort(function(a,b){ return (a.start_time||'').localeCompare(b.start_time||'') })
+
+ var html = ''
+ // Current on-call banner
+ if(current){
+  var col = getPersonColor ? getPersonColor(current.person_name) : '#0d3d4d'
+  html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:'+col+'15;border:1.5px solid '+col+';border-radius:8px;margin-bottom:10px;cursor:pointer" onclick="navTo(\'oncall\')">'
+   +'<div style="width:8px;height:8px;border-radius:50%;background:'+col+';flex-shrink:0;animation:blink 2s infinite"></div>'
+   +'<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:'+col+'">On Call Now</div>'
+   +'<div style="font-size:14px;font-weight:800">'+escHtml(current.person_name)+'</div>'
+   +'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(current.phone)+' &middot; until '+fmt12h(current.end_time||'22:00')+'</div>'
+   +'</div></div>'
+ } else {
+  html += '<div style="padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;margin-bottom:10px;cursor:pointer" onclick="navTo(\'oncall\')">'
+   +'⚠️ <strong>No one on call right now</strong> — calls go to fallback</div>'
+ }
+ // Today's schedule list
+ if(todayShifts.length){
+  html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px">Today\'s Schedule</div>'
+  html += todayShifts.map(function(s){
+   var col2 = getPersonColor ? getPersonColor(s.person_name) : '#0d3d4d'
+   var isNow = s===current
+   return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
+    +'<div style="width:3px;align-self:stretch;background:'+col2+';border-radius:2px;flex-shrink:0"></div>'
+    +'<div style="flex:1"><div style="font-size:13px;font-weight:'+(isNow?'800':'600')+'">'+escHtml(s.person_name)+'</div>'
+    +'<div style="font-size:11px;color:var(--text-muted)">'+fmt12h(s.start_time||'08:00')+' – '+fmt12h(s.end_time||'22:00')+'</div></div>'
+    +(isNow?'<span style="font-size:10px;font-weight:700;color:'+col2+';background:'+col2+'20;padding:2px 6px;border-radius:10px">NOW</span>':'')
+    +'</div>'
+  }).join('')
+ } else {
+  html += '<div style="font-size:13px;color:var(--text-muted)">No shifts scheduled today</div>'
+ }
+ el.innerHTML = html
 }
 
 // ═══════════════════════════════════════════════════════════════

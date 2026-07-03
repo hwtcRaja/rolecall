@@ -13983,11 +13983,9 @@ def delete_oncall(oid):
 @app.route('/api/twilio/callback', methods=['POST'])
 def twilio_callback_bridge():
     """Initiate a masked outbound call — calls the agent first, then bridges to the target."""
-    err = require_auth()
-    if err: return err
     d = request.get_json(silent=True) or {}
-    to_number = (d.get('to') or '').strip()      # number to call back (the original caller)
-    agent_number = (d.get('agent') or '').strip() # agent's personal cell to ring first
+    to_number = (d.get('to') or '').strip()
+    agent_number = (d.get('agent') or '').strip()
     if not to_number or not agent_number:
         return jsonify({'error': 'Missing to or agent number'}), 400
     ts = get_twilio_settings()

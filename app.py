@@ -13991,15 +13991,24 @@ def twilio_callback_bridge():
     ts = get_twilio_settings()
     if not ts['account_sid'] or not ts['auth_token'] or not ts['from_phone']:
         return jsonify({'error': 'Twilio not configured'}), 400
+    # Normalize phone numbers — strip spaces, ensure +1 prefix
+    def norm_phone(p):
+        p = ''.join(c for c in p if c.isdigit() or c=='+')
+        if not p.startswith('+'): p = '+1' + p
+        return p
+    to_number = norm_phone(to_number)
+    agent_number = norm_phone(agent_number)
+    hwtc_phone = norm_phone(ts['from_phone'])
     try:
         from twilio.rest import Client as _TwCb
+        from urllib.parse import quote as _q
         client = _TwCb(ts['account_sid'], ts['auth_token'])
         host = 'https://rolecall.hwtco.org'
-        # Call the agent first — when they pick up, bridge to the target
+        bridge_url = f'{host}/twilio/bridge-twiml?target={_q(to_number)}&hwtc={_q(hwtc_phone)}'
         call = client.calls.create(
             to=agent_number,
-            from_=ts['from_phone'],
-            url=f'{host}/twilio/bridge-twiml?target={to_number}&hwtc={ts["from_phone"]}',
+            from_=hwtc_phone,
+            url=bridge_url,
             status_callback=f'{host}/twilio/call-status',
             status_callback_method='POST'
         )

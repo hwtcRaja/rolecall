@@ -13662,6 +13662,10 @@ def post_to_slack_calls(blocks, text=''):
     except Exception as e:
         app.logger.warning(f'Slack: could not load settings: {e}')
         webhook = ''
+    # Fall back to environment variable if not set in DB
+    if not webhook:
+        import os as _oss
+        webhook = _oss.environ.get('SLACK_CALL_WEBHOOK','').strip()
     if not webhook:
         app.logger.warning('Slack webhook not configured — skipping post')
         return
@@ -13812,13 +13816,13 @@ def twilio_voice():
 def twilio_call_status():
     """Status callback — update call log and post outcome to Slack."""
     call_sid = request.form.get('CallSid','')
-    dial_status = request.form.get('DialCallStatus', request.form.get('CallStatus',''))
+    call_status = request.form.get('CallStatus','')       # from statusCallback on <Number>
+    dial_status = request.form.get('DialCallStatus','')   # from action on <Dial>
     duration = int(request.form.get('DialCallDuration', request.form.get('CallDuration', 0)) or 0)
     caller = request.form.get('From','')
-    app.logger.info(f'Call status callback: sid={call_sid} status={dial_status} duration={duration} params={dict(request.form)}')
+    app.logger.info(f'Call status: sid={call_sid} CallStatus={call_status} DialCallStatus={dial_status} duration={duration}')
     import datetime as _dtcs
     now_str = _dtcs.datetime.now().strftime('%b %d, %Y at %I:%M %p')
-    # Fetch existing log entry
     try:
         conn = get_db()
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
@@ -13826,38 +13830,56 @@ def twilio_call_status():
     except Exception:
         row = None
     person_name = (row or {}).get('routed_to_name','Unknown')
-    from_num = (row or {}).get('from_number', caller)
+    from_num = (row or {}).get('from_number', caller) or caller
+    host = 'https://rolecall.hwtco.org'
     def mins(s): return f'{s//60}m {s%60}s' if s>=60 else f'{s}s'
-    if dial_status == 'completed':
-        status = 'answered'
-        emoji = '✅'
-        status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
-    elif dial_status in ('no-answer','busy'):
-        status = 'missed'
-        emoji = '❌'
-        status_text = f'*MISSED* — {person_name} did not answer'
-    elif dial_status == 'failed':
-        status = 'failed'
-        emoji = '🔴'
-        status_text = f'Call failed to connect to {person_name}'
-    else:
-        status = dial_status or 'unknown'
-        emoji = '❓'
-        status_text = f'Status: {dial_status}'
-    # Update DB
-    try:
-        conn2 = get_db()
-        execute(conn2, 'UPDATE call_log SET status=%s, duration=%s, updated_at=NOW() WHERE call_sid=%s',
-            (status, duration, call_sid))
-        conn2.commit(); conn2.close()
-    except Exception as e:
-        app.logger.warning(f'Call status update error: {e}')
-    # Post outcome to Slack
-    post_to_slack_calls([
-        {'type':'section','text':{'type':'mrkdwn','text':
-            f'{emoji} *Call Update*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
-        {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
-    ], text=f'{emoji} Call from {fmt_phone(from_num)}: {status_text}')
+
+    # Case 1: <Dial> action fired — this is the definitive call outcome
+    if dial_status:
+        if dial_status == 'completed':
+            status = 'answered'
+            emoji = '✅'
+            status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
+        elif dial_status in ('no-answer','busy'):
+            status = 'missed'
+            emoji = '❌'
+            status_text = f'MISSED — {person_name} did not answer'
+        elif dial_status == 'failed':
+            status = 'failed'
+            emoji = '🔴'
+            status_text = f'Failed to connect to {person_name}'
+        else:
+            status = dial_status
+            emoji = '❓'
+            status_text = f'Status: {dial_status}'
+        try:
+            conn2 = get_db()
+            execute(conn2, 'UPDATE call_log SET status=%s, duration=%s, updated_at=NOW() WHERE call_sid=%s',
+                (status, duration, call_sid))
+            conn2.commit(); conn2.close()
+        except Exception as e:
+            app.logger.warning(f'Call status update error: {e}')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'{emoji} *Call {status.title()}*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
+        ], text=f'{emoji} {status_text}')
+        return '', 204
+
+    # Case 2: statusCallback on <Number> fired (in-progress updates like answered)
+    # Only post to Slack for meaningful transitions, not every ringing update
+    if call_status == 'in-progress':
+        try:
+            conn3 = get_db()
+            execute(conn3, "UPDATE call_log SET status='answered', updated_at=NOW() WHERE call_sid=%s", (call_sid,))
+            conn3.commit(); conn3.close()
+        except Exception:
+            pass
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'📲 *Call Answered*\n*From:* `{fmt_phone(from_num)}`\n*Answered by:* {person_name}\n*Time:* {now_str}'}}
+        ], text=f'Call from {fmt_phone(from_num)} answered by {person_name}')
+
     return '', 204
 
 

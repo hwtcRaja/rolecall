@@ -13734,7 +13734,7 @@ def twilio_voice():
     audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
     caller = request.form.get('From', 'Unknown')
     call_sid = request.form.get('CallSid', '')
-    host = request.host_url.rstrip('/')
+    host = 'https://rolecall.hwtco.org'
 
     def say_or_play(text, audio_url):
         if audio_url: return f'<Play>{audio_url}</Play>'
@@ -13974,7 +13974,7 @@ def twilio_callback_bridge():
     try:
         from twilio.rest import Client as _TwCb
         client = _TwCb(ts['account_sid'], ts['auth_token'])
-        host = request.host_url.rstrip('/')
+        host = 'https://rolecall.hwtco.org'
         # Call the agent first — when they pick up, bridge to the target
         call = client.calls.create(
             to=agent_number,

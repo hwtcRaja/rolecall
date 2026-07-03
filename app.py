@@ -4544,28 +4544,6 @@ def retry_email():
         return jsonify({'ok': True})
     return jsonify({'ok': False, 'error': err_msg})
 
-
-def get_email_templates():
-    err = require_auth()
-    if err: return err
-    try:
-        conn = get_db()
-        templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
-        conn.close()
-        if not templates:
-            conn2 = get_db()
-            seed_system_email_templates(conn2)
-            conn2.commit()
-            conn2.close()
-            conn3 = get_db()
-            templates = fetchall(conn3, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
-            conn3.close()
-        return jsonify(templates)
-    except Exception as e:
-        app.logger.error(f'get_email_templates error: {e}')
-        return jsonify([])
-
-
 @app.route('/api/email-templates/reset/<key>', methods=['POST'])
 def reset_system_template(key):
     err = require_admin()

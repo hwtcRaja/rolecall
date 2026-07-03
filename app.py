@@ -13815,6 +13815,7 @@ def twilio_call_status():
     dial_status = request.form.get('DialCallStatus', request.form.get('CallStatus',''))
     duration = int(request.form.get('DialCallDuration', request.form.get('CallDuration', 0)) or 0)
     caller = request.form.get('From','')
+    app.logger.info(f'Call status callback: sid={call_sid} status={dial_status} duration={duration} params={dict(request.form)}')
     import datetime as _dtcs
     now_str = _dtcs.datetime.now().strftime('%b %d, %Y at %I:%M %p')
     # Fetch existing log entry

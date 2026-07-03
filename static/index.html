@@ -3265,6 +3265,8 @@ async function loginSuccess(user){
  const isAdmin = user.role==='admin'
  document.getElementById('sidebar-role').textContent=isAdmin?'Administrator':'Staff'
  applyPermissionUI()
+ // Apply default emoji icons immediately so nav isn't empty during load
+ applyDefaultNavIcons()
  // Show loading overlay while data loads
  const loadingEl = document.createElement('div')
  loadingEl.id = 'app-loading-overlay'
@@ -6953,13 +6955,23 @@ function previewNavIcon(key, iconName){
 
 function applyNavIcons(icons){
  Object.entries(icons).forEach(function(entry){
- var key = entry[0], iconName = entry[1]
- var span = document.getElementById('ni-'+key)
- if(!span) return
- var name = (iconName||'').trim().toLowerCase()
- if(!name){ span.innerHTML = NAV_ICON_DEFAULTS[key]||''; return }
- var svg = getLucideSvg(name, 16, 1.8)
- if(svg){ span.innerHTML = ''; span.appendChild(svg) }
+  var key = entry[0], iconName = entry[1]
+  var span = document.getElementById('ni-'+key)
+  if(!span) return
+  var name = (iconName||'').trim().toLowerCase()
+  if(!name){ span.innerHTML = NAV_ICON_DEFAULTS[key]||''; return }
+  // Try Lucide first
+  var svg = getLucideSvg(name, 16, 1.8)
+  if(svg){ span.innerHTML = ''; span.appendChild(svg); return }
+  // Lucide not loaded yet — show default emoji as placeholder
+  span.innerHTML = NAV_ICON_DEFAULTS[key]||''
+ })
+}
+
+function applyDefaultNavIcons(){
+ Object.keys(NAV_ICON_DEFAULTS).forEach(function(key){
+  var span = document.getElementById('ni-'+key)
+  if(span && !span.innerHTML) span.innerHTML = NAV_ICON_DEFAULTS[key]||''
  })
 }
 

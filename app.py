@@ -4610,6 +4610,26 @@ def update_email_template(tid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/email-templates', methods=['GET'])
+def get_email_templates():
+    err = require_auth()
+    if err: return err
+    try:
+        conn = get_db()
+        templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+        conn.close()
+        if not templates:
+            conn2 = get_db()
+            seed_system_email_templates(conn2)
+            conn2.commit(); conn2.close()
+            conn3 = get_db()
+            templates = fetchall(conn3, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+            conn3.close()
+        return jsonify(templates)
+    except Exception as e:
+        app.logger.error(f'get_email_templates error: {e}')
+        return jsonify([])
+
 @app.route('/api/email-templates', methods=['POST'])
 def create_email_template():
     err = require_admin()

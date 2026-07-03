@@ -3540,8 +3540,8 @@ async function loadAllData(){
  populateYouthFilters()
  populateProgramsDropdown()
  populateProdVolSelect()
- // Apply nav icons synchronously before first render
- if(icons && !icons.error) applyNavIcons(icons)
+ // Apply nav icons — store first so Lucide onload can re-apply if needed
+ if(icons && !icons.error){ window._currentNavIcons = icons; applyNavIcons(icons) }
  // Background loads — don't block initial render
  api('/api/applications').then(apps=>{
   if(!Array.isArray(apps)) return
@@ -22952,6 +22952,6 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 
 </script>
 <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
-<script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true"></script>
+<script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true" onload="if(window._currentNavIcons)applyNavIcons(window._currentNavIcons)"></script>
 </body>
 </html>

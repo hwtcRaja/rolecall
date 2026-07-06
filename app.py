@@ -674,6 +674,13 @@ def init_db():
             name TEXT NOT NULL,
             passphrase TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS youth_family_links (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+            family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+            relationship TEXT DEFAULT 'member',
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(youth_id, family_id))""",
         """CREATE TABLE IF NOT EXISTS youth_notes (
             id TEXT PRIMARY KEY,
             youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,

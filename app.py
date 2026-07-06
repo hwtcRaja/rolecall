@@ -9161,7 +9161,7 @@ def kiosk_get_youth():
     # Get all active youth for today's events linked to this kiosk session
     youth = fetchall(conn, '''
         SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-               yp.portal_passphrase as individual_passphrase,
+               yp.passphrase as individual_passphrase,
                ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at,
                (SELECT f.passphrase FROM youth_family_links yfl
                 JOIN families f ON f.id=yfl.family_id
@@ -9199,7 +9199,7 @@ def kiosk_youth_for_event(event_id):
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    ypm.role,
-                   yp.portal_passphrase as individual_passphrase,
+                   yp.passphrase as individual_passphrase,
                    (SELECT f.passphrase FROM youth_family_links yfl
                     JOIN families f ON f.id=yfl.family_id
                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
@@ -9216,7 +9216,7 @@ def kiosk_youth_for_event(event_id):
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    NULL as role,
-                   yp.portal_passphrase as individual_passphrase,
+                   yp.passphrase as individual_passphrase,
                    (SELECT f.passphrase FROM youth_family_links yfl
                     JOIN families f ON f.id=yfl.family_id
                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,

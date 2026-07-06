@@ -1563,6 +1563,22 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    # Always-run column migrations — safe to run repeatedly
+    for _migration in [
+        "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS signature TEXT DEFAULT ''",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '08:00'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '22:00'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'once'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+    ]:
+        try:
+            c.execute(_migration)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
     conn.close()
 
     # One-time backfill: copy application notes to volunteer profile notes
@@ -7697,8 +7713,8 @@ def kiosk_events():
         LEFT JOIN productions p ON e.production_id=p.id
         WHERE e.status='open'
            OR (e.status IN ('draft','published','in_progress')
-               AND e.event_date::date >= (CURRENT_DATE - INTERVAL '1 day')
-               AND e.event_date::date <= (CURRENT_DATE + INTERVAL '1 day'))
+               AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
+               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
         ORDER BY CASE WHEN e.status='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
     """)
     conn.close()

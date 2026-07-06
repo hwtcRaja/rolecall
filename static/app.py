@@ -124,14 +124,14 @@ def seed_system_email_templates(conn=None):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theatre Company</strong> recently  -  thank you!</p>
+    <p>We noticed you\'ve been volunteering with <strong>Horizon West Theater Company</strong> recently  -  thank you!</p>
     <p>As a <strong>Disney Cast Member</strong>, you may be eligible to submit your volunteer hours through <strong>Disney VoluntEARS</strong>, which can result in a donation to our organization at no cost to you!</p>
     <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">
       <strong>To submit your hours:</strong><br/>
-      Visit <a href="https://disneyvoluntears.com" style="color:#145466;font-weight:600">Disney VoluntEARS</a> and log your hours for Horizon West Theatre Company.
+      Visit <a href="https://disneyvoluntears.com" style="color:#145466;font-weight:600">Disney VoluntEARS</a> and log your hours for Horizon West Theater Company.
     </div>
     <p>If you have any questions or need help, please don\'t hesitate to reach out!</p>
-    <p>With gratitude,<br><strong>Horizon West Theatre Company</strong></p>
+    <p>With gratitude,<br><strong>Horizon West Theater Company</strong></p>
   </div>
 </div>'''),
 
@@ -144,7 +144,7 @@ def seed_system_email_templates(conn=None):
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
     <p>Hi {{name}},</p>
-    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
+    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>
     <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>
 
     <div style="margin:20px 0">
@@ -204,7 +204,7 @@ def seed_system_email_templates(conn=None):
     {{hours_section}}
 
     <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
-    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>
+    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>
   </div>
 </div>''')
 
@@ -1252,6 +1252,42 @@ def init_db():
             source TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS email_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            to_email TEXT NOT NULL,
+            to_name TEXT DEFAULT '',
+            subject TEXT NOT NULL,
+            html_body TEXT DEFAULT '',
+            status TEXT DEFAULT 'sent',
+            error_message TEXT DEFAULT '',
+            source TEXT DEFAULT '',
+            sent_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS on_call_schedule (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            person_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            start_time TEXT DEFAULT '08:00',
+            end_time TEXT DEFAULT '22:00',
+            days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]',
+            recurrence TEXT DEFAULT 'once',
+            color TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS call_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            call_sid TEXT DEFAULT '',
+            from_number TEXT NOT NULL,
+            to_number TEXT DEFAULT '',
+            routed_to_name TEXT DEFAULT '',
+            routed_to_phone TEXT DEFAULT '',
+            status TEXT DEFAULT 'initiated',
+            duration INTEGER DEFAULT 0,
+            is_after_hours BOOLEAN DEFAULT FALSE,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -1507,7 +1543,7 @@ def init_db():
         c.execute("SELECT COUNT(*) FROM donor_tiers")
         if c.fetchone()[0] == 0:
             default_tiers = [
-                ('Theatregoer',              0,      100,    'gray',   8),
+                ('Theatergoer',              0,      100,    'gray',   8),
                 ('Dramaturg',                101,    499,    'blue',   7),
                 ('Playwright',               500,    1499,   'teal',   6),
                 ('Director',                 1500,   2999,   'green',  5),
@@ -1631,19 +1667,66 @@ def get_recipient_emails(settings=None):
         pass
     return emails
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
+def build_hwtc_email_html(subject, body_html, footer_note=''):
+    """Wrap content in the standard HWTC branded email template."""
+    footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>{subject}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:Georgia,'Times New Roman',serif;background:#f5f4f0;color:#1a1a18}}
+.wrapper{{max-width:620px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08)}}
+.header{{background:#0d3d4d;padding:28px 40px;text-align:center}}
+.header-logo{{margin-bottom:12px}}
+.header-logo img{{height:48px;display:inline-block}}
+.header h1{{font-size:22px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
+.header-rule{{width:40px;height:2px;background:#1b708d;margin:14px auto 0}}
+.body{{padding:36px 40px}}
+p{{font-size:15px;line-height:1.75;margin-bottom:1rem;color:#2c2c2a}}
+strong{{font-weight:600}}
+a{{color:#0F6E56}}
+h2{{font-size:18px;font-weight:600;color:#0d3d4d;margin:1.5rem 0 0.75rem;font-family:-apple-system,sans-serif}}
+h3{{font-size:15px;font-weight:600;color:#0d3d4d;margin:1.25rem 0 0.5rem;font-family:-apple-system,sans-serif}}
+ul,ol{{padding-left:20px;margin-bottom:1rem}}
+li{{font-size:15px;line-height:1.75;color:#2c2c2a;margin-bottom:4px}}
+hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
+.footer{{background:#f5f4f0;border-top:1px solid #e8e6e0;padding:20px 40px;text-align:center}}
+.footer p{{font-size:12px;color:#888780;font-family:-apple-system,sans-serif;margin-bottom:4px}}
+</style></head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <div class="header-logo"><img src="{logo_url}" alt="Horizon West Theater Company" style="height:64px"/></div>
+    <h1>{subject}</h1>
+    <div class="header-rule"></div>
+  </div>
+  <div class="body">
+    {body_html}
+  </div>
+  <div class="footer">
+    <p><strong>Horizon West Theater Company</strong> &mdash; <a href="https://hwtco.org" style="color:#0F6E56">hwtco.org</a></p>
+    <p style="margin-top:6px">{footer_note}</p>
+  </div>
+</div>
+</body></html>'''
+
+
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source=''):
     """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured  -  email not sent')
+        _log_email(to_emails, subject, html_body, 'failed', 'Resend API key not configured', source)
         return False, 'Resend API key not configured'
     # Build from address
     if from_email:
         base_email = from_email
         base_name  = from_name or ''
     else:
-        # Use first sender identity as default, fall back to from_email setting
         try:
             identities = json.loads(settings.get('sender_identities') or '[]')
         except Exception:
@@ -1666,12 +1749,33 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None):
             json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
             timeout=10)
         if resp.status_code not in (200, 201, 202):
+            err = f'Resend error {resp.status_code}: {resp.text[:200]}'
             app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
-            return False, f'Resend error {resp.status_code}: {resp.text[:200]}'
+            _log_email(to_emails, subject, html_body, 'failed', err, source)
+            return False, err
+        _log_email(to_emails, subject, html_body, 'sent', '', source)
         return True, None
     except Exception as e:
         app.logger.error(f'Email send error: {e}')
+        _log_email(to_emails, subject, html_body, 'failed', str(e), source)
         return False, str(e)
+
+def _log_email(to_emails, subject, html_body, status, error_msg='', source=''):
+    """Log email send attempt to email_log table."""
+    try:
+        if isinstance(to_emails, str):
+            to_emails = [to_emails]
+        conn = get_db()
+        for addr in (to_emails or []):
+            if not addr: continue
+            execute(conn, '''INSERT INTO email_log (to_email, subject, html_body, status, error_message, source)
+                VALUES (%s, %s, %s, %s, %s, %s)''',
+                (addr.strip(), subject[:500], html_body[:5000], status, error_msg[:500], source[:100]))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Email log failed: {e}')
+
 
 def link_director_submission(conn, volunteer_id, email):
     """Link a director interest submission to a volunteer if not already linked."""
@@ -3535,7 +3639,7 @@ def submit_audition():
                 '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
                 '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
                 '<p>We will be in touch soon.</p>'
-                '<p style="color:#9ca3af;font-size:13px">Horizon West Theatre Company</p></div>'
+                '<p style="color:#9ca3af;font-size:13px">Horizon West Theater Company</p></div>'
             )
             send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
     except Exception: pass
@@ -3906,12 +4010,12 @@ def send_director_form_email():
         '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
         '<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
         f'<p>Hi {name},</p>'
-        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+        '<p>Thank you for your volunteer interest and indicating that you would like to direct with Horizon West Theater Company. We are excited to learn more about you!</p>'
         '<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form:</p>'
         f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
         '<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
         '<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out at info@hwtco.org.</p>'
-        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company</p>'
+        '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company</p>'
         '</div>'
     )
     ok, msg = send_email([email], 'HWTC Director Interest Form', html)
@@ -4371,15 +4475,74 @@ def square_create_discount(name, discount_type, value):
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
 
-@app.route('/api/email-templates')
-def get_email_templates():
+@app.route('/api/email/bulk', methods=['POST'])
+def send_bulk_email():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    recipients = d.get('recipients') or []
+    subject = (d.get('subject') or '').strip()
+    body_text = (d.get('body') or '').strip()
+    from_identity = d.get('from_identity') or {}
+    from_email = (from_identity.get('email') or '').strip() or None
+    from_name = (from_identity.get('name') or '').strip() or None
+    if not recipients: return jsonify({'error': 'No recipients'}), 400
+    if not subject: return jsonify({'error': 'No subject'}), 400
+    if not body_text: return jsonify({'error': 'No message body'}), 400
+    sent = 0; failed = 0; failed_list = []
+    for rec in recipients:
+        name = (rec.get('name') or '').strip()
+        email_addr = (rec.get('email') or '').strip()
+        if not email_addr: continue
+        personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
+        html_content = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
+        html_body = build_hwtc_email_html(subject, html_content)
+        ok, err_msg = send_email([email_addr], subject, html_body, from_email=from_email, from_name=from_name, source='Email Composer')
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+            failed_list.append({'email': email_addr, 'name': name, 'error': err_msg or 'Unknown error'})
+            app.logger.warning(f'Bulk email to {email_addr} failed: {err_msg}')
+    return jsonify({'ok': True, 'sent': sent, 'failed': failed, 'failed_list': failed_list})
+
+
+@app.route('/api/email/log', methods=['GET'])
+def get_email_log():
     err = require_auth()
     if err: return err
     conn = get_db()
-    templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name')
+    limit = int(request.args.get('limit', 100))
+    status_filter = request.args.get('status', '')
+    q = 'SELECT * FROM email_log'
+    params = []
+    if status_filter:
+        q += ' WHERE status=%s'
+        params.append(status_filter)
+    q += ' ORDER BY sent_at DESC LIMIT %s'
+    params.append(limit)
+    rows = fetchall(conn, q, params) or []
     conn.close()
-    return jsonify(templates)
+    return jsonify(rows)
 
+
+@app.route('/api/email/retry', methods=['POST'])
+def retry_email():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    log_id = d.get('log_id','').strip()
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM email_log WHERE id=%s', (log_id,))
+    conn.close()
+    if not row: return jsonify({'error': 'Not found'}), 404
+    ok, err_msg = send_email([row['to_email']], row['subject'], row['html_body'], source='Retry')
+    if ok:
+        conn2 = get_db()
+        execute(conn2, "UPDATE email_log SET status='sent', error_message='', sent_at=NOW() WHERE id=%s", (log_id,))
+        conn2.commit(); conn2.close()
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': err_msg})
 
 @app.route('/api/email-templates/reset/<key>', methods=['POST'])
 def reset_system_template(key):
@@ -4391,7 +4554,7 @@ def reset_system_template(key):
         DEFAULTS = {
             'universal_reminder': (
                 'Reminder: Submit Your Volunteer Hours - Universal Giving',
-                '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theatre Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theatre Company</strong></p>\n  </div>\n</div>\''
+                '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>\n  </div>\n</div>\''
             ),
         }
         if key not in DEFAULTS:
@@ -4424,6 +4587,26 @@ def update_email_template(tid):
         (d.get('name',''), d.get('subject',''), d.get('body',''), tid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/email-templates', methods=['GET'])
+def get_email_templates():
+    err = require_auth()
+    if err: return err
+    try:
+        conn = get_db()
+        templates = fetchall(conn, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+        conn.close()
+        if not templates:
+            conn2 = get_db()
+            seed_system_email_templates(conn2)
+            conn2.commit(); conn2.close()
+            conn3 = get_db()
+            templates = fetchall(conn3, 'SELECT * FROM email_templates ORDER BY is_system DESC, name') or []
+            conn3.close()
+        return jsonify(templates)
+    except Exception as e:
+        app.logger.error(f'get_email_templates error: {e}')
+        return jsonify([])
 
 @app.route('/api/email-templates', methods=['POST'])
 def create_email_template():
@@ -5780,11 +5963,11 @@ def send_thank_you(donation_id):
             <h1 style="color:#fff;font-size:24px;margin:16px 0 0">Thank You!</h1></div>
         <div style="padding:32px;background:#fff;border-radius:0 0 12px 12px;border:1px solid #e0e0db;border-top:none">
             <p style="font-size:16px">Dear {name},</p>
-            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">On behalf of Horizon West Theatre Company, thank you for your generous contribution of <strong>{amount}</strong>{campaign_str}.</p>
+            <p style="font-size:15px;color:#5f5e5a;line-height:1.7">On behalf of Horizon West Theater Company, thank you for your generous contribution of <strong>{amount}</strong>{campaign_str}.</p>
             <div style="background:#f0f8fa;border-left:4px solid #145466;padding:16px;margin:24px 0">
                 <div style="font-weight:700">{amount}</div><div style="font-size:13px;color:#5f5e5a">Date: {date}</div></div>
-            <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theatre Company</strong></p></div>
-        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theatre Company is a 501(c)(3) non-profit organization.</p>
+            <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theater Company</strong></p></div>
+        <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theater Company is a 501(c)(3) non-profit organization.</p>
         </div>'''.format(name=name, amount=amount, campaign_str=campaign_str, date=date_str)
     ok, err_msg = send_email([row['email']], subject, html_body, from_addr)
     if ok:
@@ -5896,11 +6079,129 @@ def set_donor_tier(did):
 #  STATIC PAGES
 # ─────────────────────────────────────────────
 
+@app.route('/callback')
+def callback_page():
+    """Simple page for initiating a masked callback from a Slack link."""
+    to_number = request.args.get('to','')
+    from_number = request.args.get('from_number','') or to_number
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Call Back via HWTC</title>
+<style>*{{box-sizing:border-box}}body{{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
+.card{{background:#fff;border-radius:16px;padding:32px;max-width:400px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}}
+.logo{{height:48px;margin-bottom:16px}}h1{{font-size:20px;font-weight:700;color:#0d3d4d;margin-bottom:6px}}
+.sub{{font-size:14px;color:#888;margin-bottom:24px}}
+.num{{font-size:22px;font-weight:800;color:#0d3d4d;background:#eff6ff;padding:10px 20px;border-radius:8px;margin-bottom:20px;letter-spacing:1px}}
+label{{display:block;text-align:left;font-size:13px;font-weight:600;margin-bottom:6px;color:#555}}
+input{{width:100%;padding:12px 16px;border:1.5px solid #d1d5db;border-radius:8px;font-size:16px;margin-bottom:16px;font-family:inherit}}
+button{{width:100%;padding:14px;background:#0d3d4d;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer}}
+button:disabled{{opacity:0.6}}
+#status{{margin-top:16px;font-size:14px;font-weight:600;color:#0d3d4d;min-height:20px}}</style></head>
+<body><div class="card">
+<img src="/static/images/hwtc_logo_teal.png" class="logo" alt="HWTC"/>
+<h1>Call Back via HWTC</h1>
+<div class="sub">Your call will show as the HWTC number</div>
+<div class="num">{from_number or to_number}</div>
+<label>Your cell number (we'll call you first)</label>
+<input type="tel" id="agent" placeholder="+14075550100" value=""/>
+<button onclick="startCall()">📞 Connect Call</button>
+<div id="status"></div>
+</div>
+<script>
+var to = '{to_number or from_number}';
+var saved = localStorage.getItem('hwtc_agent_phone');
+if(saved) document.getElementById('agent').value = saved;
+async function startCall(){{
+  var agent = document.getElementById('agent').value.trim();
+  if(!agent){{alert('Enter your cell number first.');return}}
+  localStorage.setItem('hwtc_agent_phone', agent);
+  var btn = document.querySelector('button'); btn.disabled=true; btn.textContent='Calling…';
+  var status = document.getElementById('status');
+  try{{
+    var r = await fetch('/api/twilio/callback', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{to: to, agent: agent}})
+    }});
+    var d = await r.json();
+    if(d.ok){{
+      status.textContent = '✓ Calling your phone now — pick up to be connected!';
+      status.style.color = '#166534';
+      btn.textContent = '✓ Call initiated';
+    }} else {{
+      status.textContent = 'Error: ' + (d.error||'Unknown');
+      status.style.color = '#991b1b';
+      btn.disabled=false; btn.textContent='📞 Try Again';
+    }}
+  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent='📞 Try Again'; }}
+}}
+</script></body></html>''', 200, {'Content-Type': 'text/html'}
+
+@app.route('/privacy')
+def privacy_page():
+    return send_from_directory('static', 'privacy.html')
+
+@app.route('/terms')
+def terms_page():
+    return send_from_directory('static', 'terms.html')
+
 @app.route('/kiosk')
 def kiosk_page():
     resp = send_from_directory('static', 'kiosk.html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+@app.route('/kiosk/nfc')
+def kiosk_nfc_tap():
+    """Public endpoint hit when volunteer taps NFC tag. Stores signal then redirects."""
+    vol_id = request.args.get('vol','').strip()
+    if not vol_id:
+        return 'Missing vol parameter', 400
+    import datetime as _dtnfc, json as _jnfc
+    signal = _jnfc.dumps({'vol_id': vol_id, 'ts': _dtnfc.datetime.utcnow().isoformat()})
+    try:
+        conn = get_db()
+        execute(conn, """INSERT INTO settings (key, value) VALUES ('kiosk_nfc_signal', %s)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (signal,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'NFC signal store failed: {e}')
+    # Return a simple page that closes itself (phone browser)
+    return '''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0d3d4d;color:#fff;text-align:center}</style>
+</head><body>
+<div><div style="font-size:48px">&#10003;</div><div style="font-size:22px;font-weight:700;margin-top:12px">Signed In!</div>
+<div style="font-size:14px;color:rgba(255,255,255,0.6);margin-top:8px">Check the kiosk screen</div></div>
+<script>setTimeout(function(){ window.close() }, 2000)</script>
+</body></html>'''
+
+@app.route('/api/kiosk/nfc-poll')
+def kiosk_nfc_poll():
+    """Kiosk polls this every second to detect NFC taps."""
+    import datetime as _dtpoll, json as _jpoll
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='kiosk_nfc_signal'")
+        if not row or not row.get('value'):
+            conn.close()
+            return jsonify({'signal': None})
+        data = _jpoll.loads(row['value'])
+        # Only valid for 30 seconds
+        ts = _dtpoll.datetime.fromisoformat(data['ts'])
+        age = (_dtpoll.datetime.utcnow() - ts).total_seconds()
+        if age > 30:
+            execute(conn, "UPDATE settings SET value='' WHERE key='kiosk_nfc_signal'")
+            conn.commit()
+            conn.close()
+            return jsonify({'signal': None})
+        # Consume signal — clear it
+        execute(conn, "UPDATE settings SET value='' WHERE key='kiosk_nfc_signal'")
+        conn.commit()
+        conn.close()
+        return jsonify({'signal': data['vol_id']})
+    except Exception as e:
+        app.logger.warning(f'NFC poll error: {e}')
+        return jsonify({'signal': None})
 
 @app.route('/pickup')
 def pickup_page():
@@ -6104,11 +6405,15 @@ def get_checklist_items():
 def create_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     iid = str(uuid.uuid4())
+    max_order = 0
     conn = get_db()
-    execute(conn, 'INSERT INTO checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('required',False), d.get('sort_order',0)))
+    row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM checklist_items')
+    if row_max and row_max.get('m') is not None:
+        max_order = int(row_max['m']) + 1
+    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -6118,10 +6423,24 @@ def create_checklist_item():
 def update_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
+    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/checklist-items/reorder', methods=['POST'])
+def reorder_checklist_items():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    ids = d.get('ids', [])
+    conn = get_db()
+    for i, iid in enumerate(ids):
+        execute(conn, 'UPDATE checklist_items SET sort_order=%s WHERE id=%s', (i, iid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6146,26 +6465,42 @@ def get_opening_checklist_items():
 def create_opening_checklist_item():
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     iid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, 'INSERT INTO opening_checklist_items (id,label,required,sort_order) VALUES (%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('required',False), d.get('sort_order',0)))
+    row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM opening_checklist_items')
+    max_order = int((row_max or {}).get('m') or 0) + 1
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()
     return jsonify(row)
 
+@app.route('/api/opening-checklist-items/reorder', methods=['POST'])
+def reorder_opening_checklist_items():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    ids = d.get('ids', [])
+    conn = get_db()
+    for i, iid in enumerate(ids):
+        execute(conn, 'UPDATE opening_checklist_items SET sort_order=%s WHERE id=%s', (i, iid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/opening-checklist-items/<iid>', methods=['PUT'])
 def update_opening_checklist_item(iid):
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE opening_checklist_items SET label=%s, required=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('required',False), d.get('sort_order',0), iid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
 
 @app.route('/api/opening-checklist-items/<iid>', methods=['DELETE'])
 def delete_opening_checklist_item(iid):
@@ -6373,9 +6708,37 @@ def save_email_settings_route():
     d = request.json or {}
     conn = get_db()
     # Ensure rental columns exist
-    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'']:
+    for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
+                'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
+                'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
+                'twilio_voice_greeting TEXT DEFAULT \'\'',
+                'twilio_voice_no_answer TEXT DEFAULT \'\'',
+                'twilio_voice_unavailable TEXT DEFAULT \'\'',
+                'twilio_after_hours_msg TEXT DEFAULT \'\'',
+                'twilio_coverage_start TEXT DEFAULT \'08:00\'',
+                'twilio_coverage_end TEXT DEFAULT \'22:00\'',
+                'twilio_audio_greeting TEXT DEFAULT \'\'',
+                'twilio_audio_no_answer TEXT DEFAULT \'\'',
+                'twilio_audio_unavailable TEXT DEFAULT \'\'',
+                'twilio_audio_after_hours TEXT DEFAULT \'\'',
+                'slack_call_webhook TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
+            conn.commit()
+        except Exception:
+            pass
+    # on_call_schedule column migrations
+    for col in ["start_time TEXT DEFAULT '08:00'", "end_time TEXT DEFAULT '22:00'",
+                "days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]'", "recurrence TEXT DEFAULT 'once'", "color TEXT DEFAULT ''"]:
+        try:
+            execute(conn, f'ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS {col}')
+            conn.commit()
+        except Exception:
+            pass
+    # event_logs column migrations
+    for col in ["signature TEXT DEFAULT ''"]:
+        try:
+            execute(conn, f'ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
         except Exception:
             pass
@@ -6383,7 +6746,12 @@ def save_email_settings_route():
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
-        'rental_approver_emails','rental_approval_levels']
+        'rental_approver_emails','rental_approval_levels','rental_agreement_template',
+        'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
+        'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
+        'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
+        'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
+        'slack_call_webhook']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -6427,7 +6795,7 @@ def test_template_email(tid):
         '{{review_link}}': '#',
         '{{temp_password}}': 'TEMP-1234',
         '{{role}}': 'Stage Crew',
-        '{{location}}': 'HWTC Theatre',
+        '{{location}}': 'HWTC Theater',
         '{{message}}': 'We would love to have you join us!',
         '{{date}}': 'June 1, 2025',
         '{{elic_name}}': 'Test ELIC',
@@ -7329,8 +7697,8 @@ def kiosk_events():
         LEFT JOIN productions p ON e.production_id=p.id
         WHERE e.status='open'
            OR (e.status IN ('draft','published','in_progress')
-               AND e.event_date::date >= (CURRENT_DATE - INTERVAL '1 day')
-               AND e.event_date::date <= (CURRENT_DATE + INTERVAL '1 day'))
+               AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
+               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
         ORDER BY CASE WHEN e.status='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
     """)
     conn.close()
@@ -7736,12 +8104,12 @@ def join_submit():
                     f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
                     f'<h2 style="color:#145466">Thank you for your interest in directing with HWTC</h2>'
                     f'<p>Hi {applicant_name},</p>'
-                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theatre Company. We are excited to learn more about you!</p>'
+                    f'<p>Thank you for submitting your volunteer interest form and indicating that you are interested in directing with Horizon West Theater Company. We are excited to learn more about you!</p>'
                     f'<p>Because directing is a significant responsibility, we would love to know more about your specific directing intentions, experience, and vision. Please take a few minutes to complete our Director Interest Form using the link below:</p>'
                     f'<p style="margin:24px 0"><a href="{form_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Complete Director Interest Form</a></p>'
                     f'<p style="color:#6b7280;font-size:13px">This form helps us understand your goals and find the right fit for you and our productions. It should take about 10 minutes to complete.</p>'
                     f'<p style="color:#6b7280;font-size:13px">If you have any questions, please reach out to us at info@hwtco.org.</p>'
-                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theatre Company &mdash; rolecall.hwtco.org</p>'
+                    f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company &mdash; rolecall.hwtco.org</p>'
                     f'</div>'
                 )
                 send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
@@ -8142,13 +8510,13 @@ def build_report_email_html(report_type, data, params=None):
     today = date.today().strftime('%B %d, %Y')
     header = f'''<div style="font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto">
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;color:#fff">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theatre Company</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theater Company</div>
         <div style="font-size:22px;font-weight:800">{{}}</div>
         <div style="font-size:13px;opacity:0.7;margin-top:4px">Generated {today}</div>
     </div>
     <div style="background:#fff;padding:28px 32px;border:1px solid #e0e0db;border-top:none;border-radius:0 0 12px 12px">'''
     footer = '''</div><p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">
-        RoleCall  -  Horizon West Theatre Company Management System</p></div>'''
+        RoleCall  -  Horizon West Theater Company Management System</p></div>'''
 
     def stat_box(label, value, color='#145466'):
         return f'<div style="background:#f0f8fa;border-radius:10px;padding:16px 20px;text-align:center"><div style="font-size:28px;font-weight:900;color:{color}">{value}</div><div style="font-size:12px;color:#5f5e5a;margin-top:4px">{label}</div></div>'
@@ -8634,14 +9002,15 @@ def kiosk_open_event():
     elic_id  = d.get('elic_id')
     event_id = d.get('event_id')
     responses = d.get('responses', [])
+    signature = d.get('signature', '')
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
     try:
         # Log the opening
         log_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes)
-            VALUES (%s,%s,%s,'open','Event opened via kiosk')''', (log_id, event_id, elic_id))
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+            VALUES (%s,%s,%s,'open','Event opened via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         # Save checklist responses
         for r in responses:
             rid = str(uuid.uuid4())
@@ -8664,13 +9033,14 @@ def kiosk_close_event():
     elic_id  = d.get('elic_id')
     event_id = d.get('event_id')
     responses = d.get('responses', [])
+    signature = d.get('signature', '')
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
     try:
         log_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes)
-            VALUES (%s,%s,%s,'close','Event closed via kiosk')''', (log_id, event_id, elic_id))
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+            VALUES (%s,%s,%s,'close','Event closed via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         for r in responses:
             rid = str(uuid.uuid4())
             execute(conn, '''INSERT INTO event_checklist_responses
@@ -9475,7 +9845,7 @@ def email_send_report(rid):
         {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
         {hours_html}
     </div>
-    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theatre Company</p>
+    <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
     fi = (request.json or {}).get('from_identity') or {}
@@ -10829,7 +11199,7 @@ def create_board_meeting():
                       <tr{'style="background:#f9fafb"' if not time_line else ''}><td style="padding:8px 12px;color:#6b7280;font-weight:600">Location</td><td style="padding:8px 12px">{location}</td></tr>
                       {notes_line}
                     </table>
-                    <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theatre Company.</p>
+                    <p style="margin:0;font-size:13px;color:#9ca3af">You're receiving this as an active board member of Horizon West Theater Company.</p>
                   </div>
                 </div>'''
                 fi = d.get('from_identity') or {}
@@ -11635,7 +12005,7 @@ def public_submit_registration(slug):
                     f'<a href="https://hwtco.org" style="color:#145466">hwtco.org</a>.</p>'
                     f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
                     f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">'
-                    f'Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                    f'Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                     f'</div></div>')
             except Exception as e:
                 app.logger.warning(f'Interest list thank-you email failed: {e}')
@@ -11681,7 +12051,7 @@ def public_submit_registration(slug):
                 f'<p>Hi {d.get("guardian_name","")},</p>'
                 f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
                 f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
-                f'<p>Horizon West Theatre Company</p>')
+                f'<p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
@@ -12029,7 +12399,7 @@ def public_register_production(slug):
                 f'<div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e5e7eb">'
                 f'<h2 style="color:#0d3d4d;margin:0 0 12px">You\'re on the list!</h2>'
                 f'<p>Hi {first},</p><p>Thanks for your interest in <strong>{prod["name"]}</strong>! We\'ll reach out as soon as registration opens.</p>'
-                f'<p style="color:#6b7280;font-size:13px">Horizon West Theatre Company</p></div></div>')
+                f'<p style="color:#6b7280;font-size:13px">Horizon West Theater Company</p></div></div>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'interest'})
@@ -12239,7 +12609,7 @@ def promote_production_waitlist(pid, rid):
         try:
             name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
             send_email([reg['guardian_email']], f'You\'re confirmed — {prod["name"]}',
-                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theatre Company</p>')
+                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'confirmed_free'})
@@ -12260,7 +12630,7 @@ def promote_production_waitlist(pid, rid):
         send_email([reg['guardian_email']], f'A spot opened up — {prod["name"]}',
             f'<p>Hi {name},</p><p>A spot is available in <strong>{prod["name"]}</strong>! {hold_msg}</p>'
             + (f'<p><a href="{pay_url}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Secure My Spot</a></p>' if pay_url else '')
-            + '<p>Horizon West Theatre Company</p>')
+            + '<p>Horizon West Theater Company</p>')
     except Exception: pass
     conn.close()
     return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
@@ -12433,7 +12803,7 @@ def notify_production_interest_list(pid):
                 f'<h2 style="color:#0d3d4d;margin:0 0 12px">Registration is now open!</h2>'
                 f'<p>Hi {name},</p><p>Registration for <strong>{prod["name"]}</strong> is now open!</p>'
                 f'<p style="text-align:center;margin:20px 0"><a href="{reg_url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700">Register Now &rarr;</a></p>'
-                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'<p style="color:#6b7280;font-size:12px;text-align:center">Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                 f'</div></div>')
             conn2 = get_db()
             execute(conn2, 'UPDATE interest_list_entries SET notified_at=NOW() WHERE id=%s', (e['id'],))
@@ -12664,7 +13034,7 @@ def cart_checkout():
         if is_full:
             try:
                 send_email([guardian_email], f'You\'re on the waitlist — {it["program_name"]}',
-                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theatre Company</p>')
+                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theater Company</p>')
             except Exception: pass
 
     # Save cart order
@@ -12930,6 +13300,11 @@ def run_migrations_manual():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_agreement_template TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
@@ -12937,6 +13312,19 @@ def run_migrations_manual():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'",
         "UPDATE audition_settings SET context_type='production' WHERE context_type IS NULL",
+        "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS signature TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS on_call_schedule (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            person_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
     ]
     for m in migrations:
         try:
@@ -13086,7 +13474,647 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images})
+    lobby_theme = 'none'
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_theme',))
+        lobby_theme = (row or {}).get('value') or 'none'
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby theme query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    lobby_banner = ''
+    lobby_banner_pos = '50% 50%'
+    lobby_banner_zoom = 100
+    lobby_banner_fit = 'cover'
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
+        lobby_banner = (row or {}).get('value') or ''
+        row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_pos',))
+        lobby_banner_pos = (row2 or {}).get('value') or '50% 50%'
+        row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_zoom',))
+        lobby_banner_zoom = int((row3 or {}).get('value') or 100)
+        row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_fit',))
+        lobby_banner_fit = (row4 or {}).get('value') or 'cover'
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby banner query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    lobby_sched_bg = ''
+    lobby_sched_bg_pos = '50% 50%'
+    lobby_sched_bg_zoom = 100
+    lobby_sched_bg_fit = 'cover'
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+        lobby_sched_bg = (row or {}).get('value') or ''
+        row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+        lobby_sched_bg_pos = (row2 or {}).get('value') or '50% 50%'
+        row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+        lobby_sched_bg_zoom = int((row3 or {}).get('value') or 100)
+        row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+        lobby_sched_bg_fit = (row4 or {}).get('value') or 'cover'
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby schedule bg query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit})
+
+@app.route('/api/lobby/theme', methods=['GET'])
+def get_lobby_theme():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_theme',))
+    conn.close()
+    return jsonify({'theme': (row or {}).get('value') or 'none'})
+
+@app.route('/api/lobby/theme', methods=['PUT'])
+def save_lobby_theme():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    theme = (d.get('theme') or 'none').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_theme', theme))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/banner', methods=['GET'])
+def get_lobby_banner():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_zoom',))
+    row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_banner_fit',))
+    conn.close()
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100),
+        'fit': (row4 or {}).get('value') or 'cover'
+    })
+
+@app.route('/api/lobby/banner', methods=['PUT'])
+def save_lobby_banner():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    position = (d.get('position') or '50% 50%').strip()
+    zoom = int(d.get('zoom') or 100)
+    fit = (d.get('fit') or 'cover').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner', url))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_pos', position))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_zoom', str(zoom)))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_fit', fit))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/twilio/audio/upload', methods=['POST'])
+def upload_twilio_audio():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.mp3','.wav','.ogg','.m4a'): return jsonify({'error': 'Invalid type — use MP3, WAV, OGG, or M4A'}), 400
+    import uuid as _uta
+    filename = f'twilio-audio-{str(_uta.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    # Upload to GitHub (same as images)
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Twilio audio GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
+
+@app.route('/api/lobby/banner/upload', methods=['POST'])
+def upload_lobby_banner():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid type'}), 400
+    import uuid as _ulb
+    filename = f'lobby-banner-{str(_ulb.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Lobby banner GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
+
+@app.route('/api/lobby/sched-bg', methods=['GET'])
+def get_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+    row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+    conn.close()
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100),
+        'fit': (row4 or {}).get('value') or 'cover'
+    })
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TWILIO — Inbound voice & SMS webhooks + on-call schedule
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_twilio_settings():
+    es = get_email_settings()
+    return {
+        'account_sid': es.get('twilio_account_sid','').strip(),
+        'auth_token':  es.get('twilio_auth_token','').strip(),
+        'from_phone':  es.get('twilio_phone','').strip(),
+        'fallback':    es.get('twilio_fallback_phone','').strip(),
+    }
+
+def post_to_slack_calls(blocks, text=''):
+    """Post a message to the HWTC phone triage Slack channel."""
+    try:
+        es = get_email_settings()
+        webhook = (es.get('slack_call_webhook') or '').strip()
+    except Exception as e:
+        app.logger.warning(f'Slack: could not load settings: {e}')
+        webhook = ''
+    # Fall back to environment variable if not set in DB
+    if not webhook:
+        import os as _oss
+        webhook = _oss.environ.get('SLACK_CALL_WEBHOOK','').strip()
+    if not webhook:
+        app.logger.warning('Slack webhook not configured — skipping post')
+        return
+    try:
+        import requests as _rslk
+        resp = _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=10)
+        app.logger.info(f'Slack post: status={resp.status_code}')
+    except Exception as e:
+        app.logger.error(f'SLACK POST FAILED: {e}')
+
+def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False):
+    """Insert or update a call log entry."""
+    try:
+        conn = get_db()
+        existing = fetchone(conn, 'SELECT id FROM call_log WHERE call_sid=%s', (call_sid,))
+        if existing:
+            execute(conn, '''UPDATE call_log SET status=%s, updated_at=NOW() WHERE call_sid=%s''',
+                (status, call_sid))
+        else:
+            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours)
+                VALUES (%s,%s,%s,%s,%s,%s)''',
+                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Call log error: {e}')
+
+def fmt_phone(p):
+    """Format a phone number nicely."""
+    p = (p or '').strip().replace(' ','').replace('-','').replace('(','').replace(')','')
+    if p.startswith('+1') and len(p)==12:
+        return f'({p[2:5]}) {p[5:8]}-{p[8:]}'
+    return p
+
+def get_oncall_now():
+    """Return the on-call person for right now based on date, time, and day of week."""
+    import datetime as _dtoc, json as _joc
+    from zoneinfo import ZoneInfo as _ZIoc
+    now = _dtoc.datetime.now(_ZIoc('America/New_York'))
+    today = now.date().isoformat()
+    now_time = now.strftime('%H:%M')
+    weekday = now.weekday()  # 0=Monday, 6=Sunday
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM on_call_schedule
+        WHERE start_date <= %s AND end_date >= %s
+        ORDER BY start_date DESC''', (today, today))
+    conn.close()
+    for row in (rows or []):
+        # Check time window
+        start_t = (row.get('start_time') or '00:00')
+        end_t = (row.get('end_time') or '23:59')
+        if not (start_t <= now_time <= end_t):
+            continue
+        # Check day of week
+        try:
+            days = _joc.loads(row.get('days_of_week') or '[0,1,2,3,4,5,6]')
+            if weekday not in days:
+                continue
+        except Exception:
+            pass
+        return row
+    return None
+
+@app.route('/twilio/voice', methods=['POST'])
+def twilio_voice():
+    """Inbound call webhook — forward to on-call person."""
+    ts = get_twilio_settings()
+    es = get_email_settings()
+    coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
+    coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
+    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
+    audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
+    caller = request.form.get('From', 'Unknown')
+    call_sid = request.form.get('CallSid', '')
+    host = 'https://rolecall.hwtco.org'
+
+    def say_or_play(text, audio_url):
+        if audio_url: return f'<Play>{audio_url}</Play>'
+        return f'<Say voice="Polly.Joanna">{text}</Say>'
+
+    import datetime as _dtv
+    from zoneinfo import ZoneInfo as _ZI
+    now = _dtv.datetime.now(_ZI('America/New_York'))
+    now_time = now.strftime('%H:%M')
+    now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
+    in_hours = coverage_start <= now_time <= coverage_end
+
+    if not in_hours:
+        msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
+        log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No one available — after hours message played'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+        ], text=f'After hours call from {fmt_phone(caller)}')
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play(msg, audio_after_hours)}
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+    oncall = get_oncall_now()
+    forward_to = (oncall or {}).get('phone') or ts['fallback']
+    person_name = (oncall or {}).get('person_name') or 'Unknown'
+    greeting = (es.get('twilio_voice_greeting') or '').strip()
+    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+    audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
+    audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
+    audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
+    if not greeting:
+        greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
+    else:
+        greeting = greeting.replace('{name}', person_name)
+    if not no_answer_msg:
+        no_answer_msg = 'We were unable to reach our team right now. Please try again later or send us a text message.'
+    if not unavailable_msg:
+        unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
+    app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
+
+    if forward_to:
+        log_call(call_sid, caller, person_name, forward_to, 'ringing')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+            {'type':'actions','elements':[
+                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
+                {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+            ]}
+        ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play(greeting, audio_greeting)}
+  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
+    <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
+  </Dial>
+  {say_or_play(no_answer_msg, audio_no_answer)}
+</Response>'''
+    else:
+        log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person scheduled and no fallback set'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+        ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play(unavailable_msg, audio_unavailable)}
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/call-status', methods=['POST'])
+def twilio_call_status():
+    """Status callback — update call log and post outcome to Slack."""
+    call_sid = request.form.get('CallSid','')
+    call_status = request.form.get('CallStatus','')       # from statusCallback on <Number>
+    dial_status = request.form.get('DialCallStatus','')   # from action on <Dial>
+    duration = int(request.form.get('DialCallDuration', request.form.get('CallDuration', 0)) or 0)
+    caller = request.form.get('From','')
+    app.logger.info(f'Call status: sid={call_sid} CallStatus={call_status} DialCallStatus={dial_status} duration={duration}')
+    import datetime as _dtcs
+    now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+    except Exception:
+        row = None
+    person_name = (row or {}).get('routed_to_name','Unknown')
+    from_num = (row or {}).get('from_number', caller) or caller
+    host = 'https://rolecall.hwtco.org'
+    def mins(s): return f'{s//60}m {s%60}s' if s>=60 else f'{s}s'
+
+    # Case 1: <Dial> action fired — this is the definitive call outcome
+    if dial_status:
+        if dial_status == 'completed':
+            status = 'answered'
+            emoji = '✅'
+            status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
+        elif dial_status in ('no-answer','busy'):
+            status = 'missed'
+            emoji = '❌'
+            status_text = f'MISSED — {person_name} did not answer'
+        elif dial_status == 'failed':
+            status = 'failed'
+            emoji = '🔴'
+            status_text = f'Failed to connect to {person_name}'
+        else:
+            status = dial_status
+            emoji = '❓'
+            status_text = f'Status: {dial_status}'
+        try:
+            conn2 = get_db()
+            execute(conn2, 'UPDATE call_log SET status=%s, duration=%s, updated_at=NOW() WHERE call_sid=%s',
+                (status, duration, call_sid))
+            conn2.commit(); conn2.close()
+        except Exception as e:
+            app.logger.warning(f'Call status update error: {e}')
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'{emoji} *Call {status.title()}*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
+            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
+        ], text=f'{emoji} {status_text}')
+        return '', 204
+
+    # Case 2: statusCallback on <Number> fired (in-progress updates like answered)
+    # Only post to Slack for meaningful transitions, not every ringing update
+    if call_status == 'in-progress':
+        try:
+            conn3 = get_db()
+            execute(conn3, "UPDATE call_log SET status='answered', updated_at=NOW() WHERE call_sid=%s", (call_sid,))
+            conn3.commit(); conn3.close()
+        except Exception:
+            pass
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'📲 *Call Answered*\n*From:* `{fmt_phone(from_num)}`\n*Answered by:* {person_name}\n*Time:* {now_str}'}}
+        ], text=f'Call from {fmt_phone(from_num)} answered by {person_name}')
+
+    return '', 204
+
+
+
+@app.route('/twilio/sms', methods=['POST'])
+def twilio_sms():
+    """Inbound SMS webhook — forward to on-call person."""
+    oncall = get_oncall_now()
+    ts = get_twilio_settings()
+    forward_to = (oncall or {}).get('phone') or ts['fallback']
+    person_name = (oncall or {}).get('person_name') or 'fallback'
+    from_num = request.form.get('From','Unknown')
+    body = request.form.get('Body','').strip()
+    host = request.host_url.rstrip('/')
+    import datetime as _dtsms
+    now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
+    app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
+    # Forward to on-call person via Twilio SMS
+    if forward_to and ts['account_sid'] and ts['auth_token']:
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(
+                body=f'[HWTC] From {fmt_phone(from_num)}: {body}',
+                from_=ts['from_phone'],
+                to=forward_to
+            )
+        except Exception as e:
+            app.logger.warning(f'Twilio forward SMS failed: {e}')
+    # Post to Slack
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'💬 *Inbound Text Message*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+    ], text=f'Text from {fmt_phone(from_num)}: {body[:100]}')
+    # Auto-reply to sender
+    auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
+    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>{auto_reply}</Message>
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/api/call-log', methods=['GET'])
+def get_call_log():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    limit = int(request.args.get('limit', 50))
+    rows = fetchall(conn, 'SELECT * FROM call_log ORDER BY created_at DESC LIMIT %s', (limit,)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/oncall', methods=['GET'])
+def get_oncall_schedule():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM on_call_schedule ORDER BY start_date') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/oncall', methods=['POST'])
+def create_oncall():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    execute(conn, '''INSERT INTO on_call_schedule (start_date,end_date,person_name,phone,notes,start_time,end_time,days_of_week,recurrence,color)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''),
+         d.get('notes',''), d.get('start_time','08:00'), d.get('end_time','22:00'),
+         d.get('days_of_week','[0,1,2,3,4,5,6]'), d.get('recurrence','once'), d.get('color','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM on_call_schedule ORDER BY created_at DESC LIMIT 1')
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/oncall/<oid>', methods=['PUT'])
+def update_oncall(oid):
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    execute(conn, '''UPDATE on_call_schedule SET start_date=%s,end_date=%s,person_name=%s,phone=%s,notes=%s,
+        start_time=%s,end_time=%s,days_of_week=%s,recurrence=%s,color=%s WHERE id=%s''',
+        (d.get('start_date'), d.get('end_date'), d.get('person_name',''), d.get('phone',''), d.get('notes',''),
+         d.get('start_time','08:00'), d.get('end_time','22:00'),
+         d.get('days_of_week','[0,1,2,3,4,5,6]'), d.get('recurrence','once'), d.get('color',''), oid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/oncall/<oid>', methods=['DELETE'])
+def delete_oncall(oid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/twilio/callback', methods=['POST'])
+def twilio_callback_bridge():
+    """Initiate a masked outbound call — calls the agent first, then bridges to the target."""
+    d = request.get_json(silent=True) or {}
+    to_number = (d.get('to') or '').strip()
+    agent_number = (d.get('agent') or '').strip()
+    if not to_number or not agent_number:
+        return jsonify({'error': 'Missing to or agent number'}), 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token'] or not ts['from_phone']:
+        return jsonify({'error': 'Twilio not configured'}), 400
+    # Normalize phone numbers — strip spaces, ensure +1 prefix
+    def norm_phone(p):
+        p = ''.join(c for c in p if c.isdigit() or c=='+')
+        if not p.startswith('+'): p = '+1' + p
+        return p
+    to_number = norm_phone(to_number)
+    agent_number = norm_phone(agent_number)
+    hwtc_phone = norm_phone(ts['from_phone'])
+    try:
+        from twilio.rest import Client as _TwCb
+        from urllib.parse import quote as _q
+        client = _TwCb(ts['account_sid'], ts['auth_token'])
+        host = 'https://rolecall.hwtco.org'
+        bridge_url = f'{host}/twilio/bridge-twiml?target={_q(to_number)}&hwtc={_q(hwtc_phone)}'
+        call = client.calls.create(
+            to=agent_number,
+            from_=hwtc_phone,
+            url=bridge_url,
+            status_callback=f'{host}/twilio/call-status',
+            status_callback_method='POST'
+        )
+        return jsonify({'ok': True, 'sid': call.sid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/twilio/bridge-twiml', methods=['GET','POST'])
+def twilio_bridge_twiml():
+    """TwiML served to the agent once they pick up — bridges them to the target caller."""
+    target = request.args.get('target','')
+    hwtc_num = request.args.get('hwtc','')
+    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Connecting you now. You are calling back via the H W T C number.</Say>
+  <Dial callerId="{hwtc_num}" answerOnBridge="true">
+    <Number>{target}</Number>
+  </Dial>
+</Response>'''
+    return twiml, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/api/twilio/send-sms', methods=['POST'])
+def send_twilio_sms():
+    """Send an outbound SMS to a phone number."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    to_phone = (d.get('to') or '').strip()
+    body = (d.get('body') or '').strip()
+    if not to_phone or not body:
+        return jsonify({'error': 'Missing to or body'}), 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token'] or not ts['from_phone']:
+        return jsonify({'error': 'Twilio not configured in Settings'}), 400
+    try:
+        from twilio.rest import Client as _TwClient
+        client = _TwClient(ts['account_sid'], ts['auth_token'])
+        msg = client.messages.create(body=body, from_=ts['from_phone'], to=to_phone)
+        return jsonify({'ok': True, 'sid': msg.sid})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg',))
+    row2 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_pos',))
+    row3 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_zoom',))
+    row4 = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_sched_bg_fit',))
+    conn.close()
+    return jsonify({
+        'url': (row or {}).get('value') or '',
+        'position': (row2 or {}).get('value') or '50% 50%',
+        'zoom': int((row3 or {}).get('value') or 100),
+        'fit': (row4 or {}).get('value') or 'cover'
+    })
+
+@app.route('/api/lobby/sched-bg', methods=['PUT'])
+def save_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    position = (d.get('position') or '50% 50%').strip()
+    zoom = int(d.get('zoom') or 100)
+    fit = (d.get('fit') or 'cover').strip()
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg', url))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_pos', position))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_zoom', str(zoom)))
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_sched_bg_fit', fit))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/sched-bg/upload', methods=['POST'])
+def upload_lobby_sched_bg():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid type'}), 400
+    import uuid as _ulsb
+    filename = f'lobby-sched-bg-{str(_ulsb.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Lobby schedule bg GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    return jsonify({'ok': True, 'url': url})
 
 @app.route('/api/lobby/images', methods=['GET'])
 def get_lobby_images():
@@ -13476,7 +14504,7 @@ def deny_rental_request(rid):
         try:
             send_email(partner['contact_email'],
                 f'Rental Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theatre Company')
+                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -13544,7 +14572,15 @@ def generate_rental_contract(rid):
         return jsonify({'error': 'Request not found'}), 404
     token = _sec.token_urlsafe(32)
     custom_terms = (d.get('custom_terms') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms)
+    poc_name = (d.get('poc_name') or '').strip()
+    poc_email = (d.get('poc_email') or '').strip()
+    poc_phone = (d.get('poc_phone') or '').strip()
+    deposit = (d.get('deposit') or '').strip()
+    # If no custom terms provided, load default template from email_settings
+    if not custom_terms:
+        es = get_email_settings()
+        custom_terms = (es.get('rental_agreement_template') or '').strip()
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -13556,7 +14592,7 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _build_rental_contract_html(req, custom_terms=''):
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit=''):
     import datetime as _dtc
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
@@ -13568,69 +14604,74 @@ def _build_rental_contract_html(req, custom_terms=''):
     end = req.get('end_date','')
     date_range = start + (' through ' + end if end and end != start else '')
     time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
-    default_terms = f'''
-<h2 style="color:#0d3d4d;margin-top:24px">VENUE RENTAL AGREEMENT</h2>
-<p>This Venue Rental Agreement ("Agreement") is entered into as of <strong>{today}</strong> by and between:</p>
-<p><strong>Horizon West Theatre Company</strong> ("HWTC"), a nonprofit performing arts organization located in Winter Garden, FL</p>
+    partner_name = req.get('partner_name','Partner Organization')
+    contact_name = req.get('contact_name','') or partner_name
+    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+    poc_block = ''
+    if poc_name or poc_email or poc_phone:
+        poc_block = f'''<h3 style="color:#0d3d4d;margin-top:20px">HWTC POINT OF CONTACT</h3>
+<p>For any questions or concerns before, during, or after the collaboration, please contact:</p>
+<p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
+    terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
+<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm the collaboration. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this partnership. Full payment of any remaining balance is due within 24 hours of the final event date. If Partner Organization cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
+<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>
+<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization. All activities taking place under this agreement &mdash; including but not limited to rehearsals, classes, workshops, meetings, and performances &mdash; are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. This collaboration falls within HWTC&rsquo;s operational use of its facility for general administrative, educational, rehearsal, and ancillary nonprofit activities.</p>
+<p><strong>2.4 Billing &amp; Credit.</strong> All public-facing materials, programs, advertising, and communications related to this collaboration must credit the production as: <em>&ldquo;Produced by {partner_name} in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct any activities at the HWTC facility independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.</p>
+<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
+<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
+<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
+<p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
+<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
+<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
+<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
+h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
+h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style></head>
+<body>
+<div style="text-align:center;margin-bottom:24px">
+<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
+<div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theater Company</div>
+<div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
+<div style="font-size:12px;color:#6b7280">hwtco.org</div>
+</div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP &amp; CO-PRODUCTION AGREEMENT</h2>
+<p>This Artistic Partnership and Co-Production Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<p><strong>Horizon West Theater Company</strong> (&ldquo;HWTC&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
-<p><strong>{req.get('partner_name','')}</strong> ("{req.get('organization_type','Partner')}"), hereinafter referred to as "Renter."</p>
-
-<h3 style="color:#0d3d4d;margin-top:20px">1. RENTAL DETAILS</h3>
+<p><strong>{partner_name}</strong> (&ldquo;Partner Organization&rdquo;), represented by <strong>{contact_name}</strong>.</p>
+<p>Together referred to as the &ldquo;Parties.&rdquo;</p>
+<h3 style="color:#0d3d4d;margin-top:20px">1. COLLABORATION DETAILS</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('space_name','')}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Project / Event</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("title","")}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("space_name","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Time</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{time_range}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get('purpose','')}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Rate</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose / Nature of Activities</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("purpose","")}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+{deposit_row}
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Produced by {partner_name} in Partnership with Horizon West Theater Company</em></td></tr>
 </table>
-
-<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Payment.</strong> Renter agrees to pay the rental fee as specified above. Payment is due no later than 48 hours prior to the rental date unless otherwise agreed in writing.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 14 days in advance will receive a full refund. Cancellations within 14 days will forfeit 50% of the rental fee. Cancellations within 48 hours will forfeit the full rental fee.</p>
-<p><strong>2.3 Use of Space.</strong> Renter agrees to use the space only for the purpose described above. Renter shall not sublet the space or allow unauthorized parties to use it.</p>
-<p><strong>2.4 Care of Facility.</strong> Renter agrees to leave the space in the same condition as found. Renter is responsible for any damage to the facility, equipment, or property caused by Renter or Renter's guests. Renter will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.5 Capacity.</strong> Renter agrees to not exceed the posted occupancy limits of the space.</p>
-<p><strong>2.6 Alcohol &amp; Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Renter is responsible for ensuring all guests behave in a respectful manner. HWTC reserves the right to terminate the rental immediately if this clause is violated, with no refund.</p>
-<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, etc.) must be agreed upon in advance and may incur additional fees. Renter shall not move or modify technical equipment without authorization.</p>
-<p><strong>2.8 Insurance.</strong> HWTC strongly recommends Renter carry liability insurance for their event. HWTC assumes no liability for injuries or property damage occurring during the rental period.</p>
-<p><strong>2.9 Indemnification.</strong> Renter agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Renter's use of the facility.</p>
-<p><strong>2.10 Compliance.</strong> Renter agrees to comply with all applicable laws, ordinances, and fire codes during use of the facility.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Renter may not record, photograph, or livestream HWTC proprietary content, costumes, or set pieces without written permission.</p>
-'''
-    if custom_terms:
-        default_terms += f'\n<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3>\n<p>{custom_terms}</p>'
-
-    default_terms += '''
-<h3 style="color:#0d3d4d;margin-top:20px">4. SIGNATURES</h3>
-<p>By signing below, both parties agree to the terms and conditions set forth in this Agreement.</p>
+{poc_block}
+{terms_html}
+<h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
+<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Co-Production Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
-<div style="font-weight:700;font-size:14px">Horizon West Theatre Company</div>
+<div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
 </div>
-<div id="partner-signature-block" style="border-top:2px solid #0d3d4d;padding-top:8px">
-<div style="font-weight:700;font-size:14px">PARTNER_NAME_PLACEHOLDER</div>
+<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+<div style="font-weight:700;font-size:14px">{partner_name}</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
 </div>
 </div>
-'''
-    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
-h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
-h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}</style></head>
-<body>
-<div style="text-align:center;margin-bottom:24px">
-<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:60px" alt="HWTC"/>
-<div style="font-size:11px;color:#6b7280;margin-top:6px">horizonwesttheatre.com · Winter Garden, FL</div>
-</div>
-{default_terms}
 </body></html>'''
-
 @app.route('/api/rental/agreements/<aid>', methods=['GET'])
 def get_rental_agreement(aid):
     err = require_auth()
@@ -13660,14 +14701,14 @@ def send_rental_agreement(aid):
         subject = f'Venue Rental Agreement – {agr.get("title","")}'
         body = f'''Dear {agr.get("contact_name","") or agr.get("partner_name","")},
 
-Please review and digitally sign your venue rental agreement with Horizon West Theatre Company.
+Please review and digitally sign your venue rental agreement with Horizon West Theater Company.
 
 Click the link below to review and sign:
 {signing_url}
 
 If you have any questions, please contact us.
 
-Horizon West Theatre Company'''
+Horizon West Theater Company'''
         try:
             send_email(email_to, subject, body)
             execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
@@ -14003,7 +15044,7 @@ def submit_donation():
         'idempotency_key': _ud2.uuid4().hex,
         'order': {
             'location_id': SQUARE_LOCATION_ID,
-            'line_items': [{'name': 'Donation — Horizon West Theatre Company',
+            'line_items': [{'name': 'Donation — Horizon West Theater Company',
                             'quantity': '1',
                             'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}],
             'reference_id': pending_id[:40],
@@ -14215,7 +15256,7 @@ def marquee_overview():
             LEFT JOIN program_registrations pr ON pr.program_id=ps.program_id
                 AND pr.session_ids IS NOT NULL
                 AND pr.session_ids != \'[]\'
-                AND pr.session_ids LIKE (\'%"\' || ps.id || \'"%\')
+                AND pr.session_ids LIKE ('%%"' || ps.id || '"%%')
                 AND pr.status != \'cancelled\'
             WHERE yp.registration_status != \'draft\'
             GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override,
@@ -14426,7 +15467,7 @@ def promote_waitlist(pid, rid):
                 f'<h2 style="color:#145466">You\'re Confirmed!</h2>'
                 f'<p>Hi {name},</p>'
                 f'<p>Great news — a spot has opened up in <strong>{prog["name"]}</strong> and you\'ve been confirmed!</p>'
-                f'<p>Horizon West Theatre Company</p></div>')
+                f'<p>Horizon West Theater Company</p></div>')
         except Exception as e:
             app.logger.warning(f'Waitlist confirm email failed: {e}')
         conn.close()
@@ -14457,7 +15498,7 @@ def promote_waitlist(pid, rid):
                f'Secure My Spot</a></p>'
                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
                if pay_url else '')
-            + f'<p>Horizon West Theatre Company</p></div>')
+            + f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Waitlist promote email failed: {e}')
     conn.close()
@@ -14502,7 +15543,7 @@ def notify_interest_list(pid):
                 f'text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Register Now &rarr;</a></p>'
                 f'<p style="color:#6b7280;font-size:13px;margin:0">Or copy this link: <a href="{reg_url}" style="color:#145466">{reg_url}</a></p>'
                 f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0"/>'
-                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theatre Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
+                f'<p style="color:#9ca3af;font-size:12px;margin:0;text-align:center">Horizon West Theater Company &nbsp;&middot;&nbsp; Horizon West, FL</p>'
                 f'</div></div>')
             # Stamp notified_at so the UI reflects the notification
             conn2 = get_db()
@@ -14563,7 +15604,7 @@ def send_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Complete Payment</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>Horizon West Theatre Company</p></div>')
+            f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -14603,7 +15644,7 @@ def send_balance_payment_link(pid, rid):
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theatre Company</p></div>')
+            f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()

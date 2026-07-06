@@ -1742,6 +1742,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 
   <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Voicemail Greeting (played before the beep when no one answers)</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-voicemail" placeholder="No one is available. Please leave a message after the tone." style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'voicemail')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-voicemail-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
+  </div>
+
+  <div style="margin-bottom:12px">
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">After Hours Message (outside coverage window)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-after-hours" placeholder="Our team is available 8am–10pm. Please leave a text and we'll get back to you shortly." style="flex:1"/>
@@ -7628,10 +7637,12 @@ async function saveTwilioSettings(){
   twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
   twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00',
   slack_call_webhook: (document.getElementById('es-twilio-slack-webhook')||{}).value||'',
+  twilio_voice_voicemail: (document.getElementById('es-twilio-voicemail')||{}).value||'',
   twilio_audio_greeting: window._twilioAudio?.greeting||'',
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
   twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
-  twilio_audio_after_hours: window._twilioAudio?.after_hours||''
+  twilio_audio_after_hours: window._twilioAudio?.after_hours||'',
+  twilio_audio_voicemail: window._twilioAudio?.voicemail||''
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -7652,15 +7663,16 @@ function loadTwilioSettings(s){
  set('es-twilio-no-answer', s.twilio_voice_no_answer)
  set('es-twilio-unavailable', s.twilio_voice_unavailable)
  set('es-twilio-after-hours', s.twilio_after_hours_msg)
+ set('es-twilio-voicemail', s.twilio_voice_voicemail||'')
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
- set('es-twilio-slack-webhook', s.slack_call_webhook||'')
  set('es-twilio-slack-webhook', s.slack_call_webhook||'')
  window._twilioAudio = {
   greeting: s.twilio_audio_greeting||'',
   no_answer: s.twilio_audio_no_answer||'',
   unavailable: s.twilio_audio_unavailable||'',
-  after_hours: s.twilio_audio_after_hours||''
+  after_hours: s.twilio_audio_after_hours||'',
+  voicemail: s.twilio_audio_voicemail||''
  }
  // Show existing audio status
  Object.keys(window._twilioAudio).forEach(function(key){
@@ -7835,8 +7847,8 @@ async function loadCallLog(){
   return
  }
  const statusBadge = function(s){
-  const map = {answered:'✅ Answered',missed:'❌ Missed',ringing:'🔔 Ringing',after_hours:'🌙 After Hours',no_coverage:'⚠️ No Coverage',failed:'🔴 Failed'}
-  const colors = {answered:'#dcfce7;color:#166534',missed:'#fee2e2;color:#991b1b',ringing:'#eff6ff;color:#1e40af',after_hours:'#f3e8ff;color:#6b21a8',no_coverage:'#fef3c7;color:#92400e',failed:'#fee2e2;color:#991b1b'}
+  const map = {answered:'✅ Answered',missed:'❌ Missed',ringing:'🔔 Ringing',after_hours:'🌙 After Hours',no_coverage:'⚠️ No Coverage',failed:'🔴 Failed',voicemail:'🎙 Voicemail'}
+  const colors = {answered:'#dcfce7;color:#166534',missed:'#fee2e2;color:#991b1b',ringing:'#eff6ff;color:#1e40af',after_hours:'#f3e8ff;color:#6b21a8',no_coverage:'#fef3c7;color:#92400e',failed:'#fee2e2;color:#991b1b',voicemail:'#fef3c7;color:#92400e'}
   return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+((colors[s]||'#f3f4f6;color:#374151'))+'">'+(map[s]||s)+'</span>'
  }
  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'
@@ -7859,7 +7871,9 @@ async function loadCallLog(){
     +'<td style="padding:10px 8px">'+statusBadge(r.status)+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted)">'+dur+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted);white-space:nowrap;font-size:12px">'+time+'</td>'
-    +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')">📞 Call Back via HWTC</button></td>'
+    +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')">📞 Call Back via HWTC</button>'
+    +(r.status==='voicemail'&&r.notes?'<a href="'+escHtml(r.notes+'.mp3')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;margin-left:4px">🎙 Play</a>':'')
+    +'</td>'
     +'</tr>'
   }).join('')
   +'</tbody></table>'

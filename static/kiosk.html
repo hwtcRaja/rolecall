@@ -1200,7 +1200,7 @@ async function submitPin(){
   }
   elicData=d.elic
   const raw=d.events||[]
-  const today=new Date().toISOString().split('T')[0]
+  const _etNow=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));const today=_etNow.getFullYear()+'-'+String(_etNow.getMonth()+1).padStart(2,'0')+'-'+String(_etNow.getDate()).padStart(2,'0')
   // Sort: open events first, then today, then upcoming, then past, then no date
   elicEventList=raw.sort((a,b)=>{
     const aOpen=(a.current_status==='open'||a.status==='open')?0:1
@@ -1344,7 +1344,9 @@ function renderElicMenu(){
   }
 
   const now=new Date()
-  const today=now.toISOString().split('T')[0]
+  // Use Eastern time for date comparison to match server
+  const etNow = new Date(now.toLocaleString('en-US', {timeZone:'America/New_York'}))
+  const today=etNow.getFullYear()+'-'+String(etNow.getMonth()+1).padStart(2,'0')+'-'+String(etNow.getDate()).padStart(2,'0')
 
   function getStatus(e){ return e.current_status==='open'?'open':e.current_status==='close'?'closed':(e.status||'draft') }
 
@@ -1365,8 +1367,10 @@ function renderElicMenu(){
     if(!e.start_time||!e.event_date) return null
     try{
       const parts=e.start_time.toString().split(':')
+      // Parse event start in Eastern time
       const start=new Date(e.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00')
-      return (start-new Date())/60000
+      const nowEt = new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}))
+      return (start-nowEt)/60000
     }catch(ex){ return null }
   }
 
@@ -2013,7 +2017,7 @@ async function openProdSignIn(evt){
   if(rosterResp.error){document.getElementById('ps-roster').innerHTML=`<div style="text-align:center;padding:32px;color:var(--muted)">${rosterResp.error}</div>`;return}
   psRoster=rosterResp.members||[]
   // Keep only today's approved conflicts
-  const today=new Date().toISOString().split('T')[0]
+  const _etNow=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));const today=_etNow.getFullYear()+'-'+String(_etNow.getMonth()+1).padStart(2,'0')+'-'+String(_etNow.getDate()).padStart(2,'0')
   psConflicts=(Array.isArray(conflictsResp)?conflictsResp:[]).filter(c=>c.approved&&(!c.event_date||c.event_date===today))
   renderPsRoster()
 }

@@ -6744,6 +6744,8 @@ def save_email_settings_route():
                 'twilio_audio_no_answer TEXT DEFAULT \'\'',
                 'twilio_audio_unavailable TEXT DEFAULT \'\'',
                 'twilio_audio_after_hours TEXT DEFAULT \'\'',
+                'twilio_voice_voicemail TEXT DEFAULT \'\'',
+                'twilio_audio_voicemail TEXT DEFAULT \'\'',
                 'slack_call_webhook TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
@@ -6774,6 +6776,7 @@ def save_email_settings_route():
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
+        'twilio_voice_voicemail','twilio_audio_voicemail',
         'slack_call_webhook']
     sets = []; vals = []
     for key in allowed:
@@ -13804,6 +13807,10 @@ def twilio_voice():
     audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
     audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
     audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
+    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+    audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
+    if not voicemail_greeting:
+        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
     if not greeting:
         greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
     else:
@@ -13830,7 +13837,8 @@ def twilio_voice():
   <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
     <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
   </Dial>
-  {say_or_play(no_answer_msg, audio_no_answer)}
+  {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
     else:
         log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
@@ -14048,6 +14056,62 @@ def twilio_callback_bridge():
         return jsonify({'ok': True, 'sid': call.sid})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/twilio/voicemail', methods=['POST'])
+def twilio_voicemail():
+    """Fires after voicemail recording completes."""
+    call_sid = request.form.get('CallSid','')
+    recording_url = request.form.get('RecordingUrl','')
+    recording_sid = request.form.get('RecordingSid','')
+    duration = int(request.form.get('RecordingDuration', 0) or 0)
+    caller = request.form.get('From','')
+    import datetime as _dtvm
+    now_str = _dtvm.datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
+    # Update call log
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        from_num = (row or {}).get('from_number', caller)
+        execute(conn, "UPDATE call_log SET status='voicemail', duration=%s, notes=%s, updated_at=NOW() WHERE call_sid=%s",
+            (duration, recording_url, call_sid))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Voicemail log error: {e}')
+        from_num = caller
+    # Post to Slack
+    play_url = recording_url + '.mp3' if recording_url else ''
+    host = 'https://rolecall.hwtco.org'
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n*Listen:* <{play_url}|▶ Play Recording>'}},
+        {'type':'actions','elements':[
+            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'},
+            {'type':'button','text':{'type':'plain_text','text':'▶ Play Voicemail'},'url':play_url,'action_id':'play'}
+        ]}
+    ], text=f'🎙 Voicemail from {fmt_phone(from_num)} ({duration}s)')
+    return '', 204
+
+@app.route('/twilio/voicemail-transcript', methods=['POST'])
+def twilio_voicemail_transcript():
+    """Fires when Twilio finishes transcribing a voicemail."""
+    transcript = request.form.get('TranscriptionText','').strip()
+    call_sid = request.form.get('CallSid','')
+    recording_url = request.form.get('RecordingUrl','')
+    caller = request.form.get('From','')
+    if not transcript: return '', 204
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        from_num = (row or {}).get('from_number', caller)
+    except Exception:
+        from_num = caller
+    play_url = recording_url + '.mp3' if recording_url else ''
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{play_url}|▶ Play Recording>'}}
+    ], text=f'Voicemail transcript from {fmt_phone(from_num)}: {transcript[:100]}')
+    return '', 204
 
 @app.route('/twilio/bridge-twiml', methods=['GET','POST'])
 def twilio_bridge_twiml():

@@ -1832,12 +1832,13 @@ function filterEysRoster(){
       card+='<div style="flex:1"><div style="font-weight:700;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
       card+='<div style="font-size:11px;color:'+sinceColor+'">'+sinceStr+'</div>'
       if(isIn && y.family_passphrase) card+='<div style="font-size:11px;margin-top:2px">🔑 Pickup code: <strong style="color:var(--teal-dark);letter-spacing:0.5px">'+y.family_passphrase+'</strong></div>'
+      else if(isIn && y.individual_passphrase) card+='<div style="font-size:11px;margin-top:2px">🔑 Individual code: <strong style="color:var(--teal-dark);letter-spacing:0.5px">'+y.individual_passphrase+'</strong></div>'
       card+='</div>'
       card+='<div style="font-size:12px;font-weight:700;color:'+(isIn?'var(--green)':'var(--hint)')+'">'+( isIn?'✅ IN':'◯')+'</div>'
       card+='</div>'
       card+='<div style="display:flex;gap:8px">'
       if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||'')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||y.individual_passphrase||'')+'" data-passtype="'+(y.family_passphrase?'family':'individual')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
       card+='</div></div>'
       return card
     }).join('')
@@ -1852,9 +1853,10 @@ function filterEysRoster(){
       row+='<div style="flex:1"><div style="font-weight:600;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
       if(isIn) row+='<div style="font-size:11px;color:var(--green)">Dropped off by '+(rec.signed_in_by||'—')+'</div>'
       if(isIn && y.family_passphrase) row+='<div style="font-size:11px;margin-top:1px">🔑 Pickup code: <strong style="color:var(--teal-dark)">'+y.family_passphrase+'</strong></div>'
+      else if(isIn && y.individual_passphrase) row+='<div style="font-size:11px;margin-top:1px">🔑 Individual code: <strong style="color:var(--teal-dark)">'+y.individual_passphrase+'</strong></div>'
       row+='</div>'
       if(!isIn) row+='<button style="padding:8px 14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||'')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" data-passphrase="'+(y.family_passphrase||y.individual_passphrase||'')+'" data-passtype="'+(y.family_passphrase?'family':'individual')+'" onclick="eysStartPickUp(this)">Pick Up</button>'
       row+='</div>'
       return row
     }).join('')
@@ -1883,13 +1885,15 @@ async function eysStartPickUp(btn){
   const yid=btn.getAttribute('data-yid')
   const yname=btn.getAttribute('data-yname')
   const passphrase=btn.getAttribute('data-passphrase')||''
+  const passtype=btn.getAttribute('data-passtype')||'individual'
   eysSignOutTarget=rid
   eysDropOffTarget={yid,yname}
-  // Show passphrase block if available
   const pblock = document.getElementById('eys-passphrase-block')
   const pdisplay = document.getElementById('eys-passphrase-display')
+  const plabel = document.getElementById('eys-passphrase-label')
   if(passphrase && pblock && pdisplay){
     pdisplay.textContent = passphrase
+    if(plabel) plabel.textContent = passtype==='family' ? '🔑 Family Pickup Code' : '🔑 Individual Pickup Code'
     pblock.style.display = ''
   } else if(pblock){
     pblock.style.display = 'none'
@@ -2185,7 +2189,7 @@ function showConfirm(icon,title,sub,note,onBack){
   <div style="background:var(--surface);border-radius:var(--radius-lg);padding:32px;max-width:520px;width:100%;box-shadow:var(--shadow-lg)">
     <div id="eys-auth-list" style="margin-bottom:16px"></div>
     <div id="eys-passphrase-block" style="display:none;background:#fffbeb;border:2px solid #f59e0b;border-radius:12px;padding:16px 18px;margin-bottom:16px;text-align:center">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#92400e;margin-bottom:6px">🔑 Family Pickup Code</div>
+      <div id="eys-passphrase-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#92400e;margin-bottom:6px">🔑 Family Pickup Code</div>
       <div id="eys-passphrase-display" style="font-size:32px;font-weight:800;letter-spacing:4px;color:#0d3d4d;font-family:monospace"></div>
       <div style="font-size:11px;color:#78350f;margin-top:6px">Ask the parent/guardian to confirm this code before releasing the child</div>
     </div>

@@ -1216,6 +1216,11 @@ async function submitPin(){
   })
   renderElicMenu()
   showScreen('screen-elic-menu')
+  // Auto-refresh every 60s so lock/unlock state stays current
+  if(window._elicMenuRefreshTimer) clearInterval(window._elicMenuRefreshTimer)
+  window._elicMenuRefreshTimer = setInterval(function(){
+    if(document.getElementById('screen-elic-menu').style.display!=='none') renderElicMenu()
+  }, 60000)
 }
 
 
@@ -1361,7 +1366,7 @@ function renderElicMenu(){
     try{
       const parts=e.start_time.toString().split(':')
       const start=new Date(e.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00')
-      return (start-now)/60000
+      return (start-new Date())/60000
     }catch(ex){ return null }
   }
 
@@ -1516,15 +1521,7 @@ function handleProdSignInIdx(idx){
 function handleYouthSignInIdx(idx){
   handleYouthSignIn({getAttribute:()=>String(idx)})
 }
-async function doOpenEvent(){
-  const {evid,evname,openingResponses}=pendingAction
-  const r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:openingResponses||[]})})
-  const d=await r.json()
-  if(d.error){alert(d.error);return}
-  elicEventList=elicEventList.map(e=>e.id===evid?{...e,current_status:'open',status:'open'}:e)
-  renderElicMenu()
-  showConfirm('🟢','Event Opened!',`"${evname}" is now open for hour logging.`,'Volunteers can now log their hours.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
-}
+
 
 async function startClose(evid,evname){
   closingEvent={id:evid,name:evname}
@@ -1580,21 +1577,82 @@ function updateClSubmitBtn(){
   document.getElementById('cl-submit').disabled=!allReqDone
 }
 
-async function submitChecklist(){
-  const responses=checklistItems.map(item=>({
-    item_id:item.id,label:item.label,item_type:item.item_type,
-    response:clResponses[item.id]||''
-  }))
-  try {
-    const r=await fetch('/api/kiosk/close-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses})})
-    let d
-    try { d=await r.json() } catch(e){ alert('Server error closing event ('+r.status+'). Please try again.'); return }
+// ── SIGNATURE PAD ─────────────────────────────────────────────────────────
+var _sigCanvas=null,_sigCtx=null,_sigDrawing=false,_sigCallback=null
+function showSignaturePad(title,subtitle,onSign){
+  _sigCallback=onSign
+  const overlay=document.createElement('div')
+  overlay.id='sig-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px'
+  overlay.innerHTML='<div style="background:#fff;border-radius:16px;padding:28px;width:100%;max-width:520px;text-align:center">'
+   +'<div style="font-size:22px;font-weight:800;color:#0d3d4d;margin-bottom:6px">'+title+'</div>'
+   +'<div style="font-size:14px;color:#666;margin-bottom:20px">'+subtitle+'</div>'
+   +'<div style="position:relative;border:2.5px solid #0d3d4d;border-radius:10px;overflow:hidden;background:#fafafa;touch-action:none">'
+   +'<canvas id="sig-canvas" width="460" height="200" style="display:block;width:100%;cursor:crosshair"></canvas>'
+   +'<div style="position:absolute;bottom:10px;left:0;right:0;pointer-events:none;font-size:11px;color:#ccc;letter-spacing:0.1em;text-transform:uppercase">Sign above</div>'
+   +'</div>'
+   +'<div style="display:flex;gap:10px;margin-top:20px;justify-content:center">'
+   +'<button onclick="clearSignature()" style="padding:12px 24px;border:1.5px solid #0d3d4d;border-radius:8px;background:#fff;color:#0d3d4d;font-size:15px;font-weight:600;cursor:pointer">Clear</button>'
+   +'<button onclick="cancelSignature()" style="padding:12px 24px;border:1.5px solid #ccc;border-radius:8px;background:#fff;color:#666;font-size:15px;cursor:pointer">Cancel</button>'
+   +'<button onclick="confirmSignature()" style="padding:12px 32px;border:none;border-radius:8px;background:#0d3d4d;color:#fff;font-size:15px;font-weight:700;cursor:pointer">Confirm ✓</button>'
+   +'</div></div>'
+  document.body.appendChild(overlay)
+  _sigCanvas=document.getElementById('sig-canvas')
+  _sigCtx=_sigCanvas.getContext('2d')
+  _sigCtx.strokeStyle='#0d3d4d';_sigCtx.lineWidth=2.5;_sigCtx.lineCap='round';_sigCtx.lineJoin='round'
+  _sigCanvas.addEventListener('mousedown',sigStart)
+  _sigCanvas.addEventListener('mousemove',sigMove)
+  _sigCanvas.addEventListener('mouseup',sigEnd)
+  _sigCanvas.addEventListener('mouseleave',sigEnd)
+  _sigCanvas.addEventListener('touchstart',function(e){e.preventDefault();sigStart(e.touches[0])},{passive:false})
+  _sigCanvas.addEventListener('touchmove',function(e){e.preventDefault();sigMove(e.touches[0])},{passive:false})
+  _sigCanvas.addEventListener('touchend',sigEnd)
+}
+function getCanvasPos(e){
+  var rect=_sigCanvas.getBoundingClientRect()
+  return {x:(e.clientX-rect.left)*(_sigCanvas.width/rect.width),y:(e.clientY-rect.top)*(_sigCanvas.height/rect.height)}
+}
+function sigStart(e){_sigDrawing=true;var p=getCanvasPos(e);_sigCtx.beginPath();_sigCtx.moveTo(p.x,p.y)}
+function sigMove(e){if(!_sigDrawing)return;var p=getCanvasPos(e);_sigCtx.lineTo(p.x,p.y);_sigCtx.stroke()}
+function sigEnd(){_sigDrawing=false}
+function clearSignature(){_sigCtx.clearRect(0,0,_sigCanvas.width,_sigCanvas.height)}
+function cancelSignature(){document.getElementById('sig-overlay')?.remove();_sigCallback=null}
+function confirmSignature(){
+  var data=_sigCtx.getImageData(0,0,_sigCanvas.width,_sigCanvas.height).data
+  var hasContent=Array.from(data).some(function(v,i){return i%4===3&&v>0})
+  if(!hasContent){alert('Please sign before confirming.');return}
+  var dataUrl=_sigCanvas.toDataURL('image/png')
+  document.getElementById('sig-overlay')?.remove()
+  if(_sigCallback)_sigCallback(dataUrl)
+  _sigCallback=null
+}
+
+async function doOpenEvent(){
+  var evid=pendingAction.evid,evname=pendingAction.evname,openingResponses=pendingAction.openingResponses
+  showSignaturePad('Sign to Open Event','Please sign below to confirm the opening checklist is complete.',async function(signature){
+    var r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:openingResponses||[],signature:signature})})
+    var d=await r.json()
     if(d.error){alert(d.error);return}
-    elicEventList=elicEventList.map(e=>e.id===closingEvent.id?{...e,current_status:'close',status:'closed'}:e)
-    showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
-  } catch(err) {
-    alert('Network error: '+err.message+'. Please check connection and try again.')
-  }
+    elicEventList=elicEventList.map(function(e){return e.id===evid?Object.assign({},e,{current_status:'open',status:'open'}):e})
+    renderElicMenu()
+    showConfirm('🟢','Event Opened!','"'+evname+'" is now open for hour logging.','Volunteers can now log their hours.',function(){renderElicMenu();showScreen('screen-elic-menu')})
+  })
+}
+
+async function submitChecklist(){
+  var responses=checklistItems.map(function(item){return {item_id:item.id,label:item.label,item_type:item.item_type,response:clResponses[item.id]||''}})
+  showSignaturePad('Sign to Submit','Please sign below to confirm the closing checklist is complete.',async function(signature){
+    try{
+      var r=await fetch('/api/kiosk/close-event',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses:responses,signature:signature})})
+      var d
+      try{d=await r.json()}catch(e){alert('Server error closing event ('+r.status+'). Please try again.');return}
+      if(d.error){alert(d.error);return}
+      elicEventList=elicEventList.map(function(e){return e.id===closingEvent.id?Object.assign({},e,{current_status:'close',status:'closed'}):e})
+      showConfirm('🔒','Event Closed!','"'+closingEvent.name+'" has been closed.','Checklist submitted to admin portal.',function(){renderElicMenu();showScreen('screen-elic-menu')})
+    }catch(err){alert('Network error: '+err.message+'. Please check connection and try again.')}
+  })
 }
 
 

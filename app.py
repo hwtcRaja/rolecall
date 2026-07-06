@@ -6735,6 +6735,13 @@ def save_email_settings_route():
             conn.commit()
         except Exception:
             pass
+    # event_logs column migrations
+    for col in ["signature TEXT DEFAULT ''"]:
+        try:
+            execute(conn, f'ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS {col}')
+            conn.commit()
+        except Exception:
+            pass
     allowed = ['resend_api_key','from_email','sender_identities','report_recipients','report_recipient_user_ids',
         'alert_pending_hours','alert_profile_updates','alert_callouts','alert_waiver_expiry',
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',

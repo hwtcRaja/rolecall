@@ -22306,6 +22306,10 @@ async function renderMarqueeDashboard(el){
   if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
   var rc = data.reg_counts || {}
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
+  function toggleSessionRoster(id){
+    var el = document.getElementById(id)
+    if(el) el.style.display = el.style.display==='none' ? '' : 'none'
+  }
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
   var statusMap = {completed:'background:#dcfce7;color:#166534',confirmed:'background:#dcfce7;color:#166534',pending:'background:#fef3c7;color:#92400e'}
 
@@ -22400,7 +22404,7 @@ async function renderMarqueeDashboard(el){
               return '<tr style="border-bottom:1px solid var(--border)">'
                 + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+'</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(s.start_date?s.start_date.slice(5).replace('-','/'):'')+'</td>'
-                + '<td style="padding:7px 8px;font-weight:700;color:#145466">'+sEnrolled+'</td>'
+                + '<td style="padding:7px 8px;font-weight:700;color:#145466;cursor:pointer" onclick="toggleSessionRoster(\'sr-'+s.id+'\')" title="Click to see names">'+sEnrolled+' <span style="font-size:10px;color:var(--text-muted)">▾</span></td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
                 + '<td style="padding:7px 8px">'
                 + (sPct!==null ? '<div style="display:flex;align-items:center;gap:6px"><div style="width:60px;height:4px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+sFillColor+';border-radius:2px;width:'+Math.min(sPct,100)+'%"></div></div>'
@@ -22408,6 +22412,15 @@ async function renderMarqueeDashboard(el){
                 + '</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
                 + '</tr>'
+                + '<tr id="sr-'+s.id+'" style="display:none;background:#f9fafb"><td colspan="6" style="padding:0 20px 10px 36px">'
+                + (s.registrants && s.registrants.length
+                    ? s.registrants.map(function(r){ 
+                        var badge = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
+                        var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
+                        return '<span style="display:inline-flex;align-items:center;gap:4px;margin:3px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+(badge[r.status]||'#f3f4f6;color:#374151')+'">'+escHtml(name)+'</span>'
+                      }).join('')
+                    : '<span style="font-size:12px;color:var(--text-muted)">No registrations</span>')
+                + '</td></tr>'
             }).join('')
           + '</tbody></table>'
       } else {

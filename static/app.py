@@ -674,6 +674,13 @@ def init_db():
             name TEXT NOT NULL,
             passphrase TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS youth_family_links (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
+            family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+            relationship TEXT DEFAULT 'member',
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(youth_id, family_id))""",
         """CREATE TABLE IF NOT EXISTS youth_notes (
             id TEXT PRIMARY KEY,
             youth_id TEXT NOT NULL REFERENCES youth_participants(id) ON DELETE CASCADE,
@@ -1562,6 +1569,22 @@ def init_db():
             conn.commit()
     except Exception:
         conn.rollback()
+
+    # Always-run column migrations — safe to run repeatedly
+    for _migration in [
+        "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS signature TEXT DEFAULT ''",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '08:00'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '22:00'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'once'",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+    ]:
+        try:
+            c.execute(_migration)
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
     conn.close()
 
@@ -6721,6 +6744,8 @@ def save_email_settings_route():
                 'twilio_audio_no_answer TEXT DEFAULT \'\'',
                 'twilio_audio_unavailable TEXT DEFAULT \'\'',
                 'twilio_audio_after_hours TEXT DEFAULT \'\'',
+                'twilio_voice_voicemail TEXT DEFAULT \'\'',
+                'twilio_audio_voicemail TEXT DEFAULT \'\'',
                 'slack_call_webhook TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
@@ -6751,6 +6776,7 @@ def save_email_settings_route():
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
+        'twilio_voice_voicemail','twilio_audio_voicemail',
         'slack_call_webhook']
     sets = []; vals = []
     for key in allowed:
@@ -9138,6 +9164,7 @@ def kiosk_get_youth():
     # Get all active youth for today's events linked to this kiosk session
     youth = fetchall(conn, '''
         SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
+               yp.passphrase as individual_passphrase,
                ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at,
                (SELECT f.passphrase FROM youth_family_links yfl
                 JOIN families f ON f.id=yfl.family_id
@@ -9175,6 +9202,7 @@ def kiosk_youth_for_event(event_id):
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    ypm.role,
+                   yp.passphrase as individual_passphrase,
                    (SELECT f.passphrase FROM youth_family_links yfl
                     JOIN families f ON f.id=yfl.family_id
                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
@@ -9191,6 +9219,7 @@ def kiosk_youth_for_event(event_id):
         youth = fetchall(conn, '''
             SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
                    NULL as role,
+                   yp.passphrase as individual_passphrase,
                    (SELECT f.passphrase FROM youth_family_links yfl
                     JOIN families f ON f.id=yfl.family_id
                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
@@ -13778,6 +13807,10 @@ def twilio_voice():
     audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
     audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
     audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
+    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+    audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
+    if not voicemail_greeting:
+        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
     if not greeting:
         greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
     else:
@@ -13804,7 +13837,8 @@ def twilio_voice():
   <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
     <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
   </Dial>
-  {say_or_play(no_answer_msg, audio_no_answer)}
+  {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
     else:
         log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
@@ -14022,6 +14056,62 @@ def twilio_callback_bridge():
         return jsonify({'ok': True, 'sid': call.sid})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/twilio/voicemail', methods=['POST'])
+def twilio_voicemail():
+    """Fires after voicemail recording completes."""
+    call_sid = request.form.get('CallSid','')
+    recording_url = request.form.get('RecordingUrl','')
+    recording_sid = request.form.get('RecordingSid','')
+    duration = int(request.form.get('RecordingDuration', 0) or 0)
+    caller = request.form.get('From','')
+    import datetime as _dtvm
+    now_str = _dtvm.datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
+    # Update call log
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        from_num = (row or {}).get('from_number', caller)
+        execute(conn, "UPDATE call_log SET status='voicemail', duration=%s, notes=%s, updated_at=NOW() WHERE call_sid=%s",
+            (duration, recording_url, call_sid))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Voicemail log error: {e}')
+        from_num = caller
+    # Post to Slack
+    play_url = recording_url + '.mp3' if recording_url else ''
+    host = 'https://rolecall.hwtco.org'
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n*Listen:* <{play_url}|▶ Play Recording>'}},
+        {'type':'actions','elements':[
+            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'},
+            {'type':'button','text':{'type':'plain_text','text':'▶ Play Voicemail'},'url':play_url,'action_id':'play'}
+        ]}
+    ], text=f'🎙 Voicemail from {fmt_phone(from_num)} ({duration}s)')
+    return '', 204
+
+@app.route('/twilio/voicemail-transcript', methods=['POST'])
+def twilio_voicemail_transcript():
+    """Fires when Twilio finishes transcribing a voicemail."""
+    transcript = request.form.get('TranscriptionText','').strip()
+    call_sid = request.form.get('CallSid','')
+    recording_url = request.form.get('RecordingUrl','')
+    caller = request.form.get('From','')
+    if not transcript: return '', 204
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        from_num = (row or {}).get('from_number', caller)
+    except Exception:
+        from_num = caller
+    play_url = recording_url + '.mp3' if recording_url else ''
+    post_to_slack_calls([
+        {'type':'section','text':{'type':'mrkdwn','text':
+            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{play_url}|▶ Play Recording>'}}
+    ], text=f'Voicemail transcript from {fmt_phone(from_num)}: {transcript[:100]}')
+    return '', 204
 
 @app.route('/twilio/bridge-twiml', methods=['GET','POST'])
 def twilio_bridge_twiml():
@@ -15266,6 +15356,51 @@ def marquee_overview():
         app.logger.warning(f'Session breakdown query failed: {e}')
         session_breakdown = []
 
+    # Fetch registrant names per session - use Python-side JSON parsing (reliable)
+    try:
+        import json as _jsr
+        all_sess_regs = fetchall(conn, """SELECT
+            pr.program_id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status != 'cancelled'
+            AND yp.registration_status != 'draft'
+            AND yp.sessions_enabled = TRUE
+            AND pr.session_ids IS NOT NULL
+            AND pr.session_ids != '[]'
+            ORDER BY pr.child_last_name, pr.child_first_name""") or []
+        regs_by_session = {}
+        for r in all_sess_regs:
+            try: sids = _jsr.loads(r.get('session_ids') or '[]')
+            except Exception: sids = []
+            for sid in sids:
+                if sid not in regs_by_session: regs_by_session[sid] = []
+                regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
+        for s in session_breakdown:
+            s['registrants'] = regs_by_session.get(s['id'], [])
+    except Exception as e:
+        app.logger.warning(f'Session registrants query failed: {e}')
+
+    # Fetch registrant names for non-session programs
+    regs_by_program = {}
+    try:
+        flat_registrants = fetchall(conn, '''SELECT
+            pr.program_id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_name, pr.participant_name, pr.status
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status != \'cancelled\'
+            AND (yp.sessions_enabled IS NULL OR yp.sessions_enabled=FALSE)
+            AND yp.registration_status != \'draft\'
+            ORDER BY pr.child_last_name, pr.child_first_name''') or []
+        for r in flat_registrants:
+            pid2 = r.get('program_id')
+            if pid2 not in regs_by_program: regs_by_program[pid2] = []
+            regs_by_program[pid2].append(r)
+    except Exception as e:
+        app.logger.warning(f'Flat program registrants query failed: {e}')
+
     conn.close()
     return jsonify({
         'reg_counts': reg_counts,
@@ -15276,6 +15411,7 @@ def marquee_overview():
         'recent_donations': recent_donations,
         'program_breakdown': program_breakdown,
         'session_breakdown': session_breakdown,
+        'regs_by_program': regs_by_program,
     })
 
 

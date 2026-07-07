@@ -1580,6 +1580,8 @@ def init_db():
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
     ]:
         try:
             c.execute(_migration)
@@ -13710,9 +13712,12 @@ def post_to_slack_calls(blocks, text='', thread_ts=None):
         es = get_email_settings()
         bot_token = (es.get('slack_bot_token') or SLACK_BOT_TOKEN).strip()
         channel = (es.get('slack_call_channel') or SLACK_CALL_CHANNEL).strip()
-    except Exception:
+    except Exception as ex:
+        app.logger.warning(f'Slack: settings load error: {ex}')
         bot_token = SLACK_BOT_TOKEN
         channel = SLACK_CALL_CHANNEL
+
+    app.logger.info(f'Slack post: has_token={bool(bot_token)} has_channel={bool(channel)} thread_ts={thread_ts}')
 
     # Try Slack Bot API first (supports threading)
     if bot_token and channel:
@@ -13730,9 +13735,11 @@ def post_to_slack_calls(blocks, text='', thread_ts=None):
                 app.logger.info(f'Slack API post OK ts={ts}')
                 return ts
             else:
-                app.logger.warning(f'Slack API error: {data.get("error")}')
+                app.logger.warning(f'Slack API error: {data.get("error")} needed_scope={data.get("needed")}')
         except Exception as e:
             app.logger.warning(f'Slack API post failed: {e}')
+    else:
+        app.logger.warning(f'Slack: no bot_token or channel configured — trying webhook fallback')
 
     # Fall back to webhook (no threading)
     try:

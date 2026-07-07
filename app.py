@@ -13701,8 +13701,8 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-SLACK_BOT_TOKEN = 'xoxb-1102616696772-11500346587589-3JzL58YVyWcZSTWuZrYBZTlA'
-SLACK_CALL_CHANNEL = 'C0BFMUF2RC0'
+SLACK_BOT_TOKEN = ''  # Set via Settings → Twilio → Slack Bot Token
+SLACK_CALL_CHANNEL = ''  # Set via Settings → Twilio → Slack Channel ID
 
 def post_to_slack_calls(blocks, text='', thread_ts=None):
     """Post a message to Slack. Uses Bot API (supports threading) or falls back to webhook."""

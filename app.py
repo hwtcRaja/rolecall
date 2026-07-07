@@ -13935,7 +13935,6 @@ def twilio_voice():
             return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(msg, audio_after_hours)}
-  {say_or_play(voicemail_greeting, audio_voicemail)}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
@@ -14203,6 +14202,28 @@ def twilio_callback_bridge():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/twilio/voicemail-play')
+def twilio_voicemail_play():
+    """Proxy Twilio recording so callers don't need to log into Twilio."""
+    url = request.args.get('url','').strip()
+    if not url or 'twilio.com' not in url:
+        return 'Invalid URL', 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token']:
+        return 'Twilio not configured', 500
+    try:
+        import requests as _rvm
+        resp = _rvm.get(url, auth=(ts['account_sid'], ts['auth_token']), timeout=15, stream=True)
+        from flask import Response as _Resp, stream_with_context
+        return _Resp(
+            stream_with_context(resp.iter_content(chunk_size=8192)),
+            content_type=resp.headers.get('Content-Type','audio/mpeg'),
+            status=resp.status_code
+        )
+    except Exception as e:
+        app.logger.error(f'Voicemail proxy error: {e}')
+        return 'Error fetching recording', 500
+
 @app.route('/twilio/voicemail', methods=['POST'])
 def twilio_voicemail():
     """Fires after voicemail recording completes."""
@@ -14229,10 +14250,9 @@ def twilio_voicemail():
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n*Listen:* <{play_url}|▶ Play Recording>'}},
+            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
         {'type':'actions','elements':[
-            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'},
-            {'type':'button','text':{'type':'plain_text','text':'▶ Play Voicemail'},'url':play_url,'action_id':'play'}
+            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
         ]}
     ], text=f'🎙 Voicemail from {fmt_phone(from_num)} ({duration}s)')
     return '', 204
@@ -14253,9 +14273,10 @@ def twilio_voicemail_transcript():
     except Exception:
         from_num = caller
     play_url = recording_url + '.mp3' if recording_url else ''
+    host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{play_url}|▶ Play Recording>'}}
+            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
     ], text=f'Voicemail transcript from {fmt_phone(from_num)}: {transcript[:100]}')
     return '', 204
 

@@ -13895,73 +13895,84 @@ def get_oncall_now():
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
     """Inbound call webhook — forward to on-call person."""
-    ts = get_twilio_settings()
-    es = get_email_settings()
-    coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
-    coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
-    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
-    audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
-    caller = request.form.get('From', 'Unknown')
-    call_sid = request.form.get('CallSid', '')
-    host = 'https://rolecall.hwtco.org'
+    FALLBACK_TWIML = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. We are currently unavailable. Please try again later or send us a text message.</Say>
+</Response>'''
+    try:
+        ts = get_twilio_settings()
+        es = get_email_settings()
+        coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
+        coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
+        after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
+        audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
+        caller = request.form.get('From', 'Unknown')
+        call_sid = request.form.get('CallSid', '')
+        host = 'https://rolecall.hwtco.org'
 
-    def say_or_play(text, audio_url):
-        if audio_url: return f'<Play>{audio_url}</Play>'
-        return f'<Say voice="Polly.Joanna">{text}</Say>'
+        def say_or_play(text, audio_url):
+            if audio_url: return f'<Play>{audio_url}</Play>'
+            return f'<Say voice="Polly.Joanna">{text}</Say>'
 
-    import datetime as _dtv
-    from zoneinfo import ZoneInfo as _ZI
-    now = _dtv.datetime.now(_ZI('America/New_York'))
-    now_time = now.strftime('%H:%M')
-    now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
-    in_hours = coverage_start <= now_time <= coverage_end
+        from zoneinfo import ZoneInfo as _ZI
+        import datetime as _dtv
+        now = _dtv.datetime.now(_ZI('America/New_York'))
+        now_time = now.strftime('%H:%M')
+        now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
+        in_hours = coverage_start <= now_time <= coverage_end
 
-    if not in_hours:
-        msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
-        log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No one available — after hours message played'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
-        ], text=f'After hours call from {fmt_phone(caller)}')
-        return f'''<?xml version="1.0" encoding="UTF-8"?>
+        if not in_hours:
+            msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
+            log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
+            post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+            ], text=f'After hours call from {fmt_phone(caller)}')
+            voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+            audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+            if not voicemail_greeting:
+                voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+            return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(msg, audio_after_hours)}
+  {say_or_play(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
-    oncall = get_oncall_now()
-    forward_to = (oncall or {}).get('phone') or ts['fallback']
-    person_name = (oncall or {}).get('person_name') or 'Unknown'
-    greeting = (es.get('twilio_voice_greeting') or '').strip()
-    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
-    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
-    audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
-    audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
-    audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
-    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
-    audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
-    if not voicemail_greeting:
-        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
-    if not greeting:
-        greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
-    else:
-        greeting = greeting.replace('{name}', person_name)
-    if not no_answer_msg:
-        no_answer_msg = 'We were unable to reach our team right now. Please try again later or send us a text message.'
-    if not unavailable_msg:
-        unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
-    app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
+        oncall = get_oncall_now()
+        forward_to = (oncall or {}).get('phone') or ts['fallback']
+        person_name = (oncall or {}).get('person_name') or 'our team'
+        greeting = (es.get('twilio_voice_greeting') or '').strip()
+        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+        unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+        audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
+        audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
+        audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
+        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+        audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
+        if not greeting:
+            greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
+        else:
+            greeting = greeting.replace('{name}', person_name)
+        if not no_answer_msg:
+            no_answer_msg = 'We were unable to reach our team right now. Please leave a message after the tone.'
+        if not unavailable_msg:
+            unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
+        if not voicemail_greeting:
+            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
 
-    if forward_to:
-        log_call(call_sid, caller, person_name, forward_to, 'ringing')
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
-            {'type':'actions','elements':[
-                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
-                {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
-            ]}
-        ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
-        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        if forward_to:
+            log_call(call_sid, caller, person_name, forward_to, 'ringing')
+            post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':
+                    f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+                {'type':'actions','elements':[
+                    {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
+                    {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+                ]}
+            ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
   <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
@@ -13970,18 +13981,23 @@ def twilio_voice():
   {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
-    else:
-        log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person scheduled and no fallback set'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
-        ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
-        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        else:
+            log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
+            post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':
+                    f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+            ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(unavailable_msg, audio_unavailable)}
 </Response>'''
-    return twiml, 200, {'Content-Type': 'text/xml'}
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        app.logger.error(f'twilio_voice unhandled error: {e}')
+        return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
+
+
 
 @app.route('/twilio/call-status', methods=['POST'])
 def twilio_call_status():

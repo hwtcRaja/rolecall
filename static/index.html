@@ -1770,8 +1770,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    </div>
   </div>
  </div>
+ <div class="form-group" style="margin-bottom:12px">
+  <label>Slack Bot Token <span style="font-weight:400;color:var(--text-muted)">— for threading support (starts with xoxb-)</span></label>
+  <input type="password" id="es-slack-bot-token" placeholder="xoxb-..."/>
+  <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Get from api.slack.com/apps → OAuth & Permissions → Bot User OAuth Token</div>
+ </div>
+ <div class="form-group" style="margin-bottom:12px">
+  <label>Slack Channel ID <span style="font-weight:400;color:var(--text-muted)">— right-click channel → View details → bottom of page</span></label>
+  <input type="text" id="es-slack-channel" placeholder="C0BFMUF2RC0"/>
+ </div>
  <div class="form-group" style="margin-bottom:16px">
-  <label>Slack Webhook URL <span style="font-weight:400;color:var(--text-muted)">— for phone triage channel notifications</span></label>
+  <label>Slack Webhook URL <span style="font-weight:400;color:var(--text-muted)">— fallback if bot token not set</span></label>
   <input type="password" id="es-twilio-slack-webhook" placeholder="https://hooks.slack.com/services/..."/>
   <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Get this from api.slack.com/apps → HWTC Calls → Incoming Webhooks. Never share this URL publicly.</div>
  </div>
@@ -7667,6 +7676,8 @@ async function saveTwilioSettings(){
   twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
   twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00',
   slack_call_webhook: (document.getElementById('es-twilio-slack-webhook')||{}).value||'',
+  slack_bot_token: (document.getElementById('es-slack-bot-token')||{}).value||'',
+  slack_call_channel: (document.getElementById('es-slack-channel')||{}).value||'',
   oncall_report_schedule: (document.getElementById('es-oncall-schedule')||{}).value||'monday',
   oncall_report_time: (document.getElementById('es-oncall-time')||{}).value||'08:00',
   oncall_report_enabled: (document.getElementById('es-oncall-enabled')||{}).checked?'1':'0',
@@ -7700,6 +7711,8 @@ function loadTwilioSettings(s){
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
  set('es-twilio-slack-webhook', s.slack_call_webhook||'')
+ set('es-slack-bot-token', s.slack_bot_token||'')
+ set('es-slack-channel', s.slack_call_channel||'')
  set('es-oncall-schedule', s.oncall_report_schedule||'monday')
  set('es-oncall-time', s.oncall_report_time||'08:00')
  var enabledEl = document.getElementById('es-oncall-enabled')

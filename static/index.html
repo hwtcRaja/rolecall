@@ -3167,6 +3167,10 @@ const AVATAR_COLORS = [
 function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
 function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
 function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
+function toggleSessionRoster(id){
+ var el=document.getElementById(id)
+ if(el) el.style.display=el.style.display==='none'?'':'none'
+}
 function formatDate(d){
  if(!d) return '—'
  const dt = new Date(d+'T00:00:00')

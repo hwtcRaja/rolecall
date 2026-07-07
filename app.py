@@ -10497,7 +10497,10 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-_start_oncall_scheduler()
+try:
+    _start_oncall_scheduler()
+except Exception as _sche:
+    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
 
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
@@ -13759,7 +13762,7 @@ def _start_oncall_scheduler():
         from apscheduler.triggers.cron import CronTrigger
         import datetime as _dtsch
         from zoneinfo import ZoneInfo as _ZIsch
-        scheduler = BackgroundScheduler(timezone='America/New_York')
+        scheduler = BackgroundScheduler(timezone='America/New_York', daemon=True)
         def _check_and_send():
             try:
                 es = get_email_settings()
@@ -13775,12 +13778,14 @@ def _start_oncall_scheduler():
                 post_oncall_slack_report()
             except Exception as e:
                 app.logger.warning(f'Scheduled oncall report error: {e}')
-        # Check every minute
-        scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check')
+        scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.start()
         app.logger.info('On-call report scheduler started')
+    except ImportError:
+        app.logger.warning('APScheduler not installed — auto on-call reports disabled')
     except Exception as e:
-        app.logger.warning(f'Could not start scheduler: {e}')
+        app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
 @app.route('/api/oncall/send-report', methods=['POST'])
 def send_oncall_report_now():

@@ -15380,6 +15380,25 @@ def marquee_overview():
     except Exception as e:
         app.logger.warning(f'Session registrants query failed: {e}')
 
+    # Fetch registrant names for non-session programs
+    regs_by_program = {}
+    try:
+        flat_registrants = fetchall(conn, '''SELECT
+            pr.program_id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_name, pr.participant_name, pr.status
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status != \'cancelled\'
+            AND (yp.sessions_enabled IS NULL OR yp.sessions_enabled=FALSE)
+            AND yp.registration_status != \'draft\'
+            ORDER BY pr.child_last_name, pr.child_first_name''') or []
+        for r in flat_registrants:
+            pid2 = r.get('program_id')
+            if pid2 not in regs_by_program: regs_by_program[pid2] = []
+            regs_by_program[pid2].append(r)
+    except Exception as e:
+        app.logger.warning(f'Flat program registrants query failed: {e}')
+
     conn.close()
     return jsonify({
         'reg_counts': reg_counts,
@@ -15390,6 +15409,7 @@ def marquee_overview():
         'recent_donations': recent_donations,
         'program_breakdown': program_breakdown,
         'session_breakdown': session_breakdown,
+        'regs_by_program': regs_by_program,
     })
 
 

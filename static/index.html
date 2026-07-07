@@ -7909,7 +7909,7 @@ async function loadCallLog(){
     +'<td style="padding:10px 8px;color:var(--text-muted)">'+dur+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted);white-space:nowrap;font-size:12px">'+time+'</td>'
     +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')">📞 Call Back via HWTC</button>'
-    +(r.status==='voicemail'&&r.notes?'<a href="'+escHtml(r.notes+'.mp3')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;margin-left:4px">🎙 Play</a>':'')
+    +(r.status==='voicemail'&&r.notes?'<a href="/twilio/voicemail-play?url='+escHtml(r.notes+'.mp3')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;margin-left:4px">🎙 Play</a>':'')
     +'</td>'
     +'</tr>'
   }).join('')

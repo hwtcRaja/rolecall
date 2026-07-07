@@ -15356,6 +15356,30 @@ def marquee_overview():
         app.logger.warning(f'Session breakdown query failed: {e}')
         session_breakdown = []
 
+    # Fetch registrant names per session
+    try:
+        session_registrants = fetchall(conn, '''SELECT
+            ps.id AS session_id,
+            pr.child_first_name, pr.child_last_name, pr.guardian_name,
+            pr.participant_name, pr.status
+            FROM program_sessions ps
+            JOIN youth_programs yp ON yp.id=ps.program_id
+            JOIN program_registrations pr ON pr.program_id=ps.program_id
+                AND pr.session_ids LIKE ('%%"' || ps.id || '"%%')
+                AND pr.status != \'cancelled\'
+            WHERE yp.registration_status != \'draft\'
+            ORDER BY pr.child_last_name, pr.child_first_name''') or []
+        # Group by session_id
+        regs_by_session = {}
+        for r in session_registrants:
+            sid = r.get('session_id')
+            if sid not in regs_by_session: regs_by_session[sid] = []
+            regs_by_session[sid].append(r)
+        for s in session_breakdown:
+            s['registrants'] = regs_by_session.get(s['id'], [])
+    except Exception as e:
+        app.logger.warning(f'Session registrants query failed: {e}')
+
     conn.close()
     return jsonify({
         'reg_counts': reg_counts,

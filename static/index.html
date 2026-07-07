@@ -1775,6 +1775,31 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <input type="password" id="es-twilio-slack-webhook" placeholder="https://hooks.slack.com/services/..."/>
   <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Get this from api.slack.com/apps → HWTC Calls → Incoming Webhooks. Never share this URL publicly.</div>
  </div>
+ <div style="margin-bottom:16px;padding-top:12px;border-top:1px solid var(--border)">
+  <div style="font-size:13px;font-weight:700;margin-bottom:8px">📅 Weekly On-Call Report</div>
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Auto-post the week's on-call schedule to Slack. You can also post manually from the On-Call Schedule page.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+   <div class="form-group">
+    <label>Send On</label>
+    <select id="es-oncall-schedule" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+     <option value="monday">Monday</option>
+     <option value="tuesday">Tuesday</option>
+     <option value="wednesday">Wednesday</option>
+     <option value="thursday">Thursday</option>
+     <option value="friday">Friday</option>
+     <option value="saturday">Saturday</option>
+     <option value="sunday">Sunday</option>
+    </select>
+   </div>
+   <div class="form-group">
+    <label>At Time (Eastern)</label>
+    <input type="time" id="es-oncall-time" value="08:00"/>
+   </div>
+  </div>
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:4px">
+   <input type="checkbox" id="es-oncall-enabled" style="accent-color:var(--teal)"/> Enable automatic weekly reports
+  </label>
+ </div>
  <div style="display:flex;gap:10px">
   <button class="btn btn-primary" onclick="saveTwilioSettings()">Save Twilio Settings</button>
   <button class="btn btn-secondary" onclick="testTwilioSms()">Send Test SMS</button>
@@ -2244,6 +2269,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-actions" style="display:flex;gap:8px;align-items:center">
    <button class="btn btn-secondary" id="oncall-view-week" onclick="setOncallView('week')">Week</button>
    <button class="btn btn-secondary" id="oncall-view-month" onclick="setOncallView('month')">Month</button>
+   <button class="btn btn-secondary" onclick="sendOncallReport(this)">📤 Post to Slack</button>
    <button class="btn btn-primary" onclick="openOncallModal()">+ Add Shift</button>
   </div>
  </div>
@@ -7641,6 +7667,9 @@ async function saveTwilioSettings(){
   twilio_coverage_start: (document.getElementById('es-twilio-cov-start')||{}).value||'08:00',
   twilio_coverage_end: (document.getElementById('es-twilio-cov-end')||{}).value||'22:00',
   slack_call_webhook: (document.getElementById('es-twilio-slack-webhook')||{}).value||'',
+  oncall_report_schedule: (document.getElementById('es-oncall-schedule')||{}).value||'monday',
+  oncall_report_time: (document.getElementById('es-oncall-time')||{}).value||'08:00',
+  oncall_report_enabled: (document.getElementById('es-oncall-enabled')||{}).checked?'1':'0',
   twilio_voice_voicemail: (document.getElementById('es-twilio-voicemail')||{}).value||'',
   twilio_audio_greeting: window._twilioAudio?.greeting||'',
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
@@ -7671,6 +7700,10 @@ function loadTwilioSettings(s){
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
  set('es-twilio-slack-webhook', s.slack_call_webhook||'')
+ set('es-oncall-schedule', s.oncall_report_schedule||'monday')
+ set('es-oncall-time', s.oncall_report_time||'08:00')
+ var enabledEl = document.getElementById('es-oncall-enabled')
+ if(enabledEl) enabledEl.checked = s.oncall_report_enabled==='1'
  window._twilioAudio = {
   greeting: s.twilio_audio_greeting||'',
   no_answer: s.twilio_audio_no_answer||'',
@@ -7973,6 +8006,20 @@ async function deleteOncall(id){
  _oncallList=_oncallList.filter(function(r){return r.id!==id})
  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderOncallCalendar(); toast('Shift removed')
+}
+
+async function sendOncallReport(btn){
+ const orig = btn.textContent
+ btn.textContent = 'Posting...'
+ btn.disabled = true
+ const res = await api('/api/oncall/send-report','POST',{})
+ if(res&&res.ok){
+  toast('On-call report posted to Slack!','success')
+ } else {
+  toast('Failed: '+(res&&res.error||'Check Slack webhook in Settings'),'error')
+ }
+ btn.textContent = orig
+ btn.disabled = false
 }
 
 function clearSendersDirty(){
@@ -22406,8 +22453,8 @@ async function renderMarqueeDashboard(el){
               var sRev = s.revenue_cents || 0
               var sFillColor = sPct>=90?'#d97706':sPct>=70?'#f59e0b':'#145466'
               var sTime = s.start_time ? (function(t){ try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM';h=h%12||12;return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } })(s.start_time) : ''
-              return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSessionRoster(\'sr-'+s.id+'\')">'
-                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+' <span style="font-size:10px;color:var(--text-muted)">▾</span></td>'
+              return '<tr style="border-bottom:1px solid var(--border)">'
+                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+'</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(s.start_date?s.start_date.slice(5).replace('-','/'):'')+'</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#145466">'+sEnrolled+'</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
@@ -22417,15 +22464,6 @@ async function renderMarqueeDashboard(el){
                 + '</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
                 + '</tr>'
-                + '<tr id="sr-'+s.id+'" style="display:none;background:#f9fafb"><td colspan="6" style="padding:6px 20px 10px 36px">'
-                + (s.registrants && s.registrants.length
-                    ? s.registrants.map(function(r){
-                        var badge = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
-                        var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
-                        return '<span style="display:inline-flex;align-items:center;gap:4px;margin:3px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+(badge[r.status]||'#f3f4f6;color:#374151')+'">'+escHtml(name)+'</span>'
-                      }).join('')
-                    : '<span style="font-size:12px;color:var(--text-muted)">No registrations yet</span>')
-                + '</td></tr>'
             }).join('')
           + '</tbody></table>'
       } else {
@@ -22433,17 +22471,6 @@ async function renderMarqueeDashboard(el){
           + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
           + (p.capacity?' · '+Math.min(fillPct||0,100)+'% full':'')
           + '</div>'
-        // Show registrant names for non-session programs
-        var progRegs = regsByProgram[p.id] || []
-        if(progRegs.length){
-          html += '<div style="padding:4px 20px 12px 36px;display:flex;flex-wrap:wrap;gap:4px">'
-          + progRegs.map(function(r){
-              var badge = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
-              var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
-              return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+(badge[r.status]||'#f3f4f6;color:#374151')+'">'+escHtml(name)+'</span>'
-            }).join('')
-          + '</div>'
-        }
       }
       html += '</div></div>' // end session detail + program row
     })

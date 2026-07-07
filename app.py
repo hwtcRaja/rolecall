@@ -1579,6 +1579,7 @@ def init_db():
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'once'",
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
     ]:
         try:
             c.execute(_migration)
@@ -6749,7 +6750,9 @@ def save_email_settings_route():
                 'slack_call_webhook TEXT DEFAULT \'\'',
                 'oncall_report_schedule TEXT DEFAULT \'monday\'',
                 'oncall_report_time TEXT DEFAULT \'08:00\'',
-                'oncall_report_enabled TEXT DEFAULT \'0\'']:
+                'oncall_report_enabled TEXT DEFAULT \'0\'',
+                'slack_bot_token TEXT DEFAULT \'\'',
+                'slack_call_channel TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6781,7 +6784,8 @@ def save_email_settings_route():
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
         'twilio_voice_voicemail','twilio_audio_voicemail',
         'slack_call_webhook',
-        'oncall_report_schedule','oncall_report_time','oncall_report_enabled']
+        'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
+        'slack_bot_token','slack_call_channel']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13697,26 +13701,54 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-def post_to_slack_calls(blocks, text=''):
-    """Post a message to the HWTC phone triage Slack channel."""
+SLACK_BOT_TOKEN = 'xoxb-1102616696772-11500346587589-3JzL58YVyWcZSTWuZrYBZTlA'
+SLACK_CALL_CHANNEL = 'C0BFMUF2RC0'
+
+def post_to_slack_calls(blocks, text='', thread_ts=None):
+    """Post a message to Slack. Uses Bot API (supports threading) or falls back to webhook."""
     try:
         es = get_email_settings()
-        webhook = (es.get('slack_call_webhook') or '').strip()
-    except Exception as e:
-        app.logger.warning(f'Slack: could not load settings: {e}')
-        webhook = ''
-    if not webhook:
-        import os as _oss
-        webhook = _oss.environ.get('SLACK_CALL_WEBHOOK','').strip()
-    if not webhook:
-        app.logger.warning('Slack webhook not configured — skipping post')
-        return
+        bot_token = (es.get('slack_bot_token') or SLACK_BOT_TOKEN).strip()
+        channel = (es.get('slack_call_channel') or SLACK_CALL_CHANNEL).strip()
+    except Exception:
+        bot_token = SLACK_BOT_TOKEN
+        channel = SLACK_CALL_CHANNEL
+
+    # Try Slack Bot API first (supports threading)
+    if bot_token and channel:
+        try:
+            import requests as _rslk
+            payload = {'channel': channel, 'text': text, 'blocks': blocks}
+            if thread_ts:
+                payload['thread_ts'] = thread_ts
+            resp = _rslk.post('https://slack.com/api/chat.postMessage',
+                headers={'Authorization': f'Bearer {bot_token}', 'Content-Type': 'application/json'},
+                json=payload, timeout=10)
+            data = resp.json()
+            if data.get('ok'):
+                ts = data.get('ts')
+                app.logger.info(f'Slack API post OK ts={ts}')
+                return ts
+            else:
+                app.logger.warning(f'Slack API error: {data.get("error")}')
+        except Exception as e:
+            app.logger.warning(f'Slack API post failed: {e}')
+
+    # Fall back to webhook (no threading)
     try:
-        import requests as _rslk
-        resp = _rslk.post(webhook, json={'text': text, 'blocks': blocks}, timeout=10)
-        app.logger.info(f'Slack post: status={resp.status_code}')
+        es2 = get_email_settings()
+        webhook = (es2.get('slack_call_webhook') or '').strip()
+        if not webhook:
+            import os as _oss
+            webhook = _oss.environ.get('SLACK_CALL_WEBHOOK','').strip()
+        if webhook:
+            import requests as _rslk2
+            payload = {'text': text, 'blocks': blocks}
+            if thread_ts: payload['thread_ts'] = thread_ts
+            _rslk2.post(webhook, json=payload, timeout=10)
     except Exception as e:
-        app.logger.warning(f'Slack post failed: {e}')
+        app.logger.warning(f'Slack webhook fallback failed: {e}')
+    return None
 
 def post_oncall_slack_report():
     """Build and post the weekly on-call schedule report to Slack."""
@@ -13840,7 +13872,7 @@ def send_oncall_report_now():
     except Exception as e:
         app.logger.error(f'SLACK POST FAILED: {e}')
 
-def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False):
+def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False, slack_thread_ts=''):
     """Insert or update a call log entry."""
     try:
         conn = get_db()
@@ -13849,9 +13881,9 @@ def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_
             execute(conn, '''UPDATE call_log SET status=%s, updated_at=NOW() WHERE call_sid=%s''',
                 (status, call_sid))
         else:
-            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours)
-                VALUES (%s,%s,%s,%s,%s,%s)''',
-                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours))
+            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours,slack_thread_ts)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours, slack_thread_ts or ''))
         conn.commit(); conn.close()
     except Exception as e:
         app.logger.warning(f'Call log error: {e}')
@@ -13863,7 +13895,24 @@ def fmt_phone(p):
         return f'({p[2:5]}) {p[5:8]}-{p[8:]}'
     return p
 
-def get_oncall_now():
+def get_call_thread_ts(call_sid):
+    """Get the Slack thread_ts for a given call."""
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT slack_thread_ts FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        return (row or {}).get('slack_thread_ts') or None
+    except Exception:
+        return None
+
+def set_call_thread_ts(call_sid, thread_ts):
+    """Store Slack thread_ts for a call."""
+    try:
+        conn = get_db()
+        execute(conn, 'UPDATE call_log SET slack_thread_ts=%s WHERE call_sid=%s', (thread_ts or '', call_sid))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'set_call_thread_ts error: {e}')
     """Return the on-call person for right now based on date, time, and day of week."""
     import datetime as _dtoc, json as _joc
     from zoneinfo import ZoneInfo as _ZIoc
@@ -13923,11 +13972,11 @@ def twilio_voice():
 
         if not in_hours:
             msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
-            log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
-            post_to_slack_calls([
+            ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
                 {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'After hours call from {fmt_phone(caller)}')
+            log_call(call_sid, caller, 'After Hours', '', 'after_hours', True, ts_val or '')
             voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
             audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
             if not voicemail_greeting:
@@ -13962,8 +14011,7 @@ def twilio_voice():
         app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
 
         if forward_to:
-            log_call(call_sid, caller, person_name, forward_to, 'ringing')
-            post_to_slack_calls([
+            ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
                     f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
                 {'type':'actions','elements':[
@@ -13971,6 +14019,7 @@ def twilio_voice():
                     {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
+            log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
@@ -13981,12 +14030,12 @@ def twilio_voice():
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
         else:
-            log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
-            post_to_slack_calls([
+            ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
                     f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
                 {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
+            log_call(call_sid, caller, 'Nobody', '', 'no_coverage', False, ts_val or '')
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(unavailable_msg, audio_unavailable)}
@@ -14045,15 +14094,14 @@ def twilio_call_status():
             conn2.commit(); conn2.close()
         except Exception as e:
             app.logger.warning(f'Call status update error: {e}')
+        thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'{emoji} *Call {status.title()}*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
-        ], text=f'{emoji} {status_text}')
+                f'{emoji} *{status_text}*'}},
+        ], text=f'{emoji} {status_text}', thread_ts=thread_ts)
         return '', 204
 
     # Case 2: statusCallback on <Number> fired (in-progress updates like answered)
-    # Only post to Slack for meaningful transitions, not every ringing update
     if call_status == 'in-progress':
         try:
             conn3 = get_db()
@@ -14061,10 +14109,11 @@ def twilio_call_status():
             conn3.commit(); conn3.close()
         except Exception:
             pass
+        thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'📲 *Call Answered*\n*From:* `{fmt_phone(from_num)}`\n*Answered by:* {person_name}\n*Time:* {now_str}'}}
-        ], text=f'Call from {fmt_phone(from_num)} answered by {person_name}')
+                f'📲 *Answered* by {person_name}'}}
+        ], text=f'Answered by {person_name}', thread_ts=thread_ts)
 
     return '', 204
 
@@ -14229,32 +14278,30 @@ def twilio_voicemail():
     """Fires after voicemail recording completes."""
     call_sid = request.form.get('CallSid','')
     recording_url = request.form.get('RecordingUrl','')
-    recording_sid = request.form.get('RecordingSid','')
     duration = int(request.form.get('RecordingDuration', 0) or 0)
     caller = request.form.get('From','')
     import datetime as _dtvm
     now_str = _dtvm.datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
-    # Update call log
     try:
         conn = get_db()
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
         from_num = (row or {}).get('from_number', caller)
+        thread_ts = (row or {}).get('slack_thread_ts') or None
         execute(conn, "UPDATE call_log SET status='voicemail', duration=%s, notes=%s, updated_at=NOW() WHERE call_sid=%s",
             (duration, recording_url, call_sid))
         conn.commit(); conn.close()
     except Exception as e:
         app.logger.warning(f'Voicemail log error: {e}')
-        from_num = caller
-    # Post to Slack
+        from_num = caller; thread_ts = None
     play_url = recording_url + '.mp3' if recording_url else ''
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
+            f'🎙 *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
         {'type':'actions','elements':[
             {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
         ]}
-    ], text=f'🎙 Voicemail from {fmt_phone(from_num)} ({duration}s)')
+    ], text=f'🎙 Voicemail ({duration}s)', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/voicemail-transcript', methods=['POST'])
@@ -14270,14 +14317,15 @@ def twilio_voicemail_transcript():
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
         conn.close()
         from_num = (row or {}).get('from_number', caller)
+        thread_ts = (row or {}).get('slack_thread_ts') or None
     except Exception:
-        from_num = caller
+        from_num = caller; thread_ts = None
     play_url = recording_url + '.mp3' if recording_url else ''
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
-    ], text=f'Voicemail transcript from {fmt_phone(from_num)}: {transcript[:100]}')
+            f'📝 *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
+    ], text=f'Transcript: {transcript[:100]}', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/bridge-twiml', methods=['GET','POST'])

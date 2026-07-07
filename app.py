@@ -6746,7 +6746,10 @@ def save_email_settings_route():
                 'twilio_audio_after_hours TEXT DEFAULT \'\'',
                 'twilio_voice_voicemail TEXT DEFAULT \'\'',
                 'twilio_audio_voicemail TEXT DEFAULT \'\'',
-                'slack_call_webhook TEXT DEFAULT \'\'']:
+                'slack_call_webhook TEXT DEFAULT \'\'',
+                'oncall_report_schedule TEXT DEFAULT \'monday\'',
+                'oncall_report_time TEXT DEFAULT \'08:00\'',
+                'oncall_report_enabled TEXT DEFAULT \'0\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6777,7 +6780,8 @@ def save_email_settings_route():
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
         'twilio_voice_voicemail','twilio_audio_voicemail',
-        'slack_call_webhook']
+        'slack_call_webhook',
+        'oncall_report_schedule','oncall_report_time','oncall_report_enabled']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -10493,6 +10497,8 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
+_start_oncall_scheduler()
+
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
 def internal_error(e):
@@ -13688,7 +13694,105 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-def post_to_slack_calls(blocks, text=''):
+def post_oncall_slack_report():
+    """Build and post the weekly on-call schedule report to Slack."""
+    import datetime as _dtrep, json as _jrep
+    from zoneinfo import ZoneInfo as _ZIrep
+    now = _dtrep.datetime.now(_ZIrep('America/New_York'))
+    # Get start/end of current week (Mon–Sun)
+    week_start = now.date() - _dtrep.timedelta(days=now.weekday())
+    week_end = week_start + _dtrep.timedelta(days=6)
+    week_label = week_start.strftime('%b %d') + ' – ' + week_end.strftime('%b %d, %Y')
+    try:
+        conn = get_db()
+        shifts = fetchall(conn, '''SELECT * FROM on_call_schedule
+            WHERE start_date <= %s AND end_date >= %s
+            ORDER BY start_time, start_date''',
+            (week_end.isoformat(), week_start.isoformat())) or []
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'On-call report query failed: {e}')
+        return
+    DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+    def fmt12h(t):
+        try:
+            p=t.split(':'); h=int(p[0]); m=int(p[1]); ap='PM' if h>=12 else 'AM'
+            h=h%12 or 12; return f'{h}:{m:02d} {ap}'
+        except Exception: return t or ''
+    # Build day-by-day breakdown for the week
+    day_lines = []
+    for i in range(7):
+        day = week_start + _dtrep.timedelta(days=i)
+        day_str = day.isoformat()
+        dow = day.weekday()  # 0=Mon
+        day_shifts = [s for s in shifts if s['start_date'] <= day_str <= s['end_date']
+                      and dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])]
+        is_today = day_str == now.date().isoformat()
+        day_label = f'*{DAY_NAMES[i]} {day.strftime("%m/%d")}*' + (' ← today' if is_today else '')
+        if day_shifts:
+            names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
+            day_lines.append(f'{day_label}: {names}')
+        else:
+            day_lines.append(f'{day_label}: ⚠️ _No coverage_')
+    # Who's on right now
+    now_time = now.strftime('%H:%M')
+    now_dow = now.weekday()
+    current = next((s for s in shifts
+        if s['start_date'] <= now.date().isoformat() <= s['end_date']
+        and (s.get('start_time','08:00') or '08:00') <= now_time <= (s.get('end_time','22:00') or '22:00')
+        and now_dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])), None)
+    current_line = f'📞 *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else '📞 *On call now:* ⚠️ Nobody scheduled'
+    blocks = [
+        {'type':'header','text':{'type':'plain_text','text':f'📞 On-Call Schedule: {week_label}'}},
+        {'type':'section','text':{'type':'mrkdwn','text':current_line}},
+        {'type':'divider'},
+        {'type':'section','text':{'type':'mrkdwn','text':'\n'.join(day_lines)}},
+        {'type':'context','elements':[{'type':'mrkdwn','text':'Manage schedule at rolecall.hwtco.org → On-Call Schedule'}]}
+    ]
+    post_to_slack_calls(blocks, text=f'On-Call Schedule for {week_label}')
+    app.logger.info('On-call Slack report sent')
+
+# ── APScheduler for automatic on-call reports ────────────────────────────────
+def _start_oncall_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        import datetime as _dtsch
+        from zoneinfo import ZoneInfo as _ZIsch
+        scheduler = BackgroundScheduler(timezone='America/New_York')
+        def _check_and_send():
+            try:
+                es = get_email_settings()
+                if es.get('oncall_report_enabled','0') != '1': return
+                sched_day = (es.get('oncall_report_schedule') or 'monday').lower()
+                sched_time = (es.get('oncall_report_time') or '08:00')
+                day_map = {'monday':0,'tuesday':1,'wednesday':2,'thursday':3,'friday':4,'saturday':5,'sunday':6}
+                target_dow = day_map.get(sched_day, 0)
+                now = _dtsch.datetime.now(_ZIsch('America/New_York'))
+                if now.weekday() != target_dow: return
+                t_parts = sched_time.split(':')
+                if int(t_parts[0]) != now.hour or int(t_parts[1]) != now.minute: return
+                post_oncall_slack_report()
+            except Exception as e:
+                app.logger.warning(f'Scheduled oncall report error: {e}')
+        # Check every minute
+        scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check')
+        scheduler.start()
+        app.logger.info('On-call report scheduler started')
+    except Exception as e:
+        app.logger.warning(f'Could not start scheduler: {e}')
+
+@app.route('/api/oncall/send-report', methods=['POST'])
+def send_oncall_report_now():
+    err = require_auth()
+    if err: return err
+    try:
+        post_oncall_slack_report()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
     """Post a message to the HWTC phone triage Slack channel."""
     try:
         es = get_email_settings()
@@ -15356,25 +15460,27 @@ def marquee_overview():
         app.logger.warning(f'Session breakdown query failed: {e}')
         session_breakdown = []
 
-    # Fetch registrant names per session
+    # Fetch registrant names per session - use Python-side JSON parsing (reliable)
     try:
-        session_registrants = fetchall(conn, """SELECT
-            ps.id AS session_id,
-            pr.child_first_name, pr.child_last_name, pr.guardian_name,
-            pr.participant_name, pr.status
-            FROM program_sessions ps
-            JOIN youth_programs yp ON yp.id=ps.program_id
-            JOIN program_registrations pr ON pr.program_id=ps.program_id
+        import json as _jsr
+        all_sess_regs = fetchall(conn, """SELECT
+            pr.program_id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
             WHERE pr.status != 'cancelled'
             AND yp.registration_status != 'draft'
-            AND pr.session_ids LIKE ('%\"' || ps.id || '\"%')
+            AND yp.sessions_enabled = TRUE
+            AND pr.session_ids IS NOT NULL
+            AND pr.session_ids != '[]'
             ORDER BY pr.child_last_name, pr.child_first_name""") or []
-        # Group by session_id
         regs_by_session = {}
-        for r in session_registrants:
-            sid = r.get('session_id')
-            if sid not in regs_by_session: regs_by_session[sid] = []
-            regs_by_session[sid].append(r)
+        for r in all_sess_regs:
+            try: sids = _jsr.loads(r.get('session_ids') or '[]')
+            except Exception: sids = []
+            for sid in sids:
+                if sid not in regs_by_session: regs_by_session[sid] = []
+                regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
         for s in session_breakdown:
             s['registrants'] = regs_by_session.get(s['id'], [])
     except Exception as e:

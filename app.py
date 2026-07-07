@@ -15358,17 +15358,17 @@ def marquee_overview():
 
     # Fetch registrant names per session
     try:
-        session_registrants = fetchall(conn, '''SELECT
+        session_registrants = fetchall(conn, """SELECT
             ps.id AS session_id,
             pr.child_first_name, pr.child_last_name, pr.guardian_name,
             pr.participant_name, pr.status
             FROM program_sessions ps
             JOIN youth_programs yp ON yp.id=ps.program_id
             JOIN program_registrations pr ON pr.program_id=ps.program_id
-                AND pr.session_ids LIKE ('%%"' || ps.id || '"%%')
-                AND pr.status != \'cancelled\'
-            WHERE yp.registration_status != \'draft\'
-            ORDER BY pr.child_last_name, pr.child_first_name''') or []
+            WHERE pr.status != 'cancelled'
+            AND yp.registration_status != 'draft'
+            AND pr.session_ids LIKE ('%\"' || ps.id || '\"%')
+            ORDER BY pr.child_last_name, pr.child_first_name""") or []
         # Group by session_id
         regs_by_session = {}
         for r in session_registrants:

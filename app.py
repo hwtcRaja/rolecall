@@ -1582,6 +1582,17 @@ def init_db():
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
+        # Prevent duplicate active sign-ins for same youth+event
+        """DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes WHERE tablename='youth_sign_ins'
+                AND indexname='idx_youth_sign_ins_active_unique'
+            ) THEN
+                CREATE UNIQUE INDEX idx_youth_sign_ins_active_unique
+                ON youth_sign_ins (youth_id, event_id)
+                WHERE signed_out_at IS NULL;
+            END IF;
+        END $$""",
     ]:
         try:
             c.execute(_migration)
@@ -9307,7 +9318,8 @@ def create_youth_sign_in():
         (yid, event_id))
     if existing:
         conn.close()
-        return jsonify(existing)  # return existing record, not error
+        existing['already_signed_in'] = True
+        return jsonify(existing)
     sid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO youth_sign_ins (id,youth_id,event_id,signed_in_at,signed_in_by)
         VALUES (%s,%s,%s,NOW(),%s)''', (sid, yid, event_id, signed_in_by))

@@ -13852,11 +13852,21 @@ def debug_session_regs():
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, """SELECT id, program_id, child_first_name, child_last_name, session_ids, status
-        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]' LIMIT 10""") or []
-    sessions = fetchall(conn, "SELECT id, name FROM program_sessions LIMIT 10") or []
+    import json as _jd
+    all_sess_regs = fetchall(conn, """SELECT program_id, child_first_name, child_last_name, status, session_ids
+        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]' LIMIT 20""") or []
+    session_breakdown = fetchall(conn, """SELECT ps.id, ps.name FROM program_sessions ps LIMIT 10""") or []
+    regs_by_session = {}
+    for r in all_sess_regs:
+        try: sids = _jd.loads(r.get('session_ids') or '[]')
+        except Exception: sids = []
+        for sid in sids:
+            if sid not in regs_by_session: regs_by_session[sid] = []
+            regs_by_session[sid].append(r.get('child_first_name','?')+' '+r.get('child_last_name',''))
+    for s in session_breakdown:
+        s['registrants'] = regs_by_session.get(s['id'], [])
     conn.close()
-    return jsonify({'regs': rows, 'sessions': sessions})
+    return jsonify({'sessions_with_regs': session_breakdown, 'regs_by_session': regs_by_session})
 
 @app.route('/api/oncall/send-report', methods=['POST'])
 def send_oncall_report_now():
@@ -15611,6 +15621,7 @@ def marquee_overview():
                 regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
         for s in session_breakdown:
             s['registrants'] = regs_by_session.get(s['id'], [])
+        app.logger.info(f'Session regs attached: {sum(len(s.get("registrants",[])) for s in session_breakdown)} total across {len(session_breakdown)} sessions')
     except Exception as e:
         app.logger.warning(f'Session registrants query failed: {e}')
 

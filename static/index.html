@@ -492,6 +492,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-my-time">
   <div class="page-header">
     <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
+    <button class="btn btn-primary" onclick="openRemoteTimer()" style="display:flex;align-items:center;gap:6px"><span>⏱</span> Start Timer</button>
   </div>
   <div class="page-body" id="my-time-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
  </section>
@@ -3158,6 +3159,63 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 </div>
 
 <div class="toast-container" id="toast-container"></div>
+
+<!-- Remote Hours Timer Widget -->
+<div id="remote-timer-widget" style="display:none;position:fixed;bottom:24px;right:24px;z-index:9999;width:300px;background:var(--surface);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);border:1.5px solid var(--border);overflow:hidden">
+ <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
+  <div style="color:#fff;font-size:13px;font-weight:700">⏱ Remote Hours Timer</div>
+  <button onclick="closeRemoteTimer()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:18px;cursor:pointer;padding:0;line-height:1">×</button>
+ </div>
+ <div style="padding:16px">
+  <!-- Step 1: Setup -->
+  <div id="rmt-setup" style="">
+   <div class="form-group" style="margin-bottom:10px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Activity</label>
+    <input type="text" id="rmt-activity" placeholder="e.g. Costume prep, Set design, Admin..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Category</label>
+    <select id="rmt-category" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+     <option value="Admin">Admin / Office Work</option>
+     <option value="Costumes">Costumes</option>
+     <option value="Set Design">Set Design / Build</option>
+     <option value="Grant Writing">Grant Writing</option>
+     <option value="Marketing">Marketing / Social Media</option>
+     <option value="Rehearsal Support">Rehearsal Support</option>
+     <option value="Tech">Tech / AV / Lighting</option>
+     <option value="Other">Other</option>
+    </select>
+   </div>
+   <button class="btn btn-primary" style="width:100%" onclick="startRemoteTimer()">▶ Start Timer</button>
+  </div>
+  <!-- Step 2: Running -->
+  <div id="rmt-running" style="display:none;text-align:center">
+   <div id="rmt-activity-label" style="font-size:12px;color:var(--text-muted);margin-bottom:6px"></div>
+   <div id="rmt-display" style="font-size:42px;font-weight:800;color:#145466;letter-spacing:2px;margin:8px 0;font-variant-numeric:tabular-nums">00:00:00</div>
+   <div id="rmt-status-label" style="font-size:11px;font-weight:700;color:#166534;margin-bottom:14px">● RUNNING</div>
+   <div style="display:flex;gap:8px;justify-content:center">
+    <button id="rmt-pause-btn" class="btn btn-secondary" style="flex:1" onclick="pauseRemoteTimer()">⏸ Pause</button>
+    <button class="btn btn-primary" style="flex:1;background:#dc2626;border-color:#dc2626" onclick="stopRemoteTimer()">⏹ Stop</button>
+   </div>
+  </div>
+  <!-- Step 3: Submit -->
+  <div id="rmt-submit" style="display:none">
+   <div style="text-align:center;margin-bottom:14px">
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">Total time logged</div>
+    <div id="rmt-final-time" style="font-size:32px;font-weight:800;color:#145466"></div>
+    <div id="rmt-final-hours" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+   </div>
+   <div class="form-group" style="margin-bottom:10px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Notes (optional)</label>
+    <input type="text" id="rmt-notes" placeholder="Any additional details..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px">
+    <button class="btn btn-secondary" style="flex:1" onclick="resumeFromSubmit()">↩ Resume</button>
+    <button class="btn btn-primary" style="flex:1" onclick="submitRemoteTimer()">Submit for Approval</button>
+   </div>
+  </div>
+ </div>
+</div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -21694,6 +21752,126 @@ async function loadMyTimePage(){
     })
   })
 }
+
+// ── Remote Hours Timer ──────────────────────────────────────────────────────
+var _rmt = { running: false, paused: false, startTs: null, elapsed: 0, interval: null,
+  activity: '', category: '' }
+
+function openRemoteTimer(){
+  document.getElementById('remote-timer-widget').style.display = ''
+  // If already running, go straight to running view
+  if(_rmt.running || _rmt.paused) _rmtShowRunning()
+  else _rmtShowSetup()
+}
+function closeRemoteTimer(){
+  document.getElementById('remote-timer-widget').style.display = 'none'
+}
+function _rmtShowSetup(){
+  document.getElementById('rmt-setup').style.display = ''
+  document.getElementById('rmt-running').style.display = 'none'
+  document.getElementById('rmt-submit').style.display = 'none'
+}
+function _rmtShowRunning(){
+  document.getElementById('rmt-setup').style.display = 'none'
+  document.getElementById('rmt-running').style.display = ''
+  document.getElementById('rmt-submit').style.display = 'none'
+  var lbl = document.getElementById('rmt-activity-label')
+  if(lbl) lbl.textContent = _rmt.activity + ' · ' + _rmt.category
+}
+function _rmtFmt(secs){
+  var h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')
+}
+function _rmtTick(){
+  if(!_rmt.running || _rmt.paused) return
+  var total = _rmt.elapsed + Math.floor((Date.now() - _rmt.startTs) / 1000)
+  var el = document.getElementById('rmt-display')
+  if(el) el.textContent = _rmtFmt(total)
+}
+function startRemoteTimer(){
+  var act = (document.getElementById('rmt-activity')||{}).value.trim()
+  var cat = (document.getElementById('rmt-category')||{}).value
+  if(!act){ toast('Please enter an activity description','error'); return }
+  _rmt.activity = act
+  _rmt.category = cat
+  _rmt.running = true
+  _rmt.paused = false
+  _rmt.startTs = Date.now()
+  _rmt.elapsed = 0
+  clearInterval(_rmt.interval)
+  _rmt.interval = setInterval(_rmtTick, 1000)
+  _rmtShowRunning()
+  var sl = document.getElementById('rmt-status-label')
+  if(sl){ sl.textContent = '● RUNNING'; sl.style.color = '#166534' }
+}
+function pauseRemoteTimer(){
+  if(_rmt.paused){
+    // Resume
+    _rmt.startTs = Date.now()
+    _rmt.paused = false
+    _rmt.interval = setInterval(_rmtTick, 1000)
+    var btn = document.getElementById('rmt-pause-btn')
+    if(btn) btn.textContent = '⏸ Pause'
+    var sl = document.getElementById('rmt-status-label')
+    if(sl){ sl.textContent = '● RUNNING'; sl.style.color = '#166534' }
+  } else {
+    // Pause
+    _rmt.elapsed += Math.floor((Date.now() - _rmt.startTs) / 1000)
+    _rmt.paused = true
+    clearInterval(_rmt.interval)
+    var btn = document.getElementById('rmt-pause-btn')
+    if(btn) btn.textContent = '▶ Resume'
+    var sl = document.getElementById('rmt-status-label')
+    if(sl){ sl.textContent = '⏸ PAUSED'; sl.style.color = '#92400e' }
+  }
+}
+function stopRemoteTimer(){
+  clearInterval(_rmt.interval)
+  if(!_rmt.paused) _rmt.elapsed += Math.floor((Date.now() - _rmt.startTs) / 1000)
+  _rmt.running = false
+  _rmt.paused = false
+  var total = _rmt.elapsed
+  var hours = Math.max(0.25, Math.round((total / 3600) * 4) / 4) // round to nearest 0.25h
+  document.getElementById('rmt-setup').style.display = 'none'
+  document.getElementById('rmt-running').style.display = 'none'
+  document.getElementById('rmt-submit').style.display = ''
+  var ft = document.getElementById('rmt-final-time')
+  var fh = document.getElementById('rmt-final-hours')
+  if(ft) ft.textContent = _rmtFmt(total)
+  if(fh) fh.textContent = hours.toFixed(2) + ' hours (rounded to nearest 0.25)'
+  _rmt.finalHours = hours
+}
+function resumeFromSubmit(){
+  _rmt.running = true
+  _rmt.paused = true // treat as paused so user hits resume
+  _rmtShowRunning()
+  var btn = document.getElementById('rmt-pause-btn')
+  if(btn) btn.textContent = '▶ Resume'
+  var sl = document.getElementById('rmt-status-label')
+  if(sl){ sl.textContent = '⏸ PAUSED'; sl.style.color = '#92400e' }
+}
+async function submitRemoteTimer(){
+  var notes = (document.getElementById('rmt-notes')||{}).value.trim()
+  var hours = _rmt.finalHours
+  var payload = {
+    type: 'independent',
+    event: _rmt.activity,
+    role: _rmt.category,
+    hours: hours,
+    notes: notes,
+    date: new Date().toISOString().slice(0,10)
+  }
+  var res = await api('/api/my/hours/submit', 'POST', payload)
+  if(res && res.ok){
+    toast('Hours submitted for approval!', 'success')
+    _rmt = { running:false, paused:false, startTs:null, elapsed:0, interval:null, activity:'', category:'' }
+    closeRemoteTimer()
+    loadMyTimePage()
+  } else {
+    toast('Error submitting hours: '+(res&&res.error||'please try again'), 'error')
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function toggleMyTimeType(){
   var type = (document.getElementById('myt-type')||{}).value

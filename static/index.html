@@ -16481,22 +16481,50 @@ async function loadYouthSignInTab(yid){
  const container=document.getElementById(`youth-signin-list-${yid}`)
  if(!container) return
  const filtered=await api(`/api/youth-sign-ins?youth_id=${yid}`)
- if(!filtered.length){
- container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
- return
+ if(!filtered||!filtered.length){
+  container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
+  return
  }
- container.innerHTML=filtered.map(r=>`
- <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
- <div>
- <div style="font-weight:500;font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</div>
- <div style="font-size:12px;color:var(--text-muted)">${r.signed_in_by?'Signed in by: '+r.signed_in_by:''}</div>
- </div>
- <div style="text-align:right">
- ${r.signed_out_at
- ?`<div style="font-size:12px;font-weight:500;color:var(--green-600)"> Signed out ${new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>`
-:`<span style="font-size:12px;background:var(--amber-50);color:var(--amber-600);padding:3px 8px;border-radius:8px;font-weight:600"> Still signed in</span>`}
- </div>
- </div>`).join('')
+ // Group by date
+ const byDate={}
+ filtered.forEach(r=>{
+  const dt=r.signed_in_at?new Date(r.signed_in_at):null
+  const key=dt?dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'Unknown Date'
+  if(!byDate[key]) byDate[key]=[]
+  byDate[key].push(r)
+ })
+ container.innerHTML=Object.entries(byDate).map(([date,records])=>{
+  const rows=records.map(r=>{
+   const inTime=r.signed_in_at?new Date(r.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'
+   const outTime=r.signed_out_at?new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):null
+   const duration=r.signed_in_at&&r.signed_out_at?Math.round((new Date(r.signed_out_at)-new Date(r.signed_in_at))/60000):null
+   const durStr=duration!==null?(duration>=60?Math.floor(duration/60)+'h '+(duration%60?duration%60+'m':''):(duration+'m')):null
+   const statusBadge=outTime
+    ?`<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">✓ Signed Out</span>`
+    :`<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">● Still Here</span>`
+   return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
+    <div>
+     <div style="font-weight:700;color:#145466">${inTime}</div>
+     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'drop-in'}</div>
+    </div>
+    <div>
+     ${outTime?`<div style="font-weight:700;color:#166534">${outTime}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_out_by?'by '+r.signed_out_by:''}</div>`:'<div style="color:var(--text-muted)">—</div>'}
+    </div>
+    <div style="font-size:12px;color:var(--text-muted)">${durStr?'⏱ '+durStr:''}</div>
+    <div>${statusBadge}</div>
+   </div>`
+  }).join('')
+  return `<div style="margin-bottom:16px">
+   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:8px 12px;background:var(--bg);border-radius:8px;margin-bottom:4px">${date}</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;padding:6px 12px;background:#f9fafb;border-radius:6px 6px 0 0">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign In</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign Out</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Duration</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Status</div>
+   </div>
+   <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden">${rows}</div>
+  </div>`
+ }).join('')
 }
 
 // ═══════════════════════════════════════════════════════════════

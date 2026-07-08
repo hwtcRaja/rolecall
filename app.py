@@ -15580,6 +15580,8 @@ def marquee_overview():
 
     # Fetch registrant names per session - use Python-side JSON parsing (reliable)
     try:
+        try: conn.rollback()
+        except Exception: pass
         import json as _jsr
         all_sess_regs = fetchall(conn, """SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
@@ -15607,14 +15609,16 @@ def marquee_overview():
     # Fetch registrant names for non-session programs
     regs_by_program = {}
     try:
+        try: conn.rollback()
+        except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
             pr.guardian_name, pr.participant_name, pr.status
             FROM program_registrations pr
             JOIN youth_programs yp ON yp.id=pr.program_id
-            WHERE pr.status != \'cancelled\'
+            WHERE pr.status != 'cancelled'
             AND (yp.sessions_enabled IS NULL OR yp.sessions_enabled=FALSE)
-            AND yp.registration_status != \'draft\'
+            AND yp.registration_status != 'draft'
             ORDER BY pr.child_last_name, pr.child_first_name''') or []
         for r in flat_registrants:
             pid2 = r.get('program_id')

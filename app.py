@@ -13847,6 +13847,30 @@ def _start_oncall_scheduler():
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
+@app.route('/api/debug/marquee-sessions')
+def debug_marquee_sessions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    import json as _jd2
+    session_breakdown = fetchall(conn, """SELECT ps.id, ps.name, ps.program_id FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
+        WHERE yp.registration_status != 'draft' LIMIT 10""") or []
+    all_sess_regs = fetchall(conn, """SELECT program_id, child_first_name, child_last_name, status, session_ids
+        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]'
+        AND status != 'cancelled'""") or []
+    regs_by_session = {}
+    for r in all_sess_regs:
+        try: sids = _jd2.loads(r.get('session_ids') or '[]')
+        except Exception: sids = []
+        for sid in sids:
+            if sid not in regs_by_session: regs_by_session[sid] = []
+            regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
+    for s in session_breakdown:
+        s['registrants'] = regs_by_session.get(s['id'], [])
+    conn.close()
+    return jsonify({'session_breakdown': session_breakdown})
+
 @app.route('/api/debug/session-regs')
 def debug_session_regs():
     err = require_auth()

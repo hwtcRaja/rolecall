@@ -22466,8 +22466,15 @@ async function renderMarqueeDashboard(el){
               var sRev = s.revenue_cents || 0
               var sFillColor = sPct>=90?'#d97706':sPct>=70?'#f59e0b':'#145466'
               var sTime = s.start_time ? (function(t){ try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM';h=h%12||12;return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } })(s.start_time) : ''
-              return '<tr style="border-bottom:1px solid var(--border)">'
-                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+'</td>'
+              var regs = s.registrants || []
+              var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
+              var nameHtml = regs.length ? regs.map(function(r){
+                var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
+                var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
+                return '<span style="padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';margin:2px;display:inline-block">'+escHtml(name)+'</span>'
+              }).join('') : '<span style="font-size:11px;color:var(--text-muted);font-style:italic">No registrations yet</span>'
+              return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSessionRoster(\'sr-'+s.id+'\')">'
+                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+' <span style="font-size:10px;color:var(--text-muted)">▾</span></td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(s.start_date?s.start_date.slice(5).replace('-','/'):'')+'</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#145466">'+sEnrolled+'</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
@@ -22477,13 +22484,25 @@ async function renderMarqueeDashboard(el){
                 + '</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
                 + '</tr>'
+                + '<tr id="sr-'+s.id+'" style="display:none;background:#f9fafb"><td colspan="6" style="padding:6px 20px 10px 36px">'+nameHtml+'</td></tr>'
             }).join('')
           + '</tbody></table>'
       } else {
-        html += '<div style="padding:10px 20px 10px 36px;font-size:12px;color:var(--text-muted)">'
+        var flatRegs = regsByProgram[p.id] || []
+        var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
+        html += '<div style="padding:8px 20px 4px 36px;font-size:12px;color:var(--text-muted)">'
           + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
           + (p.capacity?' · '+Math.min(fillPct||0,100)+'% full':'')
           + '</div>'
+        if(flatRegs.length){
+          html += '<div style="padding:4px 20px 12px 36px;display:flex;flex-wrap:wrap;gap:3px">'
+          + flatRegs.map(function(r){
+              var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
+              var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
+              return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+'">'+escHtml(name)+'</span>'
+            }).join('')
+          + '</div>'
+        }
       }
       html += '</div></div>' // end session detail + program row
     })

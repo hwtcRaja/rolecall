@@ -13847,6 +13847,17 @@ def _start_oncall_scheduler():
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
+@app.route('/api/debug/session-regs')
+def debug_session_regs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT id, program_id, child_first_name, child_last_name, session_ids, status
+        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]' LIMIT 10""") or []
+    sessions = fetchall(conn, "SELECT id, name FROM program_sessions LIMIT 10") or []
+    conn.close()
+    return jsonify({'regs': rows, 'sessions': sessions})
+
 @app.route('/api/oncall/send-report', methods=['POST'])
 def send_oncall_report_now():
     err = require_auth()

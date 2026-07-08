@@ -9285,18 +9285,29 @@ def kiosk_youth_for_event(event_id):
 def get_youth_sign_ins():
     conn = get_db()
     event_id = request.args.get('event_id')
+    youth_id = request.args.get('youth_id')
     if event_id:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||\' \'||yp.last_name as youth_name
+                   yp.first_name||' '||yp.last_name as youth_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
             WHERE ysi.event_id=%s
             ORDER BY ysi.signed_in_at DESC''', (event_id,))
+    elif youth_id:
+        rows = fetchall(conn, '''
+            SELECT ysi.*, yp.first_name, yp.last_name,
+                   yp.first_name||' '||yp.last_name as youth_name,
+                   e.name as event_name
+            FROM youth_sign_ins ysi
+            JOIN youth_participants yp ON ysi.youth_id=yp.id
+            LEFT JOIN events e ON e.id=ysi.event_id
+            WHERE ysi.youth_id=%s
+            ORDER BY ysi.signed_in_at DESC''', (youth_id,))
     else:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||\' \'||yp.last_name as youth_name
+                   yp.first_name||' '||yp.last_name as youth_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
             WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'

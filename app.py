@@ -5016,15 +5016,93 @@ def get_youth_history(yid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    # Sign-in history with event names
-    signins = fetchall(conn, '''SELECT ys.*, e.name as event_name, e.event_date,
-        e.start_time, yp.name as program_name
-        FROM youth_sign_ins ys
-        LEFT JOIN events e ON ys.event_id=e.id
-        LEFT JOIN youth_programs yp ON e.program_id=yp.id
-        WHERE ys.youth_id=%s ORDER BY ys.sign_in_time DESC''', (yid,))
+    timeline = []
+
+    # 1. Added to RoleCall
+    try:
+        yp = fetchone(conn, 'SELECT created_at FROM youth_participants WHERE id=%s', (yid,))
+        if yp and yp.get('created_at'):
+            timeline.append({'type':'joined','icon':'🌟','label':'Added to RoleCall',
+                'detail':'Participant profile created','ts':str(yp['created_at'])})
+    except Exception: pass
+
+    # 2. Program enrollments
+    try:
+        regs = fetchall(conn, '''SELECT pr.*, yp.name as program_name, yp.program_type
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.youth_id=%s OR pr.guardian_name IS NOT NULL
+            ORDER BY pr.created_at DESC''', (yid,)) or []
+        # also try matching by youth_participant directly
+        regs2 = fetchall(conn, '''SELECT pr.*, yp.name as program_name, yp.program_type
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.participant_youth_id=%s
+            ORDER BY pr.created_at DESC''', (yid,)) or []
+        for r in (regs2 or []):
+            status_label = {'confirmed':'Enrolled','pending_payment':'Pending Payment',
+                'waitlisted':'Waitlisted','cancelled':'Cancelled'}.get(r.get('status',''),'Enrolled')
+            timeline.append({'type':'program','icon':'📚','label':f'Program: {r.get("program_name","")}',
+                'detail':status_label,'ts':str(r.get('created_at') or ''),'status':r.get('status','')})
+    except Exception: pass
+
+    # 3. Events attended (sign-ins)
+    try:
+        signins = fetchall(conn, '''SELECT ys.signed_in_at, ys.signed_out_at, ys.signed_in_by,
+            e.name as event_name, e.event_date
+            FROM youth_sign_ins ys
+            LEFT JOIN events e ON ys.event_id=e.id
+            WHERE ys.youth_id=%s AND ys.event_id IS NOT NULL
+            ORDER BY ys.signed_in_at DESC''', (yid,)) or []
+        for s in signins:
+            ename = s.get('event_name') or 'Event'
+            detail = f'Signed in by {s["signed_in_by"]}' if s.get('signed_in_by') else 'Attended'
+            if s.get('signed_out_at') and s.get('signed_in_at'):
+                import datetime as _dth
+                diff = (s['signed_out_at'] - s['signed_in_at']).seconds // 60
+                hrs = diff // 60; mins = diff % 60
+                detail += f' · {hrs}h {mins}m' if hrs else f' · {mins}m'
+            timeline.append({'type':'event','icon':'📅','label':f'Attended: {ename}',
+                'detail':detail,'ts':str(s.get('signed_in_at') or '')})
+    except Exception: pass
+
+    # 4. Waivers signed
+    try:
+        waivers = fetchall(conn, '''SELECT yw.*, wt.name as waiver_name
+            FROM youth_waivers yw
+            JOIN waiver_types wt ON wt.id=yw.waiver_type_id
+            WHERE yw.youth_id=%s ORDER BY yw.created_at DESC''', (yid,)) or []
+        for w in waivers:
+            timeline.append({'type':'waiver','icon':'📋','label':f'Waiver Signed: {w.get("waiver_name","")}',
+                'detail':f'Signed {w.get("signed_date","")}' + (f' by {w["signed_by"]}' if w.get('signed_by') else ''),
+                'ts':str(w.get('created_at') or w.get('signed_date') or '')})
+    except Exception: pass
+
+    # 5. Notes added
+    try:
+        notes = fetchall(conn, '''SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC''', (yid,)) or []
+        for n in notes:
+            content = (n.get('content') or '')[:80] + ('…' if len(n.get('content',''))>80 else '')
+            timeline.append({'type':'note','icon':'📝','label':'Note Added',
+                'detail':content,'ts':str(n.get('created_at') or ''),'author':n.get('author','')})
+    except Exception: pass
+
+    # 6. Incidents
+    try:
+        incidents = fetchall(conn, '''SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY created_at DESC''', (yid,)) or []
+        for i in incidents:
+            title = i.get('title') or i.get('type') or 'Incident'
+            timeline.append({'type':'incident','icon':'⚠️','label':f'Incident: {title}',
+                'detail':(i.get('description') or '')[:80],'ts':str(i.get('incident_date') or i.get('created_at') or '')})
+    except Exception: pass
+
+    # Sort all by timestamp descending
+    def _ts(item):
+        t = item.get('ts','')
+        return t if t else '0'
+    timeline.sort(key=_ts, reverse=True)
     conn.close()
-    return jsonify(signins)
+    return jsonify(timeline)
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):

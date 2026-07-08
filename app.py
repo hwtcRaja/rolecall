@@ -9074,7 +9074,19 @@ def kiosk_close_event():
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
     try:
-        log_id = str(uuid.uuid4())
+        # Block close if any volunteers are still actively logging hours
+        active_sessions = fetchall(conn, '''SELECT ks.*, v.name as volunteer_name
+            FROM kiosk_sessions ks
+            JOIN volunteers v ON v.id=ks.volunteer_id
+            WHERE ks.event_id=%s AND ks.status='active'
+            ORDER BY ks.started_at''', (event_id,)) or []
+        if active_sessions:
+            names = ', '.join(s['volunteer_name'] for s in active_sessions)
+            conn.close()
+            return jsonify({
+                'error': f'Cannot close event — {len(active_sessions)} volunteer(s) are still logging hours: {names}. Please have them stop their timers first.',
+                'active_sessions': [{'name': s['volunteer_name'], 'id': s['id']} for s in active_sessions]
+            }), 400
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
             VALUES (%s,%s,%s,'close','Event closed via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         for r in responses:

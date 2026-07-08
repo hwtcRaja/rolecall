@@ -13906,11 +13906,19 @@ def debug_youth_signins(yid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    # Support name lookup: /api/debug/youth-signins/Blake+Armstrong
+    if ' ' in yid or '+' in yid:
+        name = yid.replace('+', ' ')
+        parts = name.split(' ', 1)
+        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s',
+            (parts[0].lower(), parts[1].lower() if len(parts)>1 else ''))
+        if not youth: conn.close(); return jsonify({'error': 'Not found'})
+        yid = youth['id']
     rows = fetchall(conn, '''SELECT id, youth_id, event_id, program_id,
         signed_in_at, signed_in_by, signed_out_at, signed_out_by
         FROM youth_sign_ins WHERE youth_id=%s ORDER BY signed_in_at DESC''', (yid,)) or []
     conn.close()
-    return jsonify(rows)
+    return jsonify({'youth_id': yid, 'count': len(rows), 'records': rows})
 
 @app.route('/api/debug/marquee-sessions')
 def debug_marquee_sessions():

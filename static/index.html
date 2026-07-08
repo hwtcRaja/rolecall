@@ -22472,7 +22472,7 @@ async function renderMarqueeDashboard(el){
               var regs = s.registrants || []
               var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
               var nameHtml = regs.length ? regs.map(function(r){
-                var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
+                var name = ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')).trim() || r.guardian_name || '—'
                 var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
                 return '<span style="padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';margin:2px;display:inline-block">'+escHtml(name)+'</span>'
               }).join('') : '<span style="font-size:11px;color:var(--text-muted);font-style:italic">No registrations yet</span>'
@@ -22502,7 +22502,7 @@ async function renderMarqueeDashboard(el){
         if(flatRegs.length){
           html += '<div style="padding:4px 20px 12px 36px;display:flex;flex-wrap:wrap;gap:3px">'
           + flatRegs.map(function(r){
-              var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
+              var name = ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')).trim() || r.guardian_name || '—'
               var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
               return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+'">'+escHtml(name)+'</span>'
             }).join('')

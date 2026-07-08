@@ -5898,21 +5898,38 @@ async function loadYouthHistory(yid){
  if(!el) return
  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
  const history = await api(`/api/youth/${yid}/history`)
- if(!history.length){
- el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No attendance history yet</div>'
- return
+ if(!history||!history.length){
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:16px 0">No history yet</div>'
+  return
  }
- el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table>'
- + '<thead><tr><th>Event</th><th>Program</th><th>Date</th><th>Signed In</th><th>Signed Out</th></tr></thead>'
- + '<tbody>'
- + history.map(h=>`<tr>
- <td style="font-size:13px;font-weight:500">${escHtml(h.event_name||'Unknown Event')}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.program_name?`<span style="background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600">${escHtml(h.program_name)}</span>`:'—'}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.event_date?formatDate(h.event_date):'—'}</td>
- <td style="font-size:12px">${h.sign_in_time?formatDateTimeShort(h.sign_in_time):'—'}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.sign_out_time?formatDateTimeShort(h.sign_out_time):'<span style="color:var(--amber-600)">Not signed out</span>'}</td>
- </tr>`).join('')
- + '</tbody></table></div>'
+ const typeColors = {
+  joined:'#e0f2fe;color:#145466', program:'#dcfce7;color:#166534',
+  event:'#f0fdf4;color:#166534', waiver:'#ede9fe;color:#6d28d9',
+  note:'#fef3c7;color:#92400e', incident:'#fee2e2;color:#991b1b'
+ }
+ function fmtTs(ts){
+  if(!ts||ts==='0') return ''
+  try{
+   const d=new Date(ts)
+   return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    +(ts.includes('T')?' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'')
+  }catch(e){return ts.slice(0,10)}
+ }
+ el.innerHTML = '<div style="position:relative;padding-left:32px">'
+  + '<div style="position:absolute;left:11px;top:0;bottom:0;width:2px;background:var(--border)"></div>'
+  + history.map(h=>{
+   const color = typeColors[h.type]||'#f3f4f6;color:#374151'
+   return `<div style="position:relative;margin-bottom:20px">
+    <div style="position:absolute;left:-32px;top:2px;width:22px;height:22px;border-radius:50%;
+     background:${color.split(';')[0].replace('background:','').trim()};border:2px solid #fff;
+     box-shadow:0 0 0 2px ${color.split(';')[0].replace('background:','').trim()};
+     display:flex;align-items:center;justify-content:center;font-size:11px">${h.icon}</div>
+    <div style="font-size:13px;font-weight:700;color:#111;margin-bottom:2px">${escHtml(h.label||'')}</div>
+    ${h.detail?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">${escHtml(h.detail)}</div>`:''}
+    <div style="font-size:11px;color:var(--text-muted)">${fmtTs(h.ts)}</div>
+   </div>`
+  }).join('')
+  + '</div>'
 }
 
 async function openGuardianModal(yid, gid){

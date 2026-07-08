@@ -13881,6 +13881,37 @@ def _start_oncall_scheduler():
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
+@app.route('/api/admin/dedup-youth-signins', methods=['POST'])
+def dedup_youth_signins():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    # Find groups with multiple active sign-ins for same youth+event on same day
+    dupes = fetchall(conn, '''SELECT youth_id, event_id, DATE(signed_in_at) as day,
+        COUNT(*) as cnt, MIN(id) as keep_id
+        FROM youth_sign_ins
+        GROUP BY youth_id, event_id, DATE(signed_in_at)
+        HAVING COUNT(*) > 1''') or []
+    deleted = 0
+    for d in dupes:
+        execute(conn, '''DELETE FROM youth_sign_ins
+            WHERE youth_id=%s AND event_id=%s AND DATE(signed_in_at)=%s AND id != %s''',
+            (d['youth_id'], d['event_id'], d['day'], d['keep_id']))
+        deleted += (d['cnt'] - 1)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'deleted': deleted, 'groups': len(dupes)})
+
+@app.route('/api/debug/youth-signins/<yid>')
+def debug_youth_signins(yid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT id, youth_id, event_id, program_id,
+        signed_in_at, signed_in_by, signed_out_at, signed_out_by
+        FROM youth_sign_ins WHERE youth_id=%s ORDER BY signed_in_at DESC''', (yid,)) or []
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/debug/marquee-sessions')
 def debug_marquee_sessions():
     err = require_auth()

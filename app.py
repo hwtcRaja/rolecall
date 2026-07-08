@@ -15630,7 +15630,7 @@ def marquee_overview():
         import json as _jsr
         all_sess_regs = fetchall(conn, """SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
+            pr.guardian_name, pr.status, pr.session_ids
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND pr.session_ids IS NOT NULL
@@ -15656,7 +15656,7 @@ def marquee_overview():
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status
+            pr.guardian_name, pr.status
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')

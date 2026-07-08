@@ -8085,14 +8085,22 @@ def join_submit():
     conn = get_db()
     try:
         sub_selections = json.dumps(d.get('sub_selections') or {})
+        sms_consent = bool(d.get('sms_consent', False))
+        # Add sms_consent column if not exists
+        try:
+            execute(conn, "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent BOOLEAN DEFAULT FALSE")
+            conn.commit()
+        except Exception:
+            try: conn.rollback()
+            except Exception: pass
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program, sms_consent)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
-             sub_selections, (d.get('employer_program') or '').strip()))
+             sub_selections, (d.get('employer_program') or '').strip(), sms_consent))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
@@ -8123,6 +8131,7 @@ def join_submit():
                   <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard',' - ')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program',' - ') or ' - '}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">SMS Consent</td><td style="padding:8px">{'✅ Opted in to SMS' if d.get('sms_consent') else '❌ Did not opt in'}</td></tr>
                 </table>
             </div>'''
             send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)

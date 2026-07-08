@@ -16505,7 +16505,8 @@ async function loadYouthSignInTab(yid){
    return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
     <div>
      <div style="font-weight:700;color:#145466">${inTime}</div>
-     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'drop-in'}</div>
+     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'—'}</div>
+     ${r.event_name?`<div style="font-size:11px;color:var(--text-muted);margin-top:1px">📅 ${r.event_name}</div>`:''}
     </div>
     <div>
      ${outTime?`<div style="font-weight:700;color:#166534">${outTime}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_out_by?'by '+r.signed_out_by:''}</div>`:'<div style="color:var(--text-muted)">—</div>'}

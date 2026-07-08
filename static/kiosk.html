@@ -1652,7 +1652,15 @@ async function submitChecklist(){
         body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses:responses,signature:signature})})
       var d
       try{d=await r.json()}catch(e){alert('Server error closing event ('+r.status+'). Please try again.');return}
-      if(d.error){alert(d.error);return}
+      if(d.error){
+        if(d.active_sessions && d.active_sessions.length){
+          var names = d.active_sessions.map(function(s){return '• '+s.name}).join('\n')
+          alert('⚠️ Cannot Close Event\n\nThe following volunteers are still logging hours:\n\n'+names+'\n\nPlease ask them to stop their timers before closing the event.')
+        } else {
+          alert(d.error)
+        }
+        return
+      }
       elicEventList=elicEventList.map(function(e){return e.id===closingEvent.id?Object.assign({},e,{current_status:'close',status:'closed'}):e})
       showConfirm('🔒','Event Closed!','"'+closingEvent.name+'" has been closed.','Checklist submitted to admin portal.',function(){renderElicMenu();showScreen('screen-elic-menu')})
     }catch(err){alert('Network error: '+err.message+'. Please check connection and try again.')}

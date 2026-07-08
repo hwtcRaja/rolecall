@@ -13399,10 +13399,11 @@ def my_time():
         FROM hours h LEFT JOIN events e ON e.id=h.event_id
         WHERE h.volunteer_id=%s ORDER BY h.date DESC''', (vol['id'],)) or []
 
-    # Pending hours
+    # Pending hours — only show truly pending (not approved/rejected)
     pending = fetchall(conn, '''SELECT ph.*, e.name AS event_name
         FROM pending_hours ph LEFT JOIN events e ON e.id=ph.event_id
-        WHERE ph.volunteer_id=%s ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
+        WHERE ph.volunteer_id=%s AND ph.status IN ('pending','pending_review')
+        ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
 
     # Events this volunteer can log hours for
     events = fetchall(conn, '''SELECT e.id, e.name, e.event_date

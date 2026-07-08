@@ -52,7 +52,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 <div class="page-header">
   <img src="/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company" class="logo"/>
   <h1>Volunteer Interest Form</h1>
-  <p>Horizon West Theatre Company is always looking for volunteers to donate their time and efforts to assist with a variety of jobs: set construction, scenic painting, ushering, fundraising, marketing, backstage crew and more! Fill out the below form and we will get back to you with future volunteer opportunities.</p>
+  <p>Horizon West Theater Company is always looking for volunteers to donate their time and efforts to assist with a variety of jobs: set construction, scenic painting, ushering, fundraising, marketing, backstage crew and more! Fill out the below form and we will get back to you with future volunteer opportunities.</p>
 </div>
 
 <div class="form-wrap">
@@ -163,6 +163,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
     </div>
 
     <div id="submit-error" style="display:none;color:#a32d2d;font-size:14px;margin-bottom:12px;text-align:center;background:#fcebeb;padding:12px;border-radius:10px"></div>
+
+    <div style="background:#f0f8fa;border-radius:10px;padding:14px 16px;margin-bottom:16px;border:1.5px solid #c8dfe5">
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+        <input type="checkbox" id="f-sms-consent" style="width:20px;height:20px;accent-color:#145466;cursor:pointer;flex-shrink:0;margin-top:2px"/>
+        <span style="font-size:13px;color:#374151;line-height:1.5">
+          I agree to receive SMS text messages from Horizon West Theater Company at the phone number provided above. Messages may include event reminders, schedule updates, shift confirmations, and cancellation notices. Message and data rates may apply. Message frequency varies. Reply <strong>STOP</strong> to opt out at any time. Reply <strong>HELP</strong> for help. This consent is not a condition of participation.
+        </span>
+      </label>
+    </div>
+
     <button type="submit" class="submit-btn" id="submit-btn">Submit Interest Form</button>
   </form>
 </div>
@@ -261,6 +271,8 @@ async function submitForm(e){
   let pronouns = document.getElementById('f-pronouns').value
   if(pronouns==='__other__') pronouns = document.getElementById('f-pronouns-other').value.trim()
 
+  const smsConsent = document.getElementById('f-sms-consent').checked
+
   document.querySelectorAll('.err').forEach(el=>el.style.display='none')
   document.querySelectorAll('.field-err').forEach(el=>el.classList.remove('field-err'))
   document.getElementById('submit-error').style.display = 'none'
@@ -274,6 +286,13 @@ async function submitForm(e){
   if(!name)                 fail('err-name','f-name')
   if(!email||!email.includes('@')) fail('err-email','f-email')
   if(!heard)                fail('err-heard','f-heard')
+  // Require SMS consent if phone number provided
+  if(phone && !smsConsent){
+    const errEl = document.getElementById('submit-error')
+    errEl.textContent = 'Please check the SMS consent box if providing a phone number, or leave the phone field blank.'
+    errEl.style.display = 'block'
+    valid = false
+  }
   if(!valid){ document.querySelector('.field-err')?.scrollIntoView({behavior:'smooth',block:'center'}); return }
 
   const btn = document.getElementById('submit-btn')
@@ -282,7 +301,7 @@ async function submitForm(e){
   try {
     const res = await fetch('/api/join/submit',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes,employer_program:document.getElementById('f-employer-program')?.value||''})
+      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes,employer_program:document.getElementById('f-employer-program')?.value||'',sms_consent:smsConsent})
     })
     const data = await res.json()
     if(data.ok){

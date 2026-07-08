@@ -3204,7 +3204,10 @@ function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').sub
 function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
 function toggleSessionRoster(id){
  var el=document.getElementById(id)
- if(el) el.style.display=el.style.display==='none'?'':'none'
+ if(!el) return
+ // Use visibility:collapse for tr elements (works even inside visible tables)
+ if(el.dataset.open==='1'){ el.style.display='none'; el.dataset.open='0' }
+ else { el.style.display=''; el.dataset.open='1' }
 }
 function formatDate(d){
  if(!d) return '—'
@@ -22473,8 +22476,11 @@ async function renderMarqueeDashboard(el){
                 var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
                 return '<span style="padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';margin:2px;display:inline-block">'+escHtml(name)+'</span>'
               }).join('') : '<span style="font-size:11px;color:var(--text-muted);font-style:italic">No registrations yet</span>'
-              return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSessionRoster(\'sr-'+s.id+'\')">'
-                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'+escHtml(s.name||'')+' '+sTime+' <span style="font-size:10px;color:var(--text-muted)">▾</span></td>'
+              return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="var d=this.querySelector(\'.roster-names\');d.style.display=d.style.display===\'\'?\'none\':\'\'">'
+                + '<td style="padding:7px 20px 7px 36px;font-weight:600">'
+                + escHtml(s.name||'')+' '+sTime+' <span style="font-size:10px;color:var(--text-muted)">▾</span>'
+                + '<div class="roster-names" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb">'+nameHtml+'</div>'
+                + '</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(s.start_date?s.start_date.slice(5).replace('-','/'):'')+'</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#145466">'+sEnrolled+'</td>'
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
@@ -22484,7 +22490,6 @@ async function renderMarqueeDashboard(el){
                 + '</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
                 + '</tr>'
-                + '<tr id="sr-'+s.id+'" style="display:none;background:#f9fafb"><td colspan="6" style="padding:6px 20px 10px 36px">'+nameHtml+'</td></tr>'
             }).join('')
           + '</tbody></table>'
       } else {

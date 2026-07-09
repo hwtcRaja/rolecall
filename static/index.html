@@ -2217,22 +2217,30 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </style>
 
  <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
-  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Seasonal Theme</label>
+  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Active Lobby Theme</label>
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Select which theme is live at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a>. Preview any theme before going live.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-theme-cards"></div>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-   <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
-    <option value="none">None (Default)</option>
-    <option value="winter">&#10052;&#65039; Winter Wonderland</option>
-    <option value="fall">&#127810; Autumn</option>
-    <option value="halloween">&#127875; Halloween</option>
-    <option value="spring">&#127800; Spring</option>
-    <option value="summer">&#9728;&#65039; Summer</option>
-    <option value="show">&#10024; Opening Night / Show Spotlight</option>
-    <option value="seuss">&#127913; Dr. Seuss</option>
-   </select>
-   <button class="btn btn-primary btn-sm" onclick="saveLobbyTheme()">Apply Theme</button>
-   <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
+   <span id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
   </div>
-  <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Changes the background colors and adds subtle themed animations (snow, leaves, sparkles, etc.) to the lobby TV display. Takes effect within 5 minutes, or immediately on page refresh.</div>
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Standard Theme Style</label>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">For the Standard layout, also set a seasonal color scheme:</div>
+   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
+     <option value="none">None (Default)</option>
+     <option value="winter">❄️ Winter Wonderland</option>
+     <option value="fall">🍂 Autumn</option>
+     <option value="halloween">🎃 Halloween</option>
+     <option value="spring">🌸 Spring</option>
+     <option value="summer">☀️ Summer</option>
+     <option value="show">✨ Opening Night</option>
+     <option value="seuss">🎩 Dr. Seuss</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" onclick="saveLobbyTheme()">Apply Color Scheme</button>
+    <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
+   </div>
+  </div>
  </div>
 
  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-img-grid"></div>
@@ -2993,6 +3001,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="AM">Adult M</option><option value="AL">Adult L</option>
  <option value="AXL">Adult XL</option><option value="A2XL">Adult 2XL</option>
  </select></div>
+ <div class="form-group"><label>Pronouns</label><input type="text" id="youth-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>
+ </div>
+ <div class="form-row">
  <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
  </div>
  <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -5544,6 +5555,7 @@ async function openYouthProfile(yid){
  <hr class="divider"/>
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
  ${y.dob?`<div> ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
+ ${y.pronouns?`<div style="color:var(--teal-dark);font-weight:500">${escHtml(y.pronouns)}</div>`:''}
  ${y.program?`<div> ${escHtml(y.program)}</div>`:''}
  ${y.shirt_size?`<div> ${escHtml(y.shirt_size)}</div>`:''}
  </div>
@@ -6651,6 +6663,7 @@ async function openEditYouthModal(yid){
  document.getElementById('youth-medical').value=y.medical_notes||''
  document.getElementById('youth-allergies').value=y.allergies||''
  document.getElementById('youth-shirt-size').value=y.shirt_size||''
+ document.getElementById('youth-pronouns').value=y.pronouns||''
  document.getElementById('youth-photo-consent').checked=!!y.photo_consent
  document.getElementById('youth-medical-consent').checked=!!y.medical_consent
  // Determine minor based on DOB or presence of guardians
@@ -6692,6 +6705,7 @@ async function saveYouth(){
  medical_notes:document.getElementById('youth-medical').value.trim(),
  allergies:document.getElementById('youth-allergies').value.trim()||'None',
  shirt_size:document.getElementById('youth-shirt-size').value||'',
+ pronouns:document.getElementById('youth-pronouns').value.trim(),
  photo_consent:document.getElementById('youth-photo-consent').checked,
  medical_consent:document.getElementById('youth-medical-consent').checked,
  guardians:[{name:guardianName,relationship:document.getElementById('youth-guardian-rel').value.trim(),phone:guardianPhone,email:document.getElementById('youth-guardian-email').value.trim(),is_primary:true}],
@@ -7580,6 +7594,49 @@ async function loadLobbyTheme(){
   const sel = document.getElementById('lobby-theme-select')
   if(sel && r && r.theme) sel.value = r.theme
  } catch(e){}
+ loadLobbyActiveTheme()
+}
+
+var LOBBY_THEMES = [
+ {key:'standard', label:'Standard', emoji:'🎭', desc:'Default layout with seasonal color schemes', preview:'/lobby/standard'},
+ {key:'jungle', label:'Jungle Book', emoji:'🌿', desc:'Wooden signpost on jungle green background', preview:'/lobby/jungle'},
+]
+
+async function loadLobbyActiveTheme(){
+ try{
+  const r = await api('/api/admin/lobby-active-theme')
+  renderLobbyThemeCards((r&&r.theme)||'standard')
+ } catch(e){ renderLobbyThemeCards('standard') }
+}
+
+function renderLobbyThemeCards(activeKey){
+ const grid = document.getElementById('lobby-theme-cards')
+ if(!grid) return
+ grid.innerHTML = LOBBY_THEMES.map(function(t){
+  const isActive = t.key === activeKey
+  return '<div style="border:2px solid '+(isActive?'var(--teal)':'var(--border-md)')+';border-radius:10px;padding:14px;background:'+(isActive?'var(--teal-light,#e8f8f5)':'var(--surface)')+'">'
+   + '<div style="font-size:22px;margin-bottom:6px">'+t.emoji+'</div>'
+   + '<div style="font-size:13px;font-weight:700;margin-bottom:2px">'+t.label+(isActive?' <span style="background:var(--teal);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600">LIVE</span>':'')+'</div>'
+   + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">'+t.desc+'</div>'
+   + '<div style="display:flex;gap:6px">'
+   + '<a href="'+t.preview+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none">Preview</a>'
+   + (!isActive ? '<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="setActiveLobbyTheme(\''+t.key+'\')">Go Live</button>' : '')
+   + '</div>'
+   + '</div>'
+ }).join('')
+}
+
+async function setActiveLobbyTheme(theme){
+ const status = document.getElementById('lobby-active-theme-status')
+ if(status) status.textContent = 'Switching...'
+ const res = await api('/api/admin/lobby-active-theme','PUT',{theme})
+ if(res&&res.ok){
+  renderLobbyThemeCards(theme)
+  if(status) status.textContent = '✓ Live theme switched to '+theme+'!'
+  setTimeout(function(){ if(status) status.textContent='' }, 4000)
+ } else {
+  if(status) status.textContent = 'Error switching theme'
+ }
 }
 
 async function saveLobbyTheme(){

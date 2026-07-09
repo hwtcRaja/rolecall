@@ -27,10 +27,10 @@ body{
   color:#fff;
   display:grid;
   grid-template-rows:130px 1fr;
-  grid-template-columns:1fr 380px;
+  grid-template-columns:420px 1fr;
   grid-template-areas:
     "header header"
-    "carousel schedule";
+    "schedule carousel";
   height:100vh;
   position:relative;
 }
@@ -455,20 +455,15 @@ body.theme-jungle #jungle-signboard { display: flex !important }
 }
 .jb-plank {
   position: absolute;
-  /* Board x: image is centered, board spans roughly 38%-95% of image width */
-  /* Since image is height-fitted, we use bottom-relative % */
-  left: 50%;
-  transform: translateX(-10%);
-  width: 42%;
+  /* Mirrored image: board now on LEFT side */
+  left: 5%;
+  width: 52%;
   text-align: center;
 }
-/* Plank positions from bottom of the image (image fills height 100%) */
-/* Board bottom at ~31% from bottom, board top at ~71% from bottom */
-/* 4 planks, each ~10% tall */
-.jb-plank-1 { bottom: 62%; transform: translateX(-10%) translateY(50%) }
-.jb-plank-2 { bottom: 52%; transform: translateX(-10%) translateY(50%) }
-.jb-plank-3 { bottom: 41%; transform: translateX(-10%) translateY(50%) }
-.jb-plank-4 { bottom: 31%; transform: translateX(-10%) translateY(50%) }
+.jb-plank-1 { bottom: 62%; transform: translateY(50%) }
+.jb-plank-2 { bottom: 52%; transform: translateY(50%) }
+.jb-plank-3 { bottom: 41%; transform: translateY(50%) }
+.jb-plank-4 { bottom: 31%; transform: translateY(50%) }
 
 .jb-day {
   font-size: 9px; font-weight: 800; text-transform: uppercase;
@@ -487,9 +482,19 @@ body.theme-jungle #jungle-signboard { display: flex !important }
 }
 .jb-plank.jb-today { animation: jbswing 3s ease-in-out infinite }
 @keyframes jbswing {
-  0%,100% { transform: translateX(-10%) translateY(50%) rotate(-0.3deg) }
-  50% { transform: translateX(-10%) translateY(50%) rotate(0.3deg) }
+  0%,100% { transform: translateY(50%) rotate(-0.3deg) }
+  50% { transform: translateY(50%) rotate(0.3deg) }
 }
+
+
+/* ── JUNGLE HEADER BANNER ── */
+body.theme-jungle header {
+  background: url('/static/images/banner_jungle.png') center center / cover no-repeat;
+  border-bottom-color: #4a8a25;
+}
+body.theme-jungle header .hdr-title,
+body.theme-jungle header .hdr-subtitle { text-shadow: 0 1px 4px rgba(0,0,0,0.8) }
+body.theme-jungle header .hdr-clock { text-shadow: 0 1px 4px rgba(0,0,0,0.8) }
 
 </style>
 </head>
@@ -527,7 +532,7 @@ body.theme-jungle #jungle-signboard { display: flex !important }
   <div class="schedule-header">Upcoming Events</div>
   <div id="events-list"><div class="no-events">Loading…</div></div>
   <div id="jungle-signboard">
-    <img class="jboard-img" src="/static/images/signpost2.png" alt="jungle signboard"/>
+    <img class="jboard-img" src="/static/images/signpost2.png" alt="jungle signboard" style="transform:translateX(-50%) scaleX(-1)"/>
     <div class="jboard-events" id="jboard-events"></div>
   </div>
 </div>

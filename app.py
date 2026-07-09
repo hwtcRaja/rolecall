@@ -1065,6 +1065,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -4769,10 +4770,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), yid))
+         d.get('shirt_size',''), d.get('pronouns',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -12005,13 +12006,68 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             AND LOWER(yp.first_name)=LOWER(%s)
             AND LOWER(yp.last_name)=LOWER(%s)''',
             (reg['guardian_email'], first, last or ''))
+
+        medical_notes = reg.get('notes') or ''
+        allergies = reg.get('allergies') or ''
+        pronouns = reg.get('pronouns') or ''
+        photo_consent = 1 if reg.get('photo_consent') else 0
+
         if existing:
+            # Update existing participant with any new info from registration
+            try:
+                execute(conn, '''UPDATE youth_participants SET
+                    shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
+                    medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
+                    allergies=COALESCE(NULLIF(%s,''), allergies),
+                    pronouns=COALESCE(NULLIF(%s,''), pronouns),
+                    photo_consent=GREATEST(photo_consent, %s)
+                    WHERE id=%s''',
+                    (shirt or '', medical_notes, allergies, pronouns, photo_consent, existing['id']))
+            except Exception as eu:
+                app.logger.warning(f'Participant update from reg: {eu}')
+            # Add emergency contact if not already present
+            if reg.get('emergency_contact_name'):
+                try:
+                    ec_exists = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (existing['id'],))
+                    if not ec_exists:
+                        import uuid as _uec
+                        execute(conn, '''INSERT INTO youth_emergency_contacts
+                            (id, youth_id, name, relationship, phone)
+                            VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
+                            (str(_uec.uuid4()), existing['id'],
+                             reg.get('emergency_contact_name',''),
+                             'Emergency Contact',
+                             reg.get('emergency_contact_phone','') or ''))
+                except Exception as ece:
+                    app.logger.warning(f'Emergency contact insert: {ece}')
             return existing
+
         import uuid as _u
         yid = str(_u.uuid4())
-        execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
-            VALUES (%s,%s,%s,%s,%s)''',
-            (yid, first, last or '', dob or None, shirt or ''))
+        try:
+            execute(conn, '''INSERT INTO youth_participants
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (yid, first, last or '', dob or None, shirt or '',
+                 medical_notes, allergies, pronouns, photo_consent))
+        except Exception:
+            # Fallback if columns don't exist yet
+            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+                VALUES (%s,%s,%s,%s,%s)''',
+                (yid, first, last or '', dob or None, shirt or ''))
+        # Add emergency contact
+        if reg.get('emergency_contact_name'):
+            try:
+                import uuid as _uec2
+                execute(conn, '''INSERT INTO youth_emergency_contacts
+                    (id, youth_id, name, relationship, phone)
+                    VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
+                    (str(_uec2.uuid4()), yid,
+                     reg.get('emergency_contact_name',''),
+                     'Emergency Contact',
+                     reg.get('emergency_contact_phone','') or ''))
+            except Exception as ece2:
+                app.logger.warning(f'Emergency contact insert: {ece2}')
         return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
     def ensure_guardian(youth_id):
@@ -13984,6 +14040,59 @@ def _start_oncall_scheduler():
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
+@app.route('/api/admin/backfill-participant-data', methods=['POST'])
+def backfill_participant_data():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    updated = 0; skipped = 0; ec_added = 0
+    try:
+        import json as _jsbf
+        regs = fetchall(conn, """SELECT pr.youth_id as pid, pr.pronouns, pr.allergies,
+            pr.notes, pr.photo_consent, pr.emergency_contact_name, pr.emergency_contact_phone
+            FROM program_registrations pr
+            WHERE pr.youth_id IS NOT NULL
+            AND pr.status IN ('confirmed','pending_payment')""") or []
+        for r in regs:
+            pid = r['pid']
+            # Build non-empty updates
+            sets, vals = [], []
+            if r.get('pronouns'):
+                sets.append("pronouns=COALESCE(NULLIF(pronouns,''),NULLIF(%s,''))")
+                vals.append(r['pronouns'])
+            if r.get('allergies'):
+                sets.append("allergies=COALESCE(NULLIF(allergies,''),NULLIF(%s,''))")
+                vals.append(r['allergies'])
+            if r.get('notes'):
+                sets.append("medical_notes=COALESCE(NULLIF(medical_notes,''),NULLIF(%s,''))")
+                vals.append(r['notes'])
+            if r.get('photo_consent'):
+                sets.append("photo_consent=GREATEST(photo_consent,1)")
+            if sets:
+                execute(conn, f'UPDATE youth_participants SET {", ".join(sets)} WHERE id=%s',
+                    vals + [pid])
+                updated += 1
+            else:
+                skipped += 1
+            # Emergency contact — add if none exists
+            if r.get('emergency_contact_name'):
+                ec = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (pid,))
+                if not ec:
+                    execute(conn, '''INSERT INTO youth_emergency_contacts
+                        (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING''',
+                        (str(uuid.uuid4()), pid, r['emergency_contact_name'],
+                         'Emergency Contact', r.get('emergency_contact_phone','') or ''))
+                    ec_added += 1
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'updated': updated, 'skipped': skipped, 'ec_added': ec_added})
+    except Exception as e:
+        app.logger.error(f'Backfill error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug/marquee-sessions')
 def debug_marquee_sessions():
     err = require_auth()
@@ -15767,7 +15876,7 @@ def marquee_overview():
         import json as _jsr
         all_sess_regs = fetchall(conn, """SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
+            pr.guardian_name, pr.status, pr.session_ids
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND pr.session_ids IS NOT NULL
@@ -15793,7 +15902,7 @@ def marquee_overview():
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status
+            pr.guardian_name, pr.status
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')

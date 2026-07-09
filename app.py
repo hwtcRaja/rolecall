@@ -13717,9 +13717,14 @@ def get_active_lobby_file():
         row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_active_theme'")
         conn.close()
         theme = (row or {}).get('value') or 'standard'
-        return LOBBY_THEME_FILES.get(theme, 'lobby_standard.html')
+        filename = LOBBY_THEME_FILES.get(theme, 'lobby_standard.html')
+        # Fall back to lobby.html if themed file doesn't exist
+        import os as _oslob
+        if not _oslob.path.exists(os.path.join('static', filename)):
+            return 'lobby.html'
+        return filename
     except Exception:
-        return 'lobby_standard.html'
+        return 'lobby.html'
 
 @app.route('/lobby')
 def lobby_page():
@@ -13727,11 +13732,15 @@ def lobby_page():
 
 @app.route('/lobby/standard')
 def lobby_standard_page():
-    return send_from_directory('static', 'lobby_standard.html')
+    import os as _oslob
+    f = 'lobby_standard.html' if _oslob.path.exists('static/lobby_standard.html') else 'lobby.html'
+    return send_from_directory('static', f)
 
 @app.route('/lobby/jungle')
 def lobby_jungle_page():
-    return send_from_directory('static', 'lobby_jungle.html')
+    import os as _oslob
+    f = 'lobby_jungle.html' if _oslob.path.exists('static/lobby_jungle.html') else 'lobby.html'
+    return send_from_directory('static', f)
 
 @app.route('/lobby2')
 def lobby2_page():

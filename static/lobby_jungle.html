@@ -425,643 +425,88 @@ body.theme-seuss .schedule-header::before{ display:none }
   letter-spacing:0.5px;display:none;
 }
 
-/* ── LOBBY2: Image-based signpost ── */
+
+/* ── LOBBY JUNGLE: Hanging signboard ── */
 #jungle-img-panel {
   display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  width: 100%;
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #061408;
+  background: linear-gradient(180deg, #0a2a0e 0%, #0d1f08 100%);
 }
-.sp-img {
+body.theme-jungle #jungle-img-panel { display: block }
+body.theme-jungle #events-list { display: none !important }
+body.theme-jungle .schedule-header { display: none }
+
+.sp-img-wrap {
   position: absolute;
-  bottom: -10px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 260px;
-  z-index: 1;
-  pointer-events: none;
-  filter: drop-shadow(0 6px 20px rgba(0,0,0,0.9));
-}
-.sp-board-events {
-  position: absolute;
-  bottom: 140px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 195px;
-  z-index: 2;
+  bottom: 0;
+  right: -5%;
+  width: 105%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: center;
 }
-.sp-ev {
+.sp-img-wrap img {
   width: 100%;
-  padding: 5px 8px;
-  text-align: center;
-  border-bottom: 1px solid rgba(90,50,10,0.2);
+  max-height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  filter: drop-shadow(0 4px 24px rgba(0,0,0,0.7));
 }
-.sp-ev:last-child { border-bottom: none }
+/* Plank text overlays — positioned as % of image */
+.sp-planks {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+}
+.sp-plank {
+  position: absolute;
+  /* horizontally: board is ~32%-93% of image width, centered at ~62% */
+  left: 37%;
+  width: 55%;
+  text-align: center;
+  transform: translateY(-50%);
+}
+/* Plank vertical positions as % from top of image */
+.sp-plank-1 { top: 33.7% }
+.sp-plank-2 { top: 41.5% }
+.sp-plank-3 { top: 51.3% }
+.sp-plank-4 { top: 60.5% }
+
+.sp-plank-day {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #7a4e18;
+  line-height: 1;
+  margin-bottom: 1px;
+}
+.sp-plank-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #2a1200;
+  line-height: 1.2;
+}
+.sp-plank-meta {
+  font-size: 9px;
+  font-weight: 600;
+  color: #6a3e10;
+  margin-top: 1px;
+}
+.sp-plank-today { animation: sp-sw 3s ease-in-out infinite }
+@keyframes sp-sw { 0%,100%{transform:translateY(-50%) rotate(-0.3deg)} 50%{transform:translateY(-50%) rotate(0.3deg)} }
 .sp-today-pill {
+  display: inline-block;
   background: #fbbf24;
   color: #2a1000;
   font-size: 8px;
   font-weight: 800;
   padding: 1px 7px;
   border-radius: 10px;
-  display: inline-block;
   margin-bottom: 1px;
 }
-.sp-day { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #7a4e18; margin-bottom: 1px }
-.sp-name { font-size: 12px; font-weight: 800; color: #2a1500; line-height: 1.2 }
-.sp-meta { font-size: 9px; color: #6a3e10; font-weight: 600; margin-top: 1px }
-.sp-ev.sp-today { animation: sp-pulse 2.5s ease-in-out infinite }
-@keyframes sp-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.02)} }
-
-</style>
-</head>
-<body>
-
-<div id="theme-decorations"></div>
-
-<!-- HEADER -->
-<header>
-  <div class="hdr-logo">
-    <img src="/static/images/hwtc_logo_teal.png" alt="HWTC" style="height:58px" onerror="this.style.display='none'"/>
-    <div>
-      <div class="hdr-title">Horizon West Theater Company</div>
-      <div class="hdr-sub">Welcome to HWTC Studio</div>
-    </div>
-  </div>
-  <div class="hdr-clock">
-    <div class="hdr-time" id="clock">--:-- --</div>
-    <div class="hdr-date" id="clock-date"></div>
-  </div>
-</header>
-
-<!-- CAROUSEL -->
-<div id="carousel-area">
-  <div id="carousel-empty" class="show">
-    <div class="empty-logo">HWTC</div>
-    <div>No images uploaded yet</div>
-    <div style="font-size:13px;margin-top:4px">Add images via <strong>?manage</strong></div>
-  </div>
-  <div id="carousel-dots"></div>
-</div>
-
-<!-- SCHEDULE -->
-<div id="schedule-area">
-  <div class="schedule-header">Upcoming Events</div>
-  <div id="events-list"><div class="no-events">Loading…</div></div>
-  <div id="jungle-img-panel">
-    <div class="sp-board-events" id="sp-board-events"></div>
-    <img class="sp-img" src="/static/images/signpost.png" alt="jungle signpost"/>
-  </div>
-</div>
-
-<!-- ADMIN PANEL -->
-<div id="admin-panel">
-  <div class="admin-box">
-    <h2>Lobby Display Manager</h2>
-
-    <div class="admin-section">
-      <h3>Carousel Images</h3>
-      <div class="admin-img-grid" id="admin-img-grid"></div>
-      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('img-file-input').click()">
-        Click to upload images (JPG, PNG, WebP)<br/>
-        <span style="font-size:12px">Recommended: 1920×1080 or 16:9 ratio</span>
-      </div>
-      <input type="file" id="img-file-input" accept="image/*" multiple style="display:none"/>
-      <div class="status-msg" id="upload-status"></div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-      <button class="btn-save" onclick="saveImages()">Save &amp; Apply</button>
-      <button class="btn-close" onclick="closeAdmin()">Close</button>
-      <span class="status-msg" id="save-status"></span>
-    </div>
-
-    <div class="admin-section" style="margin-top:20px">
-      <h3>Carousel Speed</h3>
-      <div style="display:flex;align-items:center;gap:12px">
-        <label style="font-size:13px;color:rgba(255,255,255,0.7)">Seconds per slide:</label>
-        <input type="number" id="slide-duration" min="3" max="60" value="8"
-          style="width:70px;background:#0d2233;border:1px solid #1b3a4d;color:#fff;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:14px"/>
-        <button class="btn-save" style="padding:8px 16px" onclick="applySpeed()">Apply</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-// ── State ──────────────────────────────────────────────────────────────────
-var _slides = []          // {url, caption}
-var _slideIdx = 0
-var _slideDuration = 8000 // ms
-var _slideTimer = null
-var _adminImages = []     // working copy in admin panel
-var _isAdmin = window.location.search.includes('manage')
-
-// ── Clock ──────────────────────────────────────────────────────────────────
-function updateClock(){
-  var now = new Date()
-  var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds()
-  var ampm = h >= 12 ? 'PM' : 'AM'
-  h = h % 12 || 12
-  document.getElementById('clock').textContent =
-    h + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ' ' + ampm
-  document.getElementById('clock-date').textContent =
-    now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
-}
-setInterval(updateClock, 1000)
-updateClock()
-
-// ── Data fetch ─────────────────────────────────────────────────────────────
-var _lastEvents = []
-
-async function loadData(){
-  try{
-    var r = await fetch('/api/public/lobby-data')
-    var d = await r.json()
-    applyTheme('jungle')
-    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
-    applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover')
-    _lastEvents = d.events || []
-    renderEvents(_lastEvents)
-    var images = d.lobby_images || []
-    if(images.length){
-      _slides = images.map(function(img){
-        if(typeof img === 'string') return {url:img, caption:''}
-        return {url: img.url||img, caption: img.caption||''}
-      })
-      buildCarousel()
-    }
-  } catch(e){ console.error('Load error:', e) }
-}
-
-function applyBanner(url, position, zoom, fit){
-  var header = document.querySelector('header')
-  if(!header) return
-  if(url){
-    header.style.backgroundImage = "url('"+url+"')"
-    header.style.backgroundPosition = position || '50% 50%'
-    header.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
-    header.style.backgroundRepeat = 'no-repeat'
-    header.classList.add('has-banner')
-  } else {
-    header.classList.remove('has-banner')
-    header.style.backgroundImage = ''
-    header.style.backgroundPosition = ''
-    header.style.backgroundSize = ''
-    header.style.backgroundRepeat = ''
-  }
-}
-
-function applySchedBg(url, position, zoom, fit){
-  var sched = document.getElementById('schedule-area')
-  if(!sched) return
-  if(url){
-    sched.style.backgroundImage = "url('"+url+"')"
-    sched.style.backgroundPosition = position || '50% 50%'
-    sched.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
-    sched.style.backgroundRepeat = 'no-repeat'
-    sched.classList.add('has-bg')
-  } else {
-    sched.classList.remove('has-bg')
-    sched.style.backgroundImage = ''
-    sched.style.backgroundPosition = ''
-    sched.style.backgroundSize = ''
-    sched.style.backgroundRepeat = ''
-  }
-}
-
-// ── Theme System ───────────────────────────────────────────────────────────
-var _currentTheme = 'none'
-var _decoInterval = null
-
-var THEME_LABELS = {
-  none:'', winter:'Winter Wonderland', fall:'Autumn', halloween:'Halloween',
-  spring:'Spring', summer:'Summer', show:'Opening Night', seuss:'Dr. Seuss',
-  jungle:'The Jungle Book'
-}
-
-function applyTheme(theme){
-  if(theme === _currentTheme) return
-  var prevTheme = _currentTheme
-  _currentTheme = theme
-  // Remove all theme classes
-  document.body.className = document.body.className.replace(/theme-\S+/g, '').trim()
-  if(theme && theme !== 'none'){
-    document.body.classList.add('theme-' + theme)
-  }
-  // Stop existing decoration spawner
-  if(_decoInterval){ clearInterval(_decoInterval); _decoInterval = null }
-  document.getElementById('theme-decorations').innerHTML = ''
-  // Start new decorations
-  startThemeDecorations(theme)
-  // Re-render events if layout style changed (signpost vs standard)
-  var signpostThemes = ['seuss','jungle']
-  if(prevTheme !== 'none' && (signpostThemes.indexOf(theme)>=0) !== (signpostThemes.indexOf(prevTheme)>=0) && _lastEvents.length){
-    renderEvents(_lastEvents)
-  }
-}
 
 
-function startThemeDecorations(theme){
-  var deco = document.getElementById('theme-decorations')
-  if(!deco) return
-
-  var configs = {
-    winter:  { emoji:'\u2744\ufe0f', count:25, sizeMin:14, sizeMax:28, durMin:8, durMax:18 },
-    fall:    { emoji:'\ud83c\udf42', count:18, sizeMin:18, sizeMax:32, durMin:7, durMax:14, altEmoji:['\ud83c\udf41','\ud83c\udf43'] },
-    spring:  { emoji:'\ud83c\udf38', count:16, sizeMin:14, sizeMax:24, durMin:9, durMax:16, altEmoji:['\ud83c\udf3c','\ud83e\udeb7'] },
-    summer:  { emoji:'\u2600\ufe0f', count:0 }, // summer uses sparkle only, no falling
-    halloween:{ emoji:'\ud83c\udf83', count:12, sizeMin:18, sizeMax:30, durMin:10, durMax:20, altEmoji:['\ud83e\udd87','\ud83d\udc7b'] },
-    show:    { emoji:'\u2728', count:0 }, // show uses sparkle only
-    jungle:  { emoji:'\ud83c\udf43', count:0 }, // no falling decorations for jungle
-  }
-
-  var cfg = configs[theme]
-  if(!cfg) return
-
-  // Falling decorations
-  if(cfg.count > 0){
-    for(var i = 0; i < cfg.count; i++){
-      setTimeout(function(){ spawnFallingDeco(deco, cfg) }, Math.random() * 8000)
-    }
-    _decoInterval = setInterval(function(){
-      spawnFallingDeco(deco, cfg)
-    }, 1400)
-  }
-
-  // Sparkle overlay for show/summer/halloween themes
-  if(theme === 'show' || theme === 'summer' || theme === 'halloween'){
-    spawnSparkles(deco, theme)
-  }
-}
-
-function spawnFallingDeco(container, cfg){
-  var el = document.createElement('div')
-  el.className = 'deco-item'
-  var emoji = cfg.emoji
-  if(cfg.altEmoji && Math.random() < 0.4){
-    emoji = cfg.altEmoji[Math.floor(Math.random() * cfg.altEmoji.length)]
-  }
-  el.textContent = emoji
-  var size = cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)
-  var dur = cfg.durMin + Math.random() * (cfg.durMax - cfg.durMin)
-  var drift = (Math.random() - 0.5) * 200
-  el.style.left = Math.random() * 100 + 'vw'
-  el.style.fontSize = size + 'px'
-  el.style.animationDuration = dur + 's'
-  el.style.setProperty('--drift', drift + 'px')
-  container.appendChild(el)
-  setTimeout(function(){ el.remove() }, dur * 1000 + 500)
-}
-
-function spawnSparkles(container, theme){
-  var sparkleChar = theme === 'halloween' ? '\ud83d\udd76\ufe0f' : theme === 'summer' ? '\u2600\ufe0f' : '\u2728'
-  var count = theme === 'halloween' ? 6 : 10
-  for(var i = 0; i < count; i++){
-    var s = document.createElement('div')
-    s.className = 'deco-sparkle'
-    s.textContent = sparkleChar
-    s.style.left = (5 + Math.random() * 90) + 'vw'
-    s.style.top = (5 + Math.random() * 90) + 'vh'
-    s.style.fontSize = (12 + Math.random() * 16) + 'px'
-    s.style.animationDuration = (2 + Math.random() * 3) + 's'
-    s.style.animationDelay = (Math.random() * 3) + 's'
-    container.appendChild(s)
-  }
-}
-
-// Reload data every 5 minutes
-setInterval(loadData, 5 * 60 * 1000)
-loadData()
-
-// ── Events ─────────────────────────────────────────────────────────────────
-var SEUSS_PLANK_COLORS = ['#fbbf24','#38bdf8','#4ade80','#f472b6','#fb923c','#c084fc']
-var JUNGLE_PLANK_COLORS = ['#a7f542','#fbbf24','#86efac','#fcd34d','#bbf7d0','#fde68a']
-
-function renderEvents(events){
-  var el = document.getElementById('events-list')
-  if(!events.length){
-    if(_currentTheme === 'seuss' || _currentTheme === 'jungle'){
-      el.innerHTML = '<div class="signpost-wrap"><div class="no-events">No upcoming events<br/>scheduled at this time</div></div>'
-    } else {
-      el.innerHTML = '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'
-    }
-    return
-  }
-  var today = new Date().toISOString().slice(0,10)
-  var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
-
-  if(_currentTheme === 'jungle'){
-    var planks = events.map(function(ev, i){
-      var isToday = ev.event_date === today
-      var isTomorrow = ev.event_date === tomorrow
-      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
-      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
-      var color = JUNGLE_PLANK_COLORS[i % JUNGLE_PLANK_COLORS.length]
-      return '<div class="jungle-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
-        + (isToday ? '<span class="jungle-today-star">🌟</span>' : '')
-        + '<div class="ei-day">'+dayLabel+'</div>'
-        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
-        + '<div class="ei-meta">'
-        + (timeStr ? '<span>'+timeStr+'</span>' : '')
-        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
-        + '</div></div>'
-    }).join('')
-    el.innerHTML = '<div class="jungle-signpost-wrap"><div class="jungle-pole"></div>' + planks + '</div>'
-    return
-  }
-
-  if(_currentTheme === 'seuss'){
-    var planks = events.map(function(ev, i){
-      var isToday = ev.event_date === today
-      var isTomorrow = ev.event_date === tomorrow
-      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
-      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
-      var color = SEUSS_PLANK_COLORS[i % SEUSS_PLANK_COLORS.length]
-      return '<div class="signpost-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
-        + (isToday ? '<span class="today-star">\u2728</span>' : '')
-        + '<div class="ei-day">'+dayLabel+'</div>'
-        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
-        + '<div class="ei-meta">'
-        + (timeStr ? '<span>'+timeStr+'</span>' : '')
-        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
-        + '</div></div>'
-    }).join('')
-    el.innerHTML = '<div class="signpost-wrap"><div class="signpost-pole"></div>' + planks + '</div>'
-    return
-  }
-
-  el.innerHTML = events.map(function(ev){
-    var isToday = ev.event_date === today
-    var isTomorrow = ev.event_date === tomorrow
-    var cls = isToday ? 'event-item today' : isTomorrow ? 'event-item soon' : 'event-item'
-    var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
-    var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
-    return '<div class="'+cls+'">'
-      + '<div class="ei-day">'+dayLabel+'</div>'
-      + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
-      + '<div class="ei-meta">'
-      + (timeStr ? '<span>'+timeStr+'</span>' : '')
-      + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
-      + '</div></div>'
-  }).join('')
-}
-
-function formatEventDate(d){
-  if(!d) return ''
-  try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) }
-  catch(e){ return d }
-}
-
-function fmt12(t){
-  if(!t) return ''
-  try{
-    var p=t.split(':'), h=parseInt(p[0]), m=p[1], a=h>=12?'PM':'AM'
-    h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a
-  } catch(e){ return t }
-}
-
-function escH(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML }
-
-// ── Carousel ───────────────────────────────────────────────────────────────
-function buildCarousel(){
-  var area = document.getElementById('carousel-area')
-  var empty = document.getElementById('carousel-empty')
-  var dots = document.getElementById('carousel-dots')
-  // Remove old slides
-  area.querySelectorAll('.slide').forEach(function(s){ s.remove() })
-  if(!_slides.length){ empty.classList.add('show'); dots.innerHTML=''; return }
-  empty.classList.remove('show')
-  dots.innerHTML = _slides.map(function(_,i){
-    return '<span onclick="goSlide('+i+')" '+(i===0?'class="active"':'')+' ></span>'
-  }).join('')
-  _slides.forEach(function(slide, i){
-    var div = document.createElement('div')
-    div.className = 'slide' + (i===0?' active':'')
-    var img = document.createElement('img')
-    img.src = typeof slide==='string' ? slide : (slide.url||slide)
-    img.alt = ''
-    div.appendChild(img)
-    if(typeof slide==='object' && slide.caption){
-      var cap = document.createElement('div')
-      cap.className = 'slide-caption'
-      cap.textContent = slide.caption
-      div.appendChild(cap)
-    }
-    area.insertBefore(div, dots)
-  })
-  _slideIdx = 0
-  startCarousel()
-}
-
-function startCarousel(){
-  if(_slideTimer) clearInterval(_slideTimer)
-  if(_slides.length < 2) return
-  _slideTimer = setInterval(nextSlide, _slideDuration)
-}
-
-function nextSlide(){
-  goSlide((_slideIdx + 1) % _slides.length)
-}
-
-function goSlide(idx){
-  var area = document.getElementById('carousel-area')
-  var slides = area.querySelectorAll('.slide')
-  var dots = document.getElementById('carousel-dots').querySelectorAll('span')
-  if(!slides.length) return
-  slides[_slideIdx].classList.remove('active')
-  if(dots[_slideIdx]) dots[_slideIdx].classList.remove('active')
-  _slideIdx = idx
-  slides[_slideIdx].classList.add('active')
-  if(dots[_slideIdx]) dots[_slideIdx].classList.add('active')
-}
-
-// ── Admin Panel ─────────────────────────────────────────────────────────────
-if(_isAdmin){
-  document.getElementById('admin-panel').classList.add('show')
-  loadAdminImages()
-}
-
-// Keyboard shortcut: M to open manage
-document.addEventListener('keydown', function(e){
-  if(e.key==='m'||e.key==='M') toggleAdmin()
-  if(e.key==='Escape') closeAdmin()
-})
-
-function toggleAdmin(){
-  var p = document.getElementById('admin-panel')
-  if(p.classList.contains('show')) closeAdmin()
-  else { p.classList.add('show'); loadAdminImages() }
-}
-
-function closeAdmin(){
-  document.getElementById('admin-panel').classList.remove('show')
-}
-
-async function loadAdminImages(){
-  try{
-    var r = await fetch('/api/lobby/images', {credentials:'include'})
-    if(!r.ok) return
-    _adminImages = await r.json()
-  } catch(e){ _adminImages = [] }
-  renderAdminGrid()
-}
-
-function renderAdminGrid(){
-  var grid = document.getElementById('admin-img-grid')
-  if(!_adminImages.length){
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,0.3);padding:16px;font-size:13px">No images yet. Upload some below.</div>'
-    return
-  }
-  grid.innerHTML = _adminImages.map(function(img, i){
-    var url = typeof img==='string' ? img : (img.url||img)
-    var cap = typeof img==='object' ? (img.caption||'') : ''
-    return '<div class="admin-img-thumb">'
-      + '<img src="'+url+'" alt=""/>'
-      + '<button class="del-btn" onclick="removeAdminImage('+i+')">&#x2715;</button>'
-      + '<input class="admin-img-caption" type="text" placeholder="Caption (optional)" value="'+escH(cap)+'" oninput="_adminImages['+i+'].caption=this.value"/>'
-      + '</div>'
-  }).join('')
-}
-
-function removeAdminImage(i){
-  _adminImages.splice(i, 1)
-  renderAdminGrid()
-}
-
-// Upload
-document.getElementById('img-file-input').addEventListener('change', async function(e){
-  var files = Array.from(e.target.files)
-  if(!files.length) return
-  var status = document.getElementById('upload-status')
-  status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
-  var uploaded = 0
-  for(var i=0;i<files.length;i++){
-    var f = files[i]
-    try{
-      var fd = new FormData(); fd.append('file', f)
-      var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
-      if(!r.ok){ status.textContent = 'Upload error '+r.status; continue }
-      var d = await r.json()
-      if(d.ok){ _adminImages.push({url:d.url, caption:''}); uploaded++ }
-      else status.textContent = 'Upload failed: '+(d.error||'Unknown')
-    } catch(err){ status.textContent = 'Upload error: '+err.message; console.error(err) }
-  }
-  renderAdminGrid()
-  status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
-  setTimeout(function(){ status.textContent='' }, 4000)
-  e.target.value = ''
-})
-
-// Drag-and-drop upload
-var uploadZone = document.getElementById('upload-zone')
-uploadZone.addEventListener('dragover', function(e){ e.preventDefault(); this.style.borderColor='#4ade80' })
-uploadZone.addEventListener('dragleave', function(){ this.style.borderColor='#1b708d' })
-uploadZone.addEventListener('drop', async function(e){
-  e.preventDefault(); this.style.borderColor='#1b708d'
-  var files = Array.from(e.dataTransfer.files).filter(function(f){ return f.type.startsWith('image/') })
-  var input = document.getElementById('img-file-input')
-  // Reuse upload logic
-  var status = document.getElementById('upload-status')
-  status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
-  for(var f of files){
-    try{
-      var fd = new FormData(); fd.append('file', f)
-      var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
-      var d = await r.json()
-      if(d.ok) _adminImages.push({url:d.url, caption:''})
-    } catch(err){ console.error(err) }
-  }
-  renderAdminGrid()
-  status.textContent = 'Uploaded!'
-  setTimeout(function(){ status.textContent='' }, 3000)
-})
-
-async function saveImages(){
-  var status = document.getElementById('save-status')
-  status.textContent = 'Saving...'
-  try{
-    var payload = _adminImages.map(function(img){
-      return typeof img==='string' ? {url:img,caption:''} : img
-    })
-    var r = await fetch('/api/lobby/images', {
-      method:'PUT',
-      credentials:'include',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({images:payload})
-    })
-    if(!r.ok){
-      var text = await r.text()
-      status.textContent = 'Error '+r.status+': '+text.slice(0,80)
-      return
-    }
-    var d = await r.json()
-    if(d.ok){
-      _slides = payload
-      buildCarousel()
-      status.textContent = 'Saved! ('+payload.length+' image'+(payload.length!==1?'s':'')+')'
-      setTimeout(function(){ status.textContent='' }, 4000)
-    } else {
-      status.textContent = 'Error: '+(d.error||'Unknown error')
-    }
-  } catch(e){
-    status.textContent = 'Error: '+e.message
-    console.error('Save error:', e)
-  }
-}
-
-function applySpeed(){
-  var val = parseInt(document.getElementById('slide-duration').value) || 8
-  _slideDuration = Math.max(3, Math.min(60, val)) * 1000
-  startCarousel()
-}
-
-function renderSignpostBoard(events) {
-  var el = document.getElementById('sp-board-events')
-  if(!el) return
-  var today = new Date().toISOString().slice(0,10)
-  var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
-  if(!events || !events.length) {
-    el.innerHTML = '<div style="color:rgba(90,50,10,0.5);font-size:10px;font-style:italic;text-align:center;padding:8px">No upcoming events</div>'
-    return
-  }
-  el.innerHTML = events.slice(0,4).map(function(ev){
-    var isToday = ev.event_date === today
-    var isTomorrow = ev.event_date === tomorrow
-    var dayLabel = isToday ? null : isTomorrow ? 'Tomorrow' : formatEventDate(ev.event_date)
-    var timeStr = ev.start_time ? fmt12(ev.start_time) : ''
-    return '<div class="sp-ev'+(isToday?' sp-today':'')+'">'
-      + (isToday ? '<div><span class="sp-today-pill">⭐ TODAY</span></div>' : '')
-      + (dayLabel ? '<div class="sp-day">'+dayLabel+'</div>' : '')
-      + '<div class="sp-name">'+escH(ev.name||'')+'</div>'
-      + (timeStr||ev.location ? '<div class="sp-meta">'+(timeStr||'')+(timeStr&&ev.location?' · ':'')+escH(ev.location||'')+'</div>' : '')
-      + '</div>'
-  }).join('')
-}
-
-// Override renderEvents to also populate signpost board
-var _origRender = renderEvents
-renderEvents = function(events) {
-  _lastEvents = events
-  _origRender(events)
-  if(_currentTheme === 'jungle') renderSignpostBoard(events)
-}
-// Also hook applyTheme to refresh board when jungle loads
-var _origApply = applyTheme
-applyTheme = function(theme) {
-  _origApply(theme)
-  if(theme === 'jungle' && _lastEvents.length) renderSignpostBoard(_lastEvents)
-}
-
-</script>
-
-</body>
-</html>

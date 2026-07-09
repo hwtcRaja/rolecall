@@ -9241,21 +9241,82 @@ def kiosk_youth_for_event(event_id):
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
     elif evt.get('program_id'):
-        # Youth program  -  get enrolled participants
-        youth = fetchall(conn, '''
-            SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   NULL as role,
-                   yp.passphrase as individual_passphrase,
-                   (SELECT f.passphrase FROM youth_family_links yfl
-                    JOIN families f ON f.id=yfl.family_id
-                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
-                   ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
-            FROM youth_program_enrollments ype
-            JOIN youth_participants yp ON ype.youth_id=yp.id
-            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
-                AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
-            WHERE ype.program_id=%s
-            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['program_id']))
+        program_id = evt['program_id']
+        # Check if this program uses sessions
+        prog = fetchone(conn, 'SELECT sessions_enabled FROM youth_programs WHERE id=%s', (program_id,))
+        if prog and prog.get('sessions_enabled'):
+            # Find the session matching this event's date
+            event_date = (fetchone(conn, 'SELECT event_date FROM events WHERE id=%s', (event_id,)) or {}).get('event_date')
+            session = None
+            if event_date:
+                session = fetchone(conn, 'SELECT id FROM program_sessions WHERE program_id=%s AND start_date=%s LIMIT 1',
+                    (program_id, event_date))
+            if session:
+                import json as _jskeid
+                session_id = session['id']
+                regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                    pr.guardian_name, pr.session_ids,
+                    yp.id as pid, yp.dob, yp.passphrase as individual_passphrase,
+                    (SELECT f.passphrase FROM youth_family_links yfl
+                     JOIN families f ON f.id=yfl.family_id
+                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                    FROM program_registrations pr
+                    LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                    LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=pr.youth_id
+                        AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                    WHERE pr.program_id=%s AND pr.status=\'confirmed\'
+                    ORDER BY pr.child_last_name, pr.child_first_name''',
+                    (event_id, program_id)) or []
+                youth = []
+                for r in regs:
+                    try: sids = _jskeid.loads(r.get('session_ids') or '[]')
+                    except Exception: sids = []
+                    if session_id in sids:
+                        youth.append({
+                            'id': r.get('youth_id') or r.get('pid'),
+                            'first_name': r.get('first_name') or r.get('child_first_name',''),
+                            'last_name': r.get('last_name') or r.get('child_last_name',''),
+                            'dob': r.get('dob',''),
+                            'role': None,
+                            'individual_passphrase': r.get('individual_passphrase'),
+                            'family_passphrase': r.get('family_passphrase'),
+                            'sign_in_id': r.get('sign_in_id'),
+                            'signed_in_at': str(r['signed_in_at']) if r.get('signed_in_at') else None,
+                            'signed_out_at': str(r['signed_out_at']) if r.get('signed_out_at') else None,
+                        })
+            else:
+                # No session match — fall back to all confirmed regs for this program
+                youth = fetchall(conn, '''SELECT pr.youth_id as id, pr.child_first_name as first_name,
+                    pr.child_last_name as last_name, yp.dob, NULL as role,
+                    yp.passphrase as individual_passphrase,
+                    (SELECT f.passphrase FROM youth_family_links yfl
+                     JOIN families f ON f.id=yfl.family_id
+                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                    FROM program_registrations pr
+                    LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                    LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=pr.youth_id
+                        AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                    WHERE pr.program_id=%s AND pr.status=\'confirmed\'
+                    ORDER BY pr.child_last_name, pr.child_first_name''',
+                    (event_id, program_id)) or []
+        else:
+            # Non-session program — use enrollments table
+            youth = fetchall(conn, '''
+                SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
+                       NULL as role,
+                       yp.passphrase as individual_passphrase,
+                       (SELECT f.passphrase FROM youth_family_links yfl
+                        JOIN families f ON f.id=yfl.family_id
+                        WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                       ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                FROM youth_program_enrollments ype
+                JOIN youth_participants yp ON ype.youth_id=yp.id
+                LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
+                    AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                WHERE ype.program_id=%s
+                ORDER BY yp.last_name, yp.first_name''', (event_id, program_id))
 
     conn.close()
     return jsonify(youth)
@@ -10365,6 +10426,66 @@ def get_program_enrolled(pid):
         rows = []
     conn.close()
     return jsonify(rows)
+
+@app.route('/api/youth-programs/<pid>/session-enrolled')
+def get_session_enrolled(pid):
+    """Return registrants for a specific program session, filtered by session_id."""
+    err = require_auth()
+    if err: return err
+    session_id = request.args.get('session_id','').strip()
+    conn = get_db()
+    try:
+        if session_id:
+            import json as _jseid
+            # Get registrations where session_ids contains this session_id
+            regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                pr.guardian_name, pr.status, pr.session_ids,
+                yp.id as participant_id, yp.dob, yp.portal_last_login,
+                yp.first_name, yp.last_name
+                FROM program_registrations pr
+                LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                WHERE pr.program_id=%s AND pr.status='confirmed'
+                ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+            rows = []
+            for r in regs:
+                try:
+                    sids = _jseid.loads(r.get('session_ids') or '[]')
+                except Exception:
+                    sids = []
+                if session_id in sids:
+                    rows.append({
+                        'youth_id': r.get('youth_id') or r.get('participant_id'),
+                        'first_name': r.get('first_name') or r.get('child_first_name',''),
+                        'last_name': r.get('last_name') or r.get('child_last_name',''),
+                        'dob': r.get('dob',''),
+                        'status': 'active',
+                        'guardian_name': r.get('guardian_name',''),
+                        'portal_last_login': r.get('portal_last_login'),
+                    })
+        else:
+            # No session specified — fall back to all confirmed registrations
+            regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                pr.guardian_name, pr.status,
+                yp.id as participant_id, yp.dob, yp.portal_last_login,
+                yp.first_name, yp.last_name
+                FROM program_registrations pr
+                LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                WHERE pr.program_id=%s AND pr.status='confirmed'
+                ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+            rows = [{
+                'youth_id': r.get('youth_id') or r.get('participant_id'),
+                'first_name': r.get('first_name') or r.get('child_first_name',''),
+                'last_name': r.get('last_name') or r.get('child_last_name',''),
+                'dob': r.get('dob',''),
+                'status': 'active',
+                'guardian_name': r.get('guardian_name',''),
+            } for r in regs]
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        app.logger.error(f'get_session_enrolled error: {e}')
+        conn.close()
+        return jsonify([])
 
 @app.route('/api/youth-programs/<pid>/enroll', methods=['POST'])
 def enroll_in_program(pid):

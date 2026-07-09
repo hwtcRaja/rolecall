@@ -14045,9 +14045,32 @@ def backfill_participant_data():
     err = require_auth()
     if err: return err
     conn = get_db()
-    updated = 0; skipped = 0; ec_added = 0
+    updated = 0; skipped = 0; ec_added = 0; linked = 0
     try:
-        import json as _jsbf
+        # First: link registrations to participants by name match where youth_id is null
+        regs_unlinked = fetchall(conn, """SELECT pr.id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_email
+            FROM program_registrations pr
+            WHERE pr.youth_id IS NULL
+            AND pr.child_first_name IS NOT NULL
+            AND pr.status IN ('confirmed','pending_payment')""") or []
+        for r in regs_unlinked:
+            yp = fetchone(conn, """SELECT yp.id FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)
+                AND LOWER(yg.email)=LOWER(%s) LIMIT 1""",
+                (r['child_first_name'], r['child_last_name'] or '', r['guardian_email']))
+            if not yp:
+                # Try name only
+                yp = fetchone(conn, """SELECT id FROM youth_participants
+                    WHERE LOWER(first_name)=LOWER(%s) AND LOWER(last_name)=LOWER(%s) LIMIT 1""",
+                    (r['child_first_name'], r['child_last_name'] or ''))
+            if yp:
+                execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (yp['id'], r['id']))
+                linked += 1
+        if linked: conn.commit()
+
+        # Now backfill data from all linked registrations
         regs = fetchall(conn, """SELECT pr.youth_id as pid, pr.pronouns, pr.allergies,
             pr.notes, pr.photo_consent, pr.emergency_contact_name, pr.emergency_contact_phone
             FROM program_registrations pr
@@ -14055,7 +14078,6 @@ def backfill_participant_data():
             AND pr.status IN ('confirmed','pending_payment')""") or []
         for r in regs:
             pid = r['pid']
-            # Build non-empty updates
             sets, vals = [], []
             if r.get('pronouns'):
                 sets.append("pronouns=COALESCE(NULLIF(pronouns,''),NULLIF(%s,''))")
@@ -14069,12 +14091,10 @@ def backfill_participant_data():
             if r.get('photo_consent'):
                 sets.append("photo_consent=GREATEST(photo_consent,1)")
             if sets:
-                execute(conn, f'UPDATE youth_participants SET {", ".join(sets)} WHERE id=%s',
-                    vals + [pid])
+                execute(conn, f'UPDATE youth_participants SET {", ".join(sets)} WHERE id=%s', vals + [pid])
                 updated += 1
             else:
                 skipped += 1
-            # Emergency contact — add if none exists
             if r.get('emergency_contact_name'):
                 ec = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (pid,))
                 if not ec:
@@ -14086,7 +14106,7 @@ def backfill_participant_data():
                     ec_added += 1
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'updated': updated, 'skipped': skipped, 'ec_added': ec_added})
+        return jsonify({'ok': True, 'linked': linked, 'updated': updated, 'skipped': skipped, 'ec_added': ec_added})
     except Exception as e:
         app.logger.error(f'Backfill error: {e}')
         try: conn.rollback(); conn.close()

@@ -437,7 +437,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars"></span>Rising Stars</div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
-        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Sign-In</div>
+        <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
         <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools"></span>Carpools</div>
 
         <!-- VENUE RENTALS -->
@@ -492,7 +492,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-my-time">
   <div class="page-header">
     <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
-    <button class="btn btn-primary" onclick="openRemoteTimer()" style="display:flex;align-items:center;gap:6px"><span>⏱</span> Start Timer</button>
   </div>
   <div class="page-body" id="my-time-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
  </section>
@@ -1015,7 +1014,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <section class="page" id="page-youth-signin">
  <div class="page-header">
- <div><div class="page-title">Youth Sign-In</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
+ <div><div class="page-title">Participant Sign-In</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
  <div class="page-actions">
  <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
  </div>
@@ -1965,7 +1964,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-youth-signin">
  <span style="font-size:16px"></span>
  </div>
- <div style="flex:1;font-size:13px;font-weight:600">Sign-In</div>
+ <div style="flex:1;font-size:13px;font-weight:600">Participant Sign-In</div>
  <div style="display:flex;align-items:center;gap:8px">
  <input type="text" id="ni-input-youth-signin" placeholder="log-in" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
@@ -5898,38 +5897,21 @@ async function loadYouthHistory(yid){
  if(!el) return
  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
  const history = await api(`/api/youth/${yid}/history`)
- if(!history||!history.length){
-  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:16px 0">No history yet</div>'
-  return
+ if(!history.length){
+ el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No attendance history yet</div>'
+ return
  }
- const typeColors = {
-  joined:'#e0f2fe;color:#145466', program:'#dcfce7;color:#166534',
-  event:'#f0fdf4;color:#166534', waiver:'#ede9fe;color:#6d28d9',
-  note:'#fef3c7;color:#92400e', incident:'#fee2e2;color:#991b1b'
- }
- function fmtTs(ts){
-  if(!ts||ts==='0') return ''
-  try{
-   const d=new Date(ts)
-   return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
-    +(ts.includes('T')?' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'')
-  }catch(e){return ts.slice(0,10)}
- }
- el.innerHTML = '<div style="position:relative;padding-left:32px">'
-  + '<div style="position:absolute;left:11px;top:0;bottom:0;width:2px;background:var(--border)"></div>'
-  + history.map(h=>{
-   const color = typeColors[h.type]||'#f3f4f6;color:#374151'
-   return `<div style="position:relative;margin-bottom:20px">
-    <div style="position:absolute;left:-32px;top:2px;width:22px;height:22px;border-radius:50%;
-     background:${color.split(';')[0].replace('background:','').trim()};border:2px solid #fff;
-     box-shadow:0 0 0 2px ${color.split(';')[0].replace('background:','').trim()};
-     display:flex;align-items:center;justify-content:center;font-size:11px">${h.icon}</div>
-    <div style="font-size:13px;font-weight:700;color:#111;margin-bottom:2px">${escHtml(h.label||'')}</div>
-    ${h.detail?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">${escHtml(h.detail)}</div>`:''}
-    <div style="font-size:11px;color:var(--text-muted)">${fmtTs(h.ts)}</div>
-   </div>`
-  }).join('')
-  + '</div>'
+ el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table>'
+ + '<thead><tr><th>Event</th><th>Program</th><th>Date</th><th>Signed In</th><th>Signed Out</th></tr></thead>'
+ + '<tbody>'
+ + history.map(h=>`<tr>
+ <td style="font-size:13px;font-weight:500">${escHtml(h.event_name||'Unknown Event')}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${h.program_name?`<span style="background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600">${escHtml(h.program_name)}</span>`:'—'}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${h.event_date?formatDate(h.event_date):'—'}</td>
+ <td style="font-size:12px">${h.sign_in_time?formatDateTimeShort(h.sign_in_time):'—'}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${h.sign_out_time?formatDateTimeShort(h.sign_out_time):'<span style="color:var(--amber-600)">Not signed out</span>'}</td>
+ </tr>`).join('')
+ + '</tbody></table></div>'
 }
 
 async function openGuardianModal(yid, gid){
@@ -16498,51 +16480,22 @@ async function loadYouthSignInTab(yid){
  const container=document.getElementById(`youth-signin-list-${yid}`)
  if(!container) return
  const filtered=await api(`/api/youth-sign-ins?youth_id=${yid}`)
- if(!filtered||!filtered.length){
-  container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
-  return
+ if(!filtered.length){
+ container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
+ return
  }
- // Group by date
- const byDate={}
- filtered.forEach(r=>{
-  const dt=r.signed_in_at?new Date(r.signed_in_at):null
-  const key=dt?dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'Unknown Date'
-  if(!byDate[key]) byDate[key]=[]
-  byDate[key].push(r)
- })
- container.innerHTML=Object.entries(byDate).map(([date,records])=>{
-  const rows=records.map(r=>{
-   const inTime=r.signed_in_at?new Date(r.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'
-   const outTime=r.signed_out_at?new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):null
-   const duration=r.signed_in_at&&r.signed_out_at?Math.round((new Date(r.signed_out_at)-new Date(r.signed_in_at))/60000):null
-   const durStr=duration!==null?(duration>=60?Math.floor(duration/60)+'h '+(duration%60?duration%60+'m':''):(duration+'m')):null
-   const statusBadge=outTime
-    ?`<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">✓ Signed Out</span>`
-    :`<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">● Still Here</span>`
-   return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
-    <div>
-     <div style="font-weight:700;color:#145466">${inTime}</div>
-     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'—'}</div>
-     ${r.event_name?`<div style="font-size:11px;color:var(--text-muted);margin-top:1px">📅 ${r.event_name}</div>`:''}
-    </div>
-    <div>
-     ${outTime?`<div style="font-weight:700;color:#166534">${outTime}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_out_by?'by '+r.signed_out_by:''}</div>`:'<div style="color:var(--text-muted)">—</div>'}
-    </div>
-    <div style="font-size:12px;color:var(--text-muted)">${durStr?'⏱ '+durStr:''}</div>
-    <div>${statusBadge}</div>
-   </div>`
-  }).join('')
-  return `<div style="margin-bottom:16px">
-   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:8px 12px;background:var(--bg);border-radius:8px;margin-bottom:4px">${date}</div>
-   <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;padding:6px 12px;background:#f9fafb;border-radius:6px 6px 0 0">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign In</div>
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign Out</div>
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Duration</div>
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Status</div>
-   </div>
-   <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden">${rows}</div>
-  </div>`
- }).join('')
+ container.innerHTML=filtered.map(r=>`
+ <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+ <div>
+ <div style="font-weight:500;font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</div>
+ <div style="font-size:12px;color:var(--text-muted)">${r.signed_in_by?'Signed in by: '+r.signed_in_by:''}</div>
+ </div>
+ <div style="text-align:right">
+ ${r.signed_out_at
+ ?`<div style="font-size:12px;font-weight:500;color:var(--green-600)"> Signed out ${new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>`
+:`<span style="font-size:12px;background:var(--amber-50);color:var(--amber-600);padding:3px 8px;border-radius:8px;font-weight:600"> Still signed in</span>`}
+ </div>
+ </div>`).join('')
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -16670,15 +16623,33 @@ async function loadYouthSignInSheet(){
 }
 
 async function loadProgramSignIn(programId, eventId, isAdmin){
- // Roster = enrolled youth
- const enrolled = await api(`/api/youth-programs/${programId}/enrolled`)
- ysiRoster = enrolled
+ const prog = allPrograms.find(p=>p.id===programId)
+
+ // For session-based programs, filter roster by the specific session
+ let sessionId = ''
+ if(prog?.sessions_enabled && eventId){
+  // Find the event to get its date, then match to a program session
+  const evt = allEvents.find(e=>e.id===eventId)
+  if(evt?.event_date){
+   const sessions = await api(`/api/youth-programs/${programId}/sessions`)
+   const matchedSession = (sessions||[]).find(s=>s.start_date===evt.event_date)
+   if(matchedSession) sessionId = matchedSession.id
+  }
+ }
+
+ // Roster: session-filtered or all enrolled
+ let enrolled
+ if(prog?.sessions_enabled){
+  enrolled = await api(`/api/youth-programs/${programId}/session-enrolled${sessionId?'?session_id='+sessionId:''}`)
+ } else {
+  enrolled = await api(`/api/youth-programs/${programId}/enrolled`)
+ }
+ ysiRoster = enrolled || []
 
  // Sign-in records
  const param = eventId ? `event_id=${eventId}`: `program_id=${programId}`
  ysiData = await api(`/api/youth-sign-ins?${param}`)
 
- const prog = allPrograms.find(p=>p.id===programId)
  renderYsiSheet(prog?.name||'Program', isAdmin, false)
 }
 
@@ -21742,163 +21713,6 @@ async function loadMyTimePage(){
   })
 }
 
-// ── Remote Hours Timer ──────────────────────────────────────────────────────
-var _rmt = { running: false, paused: false, startTs: null, elapsed: 0, interval: null,
-  activity: '', category: '' }
-
-// Draggable timer
-var _rmtDrag = { dragging: false, ox: 0, oy: 0 }
-function startDragTimer(e){
-  if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return
-  var w = document.getElementById('remote-timer-widget')
-  if(!w) return
-  _rmtDrag.dragging = true
-  _rmtDrag.ox = e.clientX - w.getBoundingClientRect().left
-  _rmtDrag.oy = e.clientY - w.getBoundingClientRect().top
-  document.addEventListener('mousemove', _rmtDragMove)
-  document.addEventListener('mouseup', _rmtDragEnd)
-  e.preventDefault()
-}
-function _rmtDragMove(e){
-  if(!_rmtDrag.dragging) return
-  var w = document.getElementById('remote-timer-widget')
-  if(!w) return
-  var x = e.clientX - _rmtDrag.ox
-  var y = e.clientY - _rmtDrag.oy
-  // Keep on screen
-  x = Math.max(0, Math.min(x, window.innerWidth - w.offsetWidth))
-  y = Math.max(0, Math.min(y, window.innerHeight - w.offsetHeight))
-  w.style.left = x + 'px'
-  w.style.top = y + 'px'
-  w.style.right = 'auto'
-  w.style.bottom = 'auto'
-}
-function _rmtDragEnd(){
-  _rmtDrag.dragging = false
-  document.removeEventListener('mousemove', _rmtDragMove)
-  document.removeEventListener('mouseup', _rmtDragEnd)
-}
-
-function openRemoteTimer(){
-  var popup = window.open('/static/timer.html','hwtc_timer',
-    'width=360,height=500,resizable=yes,scrollbars=no,status=no,toolbar=no,menubar=no,location=no')
-  if(popup) popup.focus()
-  else toast('Allow popups for this site to use the timer','error')
-  // Refresh My Time page when hours are submitted from the popup
-  window.addEventListener('storage', function _onTimerSubmit(e){
-    if(e.key==='hwtc_hours_submitted'){ loadMyTimePage() }
-  })
-}
-function closeRemoteTimer(){
-  document.getElementById('remote-timer-widget').style.display = 'none'
-}
-function _rmtShowSetup(){
-  document.getElementById('rmt-setup').style.display = ''
-  document.getElementById('rmt-running').style.display = 'none'
-  document.getElementById('rmt-submit').style.display = 'none'
-}
-function _rmtShowRunning(){
-  document.getElementById('rmt-setup').style.display = 'none'
-  document.getElementById('rmt-running').style.display = ''
-  document.getElementById('rmt-submit').style.display = 'none'
-  var lbl = document.getElementById('rmt-activity-label')
-  if(lbl) lbl.textContent = _rmt.activity + ' · ' + _rmt.category
-}
-function _rmtFmt(secs){
-  var h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60
-  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')
-}
-function _rmtTick(){
-  if(!_rmt.running || _rmt.paused) return
-  var total = _rmt.elapsed + Math.floor((Date.now() - _rmt.startTs) / 1000)
-  var el = document.getElementById('rmt-display')
-  if(el) el.textContent = _rmtFmt(total)
-}
-function startRemoteTimer(){
-  var act = (document.getElementById('rmt-activity')||{}).value.trim()
-  var cat = (document.getElementById('rmt-category')||{}).value
-  if(!act){ toast('Please enter an activity description','error'); return }
-  _rmt.activity = act
-  _rmt.category = cat
-  _rmt.running = true
-  _rmt.paused = false
-  _rmt.startTs = Date.now()
-  _rmt.elapsed = 0
-  clearInterval(_rmt.interval)
-  _rmt.interval = setInterval(_rmtTick, 1000)
-  _rmtShowRunning()
-  var sl = document.getElementById('rmt-status-label')
-  if(sl){ sl.textContent = '● RUNNING'; sl.style.color = '#166534' }
-}
-function pauseRemoteTimer(){
-  if(_rmt.paused){
-    // Resume
-    _rmt.startTs = Date.now()
-    _rmt.paused = false
-    _rmt.interval = setInterval(_rmtTick, 1000)
-    var btn = document.getElementById('rmt-pause-btn')
-    if(btn) btn.textContent = '⏸ Pause'
-    var sl = document.getElementById('rmt-status-label')
-    if(sl){ sl.textContent = '● RUNNING'; sl.style.color = '#166534' }
-  } else {
-    // Pause
-    _rmt.elapsed += Math.floor((Date.now() - _rmt.startTs) / 1000)
-    _rmt.paused = true
-    clearInterval(_rmt.interval)
-    var btn = document.getElementById('rmt-pause-btn')
-    if(btn) btn.textContent = '▶ Resume'
-    var sl = document.getElementById('rmt-status-label')
-    if(sl){ sl.textContent = '⏸ PAUSED'; sl.style.color = '#92400e' }
-  }
-}
-function stopRemoteTimer(){
-  clearInterval(_rmt.interval)
-  if(!_rmt.paused) _rmt.elapsed += Math.floor((Date.now() - _rmt.startTs) / 1000)
-  _rmt.running = false
-  _rmt.paused = false
-  var total = _rmt.elapsed
-  var hours = Math.max(0.25, Math.round((total / 3600) * 4) / 4) // round to nearest 0.25h
-  document.getElementById('rmt-setup').style.display = 'none'
-  document.getElementById('rmt-running').style.display = 'none'
-  document.getElementById('rmt-submit').style.display = ''
-  var ft = document.getElementById('rmt-final-time')
-  var fh = document.getElementById('rmt-final-hours')
-  if(ft) ft.textContent = _rmtFmt(total)
-  if(fh) fh.textContent = hours.toFixed(2) + ' hours (rounded to nearest 0.25)'
-  _rmt.finalHours = hours
-}
-function resumeFromSubmit(){
-  _rmt.running = true
-  _rmt.paused = true // treat as paused so user hits resume
-  _rmtShowRunning()
-  var btn = document.getElementById('rmt-pause-btn')
-  if(btn) btn.textContent = '▶ Resume'
-  var sl = document.getElementById('rmt-status-label')
-  if(sl){ sl.textContent = '⏸ PAUSED'; sl.style.color = '#92400e' }
-}
-async function submitRemoteTimer(){
-  var notes = (document.getElementById('rmt-notes')||{}).value.trim()
-  var hours = _rmt.finalHours
-  var payload = {
-    type: 'independent',
-    event: _rmt.activity,
-    role: _rmt.category,
-    hours: hours,
-    notes: notes,
-    date: new Date().toISOString().slice(0,10)
-  }
-  var res = await api('/api/my/hours/submit', 'POST', payload)
-  if(res && res.ok){
-    toast('Hours submitted for approval!', 'success')
-    _rmt = { running:false, paused:false, startTs:null, elapsed:0, interval:null, activity:'', category:'' }
-    closeRemoteTimer()
-    loadMyTimePage()
-  } else {
-    toast('Error submitting hours: '+(res&&res.error||'please try again'), 'error')
-  }
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
 function toggleMyTimeType(){
   var type = (document.getElementById('myt-type')||{}).value
   var evtRow = document.getElementById('myt-event-row')
@@ -22676,7 +22490,7 @@ async function renderMarqueeDashboard(el){
               var regs = s.registrants || []
               var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
               var nameHtml = regs.length ? regs.map(function(r){
-                var name = ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')).trim() || r.guardian_name || '—'
+                var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
                 var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
                 return '<span style="padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';margin:2px;display:inline-block">'+escHtml(name)+'</span>'
               }).join('') : '<span style="font-size:11px;color:var(--text-muted);font-style:italic">No registrations yet</span>'
@@ -22706,7 +22520,7 @@ async function renderMarqueeDashboard(el){
         if(flatRegs.length){
           html += '<div style="padding:4px 20px 12px 36px;display:flex;flex-wrap:wrap;gap:3px">'
           + flatRegs.map(function(r){
-              var name = ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')).trim() || r.guardian_name || '—'
+              var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
               var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
               return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+'">'+escHtml(name)+'</span>'
             }).join('')

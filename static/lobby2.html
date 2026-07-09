@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>HWTC Lobby Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-base:#09151e;
+  --hdr-grad-1:#0d3d4d;
+  --hdr-grad-2:#145466;
+  --hdr-grad-3:#1b708d;
+  --hdr-border:#1b708d;
+  --accent:#1b708d;
+  --accent-bright:#4ade80;
+  --accent-warm:#fbbf24;
+  --sched-bg:#0d1e2e;
+  --sched-border:#1b3a4d;
+  --sched-hdr-bg:#0d3d4d;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg-base)}
+body{
+  font-family:'DM Sans',system-ui,sans-serif;
+  color:#fff;
+  display:grid;
+  grid-template-rows:130px 1fr;
+  grid-template-columns:1fr 380px;
+  grid-template-areas:
+    "header header"
+    "carousel schedule";
+  height:100vh;
+  position:relative;
+}
+
+/* ── HEADER ── */
+header{
+  grid-area:header;
+  background:linear-gradient(135deg,var(--hdr-grad-1) 0%,var(--hdr-grad-2) 60%,var(--hdr-grad-3) 100%);
+  background-size:cover;background-position:center;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 40px;
+  border-bottom:3px solid var(--hdr-border);
+  position:relative;z-index:10;
+}
+header.has-banner::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.15) 55%,rgba(0,0,0,0.45) 100%);
+  z-index:-1;
+}
+.hdr-logo{display:flex;align-items:center;gap:16px}
+.hdr-logo img{height:58px;filter:brightness(0) invert(1)}
+.hdr-title{font-size:30px;font-weight:800;letter-spacing:-0.5px}
+.hdr-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-top:2px}
+.hdr-clock{text-align:right}
+.hdr-time{font-size:44px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-1px;line-height:1}
+.hdr-date{font-size:14px;color:rgba(255,255,255,0.65);margin-top:4px}
+
+/* ── CAROUSEL ── */
+#carousel-area{
+  grid-area:carousel;
+  position:relative;overflow:hidden;background:#000;
+}
+#carousel-area .slide{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity 1s ease;
+}
+#carousel-area .slide.active{opacity:1}
+#carousel-area .slide img{
+  width:100%;height:100%;object-fit:cover;
+}
+#carousel-area .slide .slide-caption{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(transparent,rgba(0,0,0,0.7));
+  padding:32px 32px 20px;
+  font-size:18px;font-weight:600;color:#fff;
+}
+#carousel-dots{
+  position:absolute;bottom:16px;right:20px;
+  display:flex;gap:6px;z-index:5;
+}
+#carousel-dots span{
+  width:8px;height:8px;border-radius:50%;
+  background:rgba(255,255,255,0.35);
+  transition:background 0.3s;cursor:pointer;
+}
+#carousel-dots span.active{background:#fff}
+
+/* Empty carousel state */
+#carousel-empty{
+  display:none;position:absolute;inset:0;
+  align-items:center;justify-content:center;flex-direction:column;gap:16px;
+  background:linear-gradient(135deg,#0d2233,#0d3d4d);
+  color:rgba(255,255,255,0.4);font-size:18px;text-align:center;
+}
+#carousel-empty.show{display:flex}
+.empty-logo{font-size:72px;font-weight:900;color:rgba(255,255,255,0.08);letter-spacing:-3px}
+
+/* ── SCHEDULE SIDEBAR ── */
+#schedule-area{
+  grid-area:schedule;
+  background:var(--sched-bg);
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  border-left:2px solid var(--sched-border);
+  display:flex;flex-direction:column;overflow:hidden;
+  position:relative;
+}
+#schedule-area.has-bg::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,0.35) 0%,rgba(0,0,0,0.55) 100%);
+  z-index:0;pointer-events:none;
+}
+#schedule-area.has-bg .schedule-header,
+#schedule-area.has-bg #events-list{
+  position:relative;z-index:1;
+}
+#schedule-area.has-bg .schedule-header{
+  background:rgba(0,0,0,0.3);
+}
+.schedule-header{
+  background:var(--sched-hdr-bg);
+  padding:16px 20px;
+  font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;
+  border-bottom:2px solid var(--hdr-border);display:flex;align-items:center;gap:8px;
+}
+.schedule-header::before{content:'';width:10px;height:10px;border-radius:50%;background:var(--accent-bright);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+#events-list{flex:1;overflow-y:auto;padding:12px 0}
+#events-list::-webkit-scrollbar{width:4px}
+#events-list::-webkit-scrollbar-track{background:transparent}
+#events-list::-webkit-scrollbar-thumb{background:var(--sched-border);border-radius:2px}
+.event-item{
+  padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.06);
+  transition:background 0.2s;
+}
+.event-item:hover{background:rgba(255,255,255,0.04)}
+.event-item.today .ei-day{color:var(--accent-bright)}
+.event-item.today{
+  border-left:3px solid var(--accent-bright);
+  background:rgba(255,255,255,0.03);
+  position:relative;
+  animation:event-today-glow 2.4s ease-in-out infinite;
+}
+@keyframes event-today-glow{
+  0%,100%{box-shadow:inset 0 0 0 0 rgba(255,255,255,0)}
+  50%{box-shadow:inset 3px 0 12px -2px var(--accent-bright)}
+}
+.event-item.today .ei-name::after{
+  content:'\2728';
+  display:inline-block;
+  margin-left:6px;
+  font-size:13px;
+  animation:today-star-spin 3s ease-in-out infinite;
+}
+.event-item.soon .ei-day{color:var(--accent-warm)}
+.event-item.soon{border-left:3px solid var(--accent-warm)}
+.ei-day{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#64a4b8;margin-bottom:3px}
+.ei-name{font-size:14px;font-weight:700;line-height:1.3;margin-bottom:2px}
+.ei-meta{font-size:11px;color:rgba(255,255,255,0.45);display:flex;flex-wrap:wrap;gap:6px}
+.ei-meta span{display:flex;align-items:center;gap:3px}
+.no-events{
+  padding:40px 20px;text-align:center;color:rgba(255,255,255,0.3);
+  font-size:13px;line-height:1.6;
+}
+
+/* ── ADMIN PANEL (hidden, toggle with ?manage) ── */
+#admin-panel{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:100;
+  align-items:center;justify-content:center;
+}
+#admin-panel.show{display:flex}
+.admin-box{
+  background:#132030;border:1px solid #1b708d;border-radius:16px;
+  width:600px;max-width:95vw;max-height:85vh;overflow-y:auto;padding:28px;
+}
+.admin-box h2{font-size:20px;font-weight:800;margin-bottom:20px;color:#4ade80}
+.admin-section{margin-bottom:24px}
+.admin-section h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#64a4b8;margin-bottom:12px}
+.admin-img-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.admin-img-thumb{
+  position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;
+  background:#0d2233;border:1px solid #1b3a4d;
+}
+.admin-img-thumb img{width:100%;height:100%;object-fit:cover}
+.admin-img-thumb .del-btn{
+  position:absolute;top:4px;right:4px;
+  background:rgba(220,38,38,0.85);color:#fff;border:none;border-radius:4px;
+  padding:2px 6px;font-size:11px;cursor:pointer;font-weight:700;
+}
+.admin-img-caption{
+  width:100%;padding:4px 6px;background:rgba(0,0,0,0.5);
+  font-size:11px;color:rgba(255,255,255,0.7);border:none;outline:none;
+}
+.upload-zone{
+  border:2px dashed #1b708d;border-radius:10px;padding:24px;text-align:center;
+  cursor:pointer;color:rgba(255,255,255,0.5);font-size:14px;transition:all 0.2s;
+}
+.upload-zone:hover{border-color:#4ade80;color:#4ade80;background:rgba(74,222,128,0.05)}
+.btn-save{
+  background:#145466;color:#fff;border:none;border-radius:8px;
+  padding:10px 24px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;
+}
+.btn-save:hover{background:#1b708d}
+.btn-close{
+  background:transparent;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.2);
+  border-radius:8px;padding:10px 24px;font-family:inherit;font-size:14px;cursor:pointer;margin-left:8px;
+}
+.status-msg{font-size:13px;color:#4ade80;margin-top:8px;min-height:18px}
+
+/* ── MISC ── */
+.hidden{display:none!important}
+
+/* ── THEMES ── */
+body.theme-winter{
+  --bg-base:#0a1628; --hdr-grad-1:#0c2540; --hdr-grad-2:#143a5c; --hdr-grad-3:#1e5a8a;
+  --hdr-border:#2d7ab5; --accent:#2d7ab5; --accent-bright:#7dd3fc; --accent-warm:#e0f2fe;
+  --sched-bg:#0a1c30; --sched-border:#1e3a52; --sched-hdr-bg:#0c2540;
+}
+body.theme-fall{
+  --bg-base:#1f1108; --hdr-grad-1:#3d1f0d; --hdr-grad-2:#8a4a1f; --hdr-grad-3:#c2702f;
+  --hdr-border:#d4843f; --accent:#d4843f; --accent-bright:#fbbf24; --accent-warm:#f59e0b;
+  --sched-bg:#1f1108; --sched-border:#4a2a14; --sched-hdr-bg:#3d1f0d;
+}
+body.theme-halloween{
+  --bg-base:#0d0814; --hdr-grad-1:#1a0d2e; --hdr-grad-2:#3d1a5c; --hdr-grad-3:#6b2d8a;
+  --hdr-border:#a855f7; --accent:#a855f7; --accent-bright:#fb923c; --accent-warm:#f97316;
+  --sched-bg:#0d0814; --sched-border:#2d1a44; --sched-hdr-bg:#1a0d2e;
+}
+body.theme-spring{
+  --bg-base:#0a1f14; --hdr-grad-1:#0d3322; --hdr-grad-2:#15573a; --hdr-grad-3:#2d8a5f;
+  --hdr-border:#4ade80; --accent:#4ade80; --accent-bright:#fbcfe8; --accent-warm:#fde047;
+  --sched-bg:#0a1f14; --sched-border:#1a4530; --sched-hdr-bg:#0d3322;
+}
+body.theme-summer{
+  --bg-base:#0c1e2e; --hdr-grad-1:#0e3a4d; --hdr-grad-2:#1670875; --hdr-grad-3:#0ea5e9;
+  --hdr-border:#38bdf8; --accent:#38bdf8; --accent-bright:#fde047; --accent-warm:#fb923c;
+  --sched-bg:#0c1e2e; --sched-border:#1a3a4d; --sched-hdr-bg:#0e3a4d;
+}
+body.theme-show{
+  --bg-base:#1a0a14; --hdr-grad-1:#2e0d22; --hdr-grad-2:#5c1540; --hdr-grad-3:#a8245f;
+  --hdr-border:#d4af37; --accent:#d4af37; --accent-bright:#f4d35e; --accent-warm:#fff4c2;
+  --sched-bg:#1a0a14; --sched-border:#3a1a2e; --sched-hdr-bg:#2e0d22;
+}
+body.theme-seuss{
+  --bg-base:#0a1230; --hdr-grad-1:#e8344f; --hdr-grad-2:#e8344f; --hdr-grad-3:#c8102e;
+  --hdr-border:#fcd34d; --accent:#fcd34d; --accent-bright:#fde047; --accent-warm:#60a5fa;
+  --sched-bg:#0a1230; --sched-border:#1e3a6f; --sched-hdr-bg:#0d6e3f;
+  --seuss-yellow:#fcd34d; --seuss-blue:#3b82f6; --seuss-green:#16a34a; --seuss-red:#e8344f; --seuss-purple:#9333ea;
+}
+body.theme-jungle{
+  --bg-base:#0a1f0e; --hdr-grad-1:#1a3d0f; --hdr-grad-2:#2d6b1a; --hdr-grad-3:#3d8a22;
+  --hdr-border:#86c936; --accent:#86c936; --accent-bright:#b5f542; --accent-warm:#fbbf24;
+  --sched-bg:#061408; --sched-border:#1a4010; --sched-hdr-bg:#1a3d0f;
+}
+body.theme-jungle header{ background:linear-gradient(135deg,#1a3d0f,#2d6b1a); }
+body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+body.theme-jungle .schedule-header{
+  background:transparent;border-bottom:none;justify-content:center;
+}
+
+/* ── JUNGLE SIGNPOST ── */
+body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+
+/* Bamboo pole */
+.jungle-signpost-wrap{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 0 20px;position:relative;overflow-y:auto;
+}
+.jungle-pole{
+  position:absolute;top:0;bottom:20px;left:50%;width:14px;
+  transform:translateX(-50%);
+  background:repeating-linear-gradient(
+    180deg,
+    #8fbe3a 0px, #6a9c28 28px,
+    #4a7a18 30px, #6a9c28 32px
+  );
+  border-radius:4px;z-index:0;
+  box-shadow:inset -3px 0 6px rgba(0,0,0,0.3), 2px 0 4px rgba(0,0,0,0.2);
+}
+.jungle-pole::before{
+  content:'';position:absolute;top:0;left:2px;width:4px;height:100%;
+  background:rgba(255,255,255,0.15);border-radius:2px;
+}
+
+/* Leaf-tipped planks */
+.jungle-plank{
+  position:relative;z-index:1;
+  width:82%;max-width:275px;
+  margin:8px 0;padding:10px 16px 10px 20px;
+  border-radius:6px 20px 20px 6px;
+  border:2px solid rgba(0,0,0,0.35);
+  font-family:'DM Sans',system-ui,sans-serif;
+  color:#1a1a1a;
+  box-shadow:3px 4px 0 rgba(0,0,0,0.3);
+}
+.jungle-plank:nth-child(odd){ transform:rotate(-2deg); border-radius:20px 6px 6px 20px; }
+.jungle-plank:nth-child(even){ transform:rotate(1.5deg); }
+.jungle-plank::before{
+  content:'🌿';position:absolute;
+  right:-10px;top:50%;transform:translateY(-50%);
+  font-size:20px;
+}
+.jungle-plank:nth-child(odd)::before{
+  content:'🌿';left:-10px;right:auto;transform:translateY(-50%) scaleX(-1);
+}
+.jungle-plank.today{
+  box-shadow:3px 4px 0 rgba(0,0,0,0.3), 0 0 0 3px #fbbf24, 0 0 20px 4px rgba(251,191,36,0.4);
+  animation:jungle-today-bounce 2.5s ease-in-out infinite;z-index:2;
+}
+@keyframes jungle-today-bounce{
+  0%,100%{transform:rotate(-2deg) translateY(0) scale(1)}
+  50%{transform:rotate(-2deg) translateY(-4px) scale(1.03)}
+}
+.jungle-plank.today:nth-child(even){
+  animation-name:jungle-today-bounce-even;
+}
+@keyframes jungle-today-bounce-even{
+  0%,100%{transform:rotate(1.5deg) translateY(0) scale(1)}
+  50%{transform:rotate(1.5deg) translateY(-4px) scale(1.03)}
+}
+.jungle-plank .ei-day{ font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:#1a1a1a;opacity:0.75;margin-bottom:2px }
+.jungle-plank .ei-name{ font-size:15px;font-weight:800;line-height:1.2;margin-bottom:3px;color:#1a1a1a }
+.jungle-plank .ei-meta{ font-size:11px;font-weight:600;color:#1a1a1a;opacity:0.8;display:flex;gap:8px;flex-wrap:wrap }
+.jungle-today-star{
+  position:absolute;top:-10px;right:-6px;font-size:20px;
+  animation:today-star-spin 3s ease-in-out infinite;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+}
+body.theme-seuss .hdr-title{ font-family:'Baloo 2','DM Sans',system-ui,sans-serif; letter-spacing:0 }
+
+/* ── SIGNPOST EVENTS (Seuss theme schedule) ── */
+body.theme-seuss #schedule-area{ background:var(--sched-bg) }
+body.theme-seuss .schedule-header{
+  background:transparent;border-bottom:none;justify-content:center;
+  font-family:'Baloo 2','DM Sans',system-ui,sans-serif;font-size:16px;
+}
+body.theme-seuss .schedule-header::before{ display:none }
+.signpost-wrap{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 0 20px;position:relative;overflow-y:auto;
+}
+.signpost-pole{
+  position:absolute;top:0;bottom:20px;left:50%;width:10px;
+  transform:translateX(-50%);
+  background:linear-gradient(90deg,#8a5a2e,#b07840,#8a5a2e);
+  border-radius:3px;z-index:0;
+}
+.signpost-plank{
+  position:relative;z-index:1;
+  width:84%;max-width:280px;
+  margin:7px 0;padding:10px 16px;
+  border-radius:4px 14px 14px 4px;
+  border:3px solid #1a1a1a;
+  font-family:'Baloo 2','DM Sans',system-ui,sans-serif;
+  color:#1a1a1a;
+  box-shadow:3px 4px 0 rgba(0,0,0,0.25);
+}
+.signpost-plank:nth-child(odd){ transform:rotate(-2.5deg); border-radius:14px 4px 4px 14px; }
+.signpost-plank:nth-child(even){ transform:rotate(2deg); }
+.signpost-plank.today{
+  box-shadow:3px 4px 0 rgba(0,0,0,0.25), 0 0 0 3px #fde047, 0 0 24px 4px rgba(253,224,71,0.45);
+  animation:plank-today-bounce 2.2s ease-in-out infinite;
+  z-index:2;
+}
+@keyframes plank-today-bounce{
+  0%,100%{transform:rotate(-2.5deg) translateY(0) scale(1)}
+  50%{transform:rotate(-2.5deg) translateY(-4px) scale(1.04)}
+}
+.signpost-plank.today:nth-child(even){
+  animation-name:plank-today-bounce-even;
+}
+@keyframes plank-today-bounce-even{
+  0%,100%{transform:rotate(2deg) translateY(0) scale(1)}
+  50%{transform:rotate(2deg) translateY(-4px) scale(1.04)}
+}
+.today-star{
+  position:absolute;top:-10px;right:-8px;
+  font-size:22px;
+  animation:today-star-spin 3s ease-in-out infinite;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+}
+@keyframes today-star-spin{
+  0%,100%{transform:rotate(-12deg) scale(1)}
+  50%{transform:rotate(12deg) scale(1.15)}
+}
+.signpost-plank .ei-day{ font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:#1a1a1a;opacity:0.7;margin-bottom:2px }
+.signpost-plank .ei-name{ font-size:15px;font-weight:800;line-height:1.2;margin-bottom:3px;color:#1a1a1a }
+.signpost-plank .ei-meta{ font-size:11px;font-weight:600;color:#1a1a1a;opacity:0.8;display:flex;gap:8px;flex-wrap:wrap }
+
+/* ── DECORATION LAYER ── */
+#theme-decorations{
+  position:fixed;inset:0;pointer-events:none;z-index:50;overflow:hidden;
+}
+.deco-item{
+  position:absolute;top:-40px;
+  animation:deco-fall linear infinite;
+  opacity:0.85;
+}
+@keyframes deco-fall{
+  0%{transform:translateY(-5vh) translateX(0) rotate(0deg)}
+  100%{transform:translateY(105vh) translateX(var(--drift,30px)) rotate(360deg)}
+}
+.deco-sparkle{
+  position:absolute;
+  animation:deco-twinkle ease-in-out infinite;
+}
+@keyframes deco-twinkle{
+  0%,100%{opacity:0;transform:scale(0.5)}
+  50%{opacity:1;transform:scale(1)}
+}
+.theme-badge{
+  position:absolute;top:14px;right:14px;z-index:60;
+  background:rgba(0,0,0,0.4);backdrop-filter:blur(4px);
+  padding:4px 12px;border-radius:20px;
+  font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);
+  letter-spacing:0.5px;display:none;
+}
+
+/* ── LOBBY2 SIGNPOST IMAGE OVERRIDE ── */
+body.theme-jungle #schedule-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+#jungle-signpost-panel {
+  display: none;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+}
+body.theme-jungle #jungle-signpost-panel { display: flex }
+body.theme-jungle #events-list { display: none }
+.signpost-img-base {
+  width: 240px;
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  filter: drop-shadow(0 4px 20px rgba(0,0,0,0.8));
+  pointer-events: none;
+}
+.signpost-board-events {
+  position: absolute;
+  bottom: 128px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 195px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.sp-event {
+  width: 100%;
+  padding: 4px 6px;
+  text-align: center;
+}
+.sp-event + .sp-event {
+  border-top: 1px solid rgba(90,50,10,0.2);
+}
+.sp-today-badge {
+  background: #fbbf24;
+  color: #2a1000;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 10px;
+  display: inline-block;
+  margin-bottom: 1px;
+  letter-spacing: 0.3px;
+}
+.sp-day { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #7a4e18; margin-bottom: 1px }
+.sp-name { font-size: 12px; font-weight: 800; color: #2a1500; line-height: 1.2 }
+.sp-meta { font-size: 9px; color: #6a3e10; font-weight: 600 }
+.sp-event.today { animation: sp-bounce 2.5s ease-in-out infinite }
+@keyframes sp-bounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.02)} }
+
+</style>
+</head>
+<body>
+
+<div id="theme-decorations"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="hdr-logo">
+    <img src="/static/images/hwtc_logo_teal.png" alt="HWTC" style="height:58px" onerror="this.style.display='none'"/>
+    <div>
+      <div class="hdr-title">Horizon West Theater Company</div>
+      <div class="hdr-sub">Welcome to HWTC Studio</div>
+    </div>
+  </div>
+  <div class="hdr-clock">
+    <div class="hdr-time" id="clock">--:-- --</div>
+    <div class="hdr-date" id="clock-date"></div>
+  </div>
+</header>
+
+<!-- CAROUSEL -->
+<div id="carousel-area">
+  <div id="carousel-empty" class="show">
+    <div class="empty-logo">HWTC</div>
+    <div>No images uploaded yet</div>
+    <div style="font-size:13px;margin-top:4px">Add images via <strong>?manage</strong></div>
+  </div>
+  <div id="carousel-dots"></div>
+</div>
+
+<!-- SCHEDULE -->
+<div id="schedule-area">
+  <div class="schedule-header">Upcoming Events</div>
+  <div id="events-list"><div class="no-events">Loading…</div></div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel">
+  <div class="admin-box">
+    <h2>Lobby Display Manager</h2>
+
+    <div class="admin-section">
+      <h3>Carousel Images</h3>
+      <div class="admin-img-grid" id="admin-img-grid"></div>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('img-file-input').click()">
+        Click to upload images (JPG, PNG, WebP)<br/>
+        <span style="font-size:12px">Recommended: 1920×1080 or 16:9 ratio</span>
+      </div>
+      <input type="file" id="img-file-input" accept="image/*" multiple style="display:none"/>
+      <div class="status-msg" id="upload-status"></div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      <button class="btn-save" onclick="saveImages()">Save &amp; Apply</button>
+      <button class="btn-close" onclick="closeAdmin()">Close</button>
+      <span class="status-msg" id="save-status"></span>
+    </div>
+
+    <div class="admin-section" style="margin-top:20px">
+      <h3>Carousel Speed</h3>
+      <div style="display:flex;align-items:center;gap:12px">
+        <label style="font-size:13px;color:rgba(255,255,255,0.7)">Seconds per slide:</label>
+        <input type="number" id="slide-duration" min="3" max="60" value="8"
+          style="width:70px;background:#0d2233;border:1px solid #1b3a4d;color:#fff;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:14px"/>
+        <button class="btn-save" style="padding:8px 16px" onclick="applySpeed()">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+var _slides = []          // {url, caption}
+var _slideIdx = 0
+var _slideDuration = 8000 // ms
+var _slideTimer = null
+var _adminImages = []     // working copy in admin panel
+var _isAdmin = window.location.search.includes('manage')
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+function updateClock(){
+  var now = new Date()
+  var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds()
+  var ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12 || 12
+  document.getElementById('clock').textContent =
+    h + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ' ' + ampm
+  document.getElementById('clock-date').textContent =
+    now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+}
+setInterval(updateClock, 1000)
+updateClock()
+
+// ── Data fetch ─────────────────────────────────────────────────────────────
+var _lastEvents = []
+
+async function loadData(){
+  try{
+    var r = await fetch('/api/public/lobby-data')
+    var d = await r.json()
+    applyTheme('jungle')
+    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
+    applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover')
+    _lastEvents = d.events || []
+    renderEvents(_lastEvents)
+    var images = d.lobby_images || []
+    if(images.length){
+      _slides = images.map(function(img){
+        if(typeof img === 'string') return {url:img, caption:''}
+        return {url: img.url||img, caption: img.caption||''}
+      })
+      buildCarousel()
+    }
+  } catch(e){ console.error('Load error:', e) }
+}
+
+function applyBanner(url, position, zoom, fit){
+  var header = document.querySelector('header')
+  if(!header) return
+  if(url){
+    header.style.backgroundImage = "url('"+url+"')"
+    header.style.backgroundPosition = position || '50% 50%'
+    header.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
+    header.style.backgroundRepeat = 'no-repeat'
+    header.classList.add('has-banner')
+  } else {
+    header.classList.remove('has-banner')
+    header.style.backgroundImage = ''
+    header.style.backgroundPosition = ''
+    header.style.backgroundSize = ''
+    header.style.backgroundRepeat = ''
+  }
+}
+
+function applySchedBg(url, position, zoom, fit){
+  var sched = document.getElementById('schedule-area')
+  if(!sched) return
+  if(url){
+    sched.style.backgroundImage = "url('"+url+"')"
+    sched.style.backgroundPosition = position || '50% 50%'
+    sched.style.backgroundSize = fit === 'contain' ? 'contain' : (zoom || 100) + '%'
+    sched.style.backgroundRepeat = 'no-repeat'
+    sched.classList.add('has-bg')
+  } else {
+    sched.classList.remove('has-bg')
+    sched.style.backgroundImage = ''
+    sched.style.backgroundPosition = ''
+    sched.style.backgroundSize = ''
+    sched.style.backgroundRepeat = ''
+  }
+}
+
+// ── Theme System ───────────────────────────────────────────────────────────
+var _currentTheme = 'none'
+var _decoInterval = null
+
+var THEME_LABELS = {
+  none:'', winter:'Winter Wonderland', fall:'Autumn', halloween:'Halloween',
+  spring:'Spring', summer:'Summer', show:'Opening Night', seuss:'Dr. Seuss',
+  jungle:'The Jungle Book'
+}
+
+function applyTheme(theme){
+  if(theme === _currentTheme) return
+  var prevTheme = _currentTheme
+  _currentTheme = theme
+  // Remove all theme classes
+  document.body.className = document.body.className.replace(/theme-\S+/g, '').trim()
+  if(theme && theme !== 'none'){
+    document.body.classList.add('theme-' + theme)
+  }
+  // Stop existing decoration spawner
+  if(_decoInterval){ clearInterval(_decoInterval); _decoInterval = null }
+  document.getElementById('theme-decorations').innerHTML = ''
+  // Start new decorations
+  startThemeDecorations(theme)
+  // Re-render events if layout style changed (signpost vs standard)
+  var signpostThemes = ['seuss','jungle']
+  if(prevTheme !== 'none' && (signpostThemes.indexOf(theme)>=0) !== (signpostThemes.indexOf(prevTheme)>=0) && _lastEvents.length){
+    renderEvents(_lastEvents)
+  }
+}
+
+
+function startThemeDecorations(theme){
+  var deco = document.getElementById('theme-decorations')
+  if(!deco) return
+
+  var configs = {
+    winter:  { emoji:'\u2744\ufe0f', count:25, sizeMin:14, sizeMax:28, durMin:8, durMax:18 },
+    fall:    { emoji:'\ud83c\udf42', count:18, sizeMin:18, sizeMax:32, durMin:7, durMax:14, altEmoji:['\ud83c\udf41','\ud83c\udf43'] },
+    spring:  { emoji:'\ud83c\udf38', count:16, sizeMin:14, sizeMax:24, durMin:9, durMax:16, altEmoji:['\ud83c\udf3c','\ud83e\udeb7'] },
+    summer:  { emoji:'\u2600\ufe0f', count:0 }, // summer uses sparkle only, no falling
+    halloween:{ emoji:'\ud83c\udf83', count:12, sizeMin:18, sizeMax:30, durMin:10, durMax:20, altEmoji:['\ud83e\udd87','\ud83d\udc7b'] },
+    show:    { emoji:'\u2728', count:0 }, // show uses sparkle only
+    jungle:  { emoji:'\ud83c\udf43', count:20, sizeMin:16, sizeMax:30, durMin:8, durMax:16, altEmoji:['\ud83c\udf3f','\ud83c\udf4c','\ud83d\udc0d','\ud83e\udd9c','\ud83d\udc3a'] },
+  }
+
+  var cfg = configs[theme]
+  if(!cfg) return
+
+  // Falling decorations
+  if(cfg.count > 0){
+    for(var i = 0; i < cfg.count; i++){
+      setTimeout(function(){ spawnFallingDeco(deco, cfg) }, Math.random() * 8000)
+    }
+    _decoInterval = setInterval(function(){
+      spawnFallingDeco(deco, cfg)
+    }, 1400)
+  }
+
+  // Sparkle overlay for show/summer/halloween themes
+  if(theme === 'show' || theme === 'summer' || theme === 'halloween'){
+    spawnSparkles(deco, theme)
+  }
+}
+
+function spawnFallingDeco(container, cfg){
+  var el = document.createElement('div')
+  el.className = 'deco-item'
+  var emoji = cfg.emoji
+  if(cfg.altEmoji && Math.random() < 0.4){
+    emoji = cfg.altEmoji[Math.floor(Math.random() * cfg.altEmoji.length)]
+  }
+  el.textContent = emoji
+  var size = cfg.sizeMin + Math.random() * (cfg.sizeMax - cfg.sizeMin)
+  var dur = cfg.durMin + Math.random() * (cfg.durMax - cfg.durMin)
+  var drift = (Math.random() - 0.5) * 200
+  el.style.left = Math.random() * 100 + 'vw'
+  el.style.fontSize = size + 'px'
+  el.style.animationDuration = dur + 's'
+  el.style.setProperty('--drift', drift + 'px')
+  container.appendChild(el)
+  setTimeout(function(){ el.remove() }, dur * 1000 + 500)
+}
+
+function spawnSparkles(container, theme){
+  var sparkleChar = theme === 'halloween' ? '\ud83d\udd76\ufe0f' : theme === 'summer' ? '\u2600\ufe0f' : '\u2728'
+  var count = theme === 'halloween' ? 6 : 10
+  for(var i = 0; i < count; i++){
+    var s = document.createElement('div')
+    s.className = 'deco-sparkle'
+    s.textContent = sparkleChar
+    s.style.left = (5 + Math.random() * 90) + 'vw'
+    s.style.top = (5 + Math.random() * 90) + 'vh'
+    s.style.fontSize = (12 + Math.random() * 16) + 'px'
+    s.style.animationDuration = (2 + Math.random() * 3) + 's'
+    s.style.animationDelay = (Math.random() * 3) + 's'
+    container.appendChild(s)
+  }
+}
+
+// Reload data every 5 minutes
+setInterval(loadData, 5 * 60 * 1000)
+loadData()
+
+// ── Events ─────────────────────────────────────────────────────────────────
+var SEUSS_PLANK_COLORS = ['#fbbf24','#38bdf8','#4ade80','#f472b6','#fb923c','#c084fc']
+var JUNGLE_PLANK_COLORS = ['#a7f542','#fbbf24','#86efac','#fcd34d','#bbf7d0','#fde68a']
+
+function renderEvents(events){
+  var el = document.getElementById('events-list')
+  if(!events.length){
+    if(_currentTheme === 'seuss' || _currentTheme === 'jungle'){
+      el.innerHTML = '<div class="signpost-wrap"><div class="no-events">No upcoming events<br/>scheduled at this time</div></div>'
+    } else {
+      el.innerHTML = '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'
+    }
+    return
+  }
+  var today = new Date().toISOString().slice(0,10)
+  var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
+
+  if(_currentTheme === 'jungle'){
+    var planks = events.map(function(ev, i){
+      var isToday = ev.event_date === today
+      var isTomorrow = ev.event_date === tomorrow
+      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
+      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
+      var color = JUNGLE_PLANK_COLORS[i % JUNGLE_PLANK_COLORS.length]
+      return '<div class="jungle-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
+        + (isToday ? '<span class="jungle-today-star">🌟</span>' : '')
+        + '<div class="ei-day">'+dayLabel+'</div>'
+        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
+        + '<div class="ei-meta">'
+        + (timeStr ? '<span>'+timeStr+'</span>' : '')
+        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
+        + '</div></div>'
+    }).join('')
+    el.innerHTML = '<div class="jungle-signpost-wrap"><div class="jungle-pole"></div>' + planks + '</div>'
+    return
+  }
+
+  if(_currentTheme === 'seuss'){
+    var planks = events.map(function(ev, i){
+      var isToday = ev.event_date === today
+      var isTomorrow = ev.event_date === tomorrow
+      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
+      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
+      var color = SEUSS_PLANK_COLORS[i % SEUSS_PLANK_COLORS.length]
+      return '<div class="signpost-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
+        + (isToday ? '<span class="today-star">\u2728</span>' : '')
+        + '<div class="ei-day">'+dayLabel+'</div>'
+        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
+        + '<div class="ei-meta">'
+        + (timeStr ? '<span>'+timeStr+'</span>' : '')
+        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
+        + '</div></div>'
+    }).join('')
+    el.innerHTML = '<div class="signpost-wrap"><div class="signpost-pole"></div>' + planks + '</div>'
+    return
+  }
+
+  el.innerHTML = events.map(function(ev){
+    var isToday = ev.event_date === today
+    var isTomorrow = ev.event_date === tomorrow
+    var cls = isToday ? 'event-item today' : isTomorrow ? 'event-item soon' : 'event-item'
+    var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
+    var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
+    return '<div class="'+cls+'">'
+      + '<div class="ei-day">'+dayLabel+'</div>'
+      + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
+      + '<div class="ei-meta">'
+      + (timeStr ? '<span>'+timeStr+'</span>' : '')
+      + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
+      + '</div></div>'
+  }).join('')
+}
+
+function formatEventDate(d){
+  if(!d) return ''
+  try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) }
+  catch(e){ return d }
+}
+
+function fmt12(t){
+  if(!t) return ''
+  try{
+    var p=t.split(':'), h=parseInt(p[0]), m=p[1], a=h>=12?'PM':'AM'
+    h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a
+  } catch(e){ return t }
+}
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML }
+
+// ── Carousel ───────────────────────────────────────────────────────────────
+function buildCarousel(){
+  var area = document.getElementById('carousel-area')
+  var empty = document.getElementById('carousel-empty')
+  var dots = document.getElementById('carousel-dots')
+  // Remove old slides
+  area.querySelectorAll('.slide').forEach(function(s){ s.remove() })
+  if(!_slides.length){ empty.classList.add('show'); dots.innerHTML=''; return }
+  empty.classList.remove('show')
+  dots.innerHTML = _slides.map(function(_,i){
+    return '<span onclick="goSlide('+i+')" '+(i===0?'class="active"':'')+' ></span>'
+  }).join('')
+  _slides.forEach(function(slide, i){
+    var div = document.createElement('div')
+    div.className = 'slide' + (i===0?' active':'')
+    var img = document.createElement('img')
+    img.src = typeof slide==='string' ? slide : (slide.url||slide)
+    img.alt = ''
+    div.appendChild(img)
+    if(typeof slide==='object' && slide.caption){
+      var cap = document.createElement('div')
+      cap.className = 'slide-caption'
+      cap.textContent = slide.caption
+      div.appendChild(cap)
+    }
+    area.insertBefore(div, dots)
+  })
+  _slideIdx = 0
+  startCarousel()
+}
+
+function startCarousel(){
+  if(_slideTimer) clearInterval(_slideTimer)
+  if(_slides.length < 2) return
+  _slideTimer = setInterval(nextSlide, _slideDuration)
+}
+
+function nextSlide(){
+  goSlide((_slideIdx + 1) % _slides.length)
+}
+
+function goSlide(idx){
+  var area = document.getElementById('carousel-area')
+  var slides = area.querySelectorAll('.slide')
+  var dots = document.getElementById('carousel-dots').querySelectorAll('span')
+  if(!slides.length) return
+  slides[_slideIdx].classList.remove('active')
+  if(dots[_slideIdx]) dots[_slideIdx].classList.remove('active')
+  _slideIdx = idx
+  slides[_slideIdx].classList.add('active')
+  if(dots[_slideIdx]) dots[_slideIdx].classList.add('active')
+}
+
+// ── Admin Panel ─────────────────────────────────────────────────────────────
+if(_isAdmin){
+  document.getElementById('admin-panel').classList.add('show')
+  loadAdminImages()
+}
+
+// Keyboard shortcut: M to open manage
+document.addEventListener('keydown', function(e){
+  if(e.key==='m'||e.key==='M') toggleAdmin()
+  if(e.key==='Escape') closeAdmin()
+})
+
+function toggleAdmin(){
+  var p = document.getElementById('admin-panel')
+  if(p.classList.contains('show')) closeAdmin()
+  else { p.classList.add('show'); loadAdminImages() }
+}
+
+function closeAdmin(){
+  document.getElementById('admin-panel').classList.remove('show')
+}
+
+async function loadAdminImages(){
+  try{
+    var r = await fetch('/api/lobby/images', {credentials:'include'})
+    if(!r.ok) return
+    _adminImages = await r.json()
+  } catch(e){ _adminImages = [] }
+  renderAdminGrid()
+}
+
+function renderAdminGrid(){
+  var grid = document.getElementById('admin-img-grid')
+  if(!_adminImages.length){
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,0.3);padding:16px;font-size:13px">No images yet. Upload some below.</div>'
+    return
+  }
+  grid.innerHTML = _adminImages.map(function(img, i){
+    var url = typeof img==='string' ? img : (img.url||img)
+    var cap = typeof img==='object' ? (img.caption||'') : ''
+    return '<div class="admin-img-thumb">'
+      + '<img src="'+url+'" alt=""/>'
+      + '<button class="del-btn" onclick="removeAdminImage('+i+')">&#x2715;</button>'
+      + '<input class="admin-img-caption" type="text" placeholder="Caption (optional)" value="'+escH(cap)+'" oninput="_adminImages['+i+'].caption=this.value"/>'
+      + '</div>'
+  }).join('')
+}
+
+function removeAdminImage(i){
+  _adminImages.splice(i, 1)
+  renderAdminGrid()
+}
+
+// Upload
+document.getElementById('img-file-input').addEventListener('change', async function(e){
+  var files = Array.from(e.target.files)
+  if(!files.length) return
+  var status = document.getElementById('upload-status')
+  status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
+  var uploaded = 0
+  for(var i=0;i<files.length;i++){
+    var f = files[i]
+    try{
+      var fd = new FormData(); fd.append('file', f)
+      var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
+      if(!r.ok){ status.textContent = 'Upload error '+r.status; continue }
+      var d = await r.json()
+      if(d.ok){ _adminImages.push({url:d.url, caption:''}); uploaded++ }
+      else status.textContent = 'Upload failed: '+(d.error||'Unknown')
+    } catch(err){ status.textContent = 'Upload error: '+err.message; console.error(err) }
+  }
+  renderAdminGrid()
+  status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
+  setTimeout(function(){ status.textContent='' }, 4000)
+  e.target.value = ''
+})
+
+// Drag-and-drop upload
+var uploadZone = document.getElementById('upload-zone')
+uploadZone.addEventListener('dragover', function(e){ e.preventDefault(); this.style.borderColor='#4ade80' })
+uploadZone.addEventListener('dragleave', function(){ this.style.borderColor='#1b708d' })
+uploadZone.addEventListener('drop', async function(e){
+  e.preventDefault(); this.style.borderColor='#1b708d'
+  var files = Array.from(e.dataTransfer.files).filter(function(f){ return f.type.startsWith('image/') })
+  var input = document.getElementById('img-file-input')
+  // Reuse upload logic
+  var status = document.getElementById('upload-status')
+  status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
+  for(var f of files){
+    try{
+      var fd = new FormData(); fd.append('file', f)
+      var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
+      var d = await r.json()
+      if(d.ok) _adminImages.push({url:d.url, caption:''})
+    } catch(err){ console.error(err) }
+  }
+  renderAdminGrid()
+  status.textContent = 'Uploaded!'
+  setTimeout(function(){ status.textContent='' }, 3000)
+})
+
+async function saveImages(){
+  var status = document.getElementById('save-status')
+  status.textContent = 'Saving...'
+  try{
+    var payload = _adminImages.map(function(img){
+      return typeof img==='string' ? {url:img,caption:''} : img
+    })
+    var r = await fetch('/api/lobby/images', {
+      method:'PUT',
+      credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({images:payload})
+    })
+    if(!r.ok){
+      var text = await r.text()
+      status.textContent = 'Error '+r.status+': '+text.slice(0,80)
+      return
+    }
+    var d = await r.json()
+    if(d.ok){
+      _slides = payload
+      buildCarousel()
+      status.textContent = 'Saved! ('+payload.length+' image'+(payload.length!==1?'s':'')+')'
+      setTimeout(function(){ status.textContent='' }, 4000)
+    } else {
+      status.textContent = 'Error: '+(d.error||'Unknown error')
+    }
+  } catch(e){
+    status.textContent = 'Error: '+e.message
+    console.error('Save error:', e)
+  }
+}
+
+function applySpeed(){
+  var val = parseInt(document.getElementById('slide-duration').value) || 8
+  _slideDuration = Math.max(3, Math.min(60, val)) * 1000
+  startCarousel()
+}
+
+// ── Lobby2 Signpost Board Renderer ──
+function renderSignpostBoard(events) {
+  var el = document.getElementById('signpost-board-events')
+  if(!el) return
+  if(!events || !events.length) {
+    el.innerHTML = '<div style="color:rgba(90,50,10,0.5);font-size:10px;font-style:italic;text-align:center">No upcoming events</div>'
+    return
+  }
+  var today = new Date().toISOString().slice(0,10)
+  var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
+  // Show max 4 to fit on the board
+  var shown = events.slice(0,4)
+  el.innerHTML = shown.map(function(ev){
+    var isToday = ev.event_date === today
+    var isTomorrow = ev.event_date === tomorrow
+    var dayLabel = isToday ? null : isTomorrow ? 'Tomorrow' : formatEventDate(ev.event_date)
+    var timeStr = ev.start_time ? fmt12(ev.start_time) : ''
+    return '<div class="sp-event'+(isToday?' today':'')+'">'
+      + (isToday ? '<div><span class="sp-today-badge">⭐ TODAY</span></div>' : '')
+      + (dayLabel ? '<div class="sp-day">'+dayLabel+'</div>' : '')
+      + '<div class="sp-name">'+escH(ev.name||'')+'</div>'
+      + (timeStr||ev.location ? '<div class="sp-meta">'+(timeStr||'')+(timeStr&&ev.location?' · ':'')+escH(ev.location||'')+'</div>' : '')
+      + '</div>'
+  }).join('')
+}
+
+// Hook into the existing data fetch
+var _origRenderEvents = renderEvents
+renderEvents = function(events) {
+  _lastEvents = events
+  _origRenderEvents(events)
+  if(_currentTheme === 'jungle') renderSignpostBoard(events)
+}
+
+</script>
+
+<div id="jungle-signpost-panel">
+  <div class="signpost-board-events" id="signpost-board-events">
+    <div style="color:rgba(90,50,10,0.4);font-size:11px;font-style:italic">Loading...</div>
+  </div>
+  <img class="signpost-img-base" src="/static/images/signpost.png" alt="signpost"/>
+</div>
+
+</body>
+</html>

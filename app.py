@@ -1582,17 +1582,6 @@ def init_db():
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
-        # Prevent duplicate active sign-ins for same youth+event
-        """DO $$ BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_indexes WHERE tablename='youth_sign_ins'
-                AND indexname='idx_youth_sign_ins_active_unique'
-            ) THEN
-                CREATE UNIQUE INDEX idx_youth_sign_ins_active_unique
-                ON youth_sign_ins (youth_id, event_id)
-                WHERE signed_out_at IS NULL;
-            END IF;
-        END $$""",
     ]:
         try:
             c.execute(_migration)
@@ -5016,99 +5005,15 @@ def get_youth_history(yid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    timeline = []
-
-    # 1. Added to RoleCall
-    try:
-        yp = fetchone(conn, 'SELECT created_at, first_name, last_name FROM youth_participants WHERE id=%s', (yid,))
-        if yp and yp.get('created_at'):
-            timeline.append({'type':'joined','icon':'🌟','label':'Added to RoleCall',
-                'detail':f'{yp["first_name"]} {yp["last_name"]} profile created',
-                'ts':str(yp['created_at'])})
-    except Exception as e:
-        app.logger.warning(f'history joined: {e}')
-
-    # 2. Program enrollments (linked directly by youth_id)
-    try:
-        regs = fetchall(conn, '''SELECT pr.created_at, pr.status, pr.child_first_name, pr.child_last_name,
-            yp.name as program_name, yp.program_type
-            FROM program_registrations pr
-            JOIN youth_programs yp ON yp.id=pr.program_id
-            WHERE pr.youth_id=%s
-            ORDER BY pr.created_at DESC''', (yid,)) or []
-        for r in regs:
-            status_label = {'confirmed':'Enrolled','pending_payment':'Pending Payment',
-                'waitlisted':'Waitlisted','cancelled':'Cancelled'}.get(r.get('status',''),'Registered')
-            timeline.append({'type':'program','icon':'📚',
-                'label':f'Program: {r.get("program_name","")}',
-                'detail':status_label,'ts':str(r.get('created_at') or '')})
-    except Exception as e:
-        app.logger.warning(f'history programs: {e}')
-
-    # 3. Events attended (sign-ins with event_id)
-    try:
-        signins = fetchall(conn, '''SELECT ys.signed_in_at, ys.signed_out_at, ys.signed_in_by,
-            e.name as event_name, e.event_date
-            FROM youth_sign_ins ys
-            LEFT JOIN events e ON ys.event_id=e.id
-            WHERE ys.youth_id=%s AND ys.event_id IS NOT NULL
-            ORDER BY ys.signed_in_at DESC''', (yid,)) or []
-        for s in signins:
-            ename = s.get('event_name') or 'Event'
-            detail = f'Dropped off by {s["signed_in_by"]}' if s.get('signed_in_by') else 'Attended'
-            if s.get('signed_out_at') and s.get('signed_in_at'):
-                try:
-                    diff = int((s['signed_out_at'] - s['signed_in_at']).total_seconds() // 60)
-                    hrs = diff // 60; mins = diff % 60
-                    detail += f' · {hrs}h {mins}m' if hrs else f' · {mins}m'
-                except Exception: pass
-            timeline.append({'type':'event','icon':'📅','label':f'Attended: {ename}',
-                'detail':detail,'ts':str(s.get('signed_in_at') or '')})
-    except Exception as e:
-        app.logger.warning(f'history events: {e}')
-
-    # 4. Waivers signed
-    try:
-        waivers = fetchall(conn, '''SELECT yw.created_at, yw.signed_date, yw.signed_by,
-            wt.name as waiver_name
-            FROM youth_waivers yw
-            JOIN waiver_types wt ON wt.id=yw.waiver_type_id
-            WHERE yw.youth_id=%s ORDER BY yw.created_at DESC''', (yid,)) or []
-        for w in waivers:
-            detail = f'Signed {w.get("signed_date","")}' + (f' by {w["signed_by"]}' if w.get('signed_by') else '')
-            timeline.append({'type':'waiver','icon':'📋',
-                'label':f'Waiver Signed: {w.get("waiver_name","")}',
-                'detail':detail,'ts':str(w.get('created_at') or w.get('signed_date') or '')})
-    except Exception as e:
-        app.logger.warning(f'history waivers: {e}')
-
-    # 5. Notes
-    try:
-        notes = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
-        for n in notes:
-            content = (n.get('content') or '')
-            snippet = content[:80] + ('…' if len(content) > 80 else '')
-            detail = snippet + (f' — by {n["author"]}' if n.get('author') else '')
-            timeline.append({'type':'note','icon':'📝','label':'Note Added',
-                'detail':detail,'ts':str(n.get('created_at') or '')})
-    except Exception as e:
-        app.logger.warning(f'history notes: {e}')
-
-    # 6. Incidents
-    try:
-        incidents = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
-        for i in incidents:
-            severity = {'minor':'Minor','moderate':'Moderate','severe':'Severe'}.get(i.get('severity',''),'')
-            detail = (f'{severity} · ' if severity else '') + (i.get('description') or '')[:80]
-            timeline.append({'type':'incident','icon':'⚠️',
-                'label':f'Incident: {i.get("title","")}',
-                'detail':detail,'ts':str(i.get('incident_date') or i.get('created_at') or '')})
-    except Exception as e:
-        app.logger.warning(f'history incidents: {e}')
-
-    timeline.sort(key=lambda x: x.get('ts','') or '', reverse=True)
+    # Sign-in history with event names
+    signins = fetchall(conn, '''SELECT ys.*, e.name as event_name, e.event_date,
+        e.start_time, yp.name as program_name
+        FROM youth_sign_ins ys
+        LEFT JOIN events e ON ys.event_id=e.id
+        LEFT JOIN youth_programs yp ON e.program_id=yp.id
+        WHERE ys.youth_id=%s ORDER BY ys.sign_in_time DESC''', (yid,))
     conn.close()
-    return jsonify(timeline)
+    return jsonify(signins)
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):
@@ -8180,22 +8085,14 @@ def join_submit():
     conn = get_db()
     try:
         sub_selections = json.dumps(d.get('sub_selections') or {})
-        sms_consent = bool(d.get('sms_consent', False))
-        # Add sms_consent column if not exists
-        try:
-            execute(conn, "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent BOOLEAN DEFAULT FALSE")
-            conn.commit()
-        except Exception:
-            try: conn.rollback()
-            except Exception: pass
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program, sms_consent)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s)''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
-             sub_selections, (d.get('employer_program') or '').strip(), sms_consent))
+             sub_selections, (d.get('employer_program') or '').strip()))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
@@ -8226,7 +8123,6 @@ def join_submit():
                   <tr><td style="padding:8px;font-weight:600;color:#666">How they heard</td><td style="padding:8px">{d.get('how_heard',' - ')}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Employer Program</td><td style="padding:8px">{d.get('employer_program',' - ') or ' - '}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">SMS Consent</td><td style="padding:8px">{'✅ Opted in to SMS' if d.get('sms_consent') else '❌ Did not opt in'}</td></tr>
                 </table>
             </div>'''
             send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
@@ -9177,8 +9073,8 @@ def kiosk_close_event():
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
+    # Block close if any volunteers are still actively logging hours
     try:
-        # Block close if any volunteers are still actively logging hours
         active_sessions = fetchall(conn, '''SELECT ks.*, v.name as volunteer_name
             FROM kiosk_sessions ks
             JOIN volunteers v ON v.id=ks.volunteer_id
@@ -9188,9 +9084,13 @@ def kiosk_close_event():
             names = ', '.join(s['volunteer_name'] for s in active_sessions)
             conn.close()
             return jsonify({
-                'error': f'Cannot close event — {len(active_sessions)} volunteer(s) are still logging hours: {names}. Please have them stop their timers first.',
+                'error': f'Cannot close event — {len(active_sessions)} volunteer(s) are still logging hours: {names}.',
                 'active_sessions': [{'name': s['volunteer_name'], 'id': s['id']} for s in active_sessions]
             }), 400
+    except Exception as e:
+        app.logger.warning(f'Active sessions check failed (non-fatal): {e}')
+    try:
+        log_id = str(uuid.uuid4())
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
             VALUES (%s,%s,%s,'close','Event closed via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         for r in responses:
@@ -9369,29 +9269,18 @@ def kiosk_youth_for_event(event_id):
 def get_youth_sign_ins():
     conn = get_db()
     event_id = request.args.get('event_id')
-    youth_id = request.args.get('youth_id')
     if event_id:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||' '||yp.last_name as youth_name
+                   yp.first_name||\' \'||yp.last_name as youth_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
             WHERE ysi.event_id=%s
             ORDER BY ysi.signed_in_at DESC''', (event_id,))
-    elif youth_id:
-        rows = fetchall(conn, '''
-            SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||' '||yp.last_name as youth_name,
-                   e.name as event_name
-            FROM youth_sign_ins ysi
-            JOIN youth_participants yp ON ysi.youth_id=yp.id
-            LEFT JOIN events e ON e.id=ysi.event_id
-            WHERE ysi.youth_id=%s
-            ORDER BY ysi.signed_in_at DESC''', (youth_id,))
     else:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||' '||yp.last_name as youth_name
+                   yp.first_name||\' \'||yp.last_name as youth_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
             WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
@@ -9413,8 +9302,7 @@ def create_youth_sign_in():
         (yid, event_id))
     if existing:
         conn.close()
-        existing['already_signed_in'] = True
-        return jsonify(existing)
+        return jsonify(existing)  # return existing record, not error
     sid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO youth_sign_ins (id,youth_id,event_id,signed_in_at,signed_in_by)
         VALUES (%s,%s,%s,NOW(),%s)''', (sid, yid, event_id, signed_in_by))
@@ -13527,11 +13415,10 @@ def my_time():
         FROM hours h LEFT JOIN events e ON e.id=h.event_id
         WHERE h.volunteer_id=%s ORDER BY h.date DESC''', (vol['id'],)) or []
 
-    # Pending hours — only show truly pending (not approved/rejected)
+    # Pending hours
     pending = fetchall(conn, '''SELECT ph.*, e.name AS event_name
         FROM pending_hours ph LEFT JOIN events e ON e.id=ph.event_id
-        WHERE ph.volunteer_id=%s AND ph.status IN ('pending','pending_review')
-        ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
+        WHERE ph.volunteer_id=%s ORDER BY ph.submitted_at DESC''', (vol['id'],)) or []
 
     # Events this volunteer can log hours for
     events = fetchall(conn, '''SELECT e.id, e.name, e.event_date
@@ -13975,45 +13862,6 @@ def _start_oncall_scheduler():
         app.logger.warning('APScheduler not installed — auto on-call reports disabled')
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
-
-@app.route('/api/admin/dedup-youth-signins', methods=['POST'])
-def dedup_youth_signins():
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    # Find groups with multiple active sign-ins for same youth+event on same day
-    dupes = fetchall(conn, '''SELECT youth_id, event_id, DATE(signed_in_at) as day,
-        COUNT(*) as cnt, MIN(id) as keep_id
-        FROM youth_sign_ins
-        GROUP BY youth_id, event_id, DATE(signed_in_at)
-        HAVING COUNT(*) > 1''') or []
-    deleted = 0
-    for d in dupes:
-        execute(conn, '''DELETE FROM youth_sign_ins
-            WHERE youth_id=%s AND event_id=%s AND DATE(signed_in_at)=%s AND id != %s''',
-            (d['youth_id'], d['event_id'], d['day'], d['keep_id']))
-        deleted += (d['cnt'] - 1)
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'deleted': deleted, 'groups': len(dupes)})
-
-@app.route('/api/debug/youth-signins/<yid>')
-def debug_youth_signins(yid):
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    # Support name lookup: /api/debug/youth-signins/Blake+Armstrong
-    if ' ' in yid or '+' in yid:
-        name = yid.replace('+', ' ')
-        parts = name.split(' ', 1)
-        youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s',
-            (parts[0].lower(), parts[1].lower() if len(parts)>1 else ''))
-        if not youth: conn.close(); return jsonify({'error': 'Not found'})
-        yid = youth['id']
-    rows = fetchall(conn, '''SELECT id, youth_id, event_id, program_id,
-        signed_in_at, signed_in_by, signed_out_at, signed_out_by
-        FROM youth_sign_ins WHERE youth_id=%s ORDER BY signed_in_at DESC''', (yid,)) or []
-    conn.close()
-    return jsonify({'youth_id': yid, 'count': len(rows), 'records': rows})
 
 @app.route('/api/debug/marquee-sessions')
 def debug_marquee_sessions():
@@ -15798,7 +15646,7 @@ def marquee_overview():
         import json as _jsr
         all_sess_regs = fetchall(conn, """SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.status, pr.session_ids
+            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND pr.session_ids IS NOT NULL
@@ -15824,7 +15672,7 @@ def marquee_overview():
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.status
+            pr.guardian_name, pr.participant_name, pr.status
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')

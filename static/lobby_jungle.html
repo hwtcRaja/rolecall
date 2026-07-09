@@ -256,13 +256,19 @@ body.theme-jungle{
   --sched-bg:#061408; --sched-border:#1a4010; --sched-hdr-bg:#1a3d0f;
 }
 body.theme-jungle header{ background:linear-gradient(135deg,#1a3d0f,#2d6b1a); }
-body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+body.theme-jungle #schedule-area{ background:var(--sched-bg);display:flex;flex-direction:column;padding:0;overflow:hidden }
+body.theme-jungle #schedule-area .schedule-header{ display:none }
+body.theme-jungle #events-list{ display:none !important }
+body.theme-jungle #jungle-img-panel{ display:flex }
 body.theme-jungle .schedule-header{
   background:transparent;border-bottom:none;justify-content:center;
 }
 
 /* ── JUNGLE SIGNPOST ── */
-body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+body.theme-jungle #schedule-area{ background:var(--sched-bg);display:flex;flex-direction:column;padding:0;overflow:hidden }
+body.theme-jungle #schedule-area .schedule-header{ display:none }
+body.theme-jungle #events-list{ display:none !important }
+body.theme-jungle #jungle-img-panel{ display:flex }
 
 /* Bamboo pole */
 .jungle-signpost-wrap{
@@ -426,12 +432,11 @@ body.theme-seuss .schedule-header::before{ display:none }
   align-items: center;
   justify-content: flex-end;
   width: 100%;
-  height: 100%;
+  flex: 1;
   position: relative;
   overflow: hidden;
+  background: #061408;
 }
-body.theme-jungle #jungle-img-panel { display: flex }
-body.theme-jungle #events-list { display: none !important }
 .sp-img {
   position: absolute;
   bottom: -10px;
@@ -511,6 +516,10 @@ body.theme-jungle #events-list { display: none !important }
 <div id="schedule-area">
   <div class="schedule-header">Upcoming Events</div>
   <div id="events-list"><div class="no-events">Loading…</div></div>
+  <div id="jungle-img-panel">
+    <div class="sp-board-events" id="sp-board-events"></div>
+    <img class="sp-img" src="/static/images/signpost.png" alt="jungle signpost"/>
+  </div>
 </div>
 
 <!-- ADMIN PANEL -->
@@ -672,7 +681,7 @@ function startThemeDecorations(theme){
     summer:  { emoji:'\u2600\ufe0f', count:0 }, // summer uses sparkle only, no falling
     halloween:{ emoji:'\ud83c\udf83', count:12, sizeMin:18, sizeMax:30, durMin:10, durMax:20, altEmoji:['\ud83e\udd87','\ud83d\udc7b'] },
     show:    { emoji:'\u2728', count:0 }, // show uses sparkle only
-    jungle:  { emoji:'\ud83c\udf43', count:20, sizeMin:16, sizeMax:30, durMin:8, durMax:16, altEmoji:['\ud83c\udf3f','\ud83c\udf4c','\ud83d\udc0d','\ud83e\udd9c','\ud83d\udc3a'] },
+    jungle:  { emoji:'\ud83c\udf43', count:0 }, // no falling decorations for jungle
   }
 
   var cfg = configs[theme]
@@ -1054,11 +1063,5 @@ applyTheme = function(theme) {
 
 </script>
 
-<div id="jungle-img-panel">
-  <div class="sp-board-events" id="sp-board-events">
-    <div style="color:rgba(90,50,10,0.4);font-size:11px;font-style:italic">Loading…</div>
-  </div>
-  <img class="sp-img" src="/static/images/signpost.png" alt="jungle signpost"/>
-</div>
 </body>
 </html>

@@ -13709,6 +13709,10 @@ def my_delete_pending_hours(hid):
 def lobby_page():
     return send_from_directory('static', 'lobby.html')
 
+@app.route('/lobby2')
+def lobby2_page():
+    return send_from_directory('static', 'lobby2.html')
+
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
     import datetime as _dtl

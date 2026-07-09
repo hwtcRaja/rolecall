@@ -9115,6 +9115,34 @@ def kiosk_close_event():
             except Exception:
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
+        # Auto-log ELIC hours based on time from open to close
+        try:
+            open_log = fetchone(conn, '''SELECT el.created_at FROM event_logs el
+                WHERE el.event_id=%s AND el.elic_id=%s AND el.action='open'
+                ORDER BY el.created_at DESC LIMIT 1''', (event_id, elic_id))
+            elic_vol = fetchone(conn, '''SELECT v.id, v.name, e.name as event_name
+                FROM elics el
+                JOIN volunteers v ON v.id=el.volunteer_id
+                JOIN events e ON e.id=%s
+                WHERE el.id=%s''', (event_id, elic_id))
+            if open_log and elic_vol:
+                import datetime as _dtel
+                open_time = open_log['created_at']
+                close_time = _dtel.datetime.now()
+                if isinstance(open_time, str):
+                    open_time = _dtel.datetime.fromisoformat(open_time)
+                duration_hrs = round((close_time - open_time).total_seconds() / 3600, 2)
+                duration_hrs = max(0.25, duration_hrs)  # minimum 15 min
+                today = close_time.strftime('%Y-%m-%d')
+                hid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
+                     today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
+                app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
+        except Exception as e:
+            app.logger.warning(f'ELIC auto-hours error (non-fatal): {e}')
+
         conn.commit()
         # Send checklist report email
         try:

@@ -9096,13 +9096,11 @@ def fix_event_statuses():
     conn = get_db()
     try:
         # Events marked open in events table but with no 'open' log entry
-        result = fetchone(conn, """UPDATE events SET status='scheduled'
+        execute(conn, """UPDATE events SET status='scheduled'
             WHERE status='open'
             AND id NOT IN (
                 SELECT event_id FROM event_logs WHERE action='open'
-            )
-            RETURNING COUNT(*) as cnt""")
-        # Also update events that have been closed via event_logs
+            )""")
         execute(conn, """UPDATE events SET status='closed'
             WHERE id IN (
                 SELECT event_id FROM event_logs

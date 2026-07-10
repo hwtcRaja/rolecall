@@ -9088,6 +9088,36 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/fix-event-statuses', methods=['POST'])
+def fix_event_statuses():
+    """Reset events table status to scheduled for events with no open log entry."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        # Events marked open in events table but with no 'open' log entry
+        result = fetchone(conn, """UPDATE events SET status='scheduled'
+            WHERE status='open'
+            AND id NOT IN (
+                SELECT event_id FROM event_logs WHERE action='open'
+            )
+            RETURNING COUNT(*) as cnt""")
+        # Also update events that have been closed via event_logs
+        execute(conn, """UPDATE events SET status='closed'
+            WHERE id IN (
+                SELECT event_id FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+                AND action='close'
+            )
+            AND status != 'closed'""")
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug/open-events')
 def debug_open_events():
     err = require_auth()

@@ -9080,12 +9080,22 @@ def auto_close_past_events():
             ON el.event_id=e.id
             WHERE el.action='open'
             AND e.event_date < %s''', (today,)) or []
+        # Find a master ELIC to use as the "system" closer
+        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or {}
+        system_elic_id = system_elic.get('id')
+        if not system_elic_id:
+            system_elic = fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+        # If still no ELIC, make elic_id nullable temporarily
+        if not system_elic_id:
+            execute(conn, 'ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL')
+            conn.commit()
         for ev in open_events:
             log_id = str(uuid.uuid4())
             execute(conn, '''INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
-                VALUES (%s, %s, NULL, 'close', %s, '')''',
-                (log_id, ev['id'],
-                 f'Auto-closed by system — event date passed without formal close'))
+                VALUES (%s, %s, %s, 'close', %s, '')''',
+                (log_id, ev['id'], system_elic_id,
+                 'Auto-closed by system — event date passed without formal close'))
             closed += 1
             app.logger.info(f'Auto-closed event: {ev["name"]} ({ev["id"]})')
         conn.commit()

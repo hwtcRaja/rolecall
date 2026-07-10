@@ -1478,52 +1478,33 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <!-- SETTINGS -->
  <section class="page" id="page-settings">
- <div class="page-header" style="padding-bottom:12px;flex-shrink:0">
+ <div class="page-header">
   <div><div class="page-title">Settings</div><div class="page-subtitle">Configure RoleCall for your organization</div></div>
  </div>
- <div class="page-body" style="padding:0!important;display:flex!important;flex-direction:row!important;overflow:hidden!important;position:fixed!important;top:97px;left:240px;right:0;bottom:0;z-index:1;background:var(--bg)">
+ <div class="page-body">
 
-  <div id="settings-sidebar" style="width:210px;min-width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px;height:100%">
-
-   <div style="margin-bottom:16px">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Organization</div>
-    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)">General</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)">Users &amp; access</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)">Email &amp; alerts</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)">Families &amp; portal</button>
-   </div>
-
-   <div style="margin-bottom:16px">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Kiosk &amp; events</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)">ELIC management</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)">Checklists</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)">Event types</button>
-   </div>
-
-   <div style="margin-bottom:16px">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Programs</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)">Interest types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)">Waiver types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)">Email templates</button>
-   </div>
-
-   <div style="margin-bottom:16px">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Integrations</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)">Phone &amp; Twilio</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)">Lobby TV</button>
-   </div>
-
-   <div style="margin-bottom:16px">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Display</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)">Nav icons</button>
-   </div>
+  <!-- Settings tab strip -->
+  <div class="tabs" style="margin-bottom:24px;overflow-x:auto;flex-shrink:0">
+<button class="tab active" onclick="switchSettingsPanel('general',this)" style="white-space:nowrap">General</button>
+<button class="tab" onclick="switchSettingsPanel('users',this)" style="white-space:nowrap">Users & access</button>
+<button class="tab" onclick="switchSettingsPanel('email',this)" style="white-space:nowrap">Email & alerts</button>
+<button class="tab" onclick="switchSettingsPanel('families',this)" style="white-space:nowrap">Families & portal</button>
+<button class="tab" onclick="switchSettingsPanel('elics',this)" style="white-space:nowrap">ELIC management</button>
+<button class="tab" onclick="switchSettingsPanel('checklists',this)" style="white-space:nowrap">Checklists</button>
+<button class="tab" onclick="switchSettingsPanel('event-types',this)" style="white-space:nowrap">Event types</button>
+<button class="tab" onclick="switchSettingsPanel('interest-types',this)" style="white-space:nowrap">Interest types</button>
+<button class="tab" onclick="switchSettingsPanel('waiver-types',this)" style="white-space:nowrap">Waiver types</button>
+<button class="tab" onclick="switchSettingsPanel('email-templates',this)" style="white-space:nowrap">Email templates</button>
+<button class="tab" onclick="switchSettingsPanel('twilio',this)" style="white-space:nowrap">Phone & Twilio</button>
+<button class="tab" onclick="switchSettingsPanel('lobby',this)" style="white-space:nowrap">Lobby TV</button>
+<button class="tab" onclick="switchSettingsPanel('nav-icons',this)" style="white-space:nowrap">Nav icons</button>
   </div>
 
-  <div id="settings-panels" style="flex:1;min-width:0;overflow-y:auto;padding:24px 28px;height:100%">
+  <!-- Settings panels -->
 
    <div id="settings-panel-general" class="settings-panel" style="">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Notifications and alert settings</div>
     <div class="settings-section" style="margin-bottom:16px">
  <div style="font-weight:600;font-size:14px;margin-bottom:16px">Notification Alerts</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -1608,9 +1589,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div></div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage who can log in to RoleCall</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Manage who can log in to RoleCall</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:20px"> Add System User</div>
  <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
@@ -1634,9 +1617,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-email" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email & alerts</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure Resend for automated emails and reports</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email & alerts</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated emails and reports</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Email & Notifications</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
@@ -1722,9 +1707,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-families" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Families & portal</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Create family groups and manage portal access</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Families & portal</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Family groups and portal access</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
@@ -1741,9 +1728,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Event Leads In Charge — manage PINs and assignments</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Event Leads In Charge — manage PINs and assignments</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
  <div id="elics-list" style="margin-bottom:16px"></div>
@@ -1758,9 +1747,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Opening and closing checklist templates</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
  <div id="checklist-items-list" style="margin-bottom:16px"></div>
@@ -1796,9 +1787,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-event-types" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Event types</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the types of events you can create</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Event types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Customize event types</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Event Types</div>
  <div id="event-types-list" style="margin-bottom:16px"></div>
@@ -1815,9 +1808,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-interest-types" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interest types</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Volunteer interest categories shown on the join form</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interest types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Volunteer interest categories</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Interest Types</div>
  <div id="interest-types-list" style="margin-bottom:16px"></div>
@@ -1832,9 +1827,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-waiver-types" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Waiver types</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure the waivers volunteers must sign</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Waiver types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Waivers volunteers must sign</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Waiver Types</div>
  <div id="waiver-types-list" style="margin-bottom:16px"></div>
@@ -1842,9 +1839,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-email-templates" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email templates</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Custom email templates for automated messages</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email templates</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Automated email templates</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Email Templates</div>
  <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
@@ -1852,9 +1851,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-twilio" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure your Twilio phone number, voicemail, and on-call routing</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Phone number, voicemail, and on-call routing</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
@@ -2001,9 +2002,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Display at rolecall.hwtco.org/lobby</div>
     <div class="settings-section">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
  <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
@@ -2029,9 +2032,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section
    </div>
 
+   <div
+   </div>
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Nav icons</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the icons shown in the sidebar navigation</div>
+    <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Nav icons</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Sidebar navigation icons</div>
     <div class="settings-section">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
  <div>
@@ -2324,9 +2329,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
    </div>
 
-  </div><!-- end panels container -->
- </div><!-- end page-body -->
+  </div><!--
+   </div>
+
+ </div>
 </section>
+
 
  <!-- ON-CALL SCHEDULE -->
  <section class="page" id="page-oncall">
@@ -8176,19 +8184,10 @@ async function sendOncallReport(btn){
 }
 
 function switchSettingsPanel(id, btn){
- // Set position dynamically based on page-header
- const pb = document.querySelector('#page-settings .page-body')
- if(pb){
-  const hdr = document.querySelector('#page-settings .page-header')
-  const hdrH = hdr ? Math.round(hdr.getBoundingClientRect().height) : 97
-  pb.style.top = hdrH + 'px'
- }
  document.querySelectorAll('.settings-panel').forEach(p=>p.style.display='none')
- document.querySelectorAll('.settings-nav-btn').forEach(b=>b.classList.remove('active'))
+ document.querySelectorAll('.tabs .tab').forEach(b=>b.classList.remove('active'))
  const panel = document.getElementById('settings-panel-'+id)
- if(panel){ panel.style.display='' }
- const panels = document.getElementById('settings-panels')
- if(panels) panels.scrollTop=0
+ if(panel) panel.style.display=''
  if(btn) btn.classList.add('active')
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()

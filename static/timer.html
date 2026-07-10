@@ -39,19 +39,13 @@ input:focus, select:focus { outline: none; border-color: #145466 }
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="header-title">⏱ HWTC Remote Hours Timer</div>
-</div>
+<div class="header"><div class="header-title">⏱ HWTC Remote Hours Timer</div></div>
 <div class="body">
-
   <div class="section active" id="s-setup">
     <div style="flex:1">
-      <div style="margin-bottom:12px">
-        <label>Activity Description</label>
-        <input id="t-activity" type="text" placeholder="e.g. Costume prep, Set design, Admin..."/>
-      </div>
-      <div>
-        <label>Category</label>
+      <div style="margin-bottom:12px"><label>Activity Description</label>
+        <input id="t-activity" type="text" placeholder="e.g. Costume prep, Set design, Admin..."/></div>
+      <div><label>Category</label>
         <select id="t-category">
           <option value="Admin">Admin / Office Work</option>
           <option value="Costumes">Costumes</option>
@@ -61,13 +55,11 @@ input:focus, select:focus { outline: none; border-color: #145466 }
           <option value="Rehearsal Support">Rehearsal Support</option>
           <option value="Tech">Tech / AV / Lighting</option>
           <option value="Other">Other</option>
-        </select>
-      </div>
+        </select></div>
     </div>
     <div id="setup-err" class="err"></div>
     <button class="btn btn-primary" onclick="timerStart()">▶ Start Timer</button>
   </div>
-
   <div class="section" id="s-running">
     <div id="t-act-lbl" class="act-lbl"></div>
     <div class="clock" id="t-clock">00:00:00</div>
@@ -77,21 +69,17 @@ input:focus, select:focus { outline: none; border-color: #145466 }
       <button class="btn btn-red" onclick="timerStop()">⏹ Stop</button>
     </div>
   </div>
-
   <div class="section" id="s-submit">
     <div id="t-final-time" class="final-time"></div>
     <div id="t-final-hrs" class="final-hrs"></div>
-    <div style="margin-bottom:12px">
-      <label>Notes (optional)</label>
-      <input id="t-notes" type="text" placeholder="Any additional details..."/>
-    </div>
+    <div style="margin-bottom:12px"><label>Notes (optional)</label>
+      <input id="t-notes" type="text" placeholder="Any additional details..."/></div>
     <div id="submit-err" class="err"></div>
     <div class="btn-row" style="margin-top:auto">
       <button class="btn btn-secondary" onclick="timerResume()">↩ Resume</button>
       <button class="btn btn-primary" onclick="timerSubmit()">Submit ✓</button>
     </div>
   </div>
-
   <div class="section" id="s-success">
     <div class="success">
       <div style="font-size:48px">✅</div>
@@ -101,53 +89,40 @@ input:focus, select:focus { outline: none; border-color: #145466 }
       <button class="btn btn-secondary" style="width:auto;padding:10px 24px" onclick="window.close()">Close</button>
     </div>
   </div>
-
 </div>
 <script>
 var _t={running:false,paused:false,startTs:null,elapsed:0,interval:null,activity:'',category:'',finalHours:0}
-function show(id){ document.querySelectorAll('.section').forEach(function(s){s.classList.remove('active')}); document.getElementById(id).classList.add('active') }
-function pad(n){ return n<10?'0'+n:String(n) }
-function fmt(s){ var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60; return pad(h)+':'+pad(m)+':'+pad(ss) }
-function tick(){ if(!_t.running||_t.paused) return; var el=document.getElementById('t-clock'); if(el) el.textContent=fmt(_t.elapsed+Math.floor((Date.now()-_t.startTs)/1000)) }
+function show(id){document.querySelectorAll('.section').forEach(function(s){s.classList.remove('active')});document.getElementById(id).classList.add('active')}
+function pad(n){return n<10?'0'+n:String(n)}
+function fmt(s){var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return pad(h)+':'+pad(m)+':'+pad(ss)}
+function tick(){if(!_t.running||_t.paused)return;var el=document.getElementById('t-clock');if(el)el.textContent=fmt(_t.elapsed+Math.floor((Date.now()-_t.startTs)/1000))}
 function timerStart(){
   var act=document.getElementById('t-activity').value.trim()
   if(!act){var e=document.getElementById('setup-err');e.textContent='Please enter an activity';e.style.display='';return}
   document.getElementById('setup-err').style.display='none'
-  _t.activity=act; _t.category=document.getElementById('t-category').value
-  _t.running=true; _t.paused=false; _t.startTs=Date.now(); _t.elapsed=0
-  clearInterval(_t.interval); _t.interval=setInterval(tick,1000)
+  _t.activity=act;_t.category=document.getElementById('t-category').value
+  _t.running=true;_t.paused=false;_t.startTs=Date.now();_t.elapsed=0
+  clearInterval(_t.interval);_t.interval=setInterval(tick,1000)
   document.getElementById('t-act-lbl').textContent=act+' · '+_t.category
-  document.getElementById('t-status').textContent='● RUNNING'; document.getElementById('t-status').style.color='#166534'
+  document.getElementById('t-status').textContent='● RUNNING';document.getElementById('t-status').style.color='#166534'
   document.getElementById('t-pause-btn').textContent='⏸ Pause'
   show('s-running')
 }
 function timerPause(){
-  if(_t.paused){
-    _t.startTs=Date.now(); _t.paused=false; _t.interval=setInterval(tick,1000)
-    document.getElementById('t-pause-btn').textContent='⏸ Pause'
-    document.getElementById('t-status').textContent='● RUNNING'; document.getElementById('t-status').style.color='#166534'
-  } else {
-    _t.elapsed+=Math.floor((Date.now()-_t.startTs)/1000); _t.paused=true; clearInterval(_t.interval)
-    document.getElementById('t-pause-btn').textContent='▶ Resume'
-    document.getElementById('t-status').textContent='⏸ PAUSED'; document.getElementById('t-status').style.color='#92400e'
-  }
+  if(_t.paused){_t.startTs=Date.now();_t.paused=false;_t.interval=setInterval(tick,1000);document.getElementById('t-pause-btn').textContent='⏸ Pause';document.getElementById('t-status').textContent='● RUNNING';document.getElementById('t-status').style.color='#166534'}
+  else{_t.elapsed+=Math.floor((Date.now()-_t.startTs)/1000);_t.paused=true;clearInterval(_t.interval);document.getElementById('t-pause-btn').textContent='▶ Resume';document.getElementById('t-status').textContent='⏸ PAUSED';document.getElementById('t-status').style.color='#92400e'}
 }
 function timerStop(){
   clearInterval(_t.interval)
-  if(!_t.paused) _t.elapsed+=Math.floor((Date.now()-_t.startTs)/1000)
-  _t.running=false; _t.paused=false
+  if(!_t.paused)_t.elapsed+=Math.floor((Date.now()-_t.startTs)/1000)
+  _t.running=false;_t.paused=false
   _t.finalHours=Math.max(0.25,Math.round((_t.elapsed/3600)*4)/4)
   document.getElementById('t-final-time').textContent=fmt(_t.elapsed)
   document.getElementById('t-final-hrs').textContent=_t.finalHours.toFixed(2)+'h (rounded to nearest 0.25)'
   document.getElementById('submit-err').style.display='none'
   show('s-submit')
 }
-function timerResume(){
-  _t.running=true; _t.paused=true
-  document.getElementById('t-pause-btn').textContent='▶ Resume'
-  document.getElementById('t-status').textContent='⏸ PAUSED'; document.getElementById('t-status').style.color='#92400e'
-  show('s-running')
-}
+function timerResume(){_t.running=true;_t.paused=true;document.getElementById('t-pause-btn').textContent='▶ Resume';document.getElementById('t-status').textContent='⏸ PAUSED';document.getElementById('t-status').style.color='#92400e';show('s-running')}
 async function timerSubmit(){
   var notes=document.getElementById('t-notes').value.trim()
   try{
@@ -163,8 +138,8 @@ async function timerSubmit(){
 }
 function timerReset(){
   _t={running:false,paused:false,startTs:null,elapsed:0,interval:null,activity:'',category:'',finalHours:0}
-  document.getElementById('t-activity').value=''; document.getElementById('t-clock').textContent='00:00:00'
-  document.getElementById('t-notes').value=''; show('s-setup')
+  document.getElementById('t-activity').value='';document.getElementById('t-clock').textContent='00:00:00'
+  document.getElementById('t-notes').value='';show('s-setup')
 }
 </script>
 </body>

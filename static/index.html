@@ -492,6 +492,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-my-time">
   <div class="page-header">
     <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
+    <button class="btn btn-primary" onclick="openRemoteTimer()" style="display:flex;align-items:center;gap:6px"><span>⏱</span> Start Timer</button>
   </div>
   <div class="page-body" id="my-time-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
  </section>
@@ -21771,6 +21772,16 @@ async function loadMyTimePage(){
       if(res && res.ok){ toast('Removed','success'); loadMyTimePage() }
       else toast((res&&res.error)||'Error','error')
     })
+  })
+}
+
+function openRemoteTimer(){
+  var popup = window.open('/static/timer.html','hwtc_timer',
+    'width=360,height=500,resizable=yes,scrollbars=no,status=no,toolbar=no,menubar=no,location=no')
+  if(popup) popup.focus()
+  else toast('Allow popups for this site to use the timer','error')
+  window.addEventListener('storage', function(e){
+    if(e.key==='hwtc_hours_submitted'){ loadMyTimePage() }
   })
 }
 

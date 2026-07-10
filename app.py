@@ -9088,6 +9088,23 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/debug/open-events')
+def debug_open_events():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT e.id, e.name, e.event_date,
+        el.action as last_action, el.timestamp as last_log_time, el.notes
+        FROM events e
+        LEFT JOIN event_logs el ON el.id = (
+            SELECT id FROM event_logs WHERE event_id=e.id ORDER BY id DESC LIMIT 1
+        )
+        WHERE el.action='open' OR el.action IS NULL
+        ORDER BY e.event_date DESC NULLS LAST
+        LIMIT 20""") or []
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/admin/auto-close-past-events', methods=['POST'])
 def auto_close_past_events():
     err = require_auth()

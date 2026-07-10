@@ -12555,10 +12555,16 @@ def public_submit_registration(slug):
     session_rows = []
     session_price_total = 0  # price per participant from sessions
     if sessions_enabled and session_ids:
+        import datetime as _dtsess
+        today_str = _dtsess.date.today().isoformat()
         for sid in session_ids:
             sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
                 (sid, p['id'], 'open'))
             if sr:
+                # Reject if session date has passed
+                if sr.get('start_date') and sr['start_date'] < today_str:
+                    conn.close()
+                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available for registration.'}), 400
                 session_rows.append(sr)
                 sp = sr.get('price_override') if sr.get('price_override') is not None else price
                 session_price_total += sp

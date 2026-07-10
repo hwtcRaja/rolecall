@@ -6407,8 +6407,8 @@ def kiosk_elic_auth():
                 el.action = 'open'
                 OR
                 -- Events within 60 days past or 180 days future
-                (e.event_date >= CURRENT_DATE - INTERVAL '60 days'
-                 AND e.event_date <= CURRENT_DATE + INTERVAL '180 days')
+                (e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
+                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days')
                 OR
                 -- Events with no date
                 e.event_date IS NULL
@@ -6432,7 +6432,7 @@ def kiosk_elic_auth():
                 WHERE e.id IN ({placeholders})
                 AND (
                     el.action = 'open'
-                    OR e.event_date >= CURRENT_DATE - INTERVAL '60 days'
+                    OR e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
                     OR e.event_date IS NULL
                 )''', tuple(assigned))
         else:

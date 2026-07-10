@@ -1348,7 +1348,13 @@ function renderElicMenu(){
   const etNow = new Date(now.toLocaleString('en-US', {timeZone:'America/New_York'}))
   const today=etNow.getFullYear()+'-'+String(etNow.getMonth()+1).padStart(2,'0')+'-'+String(etNow.getDate()).padStart(2,'0')
 
-  function getStatus(e){ return e.current_status==='open'?'open':e.current_status==='close'?'closed':(e.status||'draft') }
+  function getStatus(e){
+    // Only trust event_logs (current_status) for open/close state
+    if(e.current_status==='open') return 'open'
+    if(e.current_status==='close') return 'closed'
+    // No log entry = never opened = scheduled
+    return 'scheduled'
+  }
 
   // Partition events into sections
   const openNow    = elicEventList.filter(e=>getStatus(e)==='open')

@@ -12557,6 +12557,11 @@ def public_submit_registration(slug):
     if sessions_enabled and session_ids:
         import datetime as _dtsess
         today_str = _dtsess.date.today().isoformat()
+        # Check if all available sessions are past
+        all_sessions = fetchall(conn, 'SELECT * FROM program_sessions WHERE program_id=%s AND status=%s', (p['id'], 'open')) or []
+        if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
+            conn.close()
+            return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
         for sid in session_ids:
             sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
                 (sid, p['id'], 'open'))

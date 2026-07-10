@@ -9095,29 +9095,26 @@ def auto_close_past_events():
     conn = get_db()
     closed = 0
     try:
-        import datetime as _dtac
-        today = _dtac.date.today().isoformat()
-        # Find events older than today still showing as open
-        open_events = fetchall(conn, '''SELECT e.id, e.name FROM events e
-            JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
-            ON el.event_id=e.id
+        # Find events still showing as open where event_date is in the past
+        open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
+            JOIN event_logs el ON el.event_id=e.id
             WHERE el.action='open'
-            AND e.event_date < %s''', (today,)) or []
-        # Find a master ELIC to use as the "system" closer
-        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or {}
+            AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+            AND (
+                (e.event_date IS NOT NULL AND e.event_date::date < CURRENT_DATE)
+                OR
+                (e.event_date IS NULL AND el.timestamp < NOW() - INTERVAL '24 hours')
+            )""") or []
+        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                      fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
         system_elic_id = system_elic.get('id')
-        if not system_elic_id:
-            system_elic = fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
-            system_elic_id = system_elic.get('id')
-        # If still no ELIC, make elic_id nullable temporarily
         if not system_elic_id:
             execute(conn, 'ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL')
             conn.commit()
         for ev in open_events:
             log_id = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
-                VALUES (%s, %s, %s, 'close', %s, '')''',
+            execute(conn, """INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
+                VALUES (%s, %s, %s, 'close', %s, '')""",
                 (log_id, ev['id'], system_elic_id,
                  'Auto-closed by system — event date passed without formal close'))
             closed += 1
@@ -14221,8 +14218,33 @@ def _start_oncall_scheduler():
                 post_oncall_slack_report()
             except Exception as e:
                 app.logger.warning(f'Scheduled oncall report error: {e}')
+        def _daily_auto_close():
+            """Auto-close any events whose date has passed but are still marked open."""
+            try:
+                conn = get_db()
+                open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
+                    JOIN event_logs el ON el.event_id=e.id
+                    WHERE el.action='open'
+                    AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+                    AND e.event_date IS NOT NULL
+                    AND e.event_date::date < CURRENT_DATE""") or []
+                system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                              fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+                system_elic_id = system_elic.get('id')
+                for ev in open_events:
+                    execute(conn, """INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                        VALUES (%s,%s,%s,'close',%s,'')""",
+                        (str(uuid.uuid4()), ev['id'], system_elic_id,
+                         'Auto-closed by system — event date passed without formal close'))
+                    app.logger.info(f'Scheduler auto-closed: {ev["name"]}')
+                if open_events: conn.commit()
+                conn.close()
+            except Exception as e:
+                app.logger.warning(f'Daily auto-close error: {e}')
         scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
+        scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
+                          max_instances=1, coalesce=True)
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:

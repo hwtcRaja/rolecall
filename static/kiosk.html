@@ -1652,16 +1652,12 @@ async function submitChecklist(){
         body:JSON.stringify({elic_id:elicData.id,event_id:closingEvent.id,responses:responses,signature:signature})})
       var d
       try{d=await r.json()}catch(e){alert('Server error closing event ('+r.status+'). Please try again.');return}
-      if(d.error){
-        if(d.active_sessions && d.active_sessions.length){
-          var names = d.active_sessions.map(function(s){return '• '+s.name}).join('\n')
-          alert('⚠️ Cannot Close Event\n\nThe following volunteers are still logging hours:\n\n'+names+'\n\nPlease ask them to stop their timers before closing the event.')
-        } else {
-          alert(d.error)
-        }
-        return
-      }
+      if(d.error){alert(d.error);return}
+      // Update local state immediately
       elicEventList=elicEventList.map(function(e){return e.id===closingEvent.id?Object.assign({},e,{current_status:'close',status:'closed'}):e})
+      // Refresh from server in background to ensure accuracy
+      fetch('/api/kiosk/elic-events?elic_id='+elicData.id)
+        .then(function(r2){return r2.json()}).then(function(d2){if(d2&&d2.events)elicEventList=d2.events}).catch(function(){})
       showConfirm('🔒','Event Closed!','"'+closingEvent.name+'" has been closed.','Checklist submitted to admin portal.',function(){renderElicMenu();showScreen('screen-elic-menu')})
     }catch(err){alert('Network error: '+err.message+'. Please check connection and try again.')}
   })
@@ -1943,12 +1939,7 @@ async function eysConfirmPerson(){
   if(!isAuth&&eysAuthPickups.length){
     // Notify admin
     fetch('/api/kiosk/unauthorized-pickup-notify',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        youth_id: eysDropOffTarget.yid,
-        youth_name: eysDropOffTarget.name || eysDropOffTarget.youth_name || 'Unknown',
-        person_name: name,
-        action: eysAuthAction
-      })})
+      body:JSON.stringify({youth_id:eysDropOffTarget.yid,pickup_name:name,action:eysAuthAction})})
   }
   if(eysAuthAction==='dropoff'){
     await eysDoSignInWithName(name)
@@ -1964,15 +1955,6 @@ async function eysDoSignInWithName(parentName){
   })
   const d=await r.json()
   if(d.error){alert(d.error);return}
-  if(d.already_signed_in){
-    // Already signed in — just update roster display and show info
-    eysRoster=eysRoster.filter(e=>e.youth_id!==eysDropOffTarget.yid)
-    eysRoster.push(d)
-    filterEysRoster()
-    showScreen('screen-elic-youth-signin')
-    showConfirm('ℹ️','Already Signed In',eysDropOffTarget.yname+' is already signed in.','They were dropped off by '+(d.signed_in_by||'a guardian')+'.',function(){ showScreen('screen-elic-youth-signin') })
-    return
-  }
   // Update roster — remove old entry for this youth and add new one
   eysRoster=eysRoster.filter(e=>e.youth_id!==eysDropOffTarget.yid)
   eysRoster.push(d)

@@ -1492,19 +1492,6 @@ function fmtTime(t){
 
 async function openEvent(evid,evname){
   pendingAction={type:'open',evid,evname}
-  // Check if this is an external event (not at HWTC)
-  const evt = elicEventList.find(function(e){ return e.id===evid })
-  const isExternal = evt && evt.location && evt.location.toLowerCase()!=='hwtc' && evt.location.toLowerCase()!=='horizon west theater company'
-
-  if(isExternal){
-    // Show external event notice and skip checklist
-    showConfirm('','External Event',
-      evname,
-      ' This event is taking place outside the HWTC studio at: '+evt.location+'\n\nOpening checklist is not required for external events.',
-      function(){doOpenEvent()})
-    return
-  }
-
   // Load opening checklist items
   try{
     const r=await fetch('/api/opening-checklist-items')
@@ -1549,24 +1536,14 @@ function handleYouthSignInIdx(idx){
 
 async function startClose(evid,evname){
   closingEvent={id:evid,name:evname}
-  // Check if external event — skip checklist
-  const evt = elicEventList.find(function(e){ return e.id===evid })
-  const isExternal = evt && evt.location && evt.location.toLowerCase()!=='hwtc' && evt.location.toLowerCase()!=='horizon west theater company'
-  if(isExternal){
-    checklistItems=[]
-    clResponses={}
-    // Go straight to signature/close
-    showSignaturePad('Sign to Close Event','Sign below to confirm this event is closed.',async function(signature){
-      await doCloseEvent(signature,{})
-    })
-    return
-  }
   try {
     const r=await fetch('/api/checklist-items')
     const data=await r.json()
     checklistItems=Array.isArray(data)?data:[]
+    if(!Array.isArray(data)) console.error('checklist-items returned non-array:',data)
   } catch(e) {
     checklistItems=[]
+    console.error('Failed to load checklist items:',e)
   }
   clResponses={}
   renderChecklist()

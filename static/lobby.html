@@ -250,7 +250,85 @@ body.theme-seuss{
   --sched-bg:#0a1230; --sched-border:#1e3a6f; --sched-hdr-bg:#0d6e3f;
   --seuss-yellow:#fcd34d; --seuss-blue:#3b82f6; --seuss-green:#16a34a; --seuss-red:#e8344f; --seuss-purple:#9333ea;
 }
-body.theme-seuss header{ background:var(--hdr-grad-1); }
+body.theme-jungle{
+  --bg-base:#0a1f0e; --hdr-grad-1:#1a3d0f; --hdr-grad-2:#2d6b1a; --hdr-grad-3:#3d8a22;
+  --hdr-border:#86c936; --accent:#86c936; --accent-bright:#b5f542; --accent-warm:#fbbf24;
+  --sched-bg:#061408; --sched-border:#1a4010; --sched-hdr-bg:#1a3d0f;
+}
+body.theme-jungle header{ background:linear-gradient(135deg,#1a3d0f,#2d6b1a); }
+body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+body.theme-jungle .schedule-header{
+  background:transparent;border-bottom:none;justify-content:center;
+}
+
+/* ── JUNGLE SIGNPOST ── */
+body.theme-jungle #schedule-area{ background:var(--sched-bg) }
+
+/* Bamboo pole */
+.jungle-signpost-wrap{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:8px 0 20px;position:relative;overflow-y:auto;
+}
+.jungle-pole{
+  position:absolute;top:0;bottom:20px;left:50%;width:14px;
+  transform:translateX(-50%);
+  background:repeating-linear-gradient(
+    180deg,
+    #8fbe3a 0px, #6a9c28 28px,
+    #4a7a18 30px, #6a9c28 32px
+  );
+  border-radius:4px;z-index:0;
+  box-shadow:inset -3px 0 6px rgba(0,0,0,0.3), 2px 0 4px rgba(0,0,0,0.2);
+}
+.jungle-pole::before{
+  content:'';position:absolute;top:0;left:2px;width:4px;height:100%;
+  background:rgba(255,255,255,0.15);border-radius:2px;
+}
+
+/* Leaf-tipped planks */
+.jungle-plank{
+  position:relative;z-index:1;
+  width:82%;max-width:275px;
+  margin:8px 0;padding:10px 16px 10px 20px;
+  border-radius:6px 20px 20px 6px;
+  border:2px solid rgba(0,0,0,0.35);
+  font-family:'DM Sans',system-ui,sans-serif;
+  color:#1a1a1a;
+  box-shadow:3px 4px 0 rgba(0,0,0,0.3);
+}
+.jungle-plank:nth-child(odd){ transform:rotate(-2deg); border-radius:20px 6px 6px 20px; }
+.jungle-plank:nth-child(even){ transform:rotate(1.5deg); }
+.jungle-plank::before{
+  content:'🌿';position:absolute;
+  right:-10px;top:50%;transform:translateY(-50%);
+  font-size:20px;
+}
+.jungle-plank:nth-child(odd)::before{
+  content:'🌿';left:-10px;right:auto;transform:translateY(-50%) scaleX(-1);
+}
+.jungle-plank.today{
+  box-shadow:3px 4px 0 rgba(0,0,0,0.3), 0 0 0 3px #fbbf24, 0 0 20px 4px rgba(251,191,36,0.4);
+  animation:jungle-today-bounce 2.5s ease-in-out infinite;z-index:2;
+}
+@keyframes jungle-today-bounce{
+  0%,100%{transform:rotate(-2deg) translateY(0) scale(1)}
+  50%{transform:rotate(-2deg) translateY(-4px) scale(1.03)}
+}
+.jungle-plank.today:nth-child(even){
+  animation-name:jungle-today-bounce-even;
+}
+@keyframes jungle-today-bounce-even{
+  0%,100%{transform:rotate(1.5deg) translateY(0) scale(1)}
+  50%{transform:rotate(1.5deg) translateY(-4px) scale(1.03)}
+}
+.jungle-plank .ei-day{ font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:#1a1a1a;opacity:0.75;margin-bottom:2px }
+.jungle-plank .ei-name{ font-size:15px;font-weight:800;line-height:1.2;margin-bottom:3px;color:#1a1a1a }
+.jungle-plank .ei-meta{ font-size:11px;font-weight:600;color:#1a1a1a;opacity:0.8;display:flex;gap:8px;flex-wrap:wrap }
+.jungle-today-star{
+  position:absolute;top:-10px;right:-6px;font-size:20px;
+  animation:today-star-spin 3s ease-in-out infinite;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+}
 body.theme-seuss .hdr-title{ font-family:'Baloo 2','DM Sans',system-ui,sans-serif; letter-spacing:0 }
 
 /* ── SIGNPOST EVENTS (Seuss theme schedule) ── */
@@ -499,7 +577,8 @@ var _decoInterval = null
 
 var THEME_LABELS = {
   none:'', winter:'Winter Wonderland', fall:'Autumn', halloween:'Halloween',
-  spring:'Spring', summer:'Summer', show:'Opening Night', seuss:'Dr. Seuss'
+  spring:'Spring', summer:'Summer', show:'Opening Night', seuss:'Dr. Seuss',
+  jungle:'The Jungle Book'
 }
 
 function applyTheme(theme){
@@ -517,7 +596,8 @@ function applyTheme(theme){
   // Start new decorations
   startThemeDecorations(theme)
   // Re-render events if layout style changed (signpost vs standard)
-  if(prevTheme !== 'none' && (theme === 'seuss') !== (prevTheme === 'seuss') && _lastEvents.length){
+  var signpostThemes = ['seuss','jungle']
+  if(prevTheme !== 'none' && (signpostThemes.indexOf(theme)>=0) !== (signpostThemes.indexOf(prevTheme)>=0) && _lastEvents.length){
     renderEvents(_lastEvents)
   }
 }
@@ -534,6 +614,7 @@ function startThemeDecorations(theme){
     summer:  { emoji:'\u2600\ufe0f', count:0 }, // summer uses sparkle only, no falling
     halloween:{ emoji:'\ud83c\udf83', count:12, sizeMin:18, sizeMax:30, durMin:10, durMax:20, altEmoji:['\ud83e\udd87','\ud83d\udc7b'] },
     show:    { emoji:'\u2728', count:0 }, // show uses sparkle only
+    jungle:  { emoji:'\ud83c\udf43', count:20, sizeMin:16, sizeMax:30, durMin:8, durMax:16, altEmoji:['\ud83c\udf3f','\ud83c\udf4c','\ud83d\udc0d','\ud83e\udd9c','\ud83d\udc3a'] },
   }
 
   var cfg = configs[theme]
@@ -596,17 +677,40 @@ loadData()
 
 // ── Events ─────────────────────────────────────────────────────────────────
 var SEUSS_PLANK_COLORS = ['#fbbf24','#38bdf8','#4ade80','#f472b6','#fb923c','#c084fc']
+var JUNGLE_PLANK_COLORS = ['#a7f542','#fbbf24','#86efac','#fcd34d','#bbf7d0','#fde68a']
 
 function renderEvents(events){
   var el = document.getElementById('events-list')
   if(!events.length){
-    el.innerHTML = _currentTheme === 'seuss'
-      ? '<div class="signpost-wrap"><div class="no-events">No upcoming events<br/>scheduled at this time</div></div>'
-      : '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'
+    if(_currentTheme === 'seuss' || _currentTheme === 'jungle'){
+      el.innerHTML = '<div class="signpost-wrap"><div class="no-events">No upcoming events<br/>scheduled at this time</div></div>'
+    } else {
+      el.innerHTML = '<div class="no-events">No upcoming events<br/>scheduled at this time</div>'
+    }
     return
   }
   var today = new Date().toISOString().slice(0,10)
   var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
+
+  if(_currentTheme === 'jungle'){
+    var planks = events.map(function(ev, i){
+      var isToday = ev.event_date === today
+      var isTomorrow = ev.event_date === tomorrow
+      var dayLabel = isToday ? 'TODAY' : isTomorrow ? 'TOMORROW' : formatEventDate(ev.event_date)
+      var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
+      var color = JUNGLE_PLANK_COLORS[i % JUNGLE_PLANK_COLORS.length]
+      return '<div class="jungle-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
+        + (isToday ? '<span class="jungle-today-star">🌟</span>' : '')
+        + '<div class="ei-day">'+dayLabel+'</div>'
+        + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
+        + '<div class="ei-meta">'
+        + (timeStr ? '<span>'+timeStr+'</span>' : '')
+        + (ev.location ? '<span>'+escH(ev.location)+'</span>' : '')
+        + '</div></div>'
+    }).join('')
+    el.innerHTML = '<div class="jungle-signpost-wrap"><div class="jungle-pole"></div>' + planks + '</div>'
+    return
+  }
 
   if(_currentTheme === 'seuss'){
     var planks = events.map(function(ev, i){

@@ -4774,10 +4774,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s,grade=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), d.get('pronouns',''), d.get('grade',''), yid))
+         d.get('shirt_size',''), d.get('pronouns',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -12259,7 +12259,6 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         medical_notes = reg.get('notes') or ''
         allergies = reg.get('allergies') or ''
         pronouns = reg.get('pronouns') or ''
-        grade = reg.get('grade') or ''
         photo_consent = 1 if reg.get('photo_consent') else 0
 
         if existing:
@@ -12270,10 +12269,9 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
                     allergies=COALESCE(NULLIF(%s,''), allergies),
                     pronouns=COALESCE(NULLIF(%s,''), pronouns),
-                    grade=COALESCE(NULLIF(%s,''), grade),
                     photo_consent=GREATEST(photo_consent, %s)
                     WHERE id=%s''',
-                    (shirt or '', medical_notes, allergies, pronouns, grade, photo_consent, existing['id']))
+                    (shirt or '', medical_notes, allergies, pronouns, photo_consent, existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
             # Add emergency contact if not already present
@@ -12297,10 +12295,10 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         yid = str(_u.uuid4())
         try:
             execute(conn, '''INSERT INTO youth_participants
-                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, grade, photo_consent)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (yid, first, last or '', dob or None, shirt or '',
-                 medical_notes, allergies, pronouns, grade, photo_consent))
+                 medical_notes, allergies, pronouns, photo_consent))
         except Exception:
             # Fallback if columns don't exist yet
             execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
@@ -12557,8 +12555,8 @@ def public_submit_registration(slug):
     if sessions_enabled and session_ids:
         import datetime as _dtsess
         today_str = _dtsess.date.today().isoformat()
-        # Check if all available sessions are past
-        all_sessions = fetchall(conn, 'SELECT * FROM program_sessions WHERE program_id=%s AND status=%s', (p['id'], 'open')) or []
+        # Block if all sessions have passed
+        all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
         if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
             conn.close()
             return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
@@ -12566,10 +12564,9 @@ def public_submit_registration(slug):
             sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
                 (sid, p['id'], 'open'))
             if sr:
-                # Reject if session date has passed
                 if sr.get('start_date') and sr['start_date'] < today_str:
                     conn.close()
-                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available for registration.'}), 400
+                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
                 session_rows.append(sr)
                 sp = sr.get('price_override') if sr.get('price_override') is not None else price
                 session_price_total += sp
@@ -12628,11 +12625,10 @@ def public_submit_registration(slug):
              guardian_name, guardian_email, guardian_phone,
              emergency_contact_name, emergency_contact_phone, notes,
              allergies, pickup_contacts, photo_consent, pronouns,
-             grade, is_minor,
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json, session_ids,
              payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
+            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
             (rid, p['id'], status,
              d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
              d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
@@ -12645,8 +12641,6 @@ def public_submit_registration(slug):
              d.get('pickup_contacts','').strip() or None,
              bool(d.get('photo_consent')),
              d.get('pronouns','').strip() or None,
-             d.get('grade','').strip() or None,
-             bool(d.get('is_minor', True)),
              discount_code or None, discount_amount, sibling_discount_amount,
              participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
              'deposit' if use_deposit else 'full', balance_due) + extra_vals)
@@ -14441,9 +14435,6 @@ def backfill_participant_data():
             if r.get('pronouns'):
                 sets.append("pronouns=COALESCE(NULLIF(pronouns,''),NULLIF(%s,''))")
                 vals.append(r['pronouns'])
-            if r.get('grade'):
-                sets.append("grade=COALESCE(NULLIF(grade,''),NULLIF(%s,''))")
-                vals.append(r['grade'])
             if r.get('allergies'):
                 sets.append("allergies=COALESCE(NULLIF(allergies,''),NULLIF(%s,''))")
                 vals.append(r['allergies'])

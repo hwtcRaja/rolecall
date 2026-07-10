@@ -419,40 +419,32 @@ body.theme-seuss .schedule-header::before{ display:none }
   letter-spacing:0.5px;display:none;
 }
 
-/* ── LOBBY2 SIGNPOST IMAGE OVERRIDE ── */
-body.theme-jungle #schedule-area {
-  display: flex;
+/* ── LOBBY2: Image-based signpost ── */
+#jungle-img-panel {
+  display: none;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  padding: 0;
+  width: 100%;
+  height: 100%;
   position: relative;
   overflow: hidden;
 }
-#jungle-signpost-panel {
-  display: none;
-  width: 100%;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  position: relative;
-}
-body.theme-jungle #jungle-signpost-panel { display: flex }
-body.theme-jungle #events-list { display: none }
-.signpost-img-base {
-  width: 240px;
+body.theme-jungle #jungle-img-panel { display: flex }
+body.theme-jungle #events-list { display: none !important }
+.sp-img {
   position: absolute;
-  bottom: 0;
+  bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
+  width: 260px;
   z-index: 1;
-  filter: drop-shadow(0 4px 20px rgba(0,0,0,0.8));
   pointer-events: none;
+  filter: drop-shadow(0 6px 20px rgba(0,0,0,0.9));
 }
-.signpost-board-events {
+.sp-board-events {
   position: absolute;
-  bottom: 128px;
+  bottom: 140px;
   left: 50%;
   transform: translateX(-50%);
   width: 195px;
@@ -460,17 +452,15 @@ body.theme-jungle #events-list { display: none }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
 }
-.sp-event {
+.sp-ev {
   width: 100%;
-  padding: 4px 6px;
+  padding: 5px 8px;
   text-align: center;
+  border-bottom: 1px solid rgba(90,50,10,0.2);
 }
-.sp-event + .sp-event {
-  border-top: 1px solid rgba(90,50,10,0.2);
-}
-.sp-today-badge {
+.sp-ev:last-child { border-bottom: none }
+.sp-today-pill {
   background: #fbbf24;
   color: #2a1000;
   font-size: 8px;
@@ -479,13 +469,12 @@ body.theme-jungle #events-list { display: none }
   border-radius: 10px;
   display: inline-block;
   margin-bottom: 1px;
-  letter-spacing: 0.3px;
 }
 .sp-day { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #7a4e18; margin-bottom: 1px }
 .sp-name { font-size: 12px; font-weight: 800; color: #2a1500; line-height: 1.2 }
-.sp-meta { font-size: 9px; color: #6a3e10; font-weight: 600 }
-.sp-event.today { animation: sp-bounce 2.5s ease-in-out infinite }
-@keyframes sp-bounce { 0%,100%{transform:scale(1)} 50%{transform:scale(1.02)} }
+.sp-meta { font-size: 9px; color: #6a3e10; font-weight: 600; margin-top: 1px }
+.sp-ev.sp-today { animation: sp-pulse 2.5s ease-in-out infinite }
+@keyframes sp-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.02)} }
 
 </style>
 </head>
@@ -1026,25 +1015,22 @@ function applySpeed(){
   startCarousel()
 }
 
-// ── Lobby2 Signpost Board Renderer ──
 function renderSignpostBoard(events) {
-  var el = document.getElementById('signpost-board-events')
+  var el = document.getElementById('sp-board-events')
   if(!el) return
-  if(!events || !events.length) {
-    el.innerHTML = '<div style="color:rgba(90,50,10,0.5);font-size:10px;font-style:italic;text-align:center">No upcoming events</div>'
-    return
-  }
   var today = new Date().toISOString().slice(0,10)
   var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
-  // Show max 4 to fit on the board
-  var shown = events.slice(0,4)
-  el.innerHTML = shown.map(function(ev){
+  if(!events || !events.length) {
+    el.innerHTML = '<div style="color:rgba(90,50,10,0.5);font-size:10px;font-style:italic;text-align:center;padding:8px">No upcoming events</div>'
+    return
+  }
+  el.innerHTML = events.slice(0,4).map(function(ev){
     var isToday = ev.event_date === today
     var isTomorrow = ev.event_date === tomorrow
     var dayLabel = isToday ? null : isTomorrow ? 'Tomorrow' : formatEventDate(ev.event_date)
     var timeStr = ev.start_time ? fmt12(ev.start_time) : ''
-    return '<div class="sp-event'+(isToday?' today':'')+'">'
-      + (isToday ? '<div><span class="sp-today-badge">⭐ TODAY</span></div>' : '')
+    return '<div class="sp-ev'+(isToday?' sp-today':'')+'">'
+      + (isToday ? '<div><span class="sp-today-pill">⭐ TODAY</span></div>' : '')
       + (dayLabel ? '<div class="sp-day">'+dayLabel+'</div>' : '')
       + '<div class="sp-name">'+escH(ev.name||'')+'</div>'
       + (timeStr||ev.location ? '<div class="sp-meta">'+(timeStr||'')+(timeStr&&ev.location?' · ':'')+escH(ev.location||'')+'</div>' : '')
@@ -1052,22 +1038,27 @@ function renderSignpostBoard(events) {
   }).join('')
 }
 
-// Hook into the existing data fetch
-var _origRenderEvents = renderEvents
+// Override renderEvents to also populate signpost board
+var _origRender = renderEvents
 renderEvents = function(events) {
   _lastEvents = events
-  _origRenderEvents(events)
+  _origRender(events)
   if(_currentTheme === 'jungle') renderSignpostBoard(events)
+}
+// Also hook applyTheme to refresh board when jungle loads
+var _origApply = applyTheme
+applyTheme = function(theme) {
+  _origApply(theme)
+  if(theme === 'jungle' && _lastEvents.length) renderSignpostBoard(_lastEvents)
 }
 
 </script>
 
-<div id="jungle-signpost-panel">
-  <div class="signpost-board-events" id="signpost-board-events">
-    <div style="color:rgba(90,50,10,0.4);font-size:11px;font-style:italic">Loading...</div>
+<div id="jungle-img-panel">
+  <div class="sp-board-events" id="sp-board-events">
+    <div style="color:rgba(90,50,10,0.4);font-size:11px;font-style:italic">Loading…</div>
   </div>
-  <img class="signpost-img-base" src="/static/images/signpost.png" alt="signpost"/>
+  <img class="sp-img" src="/static/images/signpost.png" alt="jungle signpost"/>
 </div>
-
 </body>
 </html>

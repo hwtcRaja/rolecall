@@ -336,44 +336,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
     var maxPerReg = program.max_sessions_per_reg || 0
     function fmtTimeSess(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
 
-    // Check if ALL sessions have passed
-    var today = new Date(); today.setHours(0,0,0,0)
-    var allPast = sessions.every(function(s){
-      if(!s.start_date) return false
-      return new Date(s.start_date+'T12:00:00') < today
-    })
-    var allFullOrPast = sessions.every(function(s){
-      var isPast = s.start_date && new Date(s.start_date+'T12:00:00') < today
-      var isFull = s.capacity && (s.enrolled_count||0) >= s.capacity
-      return isPast || isFull
-    })
-
-    if(allPast){
-      sessionPickerHTML = '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:20px 18px;margin-bottom:16px;text-align:center">'
-        + '<div style="font-size:20px;margin-bottom:8px"></div>'
-        + '<div style="font-size:15px;font-weight:700;color:#991b1b;margin-bottom:4px">Registration Closed</div>'
-        + '<div style="font-size:13px;color:#b91c1c">All sessions for this program have already taken place.</div>'
-        + '</div>'
-      // Replace submit button with disabled state
-      document.addEventListener('DOMContentLoaded', function(){
-        var btn = document.getElementById('submit-btn')
-        var cartBtn = document.getElementById('add-to-cart-btn')
-        if(btn){ btn.disabled=true; btn.textContent='Registration Closed' }
-        if(cartBtn) cartBtn.style.display='none'
-      })
-    } else if(allFullOrPast){
-      sessionPickerHTML = '<div style="background:#fef3c7;border:1.5px solid #fde68a;border-radius:10px;padding:20px 18px;margin-bottom:16px;text-align:center">'
-        + '<div style="font-size:20px;margin-bottom:8px"></div>'
-        + '<div style="font-size:15px;font-weight:700;color:#92400e;margin-bottom:4px">No Available Sessions</div>'
-        + '<div style="font-size:13px;color:#b45309">All sessions are either full or have already taken place. Please contact us to be added to a waitlist.</div>'
-        + '</div>'
-      document.addEventListener('DOMContentLoaded', function(){
-        var btn = document.getElementById('submit-btn')
-        var cartBtn = document.getElementById('add-to-cart-btn')
-        if(btn){ btn.disabled=true; btn.textContent='No Sessions Available' }
-        if(cartBtn) cartBtn.style.display='none'
-      })
-    } else if(isBookingMode){
+    if(isBookingMode){
       // Group by date for a visual calendar-style grid
       var byDate = {}
       sessions.forEach(function(s){
@@ -394,23 +357,14 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
                   var cap = s.capacity || null
                   var spotsLeft = cap ? cap - enrolled : null
                   var isFull = spotsLeft !== null && spotsLeft <= 0
-                  // Check if session date has passed
-                  var isPast = false
-                  if(s.start_date){
-                    var today = new Date(); today.setHours(0,0,0,0)
-                    var sDate = new Date(s.start_date+'T12:00:00')
-                    isPast = sDate < today
-                  }
-                  var isDisabled = isFull || isPast
                   var pct = cap ? (enrolled / cap) : 0
-                  var isAlmost = !isDisabled && pct >= 0.9 && cap
+                  var isAlmost = !isFull && pct >= 0.9 && cap
                   var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
-                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isDisabled?'not-allowed':'pointer')+';text-align:center;background:'+(isDisabled?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isDisabled?'0.5':'1')+'">'
-                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isDisabled?'disabled':'')+' style="display:none"/>'
-                    + '<div style="font-size:13px;font-weight:700;color:'+(isDisabled?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
-                    + '<div style="font-size:11px;font-weight:700;color:'+(isDisabled?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isPast?'Passed':isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
-                    + (isPast ? '<div style="font-size:10px;color:#9ca3af;font-weight:700;margin-top:2px">Registration closed</div>'
-                      : isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
+                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isFull?'not-allowed':'pointer')+';text-align:center;background:'+(isFull?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isFull?'0.6':'1')+'">'
+                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isFull?'disabled':'')+' style="display:none"/>'
+                    + '<div style="font-size:13px;font-weight:700;color:'+(isFull?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
+                    + '<div style="font-size:11px;font-weight:700;color:'+(isFull?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
+                    + (isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
                       : showAlmost&&isAlmost ? '<div style="font-size:10px;color:#d97706;font-weight:700;margin-top:2px">Almost Sold Out!</div>'
                       : showCap&&cap&&spotsLeft<=5 ? '<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-top:2px">'+spotsLeft+' left</div>' : '')
                     + '</label>'
@@ -418,7 +372,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
               + '</div></div>'
           }).join('')
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
-    } else if(!allPast && !allFullOrPast) {
+    } else {
       // Standard checkbox list
       sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
         + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
@@ -429,24 +383,15 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
             var cap = s.capacity || null
             var spotsLeft = cap ? cap - enrolled : null
             var isFull = spotsLeft !== null && spotsLeft <= 0
-            // Check if session date has passed
-            var isPast = false
-            if(s.start_date){
-              var today = new Date(); today.setHours(0,0,0,0)
-              var sDate = new Date(s.start_date+'T12:00:00')
-              isPast = sDate < today
-            }
-            var isDisabled = isFull || isPast
             var pct = cap ? (enrolled / cap) : 0
-            var isAlmost = !isDisabled && pct >= 0.9 && cap
-            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isDisabled?'not-allowed':'pointer')+';opacity:'+(isDisabled?'0.5':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
-              + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isDisabled?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
+            var isAlmost = !isFull && pct >= 0.9 && cap
+            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
+              + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
               + '<div style="flex:1">'
               + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
-              + (s.start_date ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+new Date(s.start_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+(timeStr?' · '+escHtml(timeStr):'')+'</div>' : timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
+              + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
               + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
-              + (isPast ? '<div style="font-size:12px;color:#9ca3af;font-weight:600;margin-top:3px">Registration closed — session date has passed</div>'
-                : cap && (showCap || isFull || (showAlmost && isAlmost)) ? '<div style="font-size:12px;margin-top:3px">'
+              + (cap && (showCap || isFull || (showAlmost && isAlmost)) ? '<div style="font-size:12px;margin-top:3px">'
                   + (isFull ? '<span style="color:#dc2626;font-weight:700">Full</span>'
                     : showAlmost && isAlmost ? '<span style="color:#d97706;font-weight:700">Almost Sold Out!'+(showCap?' — '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left':'')+'</span>'
                     : showCap && spotsLeft !== null && spotsLeft <= 5 ? '<span style="color:#f59e0b;font-weight:600">'+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</span>'
@@ -464,16 +409,13 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
     ? '<div class="section-divider">Participant Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + '<div class="form-row">'
-      + '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date" onchange="handleDobChange()" required/></div>'
-      + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
-      + '</div>'
+      + (on('dob',true)||on('shirt',true) ? '<div class="form-row">'
+          + (on('dob',true) ? '<div class="form-group"><label>Date of Birth</label><input id="f-dob" type="date"/></div>' : '')
+          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
+          + '</div>' : '')
       + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions we should know about"/></div>' : '')
       + (on('pronouns',false) ? '<div class="form-group"><label>Pronouns</label><input id="f-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>' : '')
       + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for photos/videos of my child to be used in HWTC marketing and social media.</label></div>' : '')
-      // Age-conditional sections — shown/hidden by handleDobChange()
-      + '<div id="minor-fields" style="display:none">'
-      + '<div class="form-group"><label>Grade Going Into <span class="required">*</span></label><select id="f-grade"><option value="">Select grade...</option><option>Pre-K</option><option>Kindergarten</option><option>1st Grade</option><option>2nd Grade</option><option>3rd Grade</option><option>4th Grade</option><option>5th Grade</option><option>6th Grade</option><option>7th Grade</option><option>8th Grade</option><option>9th Grade</option><option>10th Grade</option><option>11th Grade</option><option>12th Grade</option></select></div>'
       + '<div class="section-divider">Parent / Guardian Information</div>'
       + '<div class="form-group"><label>Full Name <span class="required">*</span></label><input id="f-contact-name" placeholder="Parent or guardian name"/></div>'
       + '<div class="form-row"><div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
@@ -488,24 +430,13 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
           ? '<div class="section-divider">Pickup &amp; Drop-off</div>'
             + '<div class="form-group"><label>Authorized Pickup Contacts</label><textarea id="f-pickup" rows="2" placeholder="List all people authorized to pick up your child (name and relationship)..."></textarea></div>'
           : '')
-      + '</div>'
-      // Adult section (18+) — no guardian or pickup needed
-      + '<div id="adult-fields" style="display:none">'
-      + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email-adult" type="email" placeholder="your@email.com"/></div>'
-      + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone-adult" type="tel" placeholder="(555) 555-5555"/></div>' : '')
-      + (on('emergency_contact',true)
-          ? '<div class="section-divider">Emergency Contact</div>'
-            + '<div class="form-row"><div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact name"/></div>'
-            + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
-          : '')
-      + '</div>'
     : '<div class="section-divider">Your Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + '<div class="form-row">'
-      + '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date" required/></div>'
-      + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>' : '')
-      + '</div>'
+      + (on('age',false)||on('shirt',true) ? '<div class="form-row">'
+          + (on('age',false) ? '<div class="form-group"><label>Age</label><input id="f-age" type="number" min="0" max="120" placeholder="Your age"/></div>' : '')
+          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>' : '')
+          + '</div>' : '')
       + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
       + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div>' : '')
       + (on('emergency_contact',true)
@@ -566,7 +497,7 @@ function buildInterestForm(){
     + '</div></div>'
 }
 
-//  Discount / sibling state 
+// ── Discount / sibling state ──────────────────────────────────
 var _promoResult = null   // last validated promo {valid, discount_amount, label, _code, ...}
 var _siblingCount = 0
 
@@ -617,7 +548,7 @@ function buildPaymentOptions(prog){
   const codeBorder = _promoResult ? (_promoResult.valid ? '#86efac' : '#fca5a5') : '#d1d5db'
   const codeMsg = _promoResult
     ? (_promoResult.valid
-        ? '<span style="color:#166534;font-weight:600"> '+escHtml(promoLabel)+'</span>'
+        ? '<span style="color:#166534;font-weight:600">✓ '+escHtml(promoLabel)+'</span>'
         : '<span style="color:#dc2626">'+escHtml(_promoResult.error||'Invalid code')+'</span>')
     : ''
   html += '<div class="form-group"><label>Discount / Coupon Code</label>'
@@ -787,17 +718,6 @@ function addSiblingBlock(){
   refreshCheckout()
 }
 
-function handleDobChange(){
-  var dob = (document.getElementById('f-dob')||{}).value||''
-  if(!dob) return
-  var age = Math.floor((new Date() - new Date(dob)) / (365.25*24*60*60*1000))
-  var isMinor = age < 18
-  var minorFields = document.getElementById('minor-fields')
-  var adultFields = document.getElementById('adult-fields')
-  if(minorFields) minorFields.style.display = isMinor ? '' : 'none'
-  if(adultFields) adultFields.style.display = isMinor ? 'none' : ''
-}
-
 function getSiblings(){
   var result = []
   document.querySelectorAll('.sibling-block').forEach(function(b){
@@ -813,51 +733,31 @@ function getSiblings(){
 
 async function submitRegistration(){
   const btn = document.getElementById('submit-btn')
+  const email = (document.getElementById('f-email')||{}).value||''
+  const firstName = (document.getElementById('f-first')||{}).value||''
   const formType = (program && program.registration_form_type) || 'youth'
   const isYouth = formType==='youth' || !formType
-  const firstName = (document.getElementById('f-first')||{}).value||''
-  const dob = (document.getElementById('f-dob')||{}).value||''
-
-  // Determine if minor based on DOB
-  var isMinor = true
-  if(dob){
-    var age = Math.floor((new Date() - new Date(dob)) / (365.25*24*60*60*1000))
-    isMinor = age < 18
-  }
-
-  // Get email from the right field (minor = guardian email, adult = their own)
-  const email = isYouth && isMinor
-    ? ((document.getElementById('f-email')||{}).value||'').trim()
-    : ((document.getElementById('f-email-adult')||document.getElementById('f-email')||{}).value||'').trim()
-
-  const contactName = isYouth && isMinor
+  const contactName = isYouth
     ? ((document.getElementById('f-contact-name')||{}).value||'')
     : firstName + ' ' + ((document.getElementById('f-last')||{}).value||'')
 
-  if(!email || !firstName.trim() || (isYouth && isMinor && !contactName.trim())){
+  if(!email.trim() || !firstName.trim() || (isYouth && !contactName.trim())){
     show('Please fill in all required fields.','error'); return
-  }
-  if(isYouth && !dob){
-    show('Date of birth is required.','error'); return
   }
   btn.disabled=true; btn.textContent='Submitting...'
   document.getElementById('form-alert').innerHTML=''
 
   const customFields = (program && program.custom_fields) || []
-  const phone = isYouth && isMinor
-    ? ((document.getElementById('f-phone')||{}).value||'').trim()
-    : ((document.getElementById('f-phone-adult')||document.getElementById('f-phone')||{}).value||'').trim()
   const payload = {
     type: program.spots_remaining===0 ? 'waitlist' : 'registration',
     registration_form_type: formType,
-    is_minor: isMinor,
-    guardian_name: isMinor ? contactName : (firstName+' '+((document.getElementById('f-last')||{}).value||'')).trim(),
+    guardian_name: isYouth ? contactName : (firstName+' '+((document.getElementById('f-last')||{}).value||'')).trim(),
     guardian_email: email.trim(),
-    guardian_phone: phone,
-    child_first_name: firstName.trim(),
-    child_last_name: ((document.getElementById('f-last')||{}).value||'').trim(),
-    child_dob: dob,
-    grade: ((document.getElementById('f-grade')||{}).value||'').trim(),
+    guardian_phone: ((document.getElementById('f-phone')||{}).value||'').trim(),
+    child_first_name: isYouth ? firstName.trim() : firstName.trim(),
+    child_last_name: isYouth ? ((document.getElementById('f-last')||{}).value||'').trim() : ((document.getElementById('f-last')||{}).value||'').trim(),
+    child_dob: ((document.getElementById('f-dob')||{}).value)||'',
+    participant_age: ((document.getElementById('f-age')||{}).value)||'',
     shirt_size: ((document.getElementById('f-shirt')||{}).value)||'',
     emergency_contact_name: ((document.getElementById('f-ec-name')||{}).value||'').trim(),
     emergency_contact_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),
@@ -1208,13 +1108,13 @@ function showAddedScreen(item, guardian){
   var el = document.getElementById('app')
   el.innerHTML =
     '<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px">'
-    + '<div style="font-size:48px;margin-bottom:16px"></div>'
+    + '<div style="font-size:48px;margin-bottom:16px">✅</div>'
     + '<h2 style="color:#145466;font-size:20px;margin-bottom:8px">Added to Cart!</h2>'
     + '<p style="color:#374151;font-size:14px;margin-bottom:4px"><strong>'+escHtml(item.program_name)+'</strong></p>'
     + (numParticipants > 1 ? '<p style="color:#6b7280;font-size:13px;margin-bottom:4px">'+numParticipants+' participants</p>' : '')
     + (price > 0 ? '<p style="color:#6b7280;font-size:13px;margin-bottom:20px">$'+(lineTotal/100).toFixed(2)+'</p>' : '<p style="color:#166534;font-size:13px;font-weight:700;margin-bottom:20px">Free</p>')
     + '<div style="display:flex;flex-direction:column;gap:10px;max-width:320px;margin:0 auto">'
-    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none"> Go to Cart &amp; Checkout &rarr;</a>'
+    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none">🛒 Go to Cart &amp; Checkout &rarr;</a>'
     + '<a href="/api/public/programs" id="browse-more-btn" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">+ Add Another Program</a>'
     + '</div>'
     + '<div style="margin-top:16px;font-size:12px;color:#9ca3af">'+cartCount()+' program'+(cartCount()===1?'':'s')+' in your cart</div>'
@@ -1252,7 +1152,7 @@ async function showProgramBrowser(){
       + '</div></div>'
       + '<div>'
       + (inCart
-          ? '<span style="font-size:12px;color:#145466;font-weight:600"> In cart</span>'
+          ? '<span style="font-size:12px;color:#145466;font-weight:600">✓ In cart</span>'
           : (spotsLeft === 0
               ? '<span style="font-size:12px;color:#6b7280">Waitlist</span>'
               : '<a href="/register/'+escHtml(p.slug)+'" class="btn btn-primary btn-sm" style="font-size:12px;padding:6px 14px;text-decoration:none">Register</a>'))
@@ -1260,7 +1160,7 @@ async function showProgramBrowser(){
   })
   html += '</div></div>'
     + '<div style="text-align:center;margin-top:8px">'
-    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none;display:inline-flex;width:auto;padding:12px 28px"> Go to Cart &rarr;</a>'
+    + '<a href="/register/cart" class="btn btn-primary" style="text-decoration:none;display:inline-flex;width:auto;padding:12px 28px">🛒 Go to Cart &rarr;</a>'
     + '</div>'
   el.innerHTML = html
 }

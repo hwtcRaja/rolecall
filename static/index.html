@@ -249,6 +249,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .alert-item.danger{background:var(--red-50);border:1px solid var(--red-200)}
 .alert-action{cursor:pointer;color:var(--teal-600);font-weight:500;text-decoration:none;margin-left:auto}
 .settings-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--shadow-sm)}
+.settings-nav-btn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 8px;border:none;background:transparent;border-radius:var(--radius);cursor:pointer;font-family:inherit;font-size:13px;color:var(--text-muted);text-align:left;transition:background 0.1s}
+.settings-nav-btn:hover{background:var(--surface);color:var(--text-primary)}
+.settings-nav-btn.active{background:var(--teal-light,#e0f4f0);color:var(--teal-dark);font-weight:600}
+.settings-nav-btn i{font-size:15px;flex-shrink:0}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
@@ -1470,40 +1474,142 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <!-- SETTINGS -->
  <section class="page" id="page-settings">
- <div class="page-header"><div><div class="page-title">Settings</div><div class="page-subtitle">System administration</div></div></div>
- <div class="page-body">
- <div class="settings-grid">
+ <div class="page-header">
+  <div><div class="page-title">Settings</div><div class="page-subtitle">Configure RoleCall for your organization</div></div>
+ </div>
+ <div class="page-body" style="padding:0;display:flex;gap:0;height:calc(100vh - 130px);overflow:hidden">
 
- <!-- Interest Types -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Interest Types</div>
- <div id="interest-types-list" style="margin-bottom:16px"></div>
- <div class="inline-input-row">
- <input type="text" id="new-interest-name" placeholder="e.g. Costume Design"/>
- <select id="new-interest-color" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
- <option value="teal">Teal</option><option value="blue">Blue</option><option value="amber">Amber</option>
- <option value="pink">Pink</option><option value="purple">Purple</option><option value="gray">Gray</option>
- </select>
- <button class="btn btn-primary btn-sm" onclick="addInterestType()">Add</button>
+  <!-- Settings Sidebar -->
+  <div id="settings-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px">
+
+   <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Organization</div>
+    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)"><i class="ti ti-building" aria-hidden="true"></i>General</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)"><i class="ti ti-users" aria-hidden="true"></i>Users &amp; access</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)"><i class="ti ti-mail" aria-hidden="true"></i>Email &amp; alerts</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)"><i class="ti ti-home" aria-hidden="true"></i>Families &amp; portal</button>
+   </div>
+
+   <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Kiosk &amp; events</div>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)"><i class="ti ti-shield-check" aria-hidden="true"></i>ELIC management</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)"><i class="ti ti-clipboard-list" aria-hidden="true"></i>Checklists</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)"><i class="ti ti-calendar-event" aria-hidden="true"></i>Event types</button>
+   </div>
+
+   <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Programs</div>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)"><i class="ti ti-tag" aria-hidden="true"></i>Interest types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)"><i class="ti ti-file-check" aria-hidden="true"></i>Waiver types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)"><i class="ti ti-template" aria-hidden="true"></i>Email templates</button>
+   </div>
+
+   <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Integrations</div>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)"><i class="ti ti-phone" aria-hidden="true"></i>Phone &amp; Twilio</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)"><i class="ti ti-tv" aria-hidden="true"></i>Lobby TV</button>
+   </div>
+
+   <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Display</div>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)"><i class="ti ti-layout-navbar" aria-hidden="true"></i>Nav icons</button>
+   </div>
+  </div>
+
+  <!-- Settings Panels Container -->
+  <div style="flex:1;overflow-y:auto;padding:24px 28px">
+
+   <div id="settings-panel-general" class="settings-panel" style="">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
+    <div class="settings-section" style="margin-bottom:16px">
+ <div style="font-weight:600;font-size:14px;margin-bottom:16px">Notification Alerts</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+ <div class="form-group">
+ <label>Resend API Key</label>
+ <input type="password" id="es-api-key" placeholder="re_••••••••••••••••••••••"/>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:3px">From your Resend dashboard → API Keys</div>
+ </div>
+ <div class="form-group" style="grid-column:1/-1">
+ <label>Sender Identities <span style="font-weight:400;color:var(--text-muted);font-size:11px">— who emails can be sent as</span></label>
+ <div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Each identity must use a domain verified in Resend. The first entry is the system default for automated emails.</div>
+ <div id="es-sender-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+ <button class="btn btn-secondary btn-sm" onclick="addSenderIdentity()">+ Add Sender</button>
+ </div>
+ </div>
+ <div class="form-group" style="margin-bottom:20px">
+ <label>Report Recipients</label>
+ <div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Select which system users receive event reports and alerts. Only users with an email address are shown.</div>
+ <div id="es-recipients-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding:2px 0"></div>
+ </div>
+
+ <div style="font-weight:600;font-size:13px;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Alert Toggles</div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px">
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-checklist" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Auto-send event report</div><div style="font-size:11px;color:var(--text-muted)">Email report when an event is closed</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-hours" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Hours submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when volunteer submits hours</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-profiles" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Profile change request</div><div style="font-size:11px;color:var(--text-muted)">Alert when participant requests a change</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Conflict added</div><div style="font-size:11px;color:var(--text-muted)">Alert when a conflict is added to a production</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-waivers" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Waiver expiring</div><div style="font-size:11px;color:var(--text-muted)">Alert when a waiver expires within 14 days</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-not-opened" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Event not opened</div><div style="font-size:11px;color:var(--text-muted)">Alert 20 min before start if event not opened</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-not-closed" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Event not closed</div><div style="font-size:11px;color:var(--text-muted)">Alert if event not closed 2 hrs after end</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-new-rsvp" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> New volunteer sign-up</div><div style="font-size:11px;color:var(--text-muted)">Alert when a volunteer signs up for an event</div></div>
+ </label>
+ <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
+ <input type="checkbox" id="es-alert-role-filled" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
+ <div><div style="font-size:13px;font-weight:600"> Role slot filled</div><div style="font-size:11px;color:var(--text-muted)">Alert when all slots for a role are taken</div></div>
+ </label>
+ </div>
+
+ <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve rental requests and in what order. Leave empty to skip multi-level approval.</div>
+ <div id="rental-approval-levels-list" style="margin-bottom:10px"></div>
+ <button class="btn btn-secondary btn-sm" onclick="addRentalApprovalLevel()" style="margin-bottom:14px">+ Add Approval Level</button>
+ <div class="form-group">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
+ <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
  </div>
  </div>
 
- <!-- Waiver Types -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Waiver Types</div>
- <div id="waiver-types-list" style="margin-bottom:16px"></div>
- <button class="btn btn-primary btn-sm" onclick="openNewWaiverTypeModal()">+ New Waiver Type</button>
+ <div style="display:flex;gap:10px">
+ <button class="btn btn-primary" id="es-save-btn" onclick="saveEmailSettings()">Save Email Settings</button>
+ <button class="btn btn-secondary" onclick="testEmail()">Send Test Email</button>
  </div>
+ <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
+ </div></div>
+   </div>
 
- <!-- Email Templates -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Email Templates</div>
- <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
- <button class="btn btn-primary btn-sm" onclick="openSaveTemplateModal()">+ New Template</button>
- </div>
-
- <!-- Add User -->
- <div class="settings-section">
+   <div id="settings-panel-users" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage who can log in to RoleCall</div>
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:20px"> Add System User</div>
  <div class="form-group"><label>Full Name</label><input type="text" id="new-user-name" placeholder="Jane Smith"/></div>
  <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="jane@example.com"/></div>
@@ -1517,77 +1623,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <button class="btn btn-primary" onclick="createUser()">Add User</button>
  </div>
+<div class="settings-section" style="grid-column:1/-1">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+ <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
+ </div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
+ <div id="users-management-list"></div>
+ </div>
+   </div>
 
- <!-- Event Types -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Event Types</div>
- <div id="event-types-list" style="margin-bottom:16px"></div>
- <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Add new type</div>
- <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
- <input type="text" id="new-event-type-name" placeholder="e.g. Tech Rehearsal" style="flex:1;min-width:140px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
- <button class="btn btn-primary btn-sm" onclick="addEventType()">Add</button>
- </div>
- <div style="margin-top:10px">
- <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Color</div>
- <div id="new-event-type-color-swatches" style="display:flex;flex-wrap:wrap;gap:6px"></div>
- <input type="hidden" id="new-event-type-color" value="teal"/>
- </div>
- </div>
-
- <!-- ELIC Management -->
- <div class="settings-section" style="grid-column:1/-1">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
- <div id="elics-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-elic-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
- <div style="min-width:100px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">4-Digit PIN *</div><input type="text" id="new-elic-pin" maxlength="4" placeholder="e.g. 1234" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="display:flex;align-items:flex-end;gap:6px">
- <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-master" style="accent-color:var(--teal-400)"/> Master ELIC</label>
- <button class="btn btn-primary btn-sm" onclick="addElic()">Add ELIC</button>
- </div>
- </div>
- </div>
-
- <!-- Closing Checklist -->
- <div class="settings-section" style="grid-column:1/-1">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
- <div id="checklist-items-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
- <div style="flex:2;min-width:180px"><input type="text" id="new-cl-label" placeholder="e.g. Stage left clear?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <select id="new-cl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
- <option value="checkbox">Checkbox</option>
- <option value="text">Text / Notes</option>
- <option value="rating">1–5 Rating</option>
- </select>
- <div style="display:flex;align-items:flex-end;gap:6px">
- <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
- <button class="btn btn-primary btn-sm" onclick="addChecklistItem()">Add Item</button>
- </div>
- </div>
- <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
- </div>
-
- <!-- Opening Checklist -->
- <div class="settings-section" style="grid-column:1/-1">
- <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
- <div id="opening-checklist-items-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
- <div style="flex:2;min-width:180px"><input type="text" id="new-ocl-label" placeholder="e.g. All mics tested?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <select id="new-ocl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
- <option value="checkbox">Checkbox</option>
- <option value="text">Text / Notes</option>
- <option value="rating">1–5 Rating</option>
- </select>
- <div style="display:flex;align-items:flex-end;gap:6px">
- <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
- <button class="btn btn-primary btn-sm" onclick="addOpeningChecklistItem()">Add Item</button>
- </div>
- </div>
- </div>
-
-
- <!-- Email / Notifications Settings -->
- <div class="settings-section" style="grid-column:1/-1">
+   <div id="settings-panel-email" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email & alerts</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure Resend for automated emails and reports</div>
+    <div class="settings-section" style="grid-column:1/-1">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Email & Notifications</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -1670,9 +1718,142 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div>
+   </div>
 
- <!-- Twilio Settings -->
- <div class="settings-section" style="grid-column:1/-1">
+   <div id="settings-panel-families" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Families & portal</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Create family groups and manage portal access</div>
+    <div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
+ <div id="families-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+ </div>
+ </div>
+
+ </div>
+ </div>
+ </section>
+   </div>
+
+   <div id="settings-panel-elics" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Event Leads In Charge — manage PINs and assignments</div>
+    <div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
+ <div id="elics-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-elic-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
+ <div style="min-width:100px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">4-Digit PIN *</div><input type="text" id="new-elic-pin" maxlength="4" placeholder="e.g. 1234" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <div style="display:flex;align-items:flex-end;gap:6px">
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-master" style="accent-color:var(--teal-400)"/> Master ELIC</label>
+ <button class="btn btn-primary btn-sm" onclick="addElic()">Add ELIC</button>
+ </div>
+ </div>
+ </div>
+   </div>
+
+   <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
+    <div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
+ <div id="checklist-items-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+ <div style="flex:2;min-width:180px"><input type="text" id="new-cl-label" placeholder="e.g. Stage left clear?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <select id="new-cl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="checkbox">Checkbox</option>
+ <option value="text">Text / Notes</option>
+ <option value="rating">1–5 Rating</option>
+ </select>
+ <div style="display:flex;align-items:flex-end;gap:6px">
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <button class="btn btn-primary btn-sm" onclick="addChecklistItem()">Add Item</button>
+ </div>
+ </div>
+ <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
+ </div>
+<div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
+ <div id="opening-checklist-items-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+ <div style="flex:2;min-width:180px"><input type="text" id="new-ocl-label" placeholder="e.g. All mics tested?" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <select id="new-ocl-type" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="checkbox">Checkbox</option>
+ <option value="text">Text / Notes</option>
+ <option value="rating">1–5 Rating</option>
+ </select>
+ <div style="display:flex;align-items:flex-end;gap:6px">
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <button class="btn btn-primary btn-sm" onclick="addOpeningChecklistItem()">Add Item</button>
+ </div>
+ </div>
+ </div>
+   </div>
+
+   <div id="settings-panel-event-types" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Event types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the types of events you can create</div>
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Event Types</div>
+ <div id="event-types-list" style="margin-bottom:16px"></div>
+ <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Add new type</div>
+ <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+ <input type="text" id="new-event-type-name" placeholder="e.g. Tech Rehearsal" style="flex:1;min-width:140px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ <button class="btn btn-primary btn-sm" onclick="addEventType()">Add</button>
+ </div>
+ <div style="margin-top:10px">
+ <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Color</div>
+ <div id="new-event-type-color-swatches" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+ <input type="hidden" id="new-event-type-color" value="teal"/>
+ </div>
+ </div>
+   </div>
+
+   <div id="settings-panel-interest-types" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Interest types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Volunteer interest categories shown on the join form</div>
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Interest Types</div>
+ <div id="interest-types-list" style="margin-bottom:16px"></div>
+ <div class="inline-input-row">
+ <input type="text" id="new-interest-name" placeholder="e.g. Costume Design"/>
+ <select id="new-interest-color" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="teal">Teal</option><option value="blue">Blue</option><option value="amber">Amber</option>
+ <option value="pink">Pink</option><option value="purple">Purple</option><option value="gray">Gray</option>
+ </select>
+ <button class="btn btn-primary btn-sm" onclick="addInterestType()">Add</button>
+ </div>
+ </div>
+   </div>
+
+   <div id="settings-panel-waiver-types" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Waiver types</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure the waivers volunteers must sign</div>
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Waiver Types</div>
+ <div id="waiver-types-list" style="margin-bottom:16px"></div>
+ <button class="btn btn-primary btn-sm" onclick="openNewWaiverTypeModal()">+ New Waiver Type</button>
+ </div>
+   </div>
+
+   <div id="settings-panel-email-templates" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email templates</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Custom email templates for automated messages</div>
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Email Templates</div>
+ <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
+ <button class="btn btn-primary btn-sm" onclick="openSaveTemplateModal()">+ New Template</button>
+ </div>
+   </div>
+
+   <div id="settings-panel-twilio" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure your Twilio phone number, voicemail, and on-call routing</div>
+    <div class="settings-section" style="grid-column:1/-1">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
@@ -1816,9 +1997,40 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="twilio-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div>
+   </div>
 
- <!-- Nav Icons Settings -->
+   <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
+    <div class="settings-section" style="grid-column:1/-1">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+ <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
+ </div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
+ <div id="users-management-list"></div>
+ </div>
+
+ <!-- Family / Portal Management -->
  <div class="settings-section" style="grid-column:1/-1">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
+ <div id="families-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+ </div>
+ </div>
+
+ </div>
+ </div>
+ </section
+   </div>
+
+   <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Nav icons</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the icons shown in the sidebar navigation</div>
+    <div class="settings-section" style="grid-column:1/-1">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
  <div>
  <div style="font-weight:600;font-size:15px;margin-bottom:4px"> Nav Icons</div>
@@ -2108,177 +2320,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  </div>
- <!-- Lobby TV -->
- <div class="card" style="padding:20px;margin-bottom:16px">
- <div style="font-size:15px;font-weight:700;margin-bottom:4px">Lobby TV Display</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Manage images and seasonal theme for the lobby carousel at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a></div>
-
- <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
-  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Header Banner</label>
-  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload your own image to use as the header background — great for a show poster, special event, or licensed promotional artwork. Leave unset to use the default HWTC header.</div>
-  <div id="lobby-banner-preview" style="display:none;width:100%;max-width:560px;aspect-ratio:1920/130;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover;position:relative">
-   <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.15) 55%,rgba(0,0,0,0.45) 100%)"></div>
-   <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 3%;font-family:'DM Sans',system-ui,sans-serif;color:#fff">
-    <div style="display:flex;align-items:center;gap:1.5%">
-     <img src="/static/images/hwtc_logo_teal.png" style="height:44%;filter:brightness(0) invert(1)" onerror="this.style.display='none'"/>
-     <div>
-      <div style="font-size:11px;font-weight:800;letter-spacing:-0.2px;line-height:1.1">Horizon West Theater Company</div>
-      <div style="font-size:6.5px;color:rgba(255,255,255,0.65);margin-top:1px">Welcome to HWTC Studio</div>
-     </div>
-    </div>
-    <div style="text-align:right">
-     <div id="banner-preview-clock" style="font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-0.4px;line-height:1">--:--:-- --</div>
-     <div id="banner-preview-date" style="font-size:7px;color:rgba(255,255,255,0.65);margin-top:1px"></div>
-    </div>
    </div>
-  </div>
-  <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Preview shown at the real header proportions (1920&times;130px). Logo and clock positions match exactly what appears on the TV.</div>
-  <div id="lobby-banner-controls" style="display:none;margin-bottom:12px;max-width:420px">
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Fit Mode</div>
-  <div style="display:flex;gap:8px;margin-bottom:12px">
-   <button class="banner-fit-btn" data-fit="cover" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fill (crop to fit)</button>
-   <button class="banner-fit-btn" data-fit="contain" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fit (show full image)</button>
-  </div>
-  <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
-   <div id="banner-pos-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:12px">
-    <button class="banner-pos-btn" data-pos="0% 0%" title="Top Left"></button>
-    <button class="banner-pos-btn" data-pos="50% 0%" title="Top Center"></button>
-    <button class="banner-pos-btn" data-pos="100% 0%" title="Top Right"></button>
-    <button class="banner-pos-btn" data-pos="0% 50%" title="Middle Left"></button>
-    <button class="banner-pos-btn" data-pos="50% 50%" title="Center"></button>
-    <button class="banner-pos-btn" data-pos="100% 50%" title="Middle Right"></button>
-    <button class="banner-pos-btn" data-pos="0% 100%" title="Bottom Left"></button>
-    <button class="banner-pos-btn" data-pos="50% 100%" title="Bottom Center"></button>
-    <button class="banner-pos-btn" data-pos="100% 100%" title="Bottom Right"></button>
-   </div>
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Zoom <span id="banner-zoom-val">100%</span></div>
-   <input type="range" id="lobby-banner-zoom" min="50" max="300" value="100" style="width:100%;accent-color:var(--teal)"/>
-   <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()" style="margin-top:10px">Save Position &amp; Zoom</button>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-   <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
-    Upload Banner Image
-    <input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/>
-   </label>
-   <button class="btn btn-secondary btn-sm" onclick="clearLobbyBanner()" id="lobby-banner-clear-btn" style="display:none">Remove Banner</button>
-   <span id="lobby-banner-status" style="font-size:13px;color:var(--teal-dark)"></span>
-  </div>
- </div>
- <style>
-  .banner-pos-btn{aspect-ratio:1;border:1.5px solid var(--border-md);border-radius:4px;background:var(--surface);cursor:pointer;position:relative;padding:0}
-  .banner-pos-btn::after{content:'';position:absolute;inset:30%;border-radius:2px;background:var(--border-md)}
-  .banner-pos-btn:hover{border-color:var(--teal)}
-  .banner-pos-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe)}
-  .banner-pos-btn.active::after{background:var(--teal)}
-  .banner-fit-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe);color:var(--teal-dark)}
- </style>
 
- <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
-  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">Schedule Sidebar Background</label>
-  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload a background image to show behind the upcoming events list on the right side of the lobby TV. Leave unset to use the default solid color.</div>
-  <div id="sched-bg-preview" style="display:none;width:140px;aspect-ratio:380/950;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px;background:#000;background-size:cover"></div>
-  <div id="sched-bg-controls" style="display:none;margin-bottom:12px;max-width:300px">
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Fit Mode</div>
-   <div style="display:flex;gap:8px;margin-bottom:12px">
-    <button class="sched-bg-fit-btn" data-fit="cover" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fill (crop to fit)</button>
-    <button class="sched-bg-fit-btn" data-fit="contain" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface)">Fit (show full image)</button>
-   </div>
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Position</div>
-   <div id="sched-bg-pos-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:12px">
-    <button class="sched-bg-pos-btn" data-pos="0% 0%" title="Top Left"></button>
-    <button class="sched-bg-pos-btn" data-pos="50% 0%" title="Top Center"></button>
-    <button class="sched-bg-pos-btn" data-pos="100% 0%" title="Top Right"></button>
-    <button class="sched-bg-pos-btn" data-pos="0% 50%" title="Middle Left"></button>
-    <button class="sched-bg-pos-btn" data-pos="50% 50%" title="Center"></button>
-    <button class="sched-bg-pos-btn" data-pos="100% 50%" title="Middle Right"></button>
-    <button class="sched-bg-pos-btn" data-pos="0% 100%" title="Bottom Left"></button>
-    <button class="sched-bg-pos-btn" data-pos="50% 100%" title="Bottom Center"></button>
-    <button class="sched-bg-pos-btn" data-pos="100% 100%" title="Bottom Right"></button>
-   </div>
-   <div style="font-size:12px;font-weight:600;margin-bottom:6px">Zoom <span id="sched-bg-zoom-val">100%</span></div>
-   <input type="range" id="sched-bg-zoom" min="50" max="300" value="100" style="width:100%;accent-color:var(--teal)"/>
-   <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()" style="margin-top:10px">Save Position &amp; Zoom</button>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-   <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
-    Upload Background Image
-    <input type="file" id="sched-bg-input" accept="image/*" style="display:none"/>
-   </label>
-   <button class="btn btn-secondary btn-sm" onclick="clearSchedBg()" id="sched-bg-clear-btn" style="display:none">Remove Background</button>
-   <span id="sched-bg-status" style="font-size:13px;color:var(--teal-dark)"></span>
-  </div>
- </div>
- <style>
-  .sched-bg-pos-btn{aspect-ratio:1;border:1.5px solid var(--border-md);border-radius:4px;background:var(--surface);cursor:pointer;position:relative;padding:0}
-  .sched-bg-pos-btn::after{content:'';position:absolute;inset:30%;border-radius:2px;background:var(--border-md)}
-  .sched-bg-pos-btn:hover{border-color:var(--teal)}
-  .sched-bg-pos-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe)}
-  .sched-bg-pos-btn.active::after{background:var(--teal)}
-  .sched-bg-fit-btn.active{border-color:var(--teal);background:var(--teal-light,#e0f2fe);color:var(--teal-dark)}
- </style>
-
- <div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
-  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Active Lobby Theme</label>
-  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Select which theme is live at <a href="/lobby" target="_blank" style="color:var(--teal)">rolecall.hwtco.org/lobby</a>. Preview any theme before going live.</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-theme-cards"></div>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-   <span id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
-  </div>
-  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-   <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Standard Theme Style</label>
-   <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">For the Standard layout, also set a seasonal color scheme:</div>
-   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;background:var(--surface)">
-     <option value="none">None (Default)</option>
-     <option value="winter">❄️ Winter Wonderland</option>
-     <option value="fall">🍂 Autumn</option>
-     <option value="halloween">🎃 Halloween</option>
-     <option value="spring">🌸 Spring</option>
-     <option value="summer">☀️ Summer</option>
-     <option value="show">✨ Opening Night</option>
-     <option value="seuss">🎩 Dr. Seuss</option>
-    </select>
-    <button class="btn btn-secondary btn-sm" onclick="saveLobbyTheme()">Apply Color Scheme</button>
-    <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
-   </div>
-  </div>
- </div>
-
- <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px" id="lobby-img-grid"></div>
- <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-  <label class="btn btn-secondary" style="cursor:pointer;margin:0">
-   Upload Images
-   <input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/>
-  </label>
-  <button class="btn btn-primary" onclick="saveLobbyImages()">Save Changes</button>
-  <span id="lobby-img-status" style="font-size:13px;color:var(--teal-dark)"></span>
- </div>
- </div>
-
- <!-- User Management -->
- <div class="settings-section" style="grid-column:1/-1">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
- <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
- </div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
- <div id="users-management-list"></div>
- </div>
-
- <!-- Family / Portal Management -->
- <div class="settings-section" style="grid-column:1/-1">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
- <div id="families-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
- </div>
- </div>
-
- </div>
- </div>
- </section>
+  </div><!-- end panels container -->
+ </div><!-- end page-body -->
+</section>
 
  <!-- ON-CALL SCHEDULE -->
  <section class="page" id="page-oncall">
@@ -5910,21 +5956,38 @@ async function loadYouthHistory(yid){
  if(!el) return
  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>'
  const history = await api(`/api/youth/${yid}/history`)
- if(!history.length){
- el.innerHTML='<div style="color:var(--text-muted);font-size:13px">No attendance history yet</div>'
- return
+ if(!history||!history.length){
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:16px 0">No history yet</div>'
+  return
  }
- el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table>'
- + '<thead><tr><th>Event</th><th>Program</th><th>Date</th><th>Signed In</th><th>Signed Out</th></tr></thead>'
- + '<tbody>'
- + history.map(h=>`<tr>
- <td style="font-size:13px;font-weight:500">${escHtml(h.event_name||'Unknown Event')}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.program_name?`<span style="background:var(--teal-50);color:var(--teal-dark);padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600">${escHtml(h.program_name)}</span>`:'—'}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.event_date?formatDate(h.event_date):'—'}</td>
- <td style="font-size:12px">${h.sign_in_time?formatDateTimeShort(h.sign_in_time):'—'}</td>
- <td style="font-size:12px;color:var(--text-muted)">${h.sign_out_time?formatDateTimeShort(h.sign_out_time):'<span style="color:var(--amber-600)">Not signed out</span>'}</td>
- </tr>`).join('')
- + '</tbody></table></div>'
+ const typeColors = {
+  joined:'#e0f2fe;color:#145466', program:'#dcfce7;color:#166534',
+  event:'#f0fdf4;color:#166534', waiver:'#ede9fe;color:#6d28d9',
+  note:'#fef3c7;color:#92400e', incident:'#fee2e2;color:#991b1b'
+ }
+ function fmtTs(ts){
+  if(!ts||ts==='0') return ''
+  try{
+   const d=new Date(ts)
+   return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    +(ts.includes('T')?' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'')
+  }catch(e){return ts.slice(0,10)}
+ }
+ el.innerHTML = '<div style="position:relative;padding-left:32px">'
+  + '<div style="position:absolute;left:11px;top:0;bottom:0;width:2px;background:var(--border)"></div>'
+  + history.map(h=>{
+   const colorStyle = typeColors[h.type]||'#f3f4f6;color:#374151'
+   const bg = colorStyle.split(';')[0].trim()
+   return `<div style="position:relative;margin-bottom:20px">
+    <div style="position:absolute;left:-32px;top:2px;width:22px;height:22px;border-radius:50%;
+     background:${bg};border:2px solid #fff;box-shadow:0 0 0 2px ${bg};
+     display:flex;align-items:center;justify-content:center;font-size:11px">${h.icon||'•'}</div>
+    <div style="font-size:13px;font-weight:700;color:#111;margin-bottom:2px">${escHtml(h.label||'')}</div>
+    ${h.detail?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">${escHtml(h.detail)}</div>`:''}
+    <div style="font-size:11px;color:var(--text-muted)">${fmtTs(h.ts)}</div>
+   </div>`
+  }).join('')
+  + '</div>'
 }
 
 async function openGuardianModal(yid, gid){
@@ -7042,6 +7105,11 @@ async function loadSettings(){
  loadEmailSettings()
  loadNavIconSettings()
  loadLobbyImages()
+ // Ensure default panel is shown
+ const firstBtn = document.querySelector('.settings-nav-btn')
+ if(firstBtn && !document.querySelector('.settings-nav-btn.active')) {
+   switchSettingsPanel('general', firstBtn)
+ }
 }
 
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
@@ -8094,6 +8162,19 @@ async function sendOncallReport(btn){
  }
  btn.textContent = orig
  btn.disabled = false
+}
+
+function switchSettingsPanel(id, btn){
+ document.querySelectorAll('.settings-panel').forEach(p=>p.style.display='none')
+ document.querySelectorAll('.settings-nav-btn').forEach(b=>b.classList.remove('active'))
+ const panel = document.getElementById('settings-panel-'+id)
+ if(panel) panel.style.display=''
+ if(btn) btn.classList.add('active')
+ // Trigger load functions for panels that need data
+ if(id==='email'||id==='general') loadEmailSettings()
+ if(id==='twilio') loadTwilioSettings()
+ if(id==='lobby') { loadLobbyTheme(); loadLobbyImages(); loadLobbyActiveTheme() }
+ if(id==='nav-icons') loadNavIconSettings()
 }
 
 function clearSendersDirty(){
@@ -16542,22 +16623,47 @@ async function loadYouthSignInTab(yid){
  const container=document.getElementById(`youth-signin-list-${yid}`)
  if(!container) return
  const filtered=await api(`/api/youth-sign-ins?youth_id=${yid}`)
- if(!filtered.length){
- container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
- return
+ if(!filtered||!filtered.length){
+  container.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No sign-in records yet</div>'
+  return
  }
- container.innerHTML=filtered.map(r=>`
- <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
- <div>
- <div style="font-weight:500;font-size:13px">${r.signed_in_at?new Date(r.signed_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'—'}</div>
- <div style="font-size:12px;color:var(--text-muted)">${r.signed_in_by?'Signed in by: '+r.signed_in_by:''}</div>
- </div>
- <div style="text-align:right">
- ${r.signed_out_at
- ?`<div style="font-size:12px;font-weight:500;color:var(--green-600)"> Signed out ${new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})}</div>`
-:`<span style="font-size:12px;background:var(--amber-50);color:var(--amber-600);padding:3px 8px;border-radius:8px;font-weight:600"> Still signed in</span>`}
- </div>
- </div>`).join('')
+ // Group by date
+ const byDate={}
+ filtered.forEach(r=>{
+  const dt=r.signed_in_at?new Date(r.signed_in_at):null
+  const key=dt?dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'Unknown Date'
+  if(!byDate[key]) byDate[key]=[]
+  byDate[key].push(r)
+ })
+ container.innerHTML=Object.entries(byDate).map(([date,records])=>{
+  const rows=records.map(r=>{
+   const inTime=r.signed_in_at?new Date(r.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—'
+   const outTime=r.signed_out_at?new Date(r.signed_out_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):null
+   const duration=r.signed_in_at&&r.signed_out_at?Math.round((new Date(r.signed_out_at)-new Date(r.signed_in_at))/60000):null
+   const durStr=duration!==null?(duration>=60?Math.floor(duration/60)+'h '+(duration%60?duration%60+'m':''):(duration+'m')):null
+   const statusBadge=outTime
+    ?`<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">✓ Signed Out</span>`
+    :`<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">● Still Here</span>`
+   return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
+    <div><div style="font-weight:700;color:#145466">${inTime}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'—'}</div>
+    ${r.event_name?`<div style="font-size:11px;color:var(--text-muted);margin-top:1px">📅 ${escHtml(r.event_name)}</div>`:''}</div>
+    <div>${outTime?`<div style="font-weight:700;color:#166534">${outTime}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_out_by?'by '+r.signed_out_by:''}</div>`:'<div style="color:var(--text-muted)">—</div>'}</div>
+    <div style="font-size:12px;color:var(--text-muted)">${durStr?'⏱ '+durStr:''}</div>
+    <div>${statusBadge}</div>
+   </div>`
+  }).join('')
+  return `<div style="margin-bottom:16px">
+   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:8px 12px;background:var(--bg);border-radius:8px;margin-bottom:4px">${date}</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;padding:6px 12px;background:#f9fafb;border-radius:6px 6px 0 0">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign In</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign Out</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Duration</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Status</div>
+   </div>
+   <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;overflow:hidden">${rows}</div>
+  </div>`
+ }).join('')
 }
 
 // ═══════════════════════════════════════════════════════════════

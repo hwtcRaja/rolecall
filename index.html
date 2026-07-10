@@ -255,6 +255,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .settings-nav-btn i{font-size:15px;flex-shrink:0}
 .settings-panel>div[style*="font-size:15px"]{display:none}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
+#page-settings{overflow:hidden}
+#page-settings .page-body{padding:0!important;display:flex!important;flex-direction:row!important;overflow:hidden!important;flex:1;min-height:0}
+#settings-sidebar{width:210px;min-width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px;height:100%}
+#settings-panels{flex:1;min-width:0;overflow-y:auto;padding:24px 28px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
 .inline-input-row input:focus{border-color:var(--teal-400)}
@@ -1478,47 +1482,45 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header" style="padding-bottom:12px;flex-shrink:0">
   <div><div class="page-title">Settings</div><div class="page-subtitle">Configure RoleCall for your organization</div></div>
  </div>
- <div class="page-body" style="padding:0!important;display:flex;flex:1;min-height:0;overflow:hidden">
+ <div class="page-body">
 
-  <!-- Settings Sidebar -->
-  <div id="settings-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px">
+  <div id="settings-sidebar">
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Organization</div>
-    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)"><i class="ti ti-building" aria-hidden="true"></i>General</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)"><i class="ti ti-users" aria-hidden="true"></i>Users &amp; access</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)"><i class="ti ti-mail" aria-hidden="true"></i>Email &amp; alerts</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)"><i class="ti ti-home" aria-hidden="true"></i>Families &amp; portal</button>
+    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)">General</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)">Users &amp; access</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)">Email &amp; alerts</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)">Families &amp; portal</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Kiosk &amp; events</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)"><i class="ti ti-shield-check" aria-hidden="true"></i>ELIC management</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)"><i class="ti ti-clipboard-list" aria-hidden="true"></i>Checklists</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)"><i class="ti ti-calendar-event" aria-hidden="true"></i>Event types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)">ELIC management</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)">Checklists</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)">Event types</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Programs</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)"><i class="ti ti-tag" aria-hidden="true"></i>Interest types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)"><i class="ti ti-file-check" aria-hidden="true"></i>Waiver types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)"><i class="ti ti-template" aria-hidden="true"></i>Email templates</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)">Interest types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)">Waiver types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)">Email templates</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Integrations</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)"><i class="ti ti-phone" aria-hidden="true"></i>Phone &amp; Twilio</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)"><i class="ti ti-tv" aria-hidden="true"></i>Lobby TV</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)">Phone &amp; Twilio</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)">Lobby TV</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Display</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)"><i class="ti ti-layout-navbar" aria-hidden="true"></i>Nav icons</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)">Nav icons</button>
    </div>
   </div>
 
-  <!-- Settings Panels Container -->
-  <div style="flex:1;overflow-y:auto;padding:24px 28px;min-width:0">
+  <div id="settings-panels">
 
    <div id="settings-panel-general" class="settings-panel" style="">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
@@ -8180,7 +8182,9 @@ function switchSettingsPanel(id, btn){
  document.querySelectorAll('.settings-panel').forEach(p=>p.style.display='none')
  document.querySelectorAll('.settings-nav-btn').forEach(b=>b.classList.remove('active'))
  const panel = document.getElementById('settings-panel-'+id)
- if(panel){ panel.style.display=''; panel.closest('div[style*="overflow-y"]')?.scrollTo(0,0) }
+ if(panel){ panel.style.display='' }
+ const panels = document.getElementById('settings-panels')
+ if(panels) panels.scrollTop=0
  if(btn) btn.classList.add('active')
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()

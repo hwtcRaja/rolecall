@@ -6402,6 +6402,17 @@ def kiosk_elic_auth():
             LEFT JOIN (SELECT event_id, action FROM event_logs
                 WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
                 ON el.event_id=e.id
+            WHERE (
+                -- Currently open events regardless of date
+                el.action = 'open'
+                OR
+                -- Events within 60 days past or 180 days future
+                (e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
+                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days')
+                OR
+                -- Events with no date
+                e.event_date IS NULL
+            )
             ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
@@ -6418,7 +6429,12 @@ def kiosk_elic_auth():
                 LEFT JOIN (SELECT event_id, action FROM event_logs
                     WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
                     ON el.event_id=e.id
-                WHERE e.id IN ({placeholders})''', tuple(assigned))
+                WHERE e.id IN ({placeholders})
+                AND (
+                    el.action = 'open'
+                    OR e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
+                    OR e.event_date IS NULL
+                )''', tuple(assigned))
         else:
             events = []
     conn.close()
@@ -9072,6 +9088,60 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/fix-event-statuses', methods=['POST'])
+def fix_event_statuses():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                      fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+        system_elic_id = system_elic.get('id')
+
+        # Find all events whose LAST event_log action is 'open' but event date has passed
+        stale = fetchall(conn, """
+            SELECT DISTINCT e.id, e.name FROM events e
+            JOIN event_logs el ON el.event_id=e.id
+            WHERE el.id = (SELECT MAX(id) FROM event_logs WHERE event_id=e.id)
+            AND el.action='open'
+            AND (e.event_date IS NULL OR e.event_date::date < CURRENT_DATE)
+        """) or []
+
+        closed = 0
+        for ev in stale:
+            execute(conn, """INSERT INTO event_logs
+                (id, event_id, elic_id, action, notes, signature)
+                VALUES (%s,%s,%s,'close',%s,'')""",
+                (str(uuid.uuid4()), ev['id'], system_elic_id,
+                 'Auto-closed by system — event date passed without formal close'))
+            execute(conn, "UPDATE events SET status='closed' WHERE id=%s", (ev['id'],))
+            closed += 1
+
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'closed': closed})
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/open-events')
+def debug_open_events():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT e.id, e.name, e.event_date,
+        el.action as last_action, el.timestamp as last_log_time, el.notes
+        FROM events e
+        LEFT JOIN event_logs el ON el.id = (
+            SELECT id FROM event_logs WHERE event_id=e.id ORDER BY id DESC LIMIT 1
+        )
+        WHERE el.action='open' OR el.action IS NULL
+        ORDER BY e.event_date DESC NULLS LAST
+        LIMIT 20""") or []
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/admin/auto-close-past-events', methods=['POST'])
 def auto_close_past_events():
     err = require_auth()
@@ -9079,29 +9149,26 @@ def auto_close_past_events():
     conn = get_db()
     closed = 0
     try:
-        import datetime as _dtac
-        today = _dtac.date.today().isoformat()
-        # Find events older than today still showing as open
-        open_events = fetchall(conn, '''SELECT e.id, e.name FROM events e
-            JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
-            ON el.event_id=e.id
+        # Find events still showing as open where event_date is in the past
+        open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
+            JOIN event_logs el ON el.event_id=e.id
             WHERE el.action='open'
-            AND e.event_date < %s''', (today,)) or []
-        # Find a master ELIC to use as the "system" closer
-        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or {}
+            AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+            AND (
+                (e.event_date IS NOT NULL AND e.event_date::date < CURRENT_DATE)
+                OR
+                (e.event_date IS NULL AND el.timestamp < NOW() - INTERVAL '24 hours')
+            )""") or []
+        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                      fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
         system_elic_id = system_elic.get('id')
-        if not system_elic_id:
-            system_elic = fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
-            system_elic_id = system_elic.get('id')
-        # If still no ELIC, make elic_id nullable temporarily
         if not system_elic_id:
             execute(conn, 'ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL')
             conn.commit()
         for ev in open_events:
             log_id = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
-                VALUES (%s, %s, %s, 'close', %s, '')''',
+            execute(conn, """INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
+                VALUES (%s, %s, %s, 'close', %s, '')""",
                 (log_id, ev['id'], system_elic_id,
                  'Auto-closed by system — event date passed without formal close'))
             closed += 1
@@ -14205,8 +14272,33 @@ def _start_oncall_scheduler():
                 post_oncall_slack_report()
             except Exception as e:
                 app.logger.warning(f'Scheduled oncall report error: {e}')
+        def _daily_auto_close():
+            """Auto-close any events whose date has passed but are still marked open."""
+            try:
+                conn = get_db()
+                open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
+                    JOIN event_logs el ON el.event_id=e.id
+                    WHERE el.action='open'
+                    AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+                    AND e.event_date IS NOT NULL
+                    AND e.event_date::date < CURRENT_DATE""") or []
+                system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                              fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+                system_elic_id = system_elic.get('id')
+                for ev in open_events:
+                    execute(conn, """INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                        VALUES (%s,%s,%s,'close',%s,'')""",
+                        (str(uuid.uuid4()), ev['id'], system_elic_id,
+                         'Auto-closed by system — event date passed without formal close'))
+                    app.logger.info(f'Scheduler auto-closed: {ev["name"]}')
+                if open_events: conn.commit()
+                conn.close()
+            except Exception as e:
+                app.logger.warning(f'Daily auto-close error: {e}')
         scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
+        scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
+                          max_instances=1, coalesce=True)
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:

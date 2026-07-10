@@ -9064,6 +9064,30 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/kiosk/elic-events')
+def kiosk_elic_events():
+    """Lightweight endpoint to refresh ELIC event list without full re-login."""
+    elic_id = request.args.get('elic_id','')
+    if not elic_id: return jsonify({'error': 'Missing elic_id'}), 400
+    conn = get_db()
+    try:
+        elic = fetchone(conn, 'SELECT * FROM elics WHERE id=%s AND active=TRUE', (elic_id,))
+        if not elic: conn.close(); return jsonify({'error': 'ELIC not found'}), 404
+        events = fetchall(conn, '''SELECT e.*, el.action as current_status
+            FROM events e
+            LEFT JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+            ON el.event_id=e.id
+            WHERE e.id IN (SELECT event_id FROM event_elics WHERE elic_id=%s)
+            ORDER BY e.event_date DESC, e.start_time''', (elic_id,)) or []
+        conn.close()
+        return jsonify({'events': events})
+    except Exception as e:
+        app.logger.warning(f'elic-events error: {e}')
+        try: conn.close()
+        except Exception: pass
+        return jsonify({'events': []})
+
 @app.route('/api/kiosk/close-event', methods=['POST'])
 def kiosk_close_event():
     d = request.json or {}
@@ -9090,6 +9114,8 @@ def kiosk_close_event():
             }), 400
     except Exception as e:
         app.logger.warning(f'Active sessions check failed (non-fatal): {e}')
+        try: conn.rollback()
+        except Exception: pass
     try:
         log_id = str(uuid.uuid4())
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)

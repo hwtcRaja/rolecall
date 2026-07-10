@@ -1203,8 +1203,8 @@ async function submitPin(){
   const _etNow=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));const today=_etNow.getFullYear()+'-'+String(_etNow.getMonth()+1).padStart(2,'0')+'-'+String(_etNow.getDate()).padStart(2,'0')
   // Sort: open events first, then today, then upcoming, then past, then no date
   elicEventList=raw.sort((a,b)=>{
-    const aOpen=(a.current_status==='open'||a.status==='open')?0:1
-    const bOpen=(b.current_status==='open'||b.status==='open')?0:1
+    const aOpen=(a.current_status==='open')?0:1
+    const bOpen=(b.current_status==='open')?0:1
     if(aOpen!==bOpen) return aOpen-bOpen
     const aDate=a.event_date||'9999'
     const bDate=b.event_date||'9999'

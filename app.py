@@ -503,6 +503,34 @@ def init_db():
     # summer camps (programs with dates)
     # already covered by youth_programs  -  just add date columns via migration
 
+    # Refund requests
+    c.execute("""CREATE TABLE IF NOT EXISTS refund_requests (
+        id TEXT PRIMARY KEY,
+        ref_number TEXT UNIQUE NOT NULL,
+        requester_name TEXT NOT NULL,
+        requester_email TEXT NOT NULL,
+        requester_phone TEXT DEFAULT '',
+        participant_name TEXT NOT NULL,
+        program_name TEXT NOT NULL,
+        square_order_id TEXT DEFAULT '',
+        amount_paid TEXT DEFAULT '',
+        program_start_date TEXT DEFAULT '',
+        request_type TEXT NOT NULL,
+        refund_amount_cents INTEGER,
+        reason_category TEXT NOT NULL,
+        reason_detail TEXT NOT NULL,
+        replacement_name TEXT DEFAULT '',
+        replacement_email TEXT DEFAULT '',
+        replacement_phone TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        admin_notes TEXT DEFAULT '',
+        reviewed_by TEXT DEFAULT '',
+        reviewed_at TIMESTAMP,
+        requires_board_approval BOOLEAN DEFAULT FALSE,
+        square_refund_id TEXT DEFAULT '',
+        registration_id TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
@@ -12390,6 +12418,164 @@ def public_register_confirmation(slug):
 def public_register_production_confirmation(slug):
     return send_from_directory('static', 'register.html')
 
+
+@app.route('/request-a-refund')
+def refund_request_page():
+    return send_from_directory('static', 'request-a-refund.html')
+
+@app.route('/api/public/refund-request', methods=['POST'])
+def submit_refund_request():
+    d = request.json or {}
+    conn = get_db()
+    try:
+        import random, string
+        ref_number = 'RFD-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        rid = str(uuid.uuid4())
+        amount_cents = d.get('refund_amount_cents')
+        requires_board = bool(amount_cents and amount_cents > 100000)  # over $1000
+        execute(conn, '''INSERT INTO refund_requests
+            (id, ref_number, requester_name, requester_email, requester_phone,
+             participant_name, program_name, square_order_id, amount_paid,
+             program_start_date, request_type, refund_amount_cents,
+             reason_category, reason_detail, replacement_name,
+             replacement_email, replacement_phone, requires_board_approval)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, ref_number,
+             d.get('requester_name',''), d.get('requester_email',''), d.get('requester_phone',''),
+             d.get('participant_name',''), d.get('program_name',''), d.get('square_order_id',''),
+             d.get('amount_paid',''), d.get('program_start_date',''),
+             d.get('request_type',''), amount_cents,
+             d.get('reason_category',''), d.get('reason_detail',''),
+             d.get('replacement_name',''), d.get('replacement_email',''), d.get('replacement_phone',''),
+             requires_board))
+        conn.commit()
+        # Send confirmation email to requester
+        try:
+            es = get_email_settings()
+            if es.get('resend_api_key') and es.get('default_sender'):
+                type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+                send_email(
+                    to=d.get('requester_email',''),
+                    subject=f'Refund Request Received — {ref_number}',
+                    html=f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                        <div style="background:#145466;padding:20px 24px">
+                          <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                        </div>
+                        <div style="padding:28px 24px">
+                          <h2 style="color:#111;margin-bottom:8px">Refund Request Received</h2>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Thank you, {d.get('requester_name','')}. We have received your cancellation and refund request.</p>
+                          <div style="background:#f3f4f6;border-radius:10px;padding:16px;margin:20px 0">
+                            <div style="font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;margin-bottom:4px">Your Request Number</div>
+                            <div style="font-size:24px;font-weight:800;color:#145466;font-family:monospace">{ref_number}</div>
+                          </div>
+                          <table style="width:100%;border-collapse:collapse;font-size:14px">
+                            <tr><td style="padding:6px 0;color:#9ca3af;width:140px">Participant</td><td style="padding:6px 0;color:#111;font-weight:600">{d.get('participant_name','')}</td></tr>
+                            <tr><td style="padding:6px 0;color:#9ca3af">Program</td><td style="padding:6px 0;color:#111;font-weight:600">{d.get('program_name','')}</td></tr>
+                            <tr><td style="padding:6px 0;color:#9ca3af">Request Type</td><td style="padding:6px 0;color:#111;font-weight:600">{type_labels.get(d.get('request_type',''),'')}</td></tr>
+                          </table>
+                          <p style="color:#374151;font-size:14px;margin-top:20px;line-height:1.6">Our team will review your request and respond within <strong>5–7 business days</strong>. If you have supporting documentation (medical records, etc.), please email it to <strong>info@hwtco.org</strong> with your request number in the subject line.</p>
+                          <p style="color:#dc2626;font-size:13px;font-weight:600;margin-top:16px">Please note: Submission of this form does not guarantee a refund. All decisions are at the sole discretion of the HWTC Board of Directors.</p>
+                        </div>
+                      </div>''',
+                    sender=es.get('default_sender'))
+        except Exception as e:
+            app.logger.warning(f'Refund confirmation email failed: {e}')
+        # Notify admin
+        try:
+            es = get_email_settings()
+            admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
+            if admin_emails and es.get('resend_api_key'):
+                board_flag = '<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:12px;margin:12px 0;font-weight:700;color:#92400e">BOARD APPROVAL REQUIRED — Request exceeds $1,000</div>' if requires_board else ''
+                send_email(
+                    to=admin_emails[0],
+                    subject=f'{"[BOARD APPROVAL REQUIRED] " if requires_board else ""}New Refund Request — {ref_number}',
+                    html=f'<div style="font-family:sans-serif;padding:20px">{board_flag}<h3>New refund request received</h3><p><b>Ref:</b> {ref_number}<br><b>From:</b> {d.get("requester_name","")} ({d.get("requester_email","")})<br><b>Program:</b> {d.get("program_name","")}<br><b>Type:</b> {d.get("request_type","")}<br><b>Reason:</b> {d.get("reason_detail","")[:200]}</p><p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall Marquee</a></p></div>',
+                    sender=es.get('default_sender'))
+        except Exception as e:
+            app.logger.warning(f'Refund admin notification failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'ref_number': ref_number})
+    except Exception as e:
+        app.logger.error(f'Refund request error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/refund-requests')
+def get_refund_requests():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    status = request.args.get('status','')
+    if status:
+        rows = fetchall(conn, 'SELECT * FROM refund_requests WHERE status=%s ORDER BY created_at DESC', (status,)) or []
+    else:
+        rows = fetchall(conn, 'SELECT * FROM refund_requests ORDER BY created_at DESC') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/refund-requests/<rid>', methods=['PUT'])
+def update_refund_request(rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE refund_requests SET status=%s, admin_notes=%s,
+        reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
+        (d.get('status',''), d.get('admin_notes',''), d.get('reviewed_by',''), rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])
+def process_square_refund(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    if not rr: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if not rr.get('square_order_id'): conn.close(); return jsonify({'error': 'No Square order ID on file'}), 400
+    if not SQUARE_ACCESS_TOKEN: conn.close(); return jsonify({'error': 'Square not configured'}), 400
+    d = request.json or {}
+    amount_cents = d.get('amount_cents') or rr.get('refund_amount_cents')
+    if not amount_cents: conn.close(); return jsonify({'error': 'No refund amount specified'}), 400
+    try:
+        import requests as _req
+        # Get payment ID from order
+        order_resp = _req.get(f'{SQUARE_API_BASE}/v2/orders/{rr["square_order_id"]}', headers=square_headers())
+        order_data = order_resp.json()
+        tenders = order_data.get('order', {}).get('tenders', [])
+        if not tenders: conn.close(); return jsonify({'error': 'No payment found for this order'}), 400
+        payment_id = tenders[0].get('payment_id') or tenders[0].get('id')
+        # Issue refund
+        refund_resp = _req.post(f'{SQUARE_API_BASE}/v2/refunds', headers=square_headers(), json={
+            'idempotency_key': str(uuid.uuid4()),
+            'payment_id': payment_id,
+            'amount_money': {'amount': int(amount_cents), 'currency': 'USD'},
+            'reason': f'HWTC Refund Request {rr["ref_number"]} — {rr["reason_category"]}'
+        })
+        refund_data = refund_resp.json()
+        if 'refund' in refund_data:
+            sq_refund_id = refund_data['refund']['id']
+            execute(conn, '''UPDATE refund_requests SET status='processed',
+                square_refund_id=%s, reviewed_at=NOW() WHERE id=%s''', (sq_refund_id, rid))
+            conn.commit()
+            # Un-enroll from program if registration_id exists
+            if rr.get('registration_id'):
+                try:
+                    execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
+                    conn.commit()
+                except Exception: pass
+            conn.close()
+            return jsonify({'ok': True, 'refund_id': sq_refund_id, 'amount_cents': amount_cents})
+        else:
+            errors = refund_data.get('errors', [])
+            conn.close()
+            return jsonify({'error': errors[0].get('detail','Square refund failed') if errors else 'Square refund failed'}), 400
+    except Exception as e:
+        app.logger.error(f'Square refund error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):

@@ -1065,6 +1065,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -1579,6 +1580,9 @@ def init_db():
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'once'",
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
     ]:
         try:
             c.execute(_migration)
@@ -4766,10 +4770,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), yid))
+         d.get('shirt_size',''), d.get('pronouns',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -6390,10 +6394,14 @@ def kiosk_elic_auth():
             SELECT e.*, p.name as production_name,
                    COALESCE(p.stage,'mainstage') as stage,
                    p.stage as production_stage,
-                   pg.name as program_name
+                   pg.name as program_name,
+                   el.action as current_status
             FROM events e
             LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN youth_programs pg ON e.program_id=pg.id
+            LEFT JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                ON el.event_id=e.id
             ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
@@ -6402,10 +6410,14 @@ def kiosk_elic_auth():
                 SELECT e.*, p.name as production_name,
                        COALESCE(p.stage,'mainstage') as stage,
                        p.stage as production_stage,
-                       pg.name as program_name
+                       pg.name as program_name,
+                       el.action as current_status
                 FROM events e
                 LEFT JOIN productions p ON e.production_id=p.id
                 LEFT JOIN youth_programs pg ON e.program_id=pg.id
+                LEFT JOIN (SELECT event_id, action FROM event_logs
+                    WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                    ON el.event_id=e.id
                 WHERE e.id IN ({placeholders})''', tuple(assigned))
         else:
             events = []
@@ -6746,7 +6758,12 @@ def save_email_settings_route():
                 'twilio_audio_after_hours TEXT DEFAULT \'\'',
                 'twilio_voice_voicemail TEXT DEFAULT \'\'',
                 'twilio_audio_voicemail TEXT DEFAULT \'\'',
-                'slack_call_webhook TEXT DEFAULT \'\'']:
+                'slack_call_webhook TEXT DEFAULT \'\'',
+                'oncall_report_schedule TEXT DEFAULT \'monday\'',
+                'oncall_report_time TEXT DEFAULT \'08:00\'',
+                'oncall_report_enabled TEXT DEFAULT \'0\'',
+                'slack_bot_token TEXT DEFAULT \'\'',
+                'slack_call_channel TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -6777,7 +6794,9 @@ def save_email_settings_route():
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
         'twilio_voice_voicemail','twilio_audio_voicemail',
-        'slack_call_webhook']
+        'slack_call_webhook',
+        'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
+        'slack_bot_token','slack_call_channel']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -9053,6 +9072,74 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/auto-close-past-events', methods=['POST'])
+def auto_close_past_events():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    closed = 0
+    try:
+        import datetime as _dtac
+        today = _dtac.date.today().isoformat()
+        # Find events older than today still showing as open
+        open_events = fetchall(conn, '''SELECT e.id, e.name FROM events e
+            JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+            ON el.event_id=e.id
+            WHERE el.action='open'
+            AND e.event_date < %s''', (today,)) or []
+        # Find a master ELIC to use as the "system" closer
+        system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or {}
+        system_elic_id = system_elic.get('id')
+        if not system_elic_id:
+            system_elic = fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+        # If still no ELIC, make elic_id nullable temporarily
+        if not system_elic_id:
+            execute(conn, 'ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL')
+            conn.commit()
+        for ev in open_events:
+            log_id = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
+                VALUES (%s, %s, %s, 'close', %s, '')''',
+                (log_id, ev['id'], system_elic_id,
+                 'Auto-closed by system — event date passed without formal close'))
+            closed += 1
+            app.logger.info(f'Auto-closed event: {ev["name"]} ({ev["id"]})')
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'closed': closed,
+            'events': [e['name'] for e in open_events]})
+    except Exception as e:
+        app.logger.error(f'Auto-close error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/kiosk/elic-events')
+def kiosk_elic_events():
+    """Lightweight endpoint to refresh ELIC event list without full re-login."""
+    elic_id = request.args.get('elic_id','')
+    if not elic_id: return jsonify({'error': 'Missing elic_id'}), 400
+    conn = get_db()
+    try:
+        elic = fetchone(conn, 'SELECT * FROM elics WHERE id=%s AND active=TRUE', (elic_id,))
+        if not elic: conn.close(); return jsonify({'error': 'ELIC not found'}), 404
+        events = fetchall(conn, '''SELECT e.*, el.action as current_status
+            FROM events e
+            LEFT JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+            ON el.event_id=e.id
+            WHERE e.id IN (SELECT event_id FROM event_elics WHERE elic_id=%s)
+            ORDER BY e.event_date DESC, e.start_time''', (elic_id,)) or []
+        conn.close()
+        return jsonify({'events': events})
+    except Exception as e:
+        app.logger.warning(f'elic-events error: {e}')
+        try: conn.close()
+        except Exception: pass
+        return jsonify({'events': []})
+
 @app.route('/api/kiosk/close-event', methods=['POST'])
 def kiosk_close_event():
     d = request.json or {}
@@ -9063,6 +9150,24 @@ def kiosk_close_event():
     if not elic_id or not event_id:
         return jsonify({'error': 'Missing elic_id or event_id'}), 400
     conn = get_db()
+    # Block close if any volunteers are still actively logging hours
+    try:
+        active_sessions = fetchall(conn, '''SELECT ks.*, v.name as volunteer_name
+            FROM kiosk_sessions ks
+            JOIN volunteers v ON v.id=ks.volunteer_id
+            WHERE ks.event_id=%s AND ks.status='active'
+            ORDER BY ks.started_at''', (event_id,)) or []
+        if active_sessions:
+            names = ', '.join(s['volunteer_name'] for s in active_sessions)
+            conn.close()
+            return jsonify({
+                'error': f'Cannot close event — {len(active_sessions)} volunteer(s) are still logging hours: {names}.',
+                'active_sessions': [{'name': s['volunteer_name'], 'id': s['id']} for s in active_sessions]
+            }), 400
+    except Exception as e:
+        app.logger.warning(f'Active sessions check failed (non-fatal): {e}')
+        try: conn.rollback()
+        except Exception: pass
     try:
         log_id = str(uuid.uuid4())
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
@@ -9088,6 +9193,34 @@ def kiosk_close_event():
             except Exception:
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
+        # Auto-log ELIC hours based on time from open to close
+        try:
+            open_log = fetchone(conn, '''SELECT el.created_at FROM event_logs el
+                WHERE el.event_id=%s AND el.elic_id=%s AND el.action='open'
+                ORDER BY el.created_at DESC LIMIT 1''', (event_id, elic_id))
+            elic_vol = fetchone(conn, '''SELECT v.id, v.name, e.name as event_name
+                FROM elics el
+                JOIN volunteers v ON v.id=el.volunteer_id
+                JOIN events e ON e.id=%s
+                WHERE el.id=%s''', (event_id, elic_id))
+            if open_log and elic_vol:
+                import datetime as _dtel
+                open_time = open_log['created_at']
+                close_time = _dtel.datetime.now()
+                if isinstance(open_time, str):
+                    open_time = _dtel.datetime.fromisoformat(open_time)
+                duration_hrs = round((close_time - open_time).total_seconds() / 3600, 2)
+                duration_hrs = max(0.25, duration_hrs)  # minimum 15 min
+                today = close_time.strftime('%Y-%m-%d')
+                hid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
+                     today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
+                app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
+        except Exception as e:
+            app.logger.warning(f'ELIC auto-hours error (non-fatal): {e}')
+
         conn.commit()
         # Send checklist report email
         try:
@@ -9215,21 +9348,82 @@ def kiosk_youth_for_event(event_id):
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
 
     elif evt.get('program_id'):
-        # Youth program  -  get enrolled participants
-        youth = fetchall(conn, '''
-            SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
-                   NULL as role,
-                   yp.passphrase as individual_passphrase,
-                   (SELECT f.passphrase FROM youth_family_links yfl
-                    JOIN families f ON f.id=yfl.family_id
-                    WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
-                   ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
-            FROM youth_program_enrollments ype
-            JOIN youth_participants yp ON ype.youth_id=yp.id
-            LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
-                AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
-            WHERE ype.program_id=%s
-            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['program_id']))
+        program_id = evt['program_id']
+        # Check if this program uses sessions
+        prog = fetchone(conn, 'SELECT sessions_enabled FROM youth_programs WHERE id=%s', (program_id,))
+        if prog and prog.get('sessions_enabled'):
+            # Find the session matching this event's date
+            event_date = (fetchone(conn, 'SELECT event_date FROM events WHERE id=%s', (event_id,)) or {}).get('event_date')
+            session = None
+            if event_date:
+                session = fetchone(conn, 'SELECT id FROM program_sessions WHERE program_id=%s AND start_date=%s LIMIT 1',
+                    (program_id, event_date))
+            if session:
+                import json as _jskeid
+                session_id = session['id']
+                regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                    pr.guardian_name, pr.session_ids,
+                    yp.id as pid, yp.dob, yp.passphrase as individual_passphrase,
+                    (SELECT f.passphrase FROM youth_family_links yfl
+                     JOIN families f ON f.id=yfl.family_id
+                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                    FROM program_registrations pr
+                    LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                    LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=pr.youth_id
+                        AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                    WHERE pr.program_id=%s AND pr.status=\'confirmed\'
+                    ORDER BY pr.child_last_name, pr.child_first_name''',
+                    (event_id, program_id)) or []
+                youth = []
+                for r in regs:
+                    try: sids = _jskeid.loads(r.get('session_ids') or '[]')
+                    except Exception: sids = []
+                    if session_id in sids:
+                        youth.append({
+                            'id': r.get('youth_id') or r.get('pid'),
+                            'first_name': r.get('first_name') or r.get('child_first_name',''),
+                            'last_name': r.get('last_name') or r.get('child_last_name',''),
+                            'dob': r.get('dob',''),
+                            'role': None,
+                            'individual_passphrase': r.get('individual_passphrase'),
+                            'family_passphrase': r.get('family_passphrase'),
+                            'sign_in_id': r.get('sign_in_id'),
+                            'signed_in_at': str(r['signed_in_at']) if r.get('signed_in_at') else None,
+                            'signed_out_at': str(r['signed_out_at']) if r.get('signed_out_at') else None,
+                        })
+            else:
+                # No session match — fall back to all confirmed regs for this program
+                youth = fetchall(conn, '''SELECT pr.youth_id as id, pr.child_first_name as first_name,
+                    pr.child_last_name as last_name, yp.dob, NULL as role,
+                    yp.passphrase as individual_passphrase,
+                    (SELECT f.passphrase FROM youth_family_links yfl
+                     JOIN families f ON f.id=yfl.family_id
+                     WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                    ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                    FROM program_registrations pr
+                    LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                    LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=pr.youth_id
+                        AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                    WHERE pr.program_id=%s AND pr.status=\'confirmed\'
+                    ORDER BY pr.child_last_name, pr.child_first_name''',
+                    (event_id, program_id)) or []
+        else:
+            # Non-session program — use enrollments table
+            youth = fetchall(conn, '''
+                SELECT yp.id, yp.first_name, yp.last_name, yp.dob,
+                       NULL as role,
+                       yp.passphrase as individual_passphrase,
+                       (SELECT f.passphrase FROM youth_family_links yfl
+                        JOIN families f ON f.id=yfl.family_id
+                        WHERE yfl.youth_id=yp.id LIMIT 1) as family_passphrase,
+                       ysi.id as sign_in_id, ysi.signed_in_at, ysi.signed_out_at
+                FROM youth_program_enrollments ype
+                JOIN youth_participants yp ON ype.youth_id=yp.id
+                LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
+                    AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
+                WHERE ype.program_id=%s
+                ORDER BY yp.last_name, yp.first_name''', (event_id, program_id))
 
     conn.close()
     return jsonify(youth)
@@ -10340,6 +10534,66 @@ def get_program_enrolled(pid):
     conn.close()
     return jsonify(rows)
 
+@app.route('/api/youth-programs/<pid>/session-enrolled')
+def get_session_enrolled(pid):
+    """Return registrants for a specific program session, filtered by session_id."""
+    err = require_auth()
+    if err: return err
+    session_id = request.args.get('session_id','').strip()
+    conn = get_db()
+    try:
+        if session_id:
+            import json as _jseid
+            # Get registrations where session_ids contains this session_id
+            regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                pr.guardian_name, pr.status, pr.session_ids,
+                yp.id as participant_id, yp.dob, yp.portal_last_login,
+                yp.first_name, yp.last_name
+                FROM program_registrations pr
+                LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                WHERE pr.program_id=%s AND pr.status='confirmed'
+                ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+            rows = []
+            for r in regs:
+                try:
+                    sids = _jseid.loads(r.get('session_ids') or '[]')
+                except Exception:
+                    sids = []
+                if session_id in sids:
+                    rows.append({
+                        'youth_id': r.get('youth_id') or r.get('participant_id'),
+                        'first_name': r.get('first_name') or r.get('child_first_name',''),
+                        'last_name': r.get('last_name') or r.get('child_last_name',''),
+                        'dob': r.get('dob',''),
+                        'status': 'active',
+                        'guardian_name': r.get('guardian_name',''),
+                        'portal_last_login': r.get('portal_last_login'),
+                    })
+        else:
+            # No session specified — fall back to all confirmed registrations
+            regs = fetchall(conn, '''SELECT pr.youth_id, pr.child_first_name, pr.child_last_name,
+                pr.guardian_name, pr.status,
+                yp.id as participant_id, yp.dob, yp.portal_last_login,
+                yp.first_name, yp.last_name
+                FROM program_registrations pr
+                LEFT JOIN youth_participants yp ON yp.id=pr.youth_id
+                WHERE pr.program_id=%s AND pr.status='confirmed'
+                ORDER BY pr.child_last_name, pr.child_first_name''', (pid,)) or []
+            rows = [{
+                'youth_id': r.get('youth_id') or r.get('participant_id'),
+                'first_name': r.get('first_name') or r.get('child_first_name',''),
+                'last_name': r.get('last_name') or r.get('child_last_name',''),
+                'dob': r.get('dob',''),
+                'status': 'active',
+                'guardian_name': r.get('guardian_name',''),
+            } for r in regs]
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        app.logger.error(f'get_session_enrolled error: {e}')
+        conn.close()
+        return jsonify([])
+
 @app.route('/api/youth-programs/<pid>/enroll', methods=['POST'])
 def enroll_in_program(pid):
     err = require_auth()
@@ -10492,6 +10746,11 @@ try:
     _seed_conn.close()
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
+
+try:
+    _start_oncall_scheduler()
+except Exception as _sche:
+    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
 
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
@@ -11853,13 +12112,68 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             AND LOWER(yp.first_name)=LOWER(%s)
             AND LOWER(yp.last_name)=LOWER(%s)''',
             (reg['guardian_email'], first, last or ''))
+
+        medical_notes = reg.get('notes') or ''
+        allergies = reg.get('allergies') or ''
+        pronouns = reg.get('pronouns') or ''
+        photo_consent = 1 if reg.get('photo_consent') else 0
+
         if existing:
+            # Update existing participant with any new info from registration
+            try:
+                execute(conn, '''UPDATE youth_participants SET
+                    shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
+                    medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
+                    allergies=COALESCE(NULLIF(%s,''), allergies),
+                    pronouns=COALESCE(NULLIF(%s,''), pronouns),
+                    photo_consent=GREATEST(photo_consent, %s)
+                    WHERE id=%s''',
+                    (shirt or '', medical_notes, allergies, pronouns, photo_consent, existing['id']))
+            except Exception as eu:
+                app.logger.warning(f'Participant update from reg: {eu}')
+            # Add emergency contact if not already present
+            if reg.get('emergency_contact_name'):
+                try:
+                    ec_exists = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (existing['id'],))
+                    if not ec_exists:
+                        import uuid as _uec
+                        execute(conn, '''INSERT INTO youth_emergency_contacts
+                            (id, youth_id, name, relationship, phone)
+                            VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
+                            (str(_uec.uuid4()), existing['id'],
+                             reg.get('emergency_contact_name',''),
+                             'Emergency Contact',
+                             reg.get('emergency_contact_phone','') or ''))
+                except Exception as ece:
+                    app.logger.warning(f'Emergency contact insert: {ece}')
             return existing
+
         import uuid as _u
         yid = str(_u.uuid4())
-        execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
-            VALUES (%s,%s,%s,%s,%s)''',
-            (yid, first, last or '', dob or None, shirt or ''))
+        try:
+            execute(conn, '''INSERT INTO youth_participants
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (yid, first, last or '', dob or None, shirt or '',
+                 medical_notes, allergies, pronouns, photo_consent))
+        except Exception:
+            # Fallback if columns don't exist yet
+            execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size)
+                VALUES (%s,%s,%s,%s,%s)''',
+                (yid, first, last or '', dob or None, shirt or ''))
+        # Add emergency contact
+        if reg.get('emergency_contact_name'):
+            try:
+                import uuid as _uec2
+                execute(conn, '''INSERT INTO youth_emergency_contacts
+                    (id, youth_id, name, relationship, phone)
+                    VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
+                    (str(_uec2.uuid4()), yid,
+                     reg.get('emergency_contact_name',''),
+                     'Emergency Contact',
+                     reg.get('emergency_contact_phone','') or ''))
+            except Exception as ece2:
+                app.logger.warning(f'Emergency contact insert: {ece2}')
         return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
     def ensure_guardian(youth_id):
@@ -13469,9 +13783,77 @@ def my_delete_pending_hours(hid):
 
 # ── Lobby TV Display ──────────────────────────────────────────────────────────
 
+LOBBY_THEME_FILES = {
+    'standard': 'lobby_standard.html',
+    'jungle': 'lobby_jungle.html',
+    'seuss': 'lobby_standard.html',  # seuss uses standard file + theme CSS
+}
+
+def get_active_lobby_file():
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_active_theme'")
+        conn.close()
+        theme = (row or {}).get('value') or 'standard'
+        filename = LOBBY_THEME_FILES.get(theme, 'lobby_standard.html')
+        # Fall back to lobby.html if themed file doesn't exist
+        import os as _oslob
+        if not _oslob.path.exists(os.path.join('static', filename)):
+            return 'lobby.html'
+        return filename
+    except Exception:
+        return 'lobby.html'
+
 @app.route('/lobby')
 def lobby_page():
-    return send_from_directory('static', 'lobby.html')
+    return send_from_directory('static', get_active_lobby_file())
+
+@app.route('/lobby/standard')
+def lobby_standard_page():
+    import os as _oslob
+    f = 'lobby_standard.html' if _oslob.path.exists('static/lobby_standard.html') else 'lobby.html'
+    return send_from_directory('static', f)
+
+@app.route('/lobby/jungle')
+def lobby_jungle_page():
+    import os as _oslob
+    f = 'lobby_jungle.html' if _oslob.path.exists('static/lobby_jungle.html') else 'lobby.html'
+    return send_from_directory('static', f)
+
+@app.route('/lobby2')
+def lobby2_page():
+    """Sandbox — serves whatever file you're currently designing"""
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_sandbox_file'")
+        conn.close()
+        sandbox = (row or {}).get('value') or 'lobby_jungle.html'
+    except Exception:
+        sandbox = 'lobby_jungle.html'
+    return send_from_directory('static', sandbox)
+
+@app.route('/api/admin/lobby-active-theme', methods=['GET'])
+def get_lobby_active_theme():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_active_theme'")
+    conn.close()
+    return jsonify({'theme': (row or {}).get('value') or 'standard'})
+
+@app.route('/api/admin/lobby-active-theme', methods=['PUT'])
+def set_lobby_active_theme():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    theme = d.get('theme', 'standard')
+    if theme not in LOBBY_THEME_FILES:
+        return jsonify({'error': 'Unknown theme'}), 400
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('lobby_active_theme', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (theme,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'theme': theme, 'file': LOBBY_THEME_FILES[theme]})
 
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
@@ -13688,7 +14070,279 @@ def get_twilio_settings():
         'fallback':    es.get('twilio_fallback_phone','').strip(),
     }
 
-def post_to_slack_calls(blocks, text=''):
+SLACK_BOT_TOKEN = ''  # Set via Settings → Twilio → Slack Bot Token
+SLACK_CALL_CHANNEL = ''  # Set via Settings → Twilio → Slack Channel ID
+
+def post_to_slack_calls(blocks, text='', thread_ts=None):
+    """Post a message to Slack. Uses Bot API (supports threading) or falls back to webhook."""
+    try:
+        es = get_email_settings()
+        bot_token = (es.get('slack_bot_token') or SLACK_BOT_TOKEN).strip()
+        channel = (es.get('slack_call_channel') or SLACK_CALL_CHANNEL).strip()
+    except Exception as ex:
+        app.logger.warning(f'Slack: settings load error: {ex}')
+        bot_token = SLACK_BOT_TOKEN
+        channel = SLACK_CALL_CHANNEL
+
+    app.logger.info(f'Slack post: has_token={bool(bot_token)} has_channel={bool(channel)} thread_ts={thread_ts}')
+
+    # Try Slack Bot API first (supports threading)
+    if bot_token and channel:
+        try:
+            import requests as _rslk
+            payload = {'channel': channel, 'text': text, 'blocks': blocks}
+            if thread_ts:
+                payload['thread_ts'] = thread_ts
+            resp = _rslk.post('https://slack.com/api/chat.postMessage',
+                headers={'Authorization': f'Bearer {bot_token}', 'Content-Type': 'application/json'},
+                json=payload, timeout=10)
+            data = resp.json()
+            if data.get('ok'):
+                ts = data.get('ts')
+                app.logger.info(f'Slack API post OK ts={ts}')
+                return ts
+            else:
+                app.logger.warning(f'Slack API error: {data.get("error")} needed_scope={data.get("needed")}')
+        except Exception as e:
+            app.logger.warning(f'Slack API post failed: {e}')
+    else:
+        app.logger.warning(f'Slack: no bot_token or channel configured — trying webhook fallback')
+
+    # Fall back to webhook (no threading)
+    try:
+        es2 = get_email_settings()
+        webhook = (es2.get('slack_call_webhook') or '').strip()
+        if not webhook:
+            import os as _oss
+            webhook = _oss.environ.get('SLACK_CALL_WEBHOOK','').strip()
+        if webhook:
+            import requests as _rslk2
+            payload = {'text': text, 'blocks': blocks}
+            if thread_ts: payload['thread_ts'] = thread_ts
+            _rslk2.post(webhook, json=payload, timeout=10)
+    except Exception as e:
+        app.logger.warning(f'Slack webhook fallback failed: {e}')
+    return None
+
+def post_oncall_slack_report():
+    """Build and post the weekly on-call schedule report to Slack."""
+    import datetime as _dtrep, json as _jrep
+    from zoneinfo import ZoneInfo as _ZIrep
+    now = _dtrep.datetime.now(_ZIrep('America/New_York'))
+    # Get start/end of current week (Mon–Sun)
+    week_start = now.date() - _dtrep.timedelta(days=now.weekday())
+    week_end = week_start + _dtrep.timedelta(days=6)
+    week_label = week_start.strftime('%b %d') + ' – ' + week_end.strftime('%b %d, %Y')
+    try:
+        conn = get_db()
+        shifts = fetchall(conn, '''SELECT * FROM on_call_schedule
+            WHERE start_date <= %s AND end_date >= %s
+            ORDER BY start_time, start_date''',
+            (week_end.isoformat(), week_start.isoformat())) or []
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'On-call report query failed: {e}')
+        return
+    DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+    def fmt12h(t):
+        try:
+            p=t.split(':'); h=int(p[0]); m=int(p[1]); ap='PM' if h>=12 else 'AM'
+            h=h%12 or 12; return f'{h}:{m:02d} {ap}'
+        except Exception: return t or ''
+    # Build day-by-day breakdown for the week
+    day_lines = []
+    for i in range(7):
+        day = week_start + _dtrep.timedelta(days=i)
+        day_str = day.isoformat()
+        dow = day.weekday()  # 0=Mon
+        day_shifts = [s for s in shifts if s['start_date'] <= day_str <= s['end_date']
+                      and dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])]
+        is_today = day_str == now.date().isoformat()
+        day_label = f'*{DAY_NAMES[i]} {day.strftime("%m/%d")}*' + (' ← today' if is_today else '')
+        if day_shifts:
+            names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
+            day_lines.append(f'{day_label}: {names}')
+        else:
+            day_lines.append(f'{day_label}: ⚠️ _No coverage_')
+    # Who's on right now
+    now_time = now.strftime('%H:%M')
+    now_dow = now.weekday()
+    current = next((s for s in shifts
+        if s['start_date'] <= now.date().isoformat() <= s['end_date']
+        and (s.get('start_time','08:00') or '08:00') <= now_time <= (s.get('end_time','22:00') or '22:00')
+        and now_dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])), None)
+    current_line = f'📞 *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else '📞 *On call now:* ⚠️ Nobody scheduled'
+    blocks = [
+        {'type':'header','text':{'type':'plain_text','text':f'📞 On-Call Schedule: {week_label}'}},
+        {'type':'section','text':{'type':'mrkdwn','text':current_line}},
+        {'type':'divider'},
+        {'type':'section','text':{'type':'mrkdwn','text':'\n'.join(day_lines)}},
+        {'type':'context','elements':[{'type':'mrkdwn','text':'Manage schedule at rolecall.hwtco.org → On-Call Schedule'}]}
+    ]
+    post_to_slack_calls(blocks, text=f'On-Call Schedule for {week_label}')
+    app.logger.info('On-call Slack report sent')
+
+# ── APScheduler for automatic on-call reports ────────────────────────────────
+def _start_oncall_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        import datetime as _dtsch
+        from zoneinfo import ZoneInfo as _ZIsch
+        scheduler = BackgroundScheduler(timezone='America/New_York', daemon=True)
+        def _check_and_send():
+            try:
+                es = get_email_settings()
+                if es.get('oncall_report_enabled','0') != '1': return
+                sched_day = (es.get('oncall_report_schedule') or 'monday').lower()
+                sched_time = (es.get('oncall_report_time') or '08:00')
+                day_map = {'monday':0,'tuesday':1,'wednesday':2,'thursday':3,'friday':4,'saturday':5,'sunday':6}
+                target_dow = day_map.get(sched_day, 0)
+                now = _dtsch.datetime.now(_ZIsch('America/New_York'))
+                if now.weekday() != target_dow: return
+                t_parts = sched_time.split(':')
+                if int(t_parts[0]) != now.hour or int(t_parts[1]) != now.minute: return
+                post_oncall_slack_report()
+            except Exception as e:
+                app.logger.warning(f'Scheduled oncall report error: {e}')
+        scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
+        scheduler.start()
+        app.logger.info('On-call report scheduler started')
+    except ImportError:
+        app.logger.warning('APScheduler not installed — auto on-call reports disabled')
+    except Exception as e:
+        app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
+
+@app.route('/api/admin/backfill-participant-data', methods=['POST'])
+def backfill_participant_data():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    updated = 0; skipped = 0; ec_added = 0; linked = 0
+    try:
+        # First: link registrations to participants by name match where youth_id is null
+        regs_unlinked = fetchall(conn, """SELECT pr.id, pr.child_first_name, pr.child_last_name,
+            pr.guardian_email
+            FROM program_registrations pr
+            WHERE pr.youth_id IS NULL
+            AND pr.child_first_name IS NOT NULL
+            AND pr.status IN ('confirmed','pending_payment')""") or []
+        for r in regs_unlinked:
+            yp = fetchone(conn, """SELECT yp.id FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)
+                AND LOWER(yg.email)=LOWER(%s) LIMIT 1""",
+                (r['child_first_name'], r['child_last_name'] or '', r['guardian_email']))
+            if not yp:
+                # Try name only
+                yp = fetchone(conn, """SELECT id FROM youth_participants
+                    WHERE LOWER(first_name)=LOWER(%s) AND LOWER(last_name)=LOWER(%s) LIMIT 1""",
+                    (r['child_first_name'], r['child_last_name'] or ''))
+            if yp:
+                execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (yp['id'], r['id']))
+                linked += 1
+        if linked: conn.commit()
+
+        # Now backfill data from all linked registrations
+        regs = fetchall(conn, """SELECT pr.youth_id as pid, pr.pronouns, pr.allergies,
+            pr.notes, pr.photo_consent, pr.emergency_contact_name, pr.emergency_contact_phone
+            FROM program_registrations pr
+            WHERE pr.youth_id IS NOT NULL
+            AND pr.status IN ('confirmed','pending_payment')""") or []
+        for r in regs:
+            pid = r['pid']
+            sets, vals = [], []
+            if r.get('pronouns'):
+                sets.append("pronouns=COALESCE(NULLIF(pronouns,''),NULLIF(%s,''))")
+                vals.append(r['pronouns'])
+            if r.get('allergies'):
+                sets.append("allergies=COALESCE(NULLIF(allergies,''),NULLIF(%s,''))")
+                vals.append(r['allergies'])
+            if r.get('notes'):
+                sets.append("medical_notes=COALESCE(NULLIF(medical_notes,''),NULLIF(%s,''))")
+                vals.append(r['notes'])
+            if r.get('photo_consent'):
+                sets.append("photo_consent=GREATEST(photo_consent,1)")
+            if sets:
+                execute(conn, f'UPDATE youth_participants SET {", ".join(sets)} WHERE id=%s', vals + [pid])
+                updated += 1
+            else:
+                skipped += 1
+            if r.get('emergency_contact_name'):
+                ec = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (pid,))
+                if not ec:
+                    execute(conn, '''INSERT INTO youth_emergency_contacts
+                        (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING''',
+                        (str(uuid.uuid4()), pid, r['emergency_contact_name'],
+                         'Emergency Contact', r.get('emergency_contact_phone','') or ''))
+                    ec_added += 1
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'linked': linked, 'updated': updated, 'skipped': skipped, 'ec_added': ec_added})
+    except Exception as e:
+        app.logger.error(f'Backfill error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/marquee-sessions')
+def debug_marquee_sessions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    import json as _jd2
+    session_breakdown = fetchall(conn, """SELECT ps.id, ps.name, ps.program_id FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
+        WHERE yp.registration_status != 'draft' LIMIT 10""") or []
+    all_sess_regs = fetchall(conn, """SELECT program_id, child_first_name, child_last_name, status, session_ids
+        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]'
+        AND status != 'cancelled'""") or []
+    regs_by_session = {}
+    for r in all_sess_regs:
+        try: sids = _jd2.loads(r.get('session_ids') or '[]')
+        except Exception: sids = []
+        for sid in sids:
+            if sid not in regs_by_session: regs_by_session[sid] = []
+            regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
+    for s in session_breakdown:
+        s['registrants'] = regs_by_session.get(s['id'], [])
+    conn.close()
+    return jsonify({'session_breakdown': session_breakdown})
+
+@app.route('/api/debug/session-regs')
+def debug_session_regs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    import json as _jd
+    all_sess_regs = fetchall(conn, """SELECT program_id, child_first_name, child_last_name, status, session_ids
+        FROM program_registrations WHERE session_ids IS NOT NULL AND session_ids != '[]' LIMIT 20""") or []
+    session_breakdown = fetchall(conn, """SELECT ps.id, ps.name FROM program_sessions ps LIMIT 10""") or []
+    regs_by_session = {}
+    for r in all_sess_regs:
+        try: sids = _jd.loads(r.get('session_ids') or '[]')
+        except Exception: sids = []
+        for sid in sids:
+            if sid not in regs_by_session: regs_by_session[sid] = []
+            regs_by_session[sid].append(r.get('child_first_name','?')+' '+r.get('child_last_name',''))
+    for s in session_breakdown:
+        s['registrants'] = regs_by_session.get(s['id'], [])
+    conn.close()
+    return jsonify({'sessions_with_regs': session_breakdown, 'regs_by_session': regs_by_session})
+
+@app.route('/api/oncall/send-report', methods=['POST'])
+def send_oncall_report_now():
+    err = require_auth()
+    if err: return err
+    try:
+        post_oncall_slack_report()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
     """Post a message to the HWTC phone triage Slack channel."""
     try:
         es = get_email_settings()
@@ -13710,7 +14364,7 @@ def post_to_slack_calls(blocks, text=''):
     except Exception as e:
         app.logger.error(f'SLACK POST FAILED: {e}')
 
-def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False):
+def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours=False, slack_thread_ts=''):
     """Insert or update a call log entry."""
     try:
         conn = get_db()
@@ -13719,9 +14373,9 @@ def log_call(call_sid, from_number, routed_to_name, routed_to_phone, status, is_
             execute(conn, '''UPDATE call_log SET status=%s, updated_at=NOW() WHERE call_sid=%s''',
                 (status, call_sid))
         else:
-            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours)
-                VALUES (%s,%s,%s,%s,%s,%s)''',
-                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours))
+            execute(conn, '''INSERT INTO call_log (call_sid,from_number,routed_to_name,routed_to_phone,status,is_after_hours,slack_thread_ts)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                (call_sid, from_number, routed_to_name, routed_to_phone, status, is_after_hours, slack_thread_ts or ''))
         conn.commit(); conn.close()
     except Exception as e:
         app.logger.warning(f'Call log error: {e}')
@@ -13733,7 +14387,24 @@ def fmt_phone(p):
         return f'({p[2:5]}) {p[5:8]}-{p[8:]}'
     return p
 
-def get_oncall_now():
+def get_call_thread_ts(call_sid):
+    """Get the Slack thread_ts for a given call."""
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT slack_thread_ts FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        return (row or {}).get('slack_thread_ts') or None
+    except Exception:
+        return None
+
+def set_call_thread_ts(call_sid, thread_ts):
+    """Store Slack thread_ts for a call."""
+    try:
+        conn = get_db()
+        execute(conn, 'UPDATE call_log SET slack_thread_ts=%s WHERE call_sid=%s', (thread_ts or '', call_sid))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'set_call_thread_ts error: {e}')
     """Return the on-call person for right now based on date, time, and day of week."""
     import datetime as _dtoc, json as _joc
     from zoneinfo import ZoneInfo as _ZIoc
@@ -13765,73 +14436,83 @@ def get_oncall_now():
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
     """Inbound call webhook — forward to on-call person."""
-    ts = get_twilio_settings()
-    es = get_email_settings()
-    coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
-    coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
-    after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
-    audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
-    caller = request.form.get('From', 'Unknown')
-    call_sid = request.form.get('CallSid', '')
-    host = 'https://rolecall.hwtco.org'
+    FALLBACK_TWIML = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. We are currently unavailable. Please try again later or send us a text message.</Say>
+</Response>'''
+    try:
+        ts = get_twilio_settings()
+        es = get_email_settings()
+        coverage_start = (es.get('twilio_coverage_start') or '08:00').strip()
+        coverage_end = (es.get('twilio_coverage_end') or '22:00').strip()
+        after_hours_msg = (es.get('twilio_after_hours_msg') or '').strip()
+        audio_after_hours = (es.get('twilio_audio_after_hours') or '').strip()
+        caller = request.form.get('From', 'Unknown')
+        call_sid = request.form.get('CallSid', '')
+        host = 'https://rolecall.hwtco.org'
 
-    def say_or_play(text, audio_url):
-        if audio_url: return f'<Play>{audio_url}</Play>'
-        return f'<Say voice="Polly.Joanna">{text}</Say>'
+        def say_or_play(text, audio_url):
+            if audio_url: return f'<Play>{audio_url}</Play>'
+            return f'<Say voice="Polly.Joanna">{text}</Say>'
 
-    import datetime as _dtv
-    from zoneinfo import ZoneInfo as _ZI
-    now = _dtv.datetime.now(_ZI('America/New_York'))
-    now_time = now.strftime('%H:%M')
-    now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
-    in_hours = coverage_start <= now_time <= coverage_end
+        from zoneinfo import ZoneInfo as _ZI
+        import datetime as _dtv
+        now = _dtv.datetime.now(_ZI('America/New_York'))
+        now_time = now.strftime('%H:%M')
+        now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
+        in_hours = coverage_start <= now_time <= coverage_end
 
-    if not in_hours:
-        msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
-        log_call(call_sid, caller, 'After Hours', '', 'after_hours', True)
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No one available — after hours message played'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
-        ], text=f'After hours call from {fmt_phone(caller)}')
-        return f'''<?xml version="1.0" encoding="UTF-8"?>
+        if not in_hours:
+            msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
+            ts_val = post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+            ], text=f'After hours call from {fmt_phone(caller)}')
+            log_call(call_sid, caller, 'After Hours', '', 'after_hours', True, ts_val or '')
+            voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+            audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+            if not voicemail_greeting:
+                voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+            return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(msg, audio_after_hours)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
-    oncall = get_oncall_now()
-    forward_to = (oncall or {}).get('phone') or ts['fallback']
-    person_name = (oncall or {}).get('person_name') or 'Unknown'
-    greeting = (es.get('twilio_voice_greeting') or '').strip()
-    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
-    unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
-    audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
-    audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
-    audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
-    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
-    audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
-    if not voicemail_greeting:
-        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
-    if not greeting:
-        greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
-    else:
-        greeting = greeting.replace('{name}', person_name)
-    if not no_answer_msg:
-        no_answer_msg = 'We were unable to reach our team right now. Please try again later or send us a text message.'
-    if not unavailable_msg:
-        unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
-    app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
+        oncall = get_oncall_now()
+        forward_to = (oncall or {}).get('phone') or ts['fallback']
+        person_name = (oncall or {}).get('person_name') or 'our team'
+        greeting = (es.get('twilio_voice_greeting') or '').strip()
+        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+        unavailable_msg = (es.get('twilio_voice_unavailable') or '').strip()
+        audio_greeting = (es.get('twilio_audio_greeting') or '').strip()
+        audio_no_answer = (es.get('twilio_audio_no_answer') or '').strip()
+        audio_unavailable = (es.get('twilio_audio_unavailable') or '').strip()
+        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+        audio_voicemail_greeting = (es.get('twilio_audio_voicemail') or '').strip()
+        if not greeting:
+            greeting = f'Thank you for calling Horizon West Theater Company. Please hold while we connect you to {person_name}.'
+        else:
+            greeting = greeting.replace('{name}', person_name)
+        if not no_answer_msg:
+            no_answer_msg = 'We were unable to reach our team right now. Please leave a message after the tone.'
+        if not unavailable_msg:
+            unavailable_msg = 'Thank you for calling Horizon West Theater Company. We are unable to take your call right now. Please send us a text message or email us at info at h w t c o dot org.'
+        if not voicemail_greeting:
+            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        app.logger.info(f'Twilio inbound call from {caller}, forwarding to {forward_to}')
 
-    if forward_to:
-        log_call(call_sid, caller, person_name, forward_to, 'ringing')
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
-            {'type':'actions','elements':[
-                {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
-                {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
-            ]}
-        ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
-        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        if forward_to:
+            ts_val = post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':
+                    f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+                {'type':'actions','elements':[
+                    {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
+                    {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+                ]}
+            ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
+            log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
   <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
@@ -13840,18 +14521,23 @@ def twilio_voice():
   {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
-    else:
-        log_call(call_sid, caller, 'Nobody', '', 'no_coverage')
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person scheduled and no fallback set'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
-        ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
-        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        else:
+            ts_val = post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':
+                    f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+            ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
+            log_call(call_sid, caller, 'Nobody', '', 'no_coverage', False, ts_val or '')
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(unavailable_msg, audio_unavailable)}
 </Response>'''
-    return twiml, 200, {'Content-Type': 'text/xml'}
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    except Exception as e:
+        app.logger.error(f'twilio_voice unhandled error: {e}')
+        return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
+
+
 
 @app.route('/twilio/call-status', methods=['POST'])
 def twilio_call_status():
@@ -13900,15 +14586,14 @@ def twilio_call_status():
             conn2.commit(); conn2.close()
         except Exception as e:
             app.logger.warning(f'Call status update error: {e}')
+        thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'{emoji} *Call {status.title()}*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*{status_text}*'}},
-            {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}]}
-        ], text=f'{emoji} {status_text}')
+                f'{emoji} *{status_text}*'}},
+        ], text=f'{emoji} {status_text}', thread_ts=thread_ts)
         return '', 204
 
     # Case 2: statusCallback on <Number> fired (in-progress updates like answered)
-    # Only post to Slack for meaningful transitions, not every ringing update
     if call_status == 'in-progress':
         try:
             conn3 = get_db()
@@ -13916,10 +14601,11 @@ def twilio_call_status():
             conn3.commit(); conn3.close()
         except Exception:
             pass
+        thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'📲 *Call Answered*\n*From:* `{fmt_phone(from_num)}`\n*Answered by:* {person_name}\n*Time:* {now_str}'}}
-        ], text=f'Call from {fmt_phone(from_num)} answered by {person_name}')
+                f'📲 *Answered* by {person_name}'}}
+        ], text=f'Answered by {person_name}', thread_ts=thread_ts)
 
     return '', 204
 
@@ -14057,38 +14743,57 @@ def twilio_callback_bridge():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/twilio/voicemail-play')
+def twilio_voicemail_play():
+    """Proxy Twilio recording so callers don't need to log into Twilio."""
+    url = request.args.get('url','').strip()
+    if not url or 'twilio.com' not in url:
+        return 'Invalid URL', 400
+    ts = get_twilio_settings()
+    if not ts['account_sid'] or not ts['auth_token']:
+        return 'Twilio not configured', 500
+    try:
+        import requests as _rvm
+        resp = _rvm.get(url, auth=(ts['account_sid'], ts['auth_token']), timeout=15, stream=True)
+        from flask import Response as _Resp, stream_with_context
+        return _Resp(
+            stream_with_context(resp.iter_content(chunk_size=8192)),
+            content_type=resp.headers.get('Content-Type','audio/mpeg'),
+            status=resp.status_code
+        )
+    except Exception as e:
+        app.logger.error(f'Voicemail proxy error: {e}')
+        return 'Error fetching recording', 500
+
 @app.route('/twilio/voicemail', methods=['POST'])
 def twilio_voicemail():
     """Fires after voicemail recording completes."""
     call_sid = request.form.get('CallSid','')
     recording_url = request.form.get('RecordingUrl','')
-    recording_sid = request.form.get('RecordingSid','')
     duration = int(request.form.get('RecordingDuration', 0) or 0)
     caller = request.form.get('From','')
     import datetime as _dtvm
     now_str = _dtvm.datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
-    # Update call log
     try:
         conn = get_db()
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
         from_num = (row or {}).get('from_number', caller)
+        thread_ts = (row or {}).get('slack_thread_ts') or None
         execute(conn, "UPDATE call_log SET status='voicemail', duration=%s, notes=%s, updated_at=NOW() WHERE call_sid=%s",
             (duration, recording_url, call_sid))
         conn.commit(); conn.close()
     except Exception as e:
         app.logger.warning(f'Voicemail log error: {e}')
-        from_num = caller
-    # Post to Slack
+        from_num = caller; thread_ts = None
     play_url = recording_url + '.mp3' if recording_url else ''
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'🎙 *Voicemail Left*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Duration:* {duration}s\n*Listen:* <{play_url}|▶ Play Recording>'}},
+            f'🎙 *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
         {'type':'actions','elements':[
-            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'},
-            {'type':'button','text':{'type':'plain_text','text':'▶ Play Voicemail'},'url':play_url,'action_id':'play'}
+            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
         ]}
-    ], text=f'🎙 Voicemail from {fmt_phone(from_num)} ({duration}s)')
+    ], text=f'🎙 Voicemail ({duration}s)', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/voicemail-transcript', methods=['POST'])
@@ -14104,13 +14809,15 @@ def twilio_voicemail_transcript():
         row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
         conn.close()
         from_num = (row or {}).get('from_number', caller)
+        thread_ts = (row or {}).get('slack_thread_ts') or None
     except Exception:
-        from_num = caller
+        from_num = caller; thread_ts = None
     play_url = recording_url + '.mp3' if recording_url else ''
+    host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'📝 *Voicemail Transcript*\n*From:* `{fmt_phone(from_num)}`\n> {transcript}\n<{play_url}|▶ Play Recording>'}}
-    ], text=f'Voicemail transcript from {fmt_phone(from_num)}: {transcript[:100]}')
+            f'📝 *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
+    ], text=f'Transcript: {transcript[:100]}', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/bridge-twiml', methods=['GET','POST'])
@@ -15358,15 +16065,14 @@ def marquee_overview():
 
     # Fetch registrant names per session - use Python-side JSON parsing (reliable)
     try:
+        try: conn.rollback()
+        except Exception: pass
         import json as _jsr
         all_sess_regs = fetchall(conn, """SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status, pr.session_ids
+            pr.guardian_name, pr.status, pr.session_ids
             FROM program_registrations pr
-            JOIN youth_programs yp ON yp.id=pr.program_id
             WHERE pr.status != 'cancelled'
-            AND yp.registration_status != 'draft'
-            AND yp.sessions_enabled = TRUE
             AND pr.session_ids IS NOT NULL
             AND pr.session_ids != '[]'
             ORDER BY pr.child_last_name, pr.child_first_name""") or []
@@ -15379,20 +16085,21 @@ def marquee_overview():
                 regs_by_session[sid].append({k:v for k,v in r.items() if k!='session_ids'})
         for s in session_breakdown:
             s['registrants'] = regs_by_session.get(s['id'], [])
+        app.logger.info(f'Session regs attached: {sum(len(s.get("registrants",[])) for s in session_breakdown)} total across {len(session_breakdown)} sessions')
     except Exception as e:
         app.logger.warning(f'Session registrants query failed: {e}')
 
     # Fetch registrant names for non-session programs
     regs_by_program = {}
     try:
+        try: conn.rollback()
+        except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
             pr.program_id, pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.participant_name, pr.status
+            pr.guardian_name, pr.status
             FROM program_registrations pr
-            JOIN youth_programs yp ON yp.id=pr.program_id
-            WHERE pr.status != \'cancelled\'
-            AND (yp.sessions_enabled IS NULL OR yp.sessions_enabled=FALSE)
-            AND yp.registration_status != \'draft\'
+            WHERE pr.status != 'cancelled'
+            AND (pr.session_ids IS NULL OR pr.session_ids = '[]')
             ORDER BY pr.child_last_name, pr.child_first_name''') or []
         for r in flat_registrants:
             pid2 = r.get('program_id')

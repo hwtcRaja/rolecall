@@ -1400,7 +1400,7 @@ function renderElicMenu(){
       actionArea='<div style="display:flex;gap:8px;flex-wrap:wrap">'
         +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')">🔒 Close Event</button>'
         +(e.production_id?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')">🎭 Production Sign-In</button>':'')
-        +(hasYouth?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👶 Youth Sign-In</button>':'')
+        +(hasYouth?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👶 Participant Sign-In</button>':'')
         +'</div>'
     } else if(status==='closed'){
       actionArea='<div style="font-size:13px;color:var(--hint);padding:6px 0">Event closed ✓</div>'
@@ -2207,7 +2207,7 @@ function showConfirm(icon,title,sub,note,onBack){
 <div class="screen hidden" id="screen-elic-youth-signin">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
   <div class="screen-heading">
-    <div class="screen-title" id="eys-prod-name">Youth Sign-In</div>
+    <div class="screen-title" id="eys-prod-name">Participant Sign-In</div>
     <div class="screen-sub" id="eys-event-name">⭐ Rising Stars</div>
   </div>
   <div style="width:100%;max-width:720px">

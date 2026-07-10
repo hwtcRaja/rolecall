@@ -14621,12 +14621,16 @@ async function loadEventLogs(){
  +rows.map(function(pair,i){
  const log = pair.close || pair.open
  const isClosed =!!pair.close
+ const isAutoClosed = pair.close && (pair.close.notes||'').includes('Auto-closed')
  const status = isClosed
- ? '<span style="color:var(--teal-600);font-weight:600"> Closed</span>'
-: '<span style="color:var(--green-600);font-weight:600"> Open</span>'
+ ? (isAutoClosed
+   ? '<span style="color:var(--text-muted);font-weight:600">⚙ Auto-closed</span>'
+   : '<span style="color:var(--teal-600);font-weight:600"> Closed</span>')
+ : '<span style="color:var(--green-600);font-weight:600"> Open</span>'
  const byParts = []
  if(pair.open) byParts.push('opened by '+escHtml(pair.open.elic_name||''))
- if(pair.close) byParts.push('closed by '+escHtml(pair.close.elic_name||''))
+ if(pair.close && !isAutoClosed) byParts.push('closed by '+escHtml(pair.close.elic_name||''))
+ if(isAutoClosed) byParts.push('auto-closed by system')
  return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);'+(i>0?'border-top:1px solid var(--border)':'')+'">'
  +'<div style="flex:1;min-width:0">'
  +'<div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(log.event_name||'')+'</div>'

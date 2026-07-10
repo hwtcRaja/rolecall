@@ -6402,6 +6402,17 @@ def kiosk_elic_auth():
             LEFT JOIN (SELECT event_id, action FROM event_logs
                 WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
                 ON el.event_id=e.id
+            WHERE (
+                -- Currently open events regardless of date
+                el.action = 'open'
+                OR
+                -- Events within 60 days past or 180 days future
+                (e.event_date >= CURRENT_DATE - INTERVAL '60 days'
+                 AND e.event_date <= CURRENT_DATE + INTERVAL '180 days')
+                OR
+                -- Events with no date
+                e.event_date IS NULL
+            )
             ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
@@ -6418,7 +6429,12 @@ def kiosk_elic_auth():
                 LEFT JOIN (SELECT event_id, action FROM event_logs
                     WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
                     ON el.event_id=e.id
-                WHERE e.id IN ({placeholders})''', tuple(assigned))
+                WHERE e.id IN ({placeholders})
+                AND (
+                    el.action = 'open'
+                    OR e.event_date >= CURRENT_DATE - INTERVAL '60 days'
+                    OR e.event_date IS NULL
+                )''', tuple(assigned))
         else:
             events = []
     conn.close()

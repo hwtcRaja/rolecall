@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Refund Request — Horizon West Theater Company</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#111;min-height:100vh}
+.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:20px 24px;display:flex;align-items:center;gap:16px}
+.header img{height:48px;width:auto}
+.header-text h1{font-size:18px;font-weight:700;color:#fff}
+.header-text p{font-size:13px;color:rgba(255,255,255,0.75)}
+.container{max-width:720px;margin:0 auto;padding:32px 20px 80px}
+.step-indicator{display:flex;align-items:center;gap:0;margin-bottom:32px}
+.step{display:flex;align-items:center;gap:8px;flex:1}
+.step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;border:2px solid #d1d5db;background:#fff;color:#9ca3af}
+.step-num.active{background:#145466;border-color:#145466;color:#fff}
+.step-num.done{background:#16a34a;border-color:#16a34a;color:#fff}
+.step-label{font-size:12px;font-weight:600;color:#9ca3af}
+.step-label.active{color:#145466}
+.step-label.done{color:#16a34a}
+.step-line{flex:1;height:2px;background:#e5e7eb;margin:0 8px}
+.step-line.done{background:#16a34a}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;margin-bottom:20px}
+.card-title{font-size:16px;font-weight:700;color:#111;margin-bottom:4px}
+.card-sub{font-size:13px;color:#6b7280;margin-bottom:20px}
+.policy-box{background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:20px;height:340px;overflow-y:auto;font-size:13px;line-height:1.7;color:#374151;margin-bottom:16px}
+.policy-box h3{font-size:13px;font-weight:700;color:#111;margin:16px 0 6px}
+.policy-box h3:first-child{margin-top:0}
+.policy-box p{margin-bottom:10px}
+.policy-box ul{margin:6px 0 10px 20px}
+.policy-box li{margin-bottom:4px}
+.policy-warn{background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;font-weight:600;color:#92400e;margin-bottom:16px;line-height:1.5}
+label{display:block;font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px}
+input,select,textarea{width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;color:#111;outline:none;margin-bottom:16px;background:#fff}
+input:focus,select:focus,textarea:focus{border-color:#145466}
+textarea{resize:vertical;min-height:100px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.required{color:#dc2626}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 28px;border:none;border-radius:8px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;transition:all 0.15s}
+.btn-primary{background:#145466;color:#fff}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{background:#9ca3af;cursor:not-allowed}
+.btn-secondary{background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb}
+.btn-secondary:hover{background:#e5e7eb}
+.btn-row{display:flex;gap:12px;justify-content:space-between;margin-top:8px}
+.check-wrap{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px}
+.check-wrap input[type=checkbox]{width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:#145466;cursor:pointer}
+.check-wrap span{font-size:13px;color:#374151;line-height:1.5}
+.option-card{border:2px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px;cursor:pointer;transition:all 0.15s}
+.option-card:hover{border-color:#145466;background:#f0f9fb}
+.option-card.selected{border-color:#145466;background:#e0f4f0}
+.option-card input[type=radio]{accent-color:#145466;margin-right:8px}
+.option-title{font-size:14px;font-weight:700;color:#111}
+.option-desc{font-size:12px;color:#6b7280;margin-top:3px;line-height:1.4}
+.alert{padding:14px 16px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.alert-info{background:#e0f4f0;border:1.5px solid #86c936;color:#0d3d4d}
+.alert-warn{background:#fef3c7;border:1.5px solid #fde68a;color:#92400e}
+.section-div{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af;padding:8px 0 4px;border-bottom:1px solid #f3f4f6;margin-bottom:16px}
+.success-box{text-align:center;padding:48px 24px}
+.success-box .icon{font-size:56px;margin-bottom:16px}
+.success-box h2{font-size:24px;font-weight:700;color:#111;margin-bottom:8px}
+.success-box p{font-size:15px;color:#6b7280;line-height:1.6;max-width:480px;margin:0 auto 8px}
+.ref-num{display:inline-block;background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:8px;padding:8px 20px;font-size:16px;font-weight:700;font-family:monospace;color:#145466;margin:12px 0}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <div class="header-text">
+    <h1>Cancellation & Refund Request</h1>
+    <p>Horizon West Theater Company — rolecall.hwtco.org</p>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Step indicator -->
+  <div class="step-indicator">
+    <div class="step"><div class="step-num active" id="sn1">1</div><div class="step-label active" id="sl1">Policy</div></div>
+    <div class="step-line" id="line1"></div>
+    <div class="step"><div class="step-num" id="sn2">2</div><div class="step-label" id="sl2">Your Info</div></div>
+    <div class="step-line" id="line2"></div>
+    <div class="step"><div class="step-num" id="sn3">3</div><div class="step-label" id="sl3">Request</div></div>
+    <div class="step-line" id="line3"></div>
+    <div class="step"><div class="step-num" id="sn4">4</div><div class="step-label" id="sl4">Review</div></div>
+  </div>
+
+  <!-- STEP 1: Policy -->
+  <div id="step-1">
+    <div class="card">
+      <div class="card-title">Cancellation & Refund Policy</div>
+      <div class="card-sub">Please read our full policy before submitting your request.</div>
+      <div class="policy-warn">IMPORTANT: This is a refund REQUEST. Submission does not guarantee a refund. All decisions are made at the sole discretion of the HWTC Board of Directors.</div>
+      <div class="policy-box" id="policy-box">
+        <h3>Horizon West Theater Company — Cancellation & Refund Policy</h3>
+        <p><em>Horizon West Theater Company, a 501(c)(3) nonprofit organization. Governing Authority: HWTC Board of Directors.</em></p>
+
+        <h3>Section 1 — General Terms</h3>
+        <p>Registration fees directly fund our nonprofit programs, instructors, and facilities. By registering, you acknowledged that fees are considered earned upon enrollment. HWTC is committed to working with families facing genuine hardship and reviews every request with care. All refund decisions are made at the sole discretion of Horizon West Theater Company and its Board of Directors.</p>
+
+        <h3>Section 2 — Circumstances That May Qualify</h3>
+        <p>The following circumstances may be considered for a refund, credit, or transfer at the Board of Directors' discretion:</p>
+        <ul>
+          <li>Medical emergency or serious illness affecting the participant or an immediate family member (documentation may be requested)</li>
+          <li>Death of an immediate family member</li>
+          <li>Natural disaster, act of God, or government-declared emergency preventing participation</li>
+          <li>Program cancellation or material schedule change initiated by HWTC</li>
+          <li>Other extraordinary circumstances as determined by the HWTC Board of Directors</li>
+        </ul>
+
+        <h3>Section 3 — Circumstances That Do Not Qualify</h3>
+        <p>The following circumstances are generally not eligible for refund:</p>
+        <ul>
+          <li>Change of mind or personal preference</li>
+          <li>Scheduling conflicts that existed at or prior to the time of registration</li>
+          <li>Dissatisfaction with role assignment, casting decisions, or program content</li>
+          <li>Failure to attend sessions without prior written notice to HWTC</li>
+          <li>Removal of a participant due to behavioral or conduct concerns</li>
+        </ul>
+
+        <h3>Section 4 — Spot Transfer / Replacement Finder Option</h3>
+        <p>If you are unable to continue in the program and you identify a qualified replacement participant, HWTC may issue a full refund upon successful enrollment of that replacement. The replacement must meet all program eligibility requirements and complete registration prior to any refund being issued. HWTC retains final approval authority over all participant transfers and replacements.</p>
+
+        <h3>Section 5 — Alternative Resolutions</h3>
+        <p>In circumstances where a full cash refund is not approved, HWTC may offer one of the following at its discretion:</p>
+        <ul>
+          <li>A credit toward future HWTC enrollment, valid for 12 months from the date of issuance</li>
+          <li>A partial refund based on the number of sessions remaining at the time of the request</li>
+          <li>A participant transfer to a replacement of your choosing, subject to Section 4</li>
+        </ul>
+
+        <h3>Section 6 — Timing & Deadlines</h3>
+        <p>Requests must be submitted no later than 14 days before the program start date. Requests submitted after this deadline will only be considered under exceptional circumstances at the Board of Directors' sole discretion. Approved cash refunds are processed within 10 business days to the original payment method.</p>
+
+        <h3>Section 7 — Appeals</h3>
+        <p>If your request is denied, you may submit a written appeal to the HWTC Board of Directors within 14 days of receiving the denial notice. The Board of Directors' decision on appeal is final.</p>
+
+        <h3>Section 8 — Governing Authority</h3>
+        <p>This policy is administered by Horizon West Theater Company and governed by its Board of Directors. HWTC reserves the right to amend this policy at any time. The Board of Directors has final authority over all refund, credit, and transfer decisions.</p>
+
+        <h3>Section 9 — No Guarantee</h3>
+        <p>Submission of this form does not constitute approval of a refund, credit, or transfer. HWTC's decision is final and binding. You will be notified of our decision within 5–7 business days.</p>
+      </div>
+      <div class="check-wrap">
+        <input type="checkbox" id="policy-agree"/>
+        <span>I have read and understand the HWTC Cancellation & Refund Policy. I acknowledge that submitting this form does not guarantee a refund, and that all decisions are made at the sole discretion of the HWTC Board of Directors.</span>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end">
+        <button class="btn btn-primary" onclick="goStep(2)" id="btn-step1">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Your Info -->
+  <div id="step-2" class="hidden">
+    <div class="card">
+      <div class="card-title">Your Information</div>
+      <div class="card-sub">Please provide your contact information so we can follow up on your request.</div>
+      <div class="form-row">
+        <div><label>First Name <span class="required">*</span></label><input id="r-first" type="text" placeholder="First name"/></div>
+        <div><label>Last Name <span class="required">*</span></label><input id="r-last" type="text" placeholder="Last name"/></div>
+      </div>
+      <label>Email Address <span class="required">*</span></label>
+      <input id="r-email" type="email" placeholder="your@email.com"/>
+      <label>Phone Number</label>
+      <input id="r-phone" type="tel" placeholder="(407) 555-0123"/>
+      <div class="section-div">Participant Information</div>
+      <div class="form-row">
+        <div><label>Participant First Name <span class="required">*</span></label><input id="r-pfirst" type="text" placeholder="First name"/></div>
+        <div><label>Participant Last Name <span class="required">*</span></label><input id="r-plast" type="text" placeholder="Last name"/></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(1)">Back</button>
+        <button class="btn btn-primary" onclick="goStep(3)">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: Request Details -->
+  <div id="step-3" class="hidden">
+    <div class="card">
+      <div class="card-title">Request Details</div>
+      <div class="card-sub">Tell us about your enrollment and what you're requesting.</div>
+
+      <div class="section-div">Enrollment Information</div>
+      <label>Program / Class Name <span class="required">*</span></label>
+      <input id="r-program" type="text" placeholder="e.g. Summer Camp — Seussical Kids"/>
+      <div class="form-row">
+        <div><label>Square Order Number</label><input id="r-order" type="text" placeholder="e.g. lhkR9CXXXXXXXX" style="font-family:monospace"/></div>
+        <div><label>Amount Paid</label><input id="r-amount-paid" type="text" placeholder="e.g. $350.00"/></div>
+      </div>
+      <label>Program Start Date (approximate)</label>
+      <input id="r-prog-date" type="date"/>
+
+      <div class="section-div">What Are You Requesting?</div>
+      <div class="option-card" id="opt-refund" onclick="selectRequestType('refund')">
+        <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+          <input type="radio" name="req-type" value="refund"/> <span class="option-title">Refund</span>
+        </label>
+        <div class="option-desc">Request a full or partial refund to your original payment method.</div>
+      </div>
+      <div class="option-card" id="opt-credit" onclick="selectRequestType('credit')">
+        <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+          <input type="radio" name="req-type" value="credit"/> <span class="option-title">Account Credit</span>
+        </label>
+        <div class="option-desc">Request a credit toward future HWTC enrollment (valid 12 months).</div>
+      </div>
+      <div class="option-card" id="opt-transfer" onclick="selectRequestType('transfer')">
+        <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+          <input type="radio" name="req-type" value="transfer"/> <span class="option-title">Transfer Spot to Another Person</span>
+        </label>
+        <div class="option-desc">Transfer your enrollment to someone else. A refund may be issued once the replacement is enrolled.</div>
+      </div>
+      <div class="option-card" id="opt-find-replacement" onclick="selectRequestType('find_replacement')">
+        <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+          <input type="radio" name="req-type" value="find_replacement"/> <span class="option-title">Help Us Find a Replacement</span>
+        </label>
+        <div class="option-desc">I don't have someone in mind but I'm willing to help HWTC find a qualified replacement. A refund may be issued if a replacement is found.</div>
+      </div>
+
+      <!-- Refund fields -->
+      <div id="refund-fields" class="hidden">
+        <div class="section-div">Refund Amount</div>
+        <div class="form-row">
+          <div>
+            <label>Refund Type</label>
+            <select id="r-refund-type">
+              <option value="full">Full Refund</option>
+              <option value="partial">Partial Refund</option>
+            </select>
+          </div>
+          <div id="partial-amount-wrap" class="hidden">
+            <label>Amount Requested ($)</label>
+            <input id="r-refund-amount" type="number" min="0" step="0.01" placeholder="0.00"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transfer fields -->
+      <div id="transfer-fields" class="hidden">
+        <div class="section-div">Replacement Participant Info</div>
+        <div class="alert alert-info">Please provide the contact information for the person who will take your spot. They will need to complete enrollment once approved.</div>
+        <div class="form-row">
+          <div><label>Replacement First Name</label><input id="r-rep-first" type="text" placeholder="First name"/></div>
+          <div><label>Replacement Last Name</label><input id="r-rep-last" type="text" placeholder="Last name"/></div>
+        </div>
+        <div class="form-row">
+          <div><label>Replacement Email</label><input id="r-rep-email" type="email" placeholder="their@email.com"/></div>
+          <div><label>Replacement Phone</label><input id="r-rep-phone" type="tel" placeholder="(407) 555-0123"/></div>
+        </div>
+      </div>
+
+      <div class="section-div">Reason for Request</div>
+      <label>Reason Category <span class="required">*</span></label>
+      <select id="r-reason-cat">
+        <option value="">Select a reason...</option>
+        <option value="medical">Medical emergency or serious illness</option>
+        <option value="family_death">Death of an immediate family member</option>
+        <option value="act_of_god">Natural disaster / act of God / government emergency</option>
+        <option value="hwtc_change">HWTC program cancellation or significant schedule change</option>
+        <option value="other">Other extraordinary circumstance</option>
+      </select>
+      <label>Please describe your situation <span class="required">*</span></label>
+      <textarea id="r-reason" placeholder="Please provide as much detail as possible. If you have documentation (medical records, obituary, etc.) you may attach it via email to info@hwtco.org after submitting this form, referencing your request number."></textarea>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(2)">Back</button>
+        <button class="btn btn-primary" onclick="goStep(4)">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4: Review & Submit -->
+  <div id="step-4" class="hidden">
+    <div class="card">
+      <div class="card-title">Review Your Request</div>
+      <div class="card-sub">Please confirm everything is correct before submitting.</div>
+      <div id="review-content" style="font-size:14px;line-height:1.8;color:#374151"></div>
+      <div class="policy-warn" style="margin-top:20px">By submitting this request, I confirm that the information provided is accurate and that I have read and agreed to the HWTC Cancellation & Refund Policy. I understand this is a request only and does not guarantee a refund.</div>
+      <div id="submit-error" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(3)">Back</button>
+        <button class="btn btn-primary" id="btn-submit" onclick="submitRequest()">Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div id="step-success" class="hidden">
+    <div class="card">
+      <div class="success-box">
+        <div class="icon">&#10003;</div>
+        <h2>Request Submitted</h2>
+        <div class="ref-num" id="success-ref"></div>
+        <p>Your cancellation and refund request has been received. Please save your request number above — you will need it for any follow-up communication.</p>
+        <p>You will receive a confirmation email at <strong id="success-email"></strong>. Our team will review your request and respond within <strong>5–7 business days</strong>.</p>
+        <p style="margin-top:16px;font-size:12px;color:#9ca3af">If you have supporting documentation (medical records, obituary, etc.), please email it to <strong>info@hwtco.org</strong> with your request number in the subject line.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var currentStep = 1
+var requestType = ''
+
+function goStep(n){
+  if(n > currentStep){
+    if(!validateStep(currentStep)) return
+  }
+  document.getElementById('step-'+currentStep).classList.add('hidden')
+  document.getElementById('step-'+n).classList.remove('hidden')
+  // Update step indicators
+  for(var i=1;i<=4;i++){
+    var num = document.getElementById('sn'+i)
+    var lbl = document.getElementById('sl'+i)
+    var line = document.getElementById('line'+i)
+    num.className = 'step-num' + (i<n?' done':i===n?' active':'')
+    lbl.className = 'step-label' + (i<n?' done':i===n?' active':'')
+    if(line) line.className = 'step-line' + (i<n?' done':'')
+    if(i<n) num.innerHTML = '&#10003;'
+    else num.textContent = i
+  }
+  if(n===4) buildReview()
+  currentStep = n
+  window.scrollTo(0,0)
+}
+
+function validateStep(n){
+  if(n===1){
+    if(!document.getElementById('policy-agree').checked){
+      alert('Please read and agree to the refund policy to continue.')
+      return false
+    }
+    return true
+  }
+  if(n===2){
+    var first=document.getElementById('r-first').value.trim()
+    var last=document.getElementById('r-last').value.trim()
+    var email=document.getElementById('r-email').value.trim()
+    var pf=document.getElementById('r-pfirst').value.trim()
+    var pl=document.getElementById('r-plast').value.trim()
+    if(!first||!last||!email||!pf||!pl){alert('Please fill in all required fields.');return false}
+    if(!email.includes('@')){alert('Please enter a valid email address.');return false}
+    return true
+  }
+  if(n===3){
+    if(!document.getElementById('r-program').value.trim()){alert('Please enter the program name.');return false}
+    if(!requestType){alert('Please select what you are requesting.');return false}
+    if(!document.getElementById('r-reason-cat').value){alert('Please select a reason category.');return false}
+    if(!document.getElementById('r-reason').value.trim()){alert('Please describe your situation.');return false}
+    return true
+  }
+  return true
+}
+
+function selectRequestType(type){
+  requestType = type
+  ;['refund','credit','transfer','find_replacement'].forEach(function(t){
+    document.getElementById('opt-'+t).classList.remove('selected')
+  })
+  document.getElementById('opt-'+type).classList.add('selected')
+  document.querySelector('#opt-'+type+' input').checked = true
+  document.getElementById('refund-fields').classList.add('hidden')
+  document.getElementById('transfer-fields').classList.add('hidden')
+  if(type==='refund') document.getElementById('refund-fields').classList.remove('hidden')
+  if(type==='transfer') document.getElementById('transfer-fields').classList.remove('hidden')
+}
+
+document.getElementById('r-refund-type')?.addEventListener('change',function(){
+  var wrap = document.getElementById('partial-amount-wrap')
+  if(this.value==='partial') wrap.classList.remove('hidden')
+  else wrap.classList.add('hidden')
+})
+
+var TYPE_LABELS={'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+var CAT_LABELS={'medical':'Medical emergency or serious illness','family_death':'Death of an immediate family member','act_of_god':'Natural disaster / act of God','hwtc_change':'HWTC program cancellation or schedule change','other':'Other extraordinary circumstance'}
+
+function buildReview(){
+  var rows = [
+    ['Name', document.getElementById('r-first').value+' '+document.getElementById('r-last').value],
+    ['Email', document.getElementById('r-email').value],
+    ['Phone', document.getElementById('r-phone').value||'—'],
+    ['Participant', document.getElementById('r-pfirst').value+' '+document.getElementById('r-plast').value],
+    ['Program', document.getElementById('r-program').value],
+    ['Order #', document.getElementById('r-order').value||'Not provided'],
+    ['Amount Paid', document.getElementById('r-amount-paid').value||'Not provided'],
+    ['Request Type', TYPE_LABELS[requestType]||requestType],
+    ['Reason', CAT_LABELS[document.getElementById('r-reason-cat').value]||''],
+    ['Details', document.getElementById('r-reason').value],
+  ]
+  if(requestType==='refund'){
+    var rt = document.getElementById('r-refund-type').value
+    rows.push(['Refund Type', rt==='full'?'Full Refund':'Partial — $'+(document.getElementById('r-refund-amount').value||'?')])
+  }
+  if(requestType==='transfer'){
+    var rn = document.getElementById('r-rep-first').value+' '+document.getElementById('r-rep-last').value
+    rows.push(['Replacement Name', rn.trim()||'—'])
+    rows.push(['Replacement Email', document.getElementById('r-rep-email').value||'—'])
+  }
+  document.getElementById('review-content').innerHTML = '<table style="width:100%;border-collapse:collapse">'
+    + rows.map(function(r){
+      return '<tr style="border-bottom:1px solid #f3f4f6">'
+        +'<td style="padding:8px 0;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.3px;color:#9ca3af;width:140px">'+r[0]+'</td>'
+        +'<td style="padding:8px 0;font-size:14px;color:#111">'+escH(r[1])+'</td></tr>'
+    }).join('')
+    + '</table>'
+}
+
+function escH(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+async function submitRequest(){
+  var btn = document.getElementById('btn-submit')
+  btn.disabled=true; btn.textContent='Submitting...'
+  document.getElementById('submit-error').style.display='none'
+  var refundAmount = null
+  if(requestType==='refund'){
+    var rt = document.getElementById('r-refund-type').value
+    if(rt==='full'){
+      var ap = document.getElementById('r-amount-paid').value.replace(/[^0-9.]/g,'')
+      refundAmount = ap ? parseFloat(ap)*100 : null
+    } else {
+      var ra = document.getElementById('r-refund-amount').value
+      refundAmount = ra ? parseFloat(ra)*100 : null
+    }
+  }
+  var payload = {
+    requester_name: document.getElementById('r-first').value+' '+document.getElementById('r-last').value,
+    requester_email: document.getElementById('r-email').value,
+    requester_phone: document.getElementById('r-phone').value||'',
+    participant_name: document.getElementById('r-pfirst').value+' '+document.getElementById('r-plast').value,
+    program_name: document.getElementById('r-program').value,
+    square_order_id: document.getElementById('r-order').value||'',
+    amount_paid: document.getElementById('r-amount-paid').value||'',
+    program_start_date: document.getElementById('r-prog-date').value||'',
+    request_type: requestType,
+    refund_amount_cents: refundAmount,
+    reason_category: document.getElementById('r-reason-cat').value,
+    reason_detail: document.getElementById('r-reason').value,
+    replacement_name: (document.getElementById('r-rep-first').value||'')+' '+(document.getElementById('r-rep-last').value||''),
+    replacement_email: document.getElementById('r-rep-email').value||'',
+    replacement_phone: document.getElementById('r-rep-phone').value||'',
+  }
+  try{
+    var r = await fetch('/api/public/refund-request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    var d = await r.json()
+    if(d.error){ throw new Error(d.error) }
+    document.getElementById('step-4').classList.add('hidden')
+    document.getElementById('step-success').classList.remove('hidden')
+    document.getElementById('success-ref').textContent = d.ref_number
+    document.getElementById('success-email').textContent = payload.requester_email
+    window.scrollTo(0,0)
+  } catch(e){
+    var err = document.getElementById('submit-error')
+    err.textContent = e.message||'Something went wrong. Please try again.'
+    err.style.display='block'
+    btn.disabled=false; btn.textContent='Submit Request'
+  }
+}
+</script>
+</body>
+</html>

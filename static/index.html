@@ -1365,6 +1365,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
       <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Promotions</button>
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
+      <button class="marquee-tab" data-tab="refunds" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Refund Requests <span id="refund-requests-badge" style="display:none;background:#dc2626;color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:4px"></span></button>
     </div>
     <div id="marquee-tab-dashboard"></div>
     <div id="marquee-tab-catalog" style="display:none"></div>
@@ -1372,6 +1373,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div id="marquee-tab-registrations" style="display:none"></div>
     <div id="marquee-tab-discounts" style="display:none"></div>
     <div id="marquee-tab-donations" style="display:none"></div>
+    <div id="marquee-tab-refunds" style="display:none"></div>
   </div>
 </section>
 
@@ -22561,6 +22563,102 @@ async function renderMarqueeTab(tab){
   else if(tab==='orders') await renderMarqueeOrders(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
   else if(tab==='donations') await renderMarqueeDonations(el)
+  else if(tab==='refunds') await renderMarqueeRefunds(el)
+}
+
+var REFUND_TYPE_LABELS = {refund:'Cash Refund',credit:'Account Credit',transfer:'Spot Transfer',find_replacement:'Help Find Replacement'}
+var REFUND_REASON_LABELS = {medical:'Medical emergency',family_death:'Death in family',act_of_god:'Act of God / disaster',hwtc_change:'HWTC schedule change',other:'Other'}
+var REFUND_STATUS_COLORS = {pending:'#fbbf24',approved:'#22c55e',denied:'#ef4444',processed:'#145466',cancelled:'#9ca3af'}
+
+async function renderMarqueeRefunds(el){
+  var statusFilter = el.dataset.statusFilter||''
+  var rows = await api('/api/refund-requests'+(statusFilter?'?status='+statusFilter:''))
+  if(!rows){ el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-muted)">Could not load refund requests.</div>'; return }
+
+  // Update badge
+  var pending = rows.filter(function(r){ return r.status==='pending' })
+  var badge = document.getElementById('refund-requests-badge')
+  if(badge){ if(pending.length){ badge.textContent=pending.length; badge.style.display='' } else badge.style.display='none' }
+
+  var filterBtns = ['','pending','approved','denied','processed'].map(function(s){
+    var label = s?s.charAt(0).toUpperCase()+s.slice(1):'All'
+    var active = (el.dataset.statusFilter||'')=== s
+    return '<button onclick="document.getElementById(\'marquee-tab-refunds\').dataset.statusFilter=\''+s+'\';renderMarqueeRefunds(document.getElementById(\'marquee-tab-refunds\'))" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(active?'var(--teal)':'var(--border-md)')+';background:'+(active?'var(--teal)':'var(--surface)')+';color:'+(active?'#fff':'var(--text-secondary)')+';font-size:12px;font-weight:600;cursor:pointer">'+label+(s==='pending'&&pending.length?' ('+pending.length+')':'')+'</button>'
+  }).join('')
+
+  if(!rows.length){
+    el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:20px">'+filterBtns+'</div><div style="padding:40px;text-align:center;color:var(--text-muted)">No refund requests yet.</div>'
+    return
+  }
+
+  var cards = rows.filter(function(r){ return !statusFilter||r.status===statusFilter }).map(function(r){
+    var statusColor = REFUND_STATUS_COLORS[r.status]||'#9ca3af'
+    var boardBadge = r.requires_board_approval ? '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px">Board Review Required</span>' : ''
+    var amtDisplay = r.refund_amount_cents ? '$'+(r.refund_amount_cents/100).toFixed(2) : (r.amount_paid||'—')
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">'
+      +'<div>'
+      +'<div style="font-size:15px;font-weight:700;color:var(--text-primary)">'+(r.participant_name||'')+'</div>'
+      +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(r.program_name||'')+(r.square_order_id?' &nbsp;·&nbsp; Order: <code>'+r.square_order_id+'</code>':'')+'</div>'
+      +'<div style="font-size:12px;color:var(--text-muted)">Requested by: '+(r.requester_name||'')+' &lt;'+(r.requester_email||'')+'&gt;</div>'
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+      +'<div style="font-size:10px;font-family:monospace;color:var(--text-muted)">'+(r.ref_number||'')+'</div>'
+      +'<span style="background:'+statusColor+'22;color:'+statusColor+';font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px">'+((r.status||'').toUpperCase())+'</span>'
+      +boardBadge
+      +'</div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">'
+      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Type</div><div style="font-weight:600">'+(REFUND_TYPE_LABELS[r.request_type]||r.request_type||'—')+'</div></div>'
+      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Amount</div><div style="font-weight:600">'+amtDisplay+'</div></div>'
+      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Reason</div><div style="font-weight:600">'+(REFUND_REASON_LABELS[r.reason_category]||r.reason_category||'—')+'</div></div>'
+      +'</div>'
+      +'<div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;padding:10px 12px;background:#f8fafc;border-radius:8px;line-height:1.5">'+(r.reason_detail||'')+'</div>'
+      +(r.replacement_name&&r.replacement_name.trim() ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Replacement: '+r.replacement_name+' — '+r.replacement_email+'</div>' : '')
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      +(r.status==='pending'||r.status==='approved' ? '<button onclick="approveRefundRequest(\''+r.id+'\')" style="padding:7px 16px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Approve</button>' : '')
+      +(r.status==='pending' ? '<button onclick="denyRefundRequest(\''+r.id+'\')" style="padding:7px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Deny</button>' : '')
+      +(r.status==='approved'&&r.request_type==='refund'&&r.square_order_id ? '<button onclick="processSquareRefund(\''+r.id+'\',\''+r.ref_number+'\','+r.refund_amount_cents+')" style="padding:7px 16px;background:#145466;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Process in Square</button>' : '')
+      +(r.status==='processed'&&r.square_refund_id ? '<span style="font-size:11px;color:var(--text-muted)">Square Refund ID: '+r.square_refund_id+'</span>' : '')
+      +'<div style="flex:1"></div>'
+      +'<span style="font-size:11px;color:var(--text-muted)">Submitted '+new Date(r.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</span>'
+      +'</div>'
+      +'</div>'
+  }).join('')
+
+  el.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center">'
+    + filterBtns
+    + '<div style="flex:1"></div>'
+    + '<a href="/request-a-refund" target="_blank" style="font-size:12px;color:var(--teal);text-decoration:none;font-weight:600">View public form</a>'
+    + '</div>'
+    + cards
+}
+
+async function approveRefundRequest(id){
+  var notes = prompt('Add a note for the requester (optional):') || ''
+  var r = await api('/api/refund-requests/'+id,'PUT',{status:'approved',admin_notes:notes,reviewed_by:currentUser?.name||'Admin'})
+  if(r&&r.ok) renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
+  else toast('Error updating request','error')
+}
+
+async function denyRefundRequest(id){
+  var notes = prompt('Reason for denial (will be shared with requester):')
+  if(notes===null) return
+  var r = await api('/api/refund-requests/'+id,'PUT',{status:'denied',admin_notes:notes,reviewed_by:currentUser?.name||'Admin'})
+  if(r&&r.ok) renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
+  else toast('Error updating request','error')
+}
+
+async function processSquareRefund(id, refNum, amountCents){
+  var confirmed = confirm('Process Square refund for request '+refNum+'?\n\nAmount: $'+(amountCents/100).toFixed(2)+'\n\nThis will issue the refund immediately via Square. This cannot be undone.')
+  if(!confirmed) return
+  var r = await api('/api/refund-requests/'+id+'/process-square','POST',{amount_cents:amountCents})
+  if(r&&r.ok){
+    toast('Refund of $'+(r.amount_cents/100).toFixed(2)+' processed in Square!','success')
+    renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
+  } else {
+    toast((r&&r.error)||'Square refund failed','error')
+  }
 }
 
 async function renderMarqueeDashboard(el){

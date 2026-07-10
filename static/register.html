@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Register — Horizon West Theatre Company</title>
+<title>Register — Horizon West Theater Company</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -409,13 +409,16 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
     ? '<div class="section-divider">Participant Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + (on('dob',true)||on('shirt',true) ? '<div class="form-row">'
-          + (on('dob',true) ? '<div class="form-group"><label>Date of Birth</label><input id="f-dob" type="date"/></div>' : '')
-          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
-          + '</div>' : '')
+      + '<div class="form-row">'
+      + '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date" onchange="handleDobChange()" required/></div>'
+      + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
+      + '</div>'
       + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions we should know about"/></div>' : '')
       + (on('pronouns',false) ? '<div class="form-group"><label>Pronouns</label><input id="f-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>' : '')
       + (on('photo_consent',false) ? '<div class="form-group" style="background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:12px 14px"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="f-photo-consent" style="margin-top:2px;accent-color:#145466"/> I give permission for photos/videos of my child to be used in HWTC marketing and social media.</label></div>' : '')
+      // Age-conditional sections — shown/hidden by handleDobChange()
+      + '<div id="minor-fields" style="display:none">'
+      + '<div class="form-group"><label>Grade Going Into <span class="required">*</span></label><select id="f-grade"><option value="">Select grade...</option><option>Pre-K</option><option>Kindergarten</option><option>1st Grade</option><option>2nd Grade</option><option>3rd Grade</option><option>4th Grade</option><option>5th Grade</option><option>6th Grade</option><option>7th Grade</option><option>8th Grade</option><option>9th Grade</option><option>10th Grade</option><option>11th Grade</option><option>12th Grade</option></select></div>'
       + '<div class="section-divider">Parent / Guardian Information</div>'
       + '<div class="form-group"><label>Full Name <span class="required">*</span></label><input id="f-contact-name" placeholder="Parent or guardian name"/></div>'
       + '<div class="form-row"><div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
@@ -430,13 +433,24 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
           ? '<div class="section-divider">Pickup &amp; Drop-off</div>'
             + '<div class="form-group"><label>Authorized Pickup Contacts</label><textarea id="f-pickup" rows="2" placeholder="List all people authorized to pick up your child (name and relationship)..."></textarea></div>'
           : '')
+      + '</div>'
+      // Adult section (18+) — no guardian or pickup needed
+      + '<div id="adult-fields" style="display:none">'
+      + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email-adult" type="email" placeholder="your@email.com"/></div>'
+      + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone-adult" type="tel" placeholder="(555) 555-5555"/></div>' : '')
+      + (on('emergency_contact',true)
+          ? '<div class="section-divider">Emergency Contact</div>'
+            + '<div class="form-row"><div class="form-group"><label>Name</label><input id="f-ec-name" placeholder="Emergency contact name"/></div>'
+            + '<div class="form-group"><label>Phone</label><input id="f-ec-phone" type="tel" placeholder="(555) 555-5555"/></div></div>'
+          : '')
+      + '</div>'
     : '<div class="section-divider">Your Information</div>'
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
-      + (on('age',false)||on('shirt',true) ? '<div class="form-row">'
-          + (on('age',false) ? '<div class="form-group"><label>Age</label><input id="f-age" type="number" min="0" max="120" placeholder="Your age"/></div>' : '')
-          + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>' : '')
-          + '</div>' : '')
+      + '<div class="form-row">'
+      + '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date" required/></div>'
+      + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div>' : '')
+      + '</div>'
       + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
       + (on('phone',true) ? '<div class="form-group"><label>Phone</label><input id="f-phone" type="tel" placeholder="(555) 555-5555"/></div>' : '')
       + (on('emergency_contact',true)
@@ -718,6 +732,17 @@ function addSiblingBlock(){
   refreshCheckout()
 }
 
+function handleDobChange(){
+  var dob = (document.getElementById('f-dob')||{}).value||''
+  if(!dob) return
+  var age = Math.floor((new Date() - new Date(dob)) / (365.25*24*60*60*1000))
+  var isMinor = age < 18
+  var minorFields = document.getElementById('minor-fields')
+  var adultFields = document.getElementById('adult-fields')
+  if(minorFields) minorFields.style.display = isMinor ? '' : 'none'
+  if(adultFields) adultFields.style.display = isMinor ? 'none' : ''
+}
+
 function getSiblings(){
   var result = []
   document.querySelectorAll('.sibling-block').forEach(function(b){
@@ -733,31 +758,51 @@ function getSiblings(){
 
 async function submitRegistration(){
   const btn = document.getElementById('submit-btn')
-  const email = (document.getElementById('f-email')||{}).value||''
-  const firstName = (document.getElementById('f-first')||{}).value||''
   const formType = (program && program.registration_form_type) || 'youth'
   const isYouth = formType==='youth' || !formType
-  const contactName = isYouth
+  const firstName = (document.getElementById('f-first')||{}).value||''
+  const dob = (document.getElementById('f-dob')||{}).value||''
+
+  // Determine if minor based on DOB
+  var isMinor = true
+  if(dob){
+    var age = Math.floor((new Date() - new Date(dob)) / (365.25*24*60*60*1000))
+    isMinor = age < 18
+  }
+
+  // Get email from the right field (minor = guardian email, adult = their own)
+  const email = isYouth && isMinor
+    ? ((document.getElementById('f-email')||{}).value||'').trim()
+    : ((document.getElementById('f-email-adult')||document.getElementById('f-email')||{}).value||'').trim()
+
+  const contactName = isYouth && isMinor
     ? ((document.getElementById('f-contact-name')||{}).value||'')
     : firstName + ' ' + ((document.getElementById('f-last')||{}).value||'')
 
-  if(!email.trim() || !firstName.trim() || (isYouth && !contactName.trim())){
+  if(!email || !firstName.trim() || (isYouth && isMinor && !contactName.trim())){
     show('Please fill in all required fields.','error'); return
+  }
+  if(isYouth && !dob){
+    show('Date of birth is required.','error'); return
   }
   btn.disabled=true; btn.textContent='Submitting...'
   document.getElementById('form-alert').innerHTML=''
 
   const customFields = (program && program.custom_fields) || []
+  const phone = isYouth && isMinor
+    ? ((document.getElementById('f-phone')||{}).value||'').trim()
+    : ((document.getElementById('f-phone-adult')||document.getElementById('f-phone')||{}).value||'').trim()
   const payload = {
     type: program.spots_remaining===0 ? 'waitlist' : 'registration',
     registration_form_type: formType,
-    guardian_name: isYouth ? contactName : (firstName+' '+((document.getElementById('f-last')||{}).value||'')).trim(),
+    is_minor: isMinor,
+    guardian_name: isMinor ? contactName : (firstName+' '+((document.getElementById('f-last')||{}).value||'')).trim(),
     guardian_email: email.trim(),
-    guardian_phone: ((document.getElementById('f-phone')||{}).value||'').trim(),
-    child_first_name: isYouth ? firstName.trim() : firstName.trim(),
-    child_last_name: isYouth ? ((document.getElementById('f-last')||{}).value||'').trim() : ((document.getElementById('f-last')||{}).value||'').trim(),
-    child_dob: ((document.getElementById('f-dob')||{}).value)||'',
-    participant_age: ((document.getElementById('f-age')||{}).value)||'',
+    guardian_phone: phone,
+    child_first_name: firstName.trim(),
+    child_last_name: ((document.getElementById('f-last')||{}).value||'').trim(),
+    child_dob: dob,
+    grade: ((document.getElementById('f-grade')||{}).value||'').trim(),
     shirt_size: ((document.getElementById('f-shirt')||{}).value)||'',
     emergency_contact_name: ((document.getElementById('f-ec-name')||{}).value||'').trim(),
     emergency_contact_phone: ((document.getElementById('f-ec-phone')||{}).value||'').trim(),

@@ -3052,6 +3052,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Pronouns</label><input type="text" id="youth-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>
  </div>
  <div class="form-row">
+ <div class="form-group"><label>Grade</label><select id="youth-grade">
+ <option value="">— Not set —</option>
+ <option>Pre-K</option><option>Kindergarten</option>
+ <option>1st Grade</option><option>2nd Grade</option><option>3rd Grade</option>
+ <option>4th Grade</option><option>5th Grade</option><option>6th Grade</option>
+ <option>7th Grade</option><option>8th Grade</option><option>9th Grade</option>
+ <option>10th Grade</option><option>11th Grade</option><option>12th Grade</option>
+ </select></div>
  <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
  </div>
  <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -5604,6 +5612,7 @@ async function openYouthProfile(yid){
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
  ${y.dob?`<div> ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
  ${y.pronouns?`<div style="color:var(--teal-dark);font-weight:500">${escHtml(y.pronouns)}</div>`:''}
+ ${y.grade?`<div>📚 ${escHtml(y.grade)}</div>`:''}
  ${y.program?`<div> ${escHtml(y.program)}</div>`:''}
  ${y.shirt_size?`<div> ${escHtml(y.shirt_size)}</div>`:''}
  </div>
@@ -6729,6 +6738,7 @@ async function openEditYouthModal(yid){
  document.getElementById('youth-allergies').value=y.allergies||''
  document.getElementById('youth-shirt-size').value=y.shirt_size||''
  document.getElementById('youth-pronouns').value=y.pronouns||''
+ document.getElementById('youth-grade').value=y.grade||''
  document.getElementById('youth-photo-consent').checked=!!y.photo_consent
  document.getElementById('youth-medical-consent').checked=!!y.medical_consent
  // Determine minor based on DOB or presence of guardians
@@ -6771,6 +6781,7 @@ async function saveYouth(){
  allergies:document.getElementById('youth-allergies').value.trim()||'None',
  shirt_size:document.getElementById('youth-shirt-size').value||'',
  pronouns:document.getElementById('youth-pronouns').value.trim(),
+ grade:document.getElementById('youth-grade').value||'',
  photo_consent:document.getElementById('youth-photo-consent').checked,
  medical_consent:document.getElementById('youth-medical-consent').checked,
  guardians:[{name:guardianName,relationship:document.getElementById('youth-guardian-rel').value.trim(),phone:guardianPhone,email:document.getElementById('youth-guardian-email').value.trim(),is_primary:true}],
@@ -15055,7 +15066,7 @@ function renderEventDetailPage(eid){
  const timeStr = e.start_time ? (e.end_time ? `${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`: `From ${fmtTime(e.start_time)}`): ''
  const reqWaivers = e.required_waivers || []
  const elics = e.elics || []
- const eventHours = allHours.filter(h=>h.event_id===e.id||h.event===e.name)
+ const eventHours = allHours.filter(h=>h.event_id===e.id)
  const totalHours = eventHours.reduce((s,h)=>s+(h.hours||0),0)
 
  // Status action buttons

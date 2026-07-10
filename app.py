@@ -6394,10 +6394,14 @@ def kiosk_elic_auth():
             SELECT e.*, p.name as production_name,
                    COALESCE(p.stage,'mainstage') as stage,
                    p.stage as production_stage,
-                   pg.name as program_name
+                   pg.name as program_name,
+                   el.action as current_status
             FROM events e
             LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN youth_programs pg ON e.program_id=pg.id
+            LEFT JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                ON el.event_id=e.id
             ORDER BY e.event_date DESC NULLS LAST, e.name''')
     else:
         if assigned:
@@ -6406,10 +6410,14 @@ def kiosk_elic_auth():
                 SELECT e.*, p.name as production_name,
                        COALESCE(p.stage,'mainstage') as stage,
                        p.stage as production_stage,
-                       pg.name as program_name
+                       pg.name as program_name,
+                       el.action as current_status
                 FROM events e
                 LEFT JOIN productions p ON e.production_id=p.id
                 LEFT JOIN youth_programs pg ON e.program_id=pg.id
+                LEFT JOIN (SELECT event_id, action FROM event_logs
+                    WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                    ON el.event_id=e.id
                 WHERE e.id IN ({placeholders})''', tuple(assigned))
         else:
             events = []

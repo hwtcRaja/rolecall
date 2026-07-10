@@ -9064,6 +9064,40 @@ def kiosk_open_event():
         conn.rollback(); conn.close()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/auto-close-past-events', methods=['POST'])
+def auto_close_past_events():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    closed = 0
+    try:
+        import datetime as _dtac
+        today = _dtac.date.today().isoformat()
+        # Find events older than today still showing as open
+        open_events = fetchall(conn, '''SELECT e.id, e.name FROM events e
+            JOIN (SELECT event_id, action FROM event_logs
+                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+            ON el.event_id=e.id
+            WHERE el.action='open'
+            AND e.event_date < %s''', (today,)) or []
+        for ev in open_events:
+            log_id = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
+                VALUES (%s, %s, NULL, 'close', %s, '')''',
+                (log_id, ev['id'],
+                 f'Auto-closed by system — event date passed without formal close'))
+            closed += 1
+            app.logger.info(f'Auto-closed event: {ev["name"]} ({ev["id"]})')
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'closed': closed,
+            'events': [e['name'] for e in open_events]})
+    except Exception as e:
+        app.logger.error(f'Auto-close error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/kiosk/elic-events')
 def kiosk_elic_events():
     """Lightweight endpoint to refresh ELIC event list without full re-login."""

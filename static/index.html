@@ -17416,6 +17416,9 @@ function openNewProgramModal(){
  const rgCheck=document.getElementById('program-requires-guardian')
  if(rgCheck) rgCheck.checked=false
  openModal('modal-program')
+}
+
+function openEditProgramModal(pid){
  const p=allPrograms.find(p=>p.id===pid)
  if(!p) return
  document.getElementById('program-modal-title').textContent='Edit Program'

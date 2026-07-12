@@ -1098,6 +1098,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
         """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS requires_guardian BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -2811,11 +2812,12 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
-                 d.get('default_elic_id') or None))
+                 d.get('default_elic_id') or None,
+                 bool(d.get('requires_guardian', False))))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -2831,11 +2833,12 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
-             d.get('default_elic_id') or None, pid))
+             d.get('default_elic_id') or None,
+             bool(d.get('requires_guardian', False)), pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -6494,17 +6497,18 @@ def kiosk_elic_auth():
                 WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
                 ON el.event_id=e.id
             WHERE (
-                -- Currently open events regardless of date
+                -- Currently open events (regardless of date)
                 el.action = 'open'
                 OR
-                -- Events within 60 days past or 180 days future
-                (e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
-                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days')
+                -- Upcoming and recent events (14 days past to 180 days future)
+                (e.event_date::date >= CURRENT_DATE - INTERVAL '14 days'
+                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days'
+                 AND (el.action IS NULL OR el.action != 'close'))
                 OR
-                -- Events with no date
-                e.event_date IS NULL
+                -- Events with no date that aren't closed
+                (e.event_date IS NULL AND (el.action IS NULL OR el.action != 'close'))
             )
-            ORDER BY e.event_date DESC NULLS LAST, e.name''')
+            ORDER BY e.event_date ASC NULLS LAST, e.name''')
     else:
         if assigned:
             placeholders = ','.join(['%s']*len(assigned))
@@ -6523,9 +6527,11 @@ def kiosk_elic_auth():
                 WHERE e.id IN ({placeholders})
                 AND (
                     el.action = 'open'
-                    OR e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
-                    OR e.event_date IS NULL
-                )''', tuple(assigned))
+                    OR (e.event_date::date >= CURRENT_DATE - INTERVAL '14 days'
+                        AND (el.action IS NULL OR el.action != 'close'))
+                    OR (e.event_date IS NULL AND (el.action IS NULL OR el.action != 'close'))
+                )
+                ORDER BY e.event_date ASC NULLS LAST, e.name''', tuple(assigned))
         else:
             events = []
     conn.close()
@@ -9273,6 +9279,37 @@ def auto_close_past_events():
         try: conn.rollback(); conn.close()
         except Exception: pass
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/kiosk/walkin-signin', methods=['POST'])
+def kiosk_walkin_signin():
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    event_id = d.get('event_id','')
+    if not name or not event_id:
+        return jsonify({'error': 'Missing name or event_id'}), 400
+    conn = get_db()
+    # Find or create participant by name
+    parts = name.split(' ', 1)
+    first = parts[0]; last = parts[1] if len(parts) > 1 else ''
+    yp = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s LIMIT 1',
+        (first.lower(), last.lower()))
+    if not yp:
+        yid = str(uuid.uuid4())
+        execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,status) VALUES (%s,%s,%s,%s)',
+            (yid, first, last, 'active'))
+        conn.commit()
+        yp = {'id': yid}
+    # Check not already signed in
+    existing = fetchone(conn, 'SELECT id FROM youth_sign_ins WHERE youth_id=%s AND event_id=%s AND signed_out_at IS NULL',
+        (yp['id'], event_id))
+    if existing:
+        conn.close()
+        return jsonify({'ok': True, 'already_in': True})
+    sid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO youth_sign_ins (id,youth_id,event_id,signed_in_at) VALUES (%s,%s,%s,NOW())',
+        (sid, yp['id'], event_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'sign_in_id': sid})
 
 @app.route('/api/kiosk/elic-events')
 def kiosk_elic_events():

@@ -6494,7 +6494,7 @@ def kiosk_elic_auth():
             LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN youth_programs pg ON e.program_id=pg.id
             LEFT JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
                 ON el.event_id=e.id
             WHERE (
                 -- Currently open events (regardless of date)
@@ -6522,7 +6522,7 @@ def kiosk_elic_auth():
                 LEFT JOIN productions p ON e.production_id=p.id
                 LEFT JOIN youth_programs pg ON e.program_id=pg.id
                 LEFT JOIN (SELECT event_id, action FROM event_logs
-                    WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                    WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
                     ON el.event_id=e.id
                 WHERE e.id IN ({placeholders})
                 AND (
@@ -9250,7 +9250,7 @@ def auto_close_past_events():
         open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
             JOIN event_logs el ON el.event_id=e.id
             WHERE el.action='open'
-            AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+            AND el.id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))
             AND (
                 (e.event_date IS NOT NULL AND e.event_date::date < CURRENT_DATE)
                 OR
@@ -9323,7 +9323,7 @@ def kiosk_elic_events():
         events = fetchall(conn, '''SELECT e.*, el.action as current_status
             FROM events e
             LEFT JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
             ON el.event_id=e.id
             WHERE e.id IN (SELECT event_id FROM event_elics WHERE elic_id=%s)
             ORDER BY e.event_date DESC, e.start_time''', (elic_id,)) or []
@@ -14589,7 +14589,7 @@ def _start_oncall_scheduler():
                 open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
                     JOIN event_logs el ON el.event_id=e.id
                     WHERE el.action='open'
-                    AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+                    AND el.id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))
                     AND e.event_date IS NOT NULL
                     AND e.event_date::date < CURRENT_DATE""") or []
                 system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \

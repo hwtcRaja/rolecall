@@ -336,7 +336,27 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
     var maxPerReg = program.max_sessions_per_reg || 0
     function fmtTimeSess(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
 
-    if(isBookingMode){
+    var today = new Date(); today.setHours(0,0,0,0)
+    var allPast = sessions.length > 0 && sessions.every(function(s){ return s.start_date && new Date(s.start_date+'T12:00:00') < today })
+    var allUnavailable = sessions.length > 0 && sessions.every(function(s){
+      var past = s.start_date && new Date(s.start_date+'T12:00:00') < today
+      var full = s.capacity && (s.enrolled_count||0) >= s.capacity
+      return past || full
+    })
+
+    if(allPast){
+      sessionPickerHTML = '<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:20px 18px;margin-bottom:16px;text-align:center">'
+        + '<div style="font-size:14px;font-weight:700;color:#991b1b;margin-bottom:4px">Registration Closed</div>'
+        + '<div style="font-size:13px;color:#b91c1c">All sessions for this program have already taken place.</div>'
+        + '</div>'
+      setTimeout(function(){ var b=document.getElementById('submit-btn'); if(b){b.disabled=true;b.textContent='Registration Closed'} },100)
+    } else if(allUnavailable){
+      sessionPickerHTML = '<div style="background:#fef3c7;border:1.5px solid #fde68a;border-radius:10px;padding:20px 18px;margin-bottom:16px;text-align:center">'
+        + '<div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:4px">No Available Sessions</div>'
+        + '<div style="font-size:13px;color:#b45309">All sessions are either full or have already taken place. Please contact us to be added to a waitlist.</div>'
+        + '</div>'
+      setTimeout(function(){ var b=document.getElementById('submit-btn'); if(b){b.disabled=true;b.textContent='No Sessions Available'} },100)
+    } else if(isBookingMode){
       // Group by date for a visual calendar-style grid
       var byDate = {}
       sessions.forEach(function(s){
@@ -357,14 +377,17 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
                   var cap = s.capacity || null
                   var spotsLeft = cap ? cap - enrolled : null
                   var isFull = spotsLeft !== null && spotsLeft <= 0
+                  var isPast = s.start_date && new Date(s.start_date+'T12:00:00') < new Date(new Date().toDateString())
+                  var isDisabled = isFull || isPast
                   var pct = cap ? (enrolled / cap) : 0
-                  var isAlmost = !isFull && pct >= 0.9 && cap
+                  var isAlmost = !isDisabled && pct >= 0.9 && cap
                   var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
-                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isFull?'not-allowed':'pointer')+';text-align:center;background:'+(isFull?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isFull?'0.6':'1')+'">'
-                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isFull?'disabled':'')+' style="display:none"/>'
-                    + '<div style="font-size:13px;font-weight:700;color:'+(isFull?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
-                    + '<div style="font-size:11px;font-weight:700;color:'+(isFull?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
-                    + (isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
+                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isDisabled?'not-allowed':'pointer')+';text-align:center;background:'+(isDisabled?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isDisabled?'0.5':'1')+'">'
+                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isDisabled?'disabled':'')+' style="display:none"/>'
+                    + '<div style="font-size:13px;font-weight:700;color:'+(isDisabled?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
+                    + '<div style="font-size:11px;font-weight:700;color:'+(isDisabled?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isPast?'Passed':isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
+                    + (isPast ? '<div style="font-size:10px;color:#9ca3af;font-weight:700;margin-top:2px">Registration closed</div>'
+                      : isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
                       : showAlmost&&isAlmost ? '<div style="font-size:10px;color:#d97706;font-weight:700;margin-top:2px">Almost Sold Out!</div>'
                       : showCap&&cap&&spotsLeft<=5 ? '<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-top:2px">'+spotsLeft+' left</div>' : '')
                     + '</label>'
@@ -372,7 +395,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
               + '</div></div>'
           }).join('')
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
-    } else {
+    } else if(!allPast && !allUnavailable) {
       // Standard checkbox list
       sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
         + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
@@ -383,22 +406,25 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
             var cap = s.capacity || null
             var spotsLeft = cap ? cap - enrolled : null
             var isFull = spotsLeft !== null && spotsLeft <= 0
+            var isPast = s.start_date && new Date(s.start_date+'T12:00:00') < new Date(new Date().toDateString())
+            var isDisabled = isFull || isPast
             var pct = cap ? (enrolled / cap) : 0
-            var isAlmost = !isFull && pct >= 0.9 && cap
-            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isFull?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';opacity:'+(isFull?'0.6':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
-              + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isFull?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
+            var isAlmost = !isDisabled && pct >= 0.9 && cap
+            return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isDisabled?'not-allowed':'pointer')+';opacity:'+(isDisabled?'0.5':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
+              + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isDisabled?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
               + '<div style="flex:1">'
               + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
-              + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
+              + (s.start_date ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+new Date(s.start_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+(timeStr?' · '+escHtml(timeStr):'')+'</div>' : (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : ''))
               + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
-              + (cap && (showCap || isFull || (showAlmost && isAlmost)) ? '<div style="font-size:12px;margin-top:3px">'
+              + (isPast ? '<div style="font-size:12px;color:#9ca3af;font-weight:600;margin-top:3px">Registration closed — session date has passed</div>'
+                : cap && (showCap || isFull || (showAlmost && isAlmost)) ? '<div style="font-size:12px;margin-top:3px">'
                   + (isFull ? '<span style="color:#dc2626;font-weight:700">Full</span>'
                     : showAlmost && isAlmost ? '<span style="color:#d97706;font-weight:700">Almost Sold Out!'+(showCap?' — '+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left':'')+'</span>'
                     : showCap && spotsLeft !== null && spotsLeft <= 5 ? '<span style="color:#f59e0b;font-weight:600">'+spotsLeft+' spot'+(spotsLeft===1?'':'s')+' left</span>'
                     : showCap ? '<span style="color:#6b7280">'+enrolled+' / '+cap+' enrolled</span>' : '')
                   + '</div>' : '')
               + '</div>'
-              + '<div style="font-weight:700;font-size:14px;color:#145466;white-space:nowrap">'+(price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
+              + '<div style="font-weight:700;font-size:14px;color:'+(isDisabled?'#9ca3af':'#145466')+';white-space:nowrap">'+(isPast?'Passed':price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
               + '</label>'
           }).join('')
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'

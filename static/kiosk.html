@@ -1948,40 +1948,77 @@ function renderAdultRoster(signedIn){
   if(!list) return
   const inMap = {}
   signedIn.forEach(function(s){ if(!s.signed_out_at) inMap[s.youth_id] = s })
+  const sub = document.getElementById('adult-signin-sub')
 
-  let html = ''
-  // Show registered participants first
+  const signedInCount = Object.keys(inMap).length
+  if(sub) sub.textContent = signedInCount + ' signed in'
+
+  // Split into signed in and not yet signed in
+  const signedInPeople = []
+  const notSignedIn = []
+
   adultRoster.forEach(function(p){
     const pid = p.id || p.youth_id
-    const name = (p.first_name||'') + ' ' + (p.last_name||'')
-    const isIn = !!inMap[pid]
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1.5px solid '+(isIn?'var(--teal)':'var(--border)')+';border-radius:var(--radius)">'
-      + '<div>'
-      + '<div style="font-size:15px;font-weight:600">' + name.trim() + '</div>'
-      + (isIn ? '<div style="font-size:12px;color:var(--teal);margin-top:2px">Signed in ' + new Date(inMap[pid].signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div>' : '')
-      + '</div>'
-      + (isIn
-        ? '<button onclick="adultSignOut(\''+inMap[pid].id+'\')" style="padding:8px 16px;background:#fee2e2;color:#dc2626;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign Out</button>'
-        : '<button onclick="adultSignIn(\''+pid+'\',\''+name.trim()+'\')" style="padding:8px 16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign In</button>')
-      + '</div>'
+    const name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim()
+    if(inMap[pid]) signedInPeople.push({pid, name, record: inMap[pid]})
+    else notSignedIn.push({pid, name})
   })
 
-  // Walk-ins (signed in but not on roster)
-  signedIn.filter(function(s){ return !s.signed_out_at && !adultRoster.find(function(p){ return (p.id||p.youth_id)===s.youth_id }) }).forEach(function(s){
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1.5px solid var(--teal);border-radius:var(--radius)">'
-      + '<div><div style="font-size:15px;font-weight:600">' + (s.youth_name||s.first_name+' '+s.last_name||'Guest') + '</div>'
-      + '<div style="font-size:12px;color:var(--teal);margin-top:2px">Walk-in · Signed in ' + new Date(s.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div></div>'
-      + '<button onclick="adultSignOut(\''+s.id+'\')" style="padding:8px 16px;background:#fee2e2;color:#dc2626;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign Out</button>'
-      + '</div>'
+  // Walk-ins not on roster
+  const walkIns = signedIn.filter(function(s){
+    return !s.signed_out_at && !adultRoster.find(function(p){ return (p.id||p.youth_id)===s.youth_id })
   })
 
-  list.innerHTML = html || '<div style="color:var(--text-muted);font-size:14px;text-align:center;padding:20px">No participants yet</div>'
+  let html = ''
+
+  // Signed in section
+  if(signedInPeople.length || walkIns.length){
+    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal);margin-bottom:8px">'
+      + 'Signed In (' + (signedInPeople.length + walkIns.length) + ')</div>'
+    signedInPeople.forEach(function(p){
+      const t = new Date(p.record.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#e0fdf4;border:2px solid var(--teal);border-radius:12px;margin-bottom:8px">'
+        + '<div><div style="font-size:17px;font-weight:700">'+p.name+'</div>'
+        + '<div style="font-size:12px;color:var(--teal);margin-top:2px">In at '+t+'</div></div>'
+        + '<button onclick="adultSignOut(\''+p.record.id+'\')" style="padding:10px 18px;background:#dc2626;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Sign Out</button>'
+        + '</div>'
+    })
+    walkIns.forEach(function(s){
+      const t = new Date(s.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true})
+      const name = s.youth_name || ((s.first_name||'') + ' ' + (s.last_name||'')).trim() || 'Guest'
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#e0fdf4;border:2px solid var(--teal);border-radius:12px;margin-bottom:8px">'
+        + '<div><div style="font-size:17px;font-weight:700">'+name+'</div>'
+        + '<div style="font-size:12px;color:var(--teal);margin-top:2px">Walk-in · In at '+t+'</div></div>'
+        + '<button onclick="adultSignOut(\''+s.id+'\')" style="padding:10px 18px;background:#dc2626;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">Sign Out</button>'
+        + '</div>'
+    })
+    if(notSignedIn.length) html += '<div style="height:1px;background:var(--border);margin:12px 0"></div>'
+  }
+
+  // Not signed in section
+  if(notSignedIn.length){
+    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">'
+      + 'Not Signed In (' + notSignedIn.length + ')</div>'
+    notSignedIn.forEach(function(p){
+      html += '<div class="adult-roster-row" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;margin-bottom:8px">'
+        + '<div style="font-size:17px;font-weight:600">'+p.name+'</div>'
+        + '<button onclick="adultSignIn(\''+p.pid+'\',\''+p.name+'\')" style="padding:10px 20px;background:var(--teal);color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer">Sign In</button>'
+        + '</div>'
+    })
+  }
+
+  if(!html) html = '<div style="color:var(--text-muted);font-size:15px;text-align:center;padding:32px">No participants found</div>'
+  list.innerHTML = html
+
+  // Restore search filter if active
+  const q = (document.getElementById('adult-search').value||'').trim()
+  if(q) filterAdultRoster(q)
 }
 
-function filterAdultRoster(){
-  const q = (document.getElementById('adult-search').value||'').toLowerCase()
-  document.querySelectorAll('#adult-signin-list > div').forEach(function(el){
-    el.style.display = q ? (el.textContent.toLowerCase().includes(q) ? '' : 'none') : ''
+function filterAdultRoster(q){
+  q = (q||'').toLowerCase()
+  document.querySelectorAll('#adult-signin-list .adult-roster-row').forEach(function(el){
+    el.style.display = !q || el.textContent.toLowerCase().includes(q) ? '' : 'none'
   })
 }
 
@@ -2353,17 +2390,16 @@ function showConfirm(icon,title,sub,note,onBack){
     </div>
   </div>
   <div style="padding:16px">
-    <div style="display:flex;gap:10px;margin-bottom:16px">
-      <input id="adult-search" type="text" placeholder="Search by name..." oninput="filterAdultRoster()"
-        style="flex:1;padding:12px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:15px;outline:none"/>
-    </div>
-    <div id="adult-signin-list" style="display:flex;flex-direction:column;gap:8px"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
-      <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Not on the list?</div>
+    <input id="adult-search" type="text" placeholder="Search by name..."
+      oninput="filterAdultRoster(this.value)"
+      style="width:100%;padding:14px 16px;border:2px solid var(--border-md);border-radius:12px;font-family:inherit;font-size:16px;outline:none;margin-bottom:16px;box-sizing:border-box"/>
+    <div id="adult-signin-list"></div>
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Walk-in / Not on list</div>
       <div style="display:flex;gap:8px">
-        <input id="adult-walkin-name" type="text" placeholder="Enter name..."
-          style="flex:1;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
-        <button onclick="adultWalkIn()" style="padding:10px 18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">Sign In</button>
+        <input id="adult-walkin-name" type="text" placeholder="Enter full name..."
+          style="flex:1;padding:12px 14px;border:2px solid var(--border-md);border-radius:10px;font-family:inherit;font-size:15px;outline:none"/>
+        <button onclick="adultWalkIn()" style="padding:12px 20px;background:var(--teal);color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap">Sign In</button>
       </div>
     </div>
   </div>

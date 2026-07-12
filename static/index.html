@@ -255,6 +255,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .settings-nav-btn i{font-size:15px;flex-shrink:0}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
+.banner-pos-btn,.sched-bg-pos-btn,.banner-fit-btn,.sched-bg-fit-btn{padding:5px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text-muted);font-family:inherit;font-size:12px;cursor:pointer}
+.banner-pos-btn.active,.sched-bg-pos-btn.active,.banner-fit-btn.active,.sched-bg-fit-btn.active{background:var(--teal-light,#e0f4f0);color:var(--teal-dark);border-color:var(--teal-dark);font-weight:600}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
 .inline-input-row input:focus{border-color:var(--teal-400)}
 .setting-item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--gray-50);border-radius:8px;margin-bottom:6px}
@@ -1606,7 +1608,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div></div>
-   </div>
 
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
@@ -1735,10 +1736,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
  </div>
  </div>
-
- </div>
- </div>
- </section>
    </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
@@ -2004,29 +2001,95 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
-    <div class="settings-section" >
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
- <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
- </div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
- <div id="users-management-list"></div>
+
+    <div class="settings-section" style="margin-bottom:16px">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px">Theme</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Choose which visual theme is live on the lobby display.</div>
+ <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:14px"></div>
+ <div id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark);min-height:18px"></div>
+ <select id="lobby-theme-select" style="display:none"></select>
+ <div id="lobby-theme-status" style="font-size:13px;margin-top:6px"></div>
  </div>
 
- <!-- Family / Portal Management -->
- <div class="settings-section" >
- <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
- <div id="families-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+    <div class="settings-section" style="margin-bottom:16px">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px">Banner</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Background image for the top banner (clock and date are overlaid live).</div>
+ <div id="lobby-banner-preview" style="display:none;position:relative;width:100%;max-width:480px;aspect-ratio:16/5;border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:12px;background-color:#111">
+ <div id="banner-preview-clock" style="position:absolute;bottom:10px;left:14px;color:#fff;font-size:20px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>
+ <div id="banner-preview-date" style="position:absolute;bottom:34px;left:14px;color:#fff;font-size:12px;text-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>
  </div>
+ <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+ <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Banner Image<input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/></label>
+ <button class="btn btn-secondary btn-sm" id="lobby-banner-clear-btn" style="display:none" onclick="clearLobbyBanner()">Remove</button>
+ </div>
+ <div id="lobby-banner-controls" style="display:none;margin-bottom:12px">
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Position</div>
+ <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+ <button class="banner-pos-btn" data-pos="0% 0%">↖</button>
+ <button class="banner-pos-btn" data-pos="50% 0%">↑</button>
+ <button class="banner-pos-btn" data-pos="100% 0%">↗</button>
+ <button class="banner-pos-btn" data-pos="0% 50%">←</button>
+ <button class="banner-pos-btn" data-pos="50% 50%">•</button>
+ <button class="banner-pos-btn" data-pos="100% 50%">→</button>
+ <button class="banner-pos-btn" data-pos="0% 100%">↙</button>
+ <button class="banner-pos-btn" data-pos="50% 100%">↓</button>
+ <button class="banner-pos-btn" data-pos="100% 100%">↘</button>
+ </div>
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Fit</div>
+ <div style="display:flex;gap:6px;margin-bottom:10px">
+ <button class="banner-fit-btn" data-fit="cover">Cover</button>
+ <button class="banner-fit-btn" data-fit="contain">Contain</button>
+ </div>
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Zoom: <span id="banner-zoom-val">100%</span></div>
+ <input type="range" id="lobby-banner-zoom" min="50" max="200" value="100" style="width:100%;max-width:300px"/>
+ </div>
+ <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()">Save Banner Settings</button>
+ <div id="lobby-banner-status" style="font-size:13px;margin-top:8px"></div>
  </div>
 
+    <div class="settings-section" style="margin-bottom:16px">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px">Schedule Background</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Background image behind the schedule/roles board on the lobby TV.</div>
+ <div id="sched-bg-preview" style="display:none;width:100%;max-width:480px;aspect-ratio:16/9;border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:12px;background-color:#111"></div>
+ <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+ <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Background Image<input type="file" id="sched-bg-input" accept="image/*" style="display:none"/></label>
+ <button class="btn btn-secondary btn-sm" id="sched-bg-clear-btn" style="display:none" onclick="clearSchedBg()">Remove</button>
  </div>
+ <div id="sched-bg-controls" style="display:none;margin-bottom:12px">
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Position</div>
+ <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+ <button class="sched-bg-pos-btn" data-pos="0% 0%">↖</button>
+ <button class="sched-bg-pos-btn" data-pos="50% 0%">↑</button>
+ <button class="sched-bg-pos-btn" data-pos="100% 0%">↗</button>
+ <button class="sched-bg-pos-btn" data-pos="0% 50%">←</button>
+ <button class="sched-bg-pos-btn" data-pos="50% 50%">•</button>
+ <button class="sched-bg-pos-btn" data-pos="100% 50%">→</button>
+ <button class="sched-bg-pos-btn" data-pos="0% 100%">↙</button>
+ <button class="sched-bg-pos-btn" data-pos="50% 100%">↓</button>
+ <button class="sched-bg-pos-btn" data-pos="100% 100%">↘</button>
  </div>
- </section
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Fit</div>
+ <div style="display:flex;gap:6px;margin-bottom:10px">
+ <button class="sched-bg-fit-btn" data-fit="cover">Cover</button>
+ <button class="sched-bg-fit-btn" data-fit="contain">Contain</button>
+ </div>
+ <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Zoom: <span id="sched-bg-zoom-val">100%</span></div>
+ <input type="range" id="sched-bg-zoom" min="50" max="200" value="100" style="width:100%;max-width:300px"/>
+ </div>
+ <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()">Save Background Settings</button>
+ <div id="sched-bg-status" style="font-size:13px;margin-top:8px"></div>
+ </div>
+
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px">Photo Slideshow</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Images to rotate through on the lobby display, with optional captions.</div>
+ <div style="margin-bottom:10px">
+ <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Images<input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/></label>
+ </div>
+ <div id="lobby-img-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:14px"></div>
+ <button class="btn btn-primary btn-sm" onclick="saveLobbyImages()">Save Changes</button>
+ <div id="lobby-img-status" style="font-size:13px;margin-top:8px"></div>
+ </div>
    </div>
 
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">

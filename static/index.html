@@ -39,7 +39,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 
 /* APP SHELL */
 #app{display:none;min-height:100vh}
-.app-layout{display:flex;min-height:100vh}
+.app-layout{display:flex;height:100vh;overflow:hidden}
 .sidebar{width:240px;min-width:240px;background:var(--teal-800);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
 .sidebar-header{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.1)}
 .sidebar-logo{display:flex;align-items:center;gap:10px}
@@ -63,8 +63,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .logout-btn:hover{color:rgba(255,255,255,0.8)}
 
 /* MAIN */
-.main-content{flex:1;min-width:0;display:flex;flex-direction:column}
-.page{display:none;flex:1;flex-direction:column}
+.main-content{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.page{display:none;flex:1;flex-direction:column;min-height:0}
 .page.active{display:flex}
 .page-header{padding:28px 32px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .page-title{font-size:22px;font-weight:600;letter-spacing:-0.3px}
@@ -1479,7 +1479,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
   <div><div class="page-title">Settings</div><div class="page-subtitle">Configure RoleCall for your organization</div></div>
  </div>
- <div class="page-body" style="padding:0;display:flex;height:calc(100vh - 130px);overflow:hidden">
+ <div class="page-body" style="padding:0!important;display:flex;flex-direction:row;overflow:hidden;flex:1;min-height:0">
 
   <!-- Settings Sidebar -->
   <div id="settings-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px;height:100%">

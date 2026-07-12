@@ -2411,6 +2411,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>End Date</label><input type="date" id="program-end"/></div>
  </div>
  <div class="form-row"><div class="form-group"><label>Status</label><select id="program-status"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div><div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div></div>
+ <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-top:4px">
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
+   <input type="checkbox" id="program-requires-guardian" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0"/>
+   <span><strong>Require drop-off tracking</strong> — Kiosk will ask for guardian/drop-off name when signing participants in. Use for programs with minors that need guardian tracking.</span>
+  </label>
+ </div>
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-program')">Cancel</button>
@@ -17407,10 +17413,9 @@ function openNewProgramModal(){
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+ const rgCheck=document.getElementById('program-requires-guardian')
+ if(rgCheck) rgCheck.checked=false
  openModal('modal-program')
-}
-
-function openEditProgramModal(pid){
  const p=allPrograms.find(p=>p.id===pid)
  if(!p) return
  document.getElementById('program-modal-title').textContent='Edit Program'
@@ -17425,6 +17430,8 @@ function openEditProgramModal(pid){
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
+ const rgCheck=document.getElementById('program-requires-guardian')
+ if(rgCheck) rgCheck.checked=!!p.requires_guardian
  openModal('modal-program')
 }
 
@@ -17723,7 +17730,8 @@ async function saveYouthProgram(){
  end_date:document.getElementById('program-end').value||null,
  description:document.getElementById('program-desc').value.trim(),
  instructor_id:document.getElementById('program-instructor').value||null,
- default_elic_id:document.getElementById('program-default-elic')?.value||null
+ default_elic_id:document.getElementById('program-default-elic')?.value||null,
+ requires_guardian:!!(document.getElementById('program-requires-guardian')?.checked)
  }
  let res
  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)

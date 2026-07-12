@@ -1404,10 +1404,11 @@ function renderElicMenu(){
     let actionArea=''
     if(status==='open'){
       const hasYouth = (e.production_id && isRS) || e.program_id
+      const hasProd = !!e.production_id
       actionArea='<div style="display:flex;gap:8px;flex-wrap:wrap">'
         +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')"> Close Event</button>'
-        +(e.production_id?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')"> Production Sign-In</button>':'')
-        +(hasYouth?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')"> Participant Sign-In</button>':'')
+        +(hasProd?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')"> Production Sign-In</button>':'')
+        +'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleSignInIdx('+idx+')"> Sign In / Out</button>'
         +'</div>'
     } else if(status==='closed'){
       actionArea='<div style="font-size:13px;color:var(--hint);padding:6px 0">Event closed </div>'
@@ -1529,6 +1530,47 @@ function handleProdSignInIdx(idx){
   const btn={getAttribute:()=>idx}
   handleProdSignIn({getAttribute:()=>String(idx)})
 }
+function handleAdultSignInIdx(idx){
+  const e = elicEventList[idx]
+  if(!e) return
+  eysEventId = e.id
+  eysEventName = e.name || 'Event'
+  showScreen('screen-adult-signin')
+  loadAdultSignInRoster()
+}
+
+async function handleSignInIdx(idx){
+  const e = elicEventList[idx]
+  if(!e) return
+  eysEventId = e.id
+  eysEventName = e.name || 'Event'
+
+  // Check if this program tracks minors (requires drop-off flow)
+  // Youth programs with rising_stars or camp type use drop-off
+  // Adult programs and standalone events use simple sign-in
+  let usesDropOff = false
+  if(e.program_id){
+    try{
+      const prog = allPrograms ? allPrograms.find(function(p){ return p.id===e.program_id }) : null
+      if(prog){
+        usesDropOff = prog.program_type === 'camp' || prog.program_type === 'youth' || prog.requires_guardian === true
+      } else {
+        // Fetch if not cached
+        const r = await fetch('/api/youth-programs/'+e.program_id)
+        const pd = await r.json()
+        usesDropOff = pd.program_type === 'camp' || pd.program_type === 'youth' || pd.requires_guardian === true
+      }
+    } catch(err){ usesDropOff = false }
+  }
+
+  if(usesDropOff){
+    handleYouthSignInIdx(idx)
+  } else {
+    showScreen('screen-adult-signin')
+    loadAdultSignInRoster()
+  }
+}
+
 function handleYouthSignInIdx(idx){
   handleYouthSignIn({getAttribute:()=>String(idx)})
 }
@@ -1876,6 +1918,97 @@ function filterEysRoster(){
 }
 
 
+// ── Adult Sign-In (simple tap in/out, no drop-off flow) ──
+var adultRoster = []
+
+async function loadAdultSignInRoster(){
+  const el = document.getElementById('adult-signin-title')
+  const sub = document.getElementById('adult-signin-sub')
+  if(el) el.textContent = eysEventName || 'Sign In / Out'
+
+  // Load current sign-ins for this event
+  const r = await fetch('/api/youth-sign-ins?event_id='+eysEventId)
+  const signedIn = await r.json()
+
+  // Load registered participants if program event
+  const evt = elicEventList.find(function(e){ return e.id===eysEventId })
+  let registered = []
+  if(evt && evt.program_id){
+    const r2 = await fetch('/api/kiosk/youth-for-event/'+eysEventId)
+    registered = await r2.json()
+  }
+
+  adultRoster = registered
+  if(sub) sub.textContent = signedIn.filter(function(s){ return !s.signed_out_at }).length + ' signed in'
+  renderAdultRoster(signedIn)
+}
+
+function renderAdultRoster(signedIn){
+  const list = document.getElementById('adult-signin-list')
+  if(!list) return
+  const inMap = {}
+  signedIn.forEach(function(s){ if(!s.signed_out_at) inMap[s.youth_id] = s })
+
+  let html = ''
+  // Show registered participants first
+  adultRoster.forEach(function(p){
+    const pid = p.id || p.youth_id
+    const name = (p.first_name||'') + ' ' + (p.last_name||'')
+    const isIn = !!inMap[pid]
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1.5px solid '+(isIn?'var(--teal)':'var(--border)')+';border-radius:var(--radius)">'
+      + '<div>'
+      + '<div style="font-size:15px;font-weight:600">' + name.trim() + '</div>'
+      + (isIn ? '<div style="font-size:12px;color:var(--teal);margin-top:2px">Signed in ' + new Date(inMap[pid].signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div>' : '')
+      + '</div>'
+      + (isIn
+        ? '<button onclick="adultSignOut(\''+inMap[pid].id+'\')" style="padding:8px 16px;background:#fee2e2;color:#dc2626;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign Out</button>'
+        : '<button onclick="adultSignIn(\''+pid+'\',\''+name.trim()+'\')" style="padding:8px 16px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign In</button>')
+      + '</div>'
+  })
+
+  // Walk-ins (signed in but not on roster)
+  signedIn.filter(function(s){ return !s.signed_out_at && !adultRoster.find(function(p){ return (p.id||p.youth_id)===s.youth_id }) }).forEach(function(s){
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1.5px solid var(--teal);border-radius:var(--radius)">'
+      + '<div><div style="font-size:15px;font-weight:600">' + (s.youth_name||s.first_name+' '+s.last_name||'Guest') + '</div>'
+      + '<div style="font-size:12px;color:var(--teal);margin-top:2px">Walk-in · Signed in ' + new Date(s.signed_in_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) + '</div></div>'
+      + '<button onclick="adultSignOut(\''+s.id+'\')" style="padding:8px 16px;background:#fee2e2;color:#dc2626;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Sign Out</button>'
+      + '</div>'
+  })
+
+  list.innerHTML = html || '<div style="color:var(--text-muted);font-size:14px;text-align:center;padding:20px">No participants yet</div>'
+}
+
+function filterAdultRoster(){
+  const q = (document.getElementById('adult-search').value||'').toLowerCase()
+  document.querySelectorAll('#adult-signin-list > div').forEach(function(el){
+    el.style.display = q ? (el.textContent.toLowerCase().includes(q) ? '' : 'none') : ''
+  })
+}
+
+async function adultSignIn(youthId, name){
+  const r = await fetch('/api/youth-sign-ins',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({youth_id:youthId,event_id:eysEventId,signed_in_by:''})})
+  loadAdultSignInRoster()
+}
+
+async function adultSignOut(signInId){
+  await fetch('/api/youth-sign-ins/'+signInId+'/sign-out',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({signed_out_by:''})})
+  loadAdultSignInRoster()
+}
+
+async function adultWalkIn(){
+  const name = (document.getElementById('adult-walkin-name').value||'').trim()
+  if(!name) return
+  // Create or find participant by name, then sign in
+  const r = await fetch('/api/kiosk/walkin-signin',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name, event_id:eysEventId})})
+  const d = await r.json()
+  if(d.error){ alert(d.error); return }
+  document.getElementById('adult-walkin-name').value = ''
+  loadAdultSignInRoster()
+}
+
 async function eysStartDropOff(btn){
   const yid=btn.getAttribute('data-yid')
   const yname=btn.getAttribute('data-yname')
@@ -2211,6 +2344,31 @@ function showConfirm(icon,title,sub,note,onBack){
   </div>
 </div>
 <!-- YOUTH SIGN-IN (ELIC kiosk) -->
+<div class="screen hidden" id="screen-adult-signin">
+  <div class="screen-header">
+    <button onclick="showScreen('screen-elic-menu')" class="back-btn">Back</button>
+    <div>
+      <div class="screen-title" id="adult-signin-title">Sign In / Out</div>
+      <div class="screen-sub" id="adult-signin-sub"></div>
+    </div>
+  </div>
+  <div style="padding:16px">
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      <input id="adult-search" type="text" placeholder="Search by name..." oninput="filterAdultRoster()"
+        style="flex:1;padding:12px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:15px;outline:none"/>
+    </div>
+    <div id="adult-signin-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px">Not on the list?</div>
+      <div style="display:flex;gap:8px">
+        <input id="adult-walkin-name" type="text" placeholder="Enter name..."
+          style="flex:1;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+        <button onclick="adultWalkIn()" style="padding:10px 18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">Sign In</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="screen hidden" id="screen-elic-youth-signin">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
   <div class="screen-heading">

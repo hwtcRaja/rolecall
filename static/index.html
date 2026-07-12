@@ -1521,7 +1521,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <!-- Settings Panels Container -->
   <div style="flex:1;overflow-y:auto;padding:24px 28px;height:100%">
 
-   <div id="settings-panel-general" class="settings-panel" style="">
+   <div id="settings-panel-general" class="settings-panel">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
     <div class="settings-section" style="margin-bottom:16px">
@@ -1625,7 +1625,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <button class="btn btn-primary" onclick="createUser()">Add User</button>
  </div>
-<div class="settings-section" style="grid-column:1/-1">
+<div class="settings-section" >
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
  <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
  </div>
@@ -1637,7 +1637,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-email" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email & alerts</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure Resend for automated emails and reports</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Email & Notifications</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -1725,7 +1725,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-families" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Families & portal</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Create family groups and manage portal access</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
  <div id="families-list" style="margin-bottom:16px"></div>
@@ -1744,7 +1744,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Event Leads In Charge — manage PINs and assignments</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
  <div id="elics-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1761,7 +1761,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
  <div id="checklist-items-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1778,7 +1778,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
  </div>
-<div class="settings-section" style="grid-column:1/-1">
+<div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
  <div id="opening-checklist-items-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1855,7 +1855,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-twilio" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure your Twilio phone number, voicemail, and on-call routing</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
@@ -2004,7 +2004,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
  <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
  </div>
@@ -2013,7 +2013,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <!-- Family / Portal Management -->
- <div class="settings-section" style="grid-column:1/-1">
+ <div class="settings-section" >
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
  <div id="families-list" style="margin-bottom:16px"></div>
@@ -2032,7 +2032,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Nav icons</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the icons shown in the sidebar navigation</div>
-    <div class="settings-section" style="grid-column:1/-1">
+    <div class="settings-section" >
  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
  <div>
  <div style="font-weight:600;font-size:15px;margin-bottom:4px"> Nav Icons</div>

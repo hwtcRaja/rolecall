@@ -98,40 +98,103 @@ function renderSurvey(){
     if(q.question_type==='radio'){
       opts.forEach(function(opt,oi){
         html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'">'
-          + '<input type="radio" name="q'+qi+'" value="'+escAttr(opt)+'" onchange="selectRadio('+qi+',\''+escAttr(opt)+'\')"/> '+esc(opt)+'</label>'
+          + '<input type="radio" name="q'+qi+'" data-qi="'+qi+'" data-val="'+escAttr(opt)+'" class="survey-radio"/> '+esc(opt)+'</label>'
       })
       if(q.allow_other){
         html += '<label class="opt-label" id="opt-'+qi+'-other">'
-          + '<input type="radio" name="q'+qi+'" value="__other__" onchange="selectRadio('+qi+',\'__other__\')"/> Other</label>'
-        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOther('+qi+',this.value)"/></div>'
+          + '<input type="radio" name="q'+qi+'" data-qi="'+qi+'" data-val="__other__" class="survey-radio"/> Other</label>'
+        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." data-qi="'+qi+'" class="survey-other-text"/></div>'
       }
     } else if(q.question_type==='checkbox'){
       opts.forEach(function(opt,oi){
         html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'">'
-          + '<input type="checkbox" value="'+escAttr(opt)+'" onchange="toggleCheck('+qi+',\''+escAttr(opt)+'\',this.checked,document.getElementById(\'opt-'+qi+'-'+oi+'\'))"/> '+esc(opt)+'</label>'
+          + '<input type="checkbox" data-qi="'+qi+'" data-oi="'+oi+'" data-val="'+escAttr(opt)+'" class="survey-checkbox"/> '+esc(opt)+'</label>'
       })
       if(q.allow_other){
         html += '<label class="opt-label" id="opt-'+qi+'-other">'
-          + '<input type="checkbox" value="__other__" onchange="toggleOther('+qi+',this.checked,document.getElementById(\'opt-'+qi+'-other\'))"/> Other</label>'
-        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOtherCheck('+qi+',this.value)"/></div>'
-      }
-        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOtherCheck('+qi+',this.value)"/></div>'
+          + '<input type="checkbox" data-qi="'+qi+'" data-oi="other" data-val="__other__" class="survey-checkbox survey-other-cb"/> Other</label>'
+        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." data-qi="'+qi+'" class="survey-other-text"/></div>'
       }
     } else if(q.question_type==='rating'){
       html += '<div class="rating-row">'
       for(var i=1;i<=5;i++){
-        html += '<button class="rating-btn" id="rating-'+qi+'-'+i+'" onclick="setRating('+qi+','+i+')">'+i+'</button>'
+        html += '<button class="rating-btn" id="rating-'+qi+'-'+i+'" data-qi="'+qi+'" data-val="'+i+'" class="survey-rating-btn">'+i+'</button>'
       }
       html += '</div><div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-top:4px"><span>Not at all</span><span>Very much</span></div>'
     } else {
-      html += '<textarea id="text-'+qi+'" rows="3" oninput="setText('+qi+',this.value)" placeholder="Your answer..."></textarea>'
+      html += '<textarea data-qi="'+qi+'" class="survey-text" rows="3" placeholder="Your answer..."></textarea>'
     }
     html += '</div>'
   })
   html += '<div id="form-error" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none"></div>'
-  html += '<button class="btn" onclick="submitSurvey()">Submit Response</button>'
+  html += '<button class="btn" id="submit-btn">Submit Response</button>'
   html += '</div>'
   el.innerHTML = html
+
+  // Wire up all events via delegation
+  el.addEventListener('change', function(e){
+    const t = e.target
+    if(t.classList.contains('survey-radio')){
+      const qi = parseInt(t.dataset.qi)
+      const val = t.dataset.val
+      answers[qi] = val
+      // Update selected styles
+      document.querySelectorAll('input.survey-radio[data-qi="'+qi+'"]').forEach(function(r){
+        const lbl = r.closest('label')
+        if(lbl) lbl.classList.toggle('selected', r.checked)
+      })
+      // Show/hide other input
+      const otherInput = document.getElementById('other-'+qi)
+      if(otherInput) otherInput.style.display = val==='__other__' ? '' : 'none'
+    }
+    if(t.classList.contains('survey-checkbox')){
+      const qi = parseInt(t.dataset.qi)
+      const val = t.dataset.val
+      const lbl = t.closest('label')
+      if(lbl) lbl.classList.toggle('selected', t.checked)
+      if(!answers[qi]) answers[qi] = []
+      if(val === '__other__'){
+        const otherInput = document.getElementById('other-'+qi)
+        if(otherInput) otherInput.style.display = t.checked ? '' : 'none'
+        if(!t.checked) answers[qi] = answers[qi].filter(function(v){ return !String(v).startsWith('Other:') })
+      } else {
+        if(t.checked){ if(answers[qi].indexOf(val)<0) answers[qi].push(val) }
+        else answers[qi] = answers[qi].filter(function(v){ return v!==val })
+      }
+    }
+  })
+  el.addEventListener('input', function(e){
+    const t = e.target
+    if(t.classList.contains('survey-text')){
+      const qi = parseInt(t.dataset.qi)
+      answers[qi] = t.value
+    }
+    if(t.classList.contains('survey-other-text')){
+      const qi = parseInt(t.dataset.qi)
+      // For radio
+      if(answers[qi] === '__other__' || typeof answers[qi] === 'string'){
+        answers[qi] = t.value ? 'Other: '+t.value : ''
+      }
+      // For checkbox
+      if(Array.isArray(answers[qi])){
+        answers[qi] = answers[qi].filter(function(v){ return !String(v).startsWith('Other:') })
+        if(t.value) answers[qi].push('Other: '+t.value)
+      }
+    }
+  })
+  el.addEventListener('click', function(e){
+    const t = e.target
+    if(t.classList.contains('survey-rating-btn') || t.closest('.survey-rating-btn')){
+      const btn = t.classList.contains('survey-rating-btn') ? t : t.closest('.survey-rating-btn')
+      const qi = parseInt(btn.dataset.qi)
+      const val = parseInt(btn.dataset.val)
+      answers[qi] = val
+      document.querySelectorAll('.survey-rating-btn[data-qi="'+qi+'"]').forEach(function(b){
+        b.classList.toggle('selected', parseInt(b.dataset.val) <= val)
+      })
+    }
+    if(t.id === 'submit-btn') submitSurvey()
+  })
 }
 
 function selectRadio(qi, val){
@@ -181,18 +244,18 @@ function setRating(qi, val){
 }
 
 async function submitSurvey(){
-  const btn = document.querySelector('.btn')
-  // Validate required
+  const btn = document.getElementById('submit-btn')
   for(var qi=0; qi<questions.length; qi++){
     if(questions[qi].required && (!answers[qi] || (Array.isArray(answers[qi]) && !answers[qi].length))){
       document.getElementById('form-error').textContent = 'Please answer all required questions (marked with *).'
       document.getElementById('form-error').style.display=''
       document.getElementById('qblock-'+qi).scrollIntoView({behavior:'smooth'})
+      if(btn){ btn.disabled=false; btn.textContent='Submit Response' }
       return
     }
   }
   document.getElementById('form-error').style.display='none'
-  btn.disabled=true; btn.textContent='Submitting...'
+  if(btn){ btn.disabled=true; btn.textContent='Submitting...' }
   try{
     const r = await fetch('/api/public/survey/'+slug+'/respond',{
       method:'POST',headers:{'Content-Type':'application/json'},

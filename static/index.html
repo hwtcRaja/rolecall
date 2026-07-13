@@ -431,6 +431,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
+        <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
@@ -1476,6 +1477,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
+ <!-- SURVEYS -->
+ <section class="page" id="page-surveys">
+  <div class="page-header">
+   <div><div class="page-title">Surveys</div><div class="page-subtitle">Create and manage surveys, collect responses</div></div>
+   <button class="btn btn-primary btn-sm" onclick="openNewSurveyModal()">+ New Survey</button>
+  </div>
+  <div class="page-body" id="surveys-body">
+   <div style="color:var(--text-muted);text-align:center;padding:60px">Loading surveys...</div>
+  </div>
+ </section>
+
  <!-- SETTINGS -->
  <section class="page" id="page-settings">
  <div class="page-header">
@@ -2443,6 +2455,38 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <!-- Volunteer Modal -->
 <!-- New/Edit Program Modal -->
+<div class="modal-overlay" id="modal-survey">
+ <div class="modal" style="max-width:640px;width:100%">
+  <div class="modal-header"><div class="modal-title" id="survey-modal-title">New Survey</div><button class="modal-close" onclick="closeModal('modal-survey')">×</button></div>
+  <div class="modal-body">
+   <input type="hidden" id="survey-edit-id"/>
+   <div class="form-group"><label>Survey Title <span style="color:#dc2626">*</span></label><input type="text" id="survey-title" placeholder="e.g. Class Interest Survey 2025"/></div>
+   <div class="form-group"><label>Description</label><textarea id="survey-desc" rows="2" placeholder="Tell respondents what this survey is about..."></textarea></div>
+   <div class="form-row">
+    <div class="form-group"><label>Status</label><select id="survey-status"><option value="draft">Draft</option><option value="open">Open (accepting responses)</option><option value="closed">Closed</option></select></div>
+    <div class="form-group"><label>Close Date (optional)</label><input type="date" id="survey-closes-at"/></div>
+   </div>
+   <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Response Options</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px"><input type="checkbox" id="survey-anonymous" style="accent-color:var(--teal)"/> Allow anonymous responses</label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px"><input type="checkbox" id="survey-require-name"/> Require name</label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="survey-require-email"/> Require email</label>
+   </div>
+   <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+     <div style="font-size:14px;font-weight:600">Questions</div>
+     <button class="btn btn-secondary btn-sm" onclick="addSurveyQuestion()">+ Add Question</button>
+    </div>
+    <div id="survey-questions-list"></div>
+   </div>
+  </div>
+  <div class="modal-footer">
+   <button class="btn btn-secondary" onclick="closeModal('modal-survey')">Cancel</button>
+   <button class="btn btn-primary" onclick="saveSurvey()">Save Survey</button>
+  </div>
+ </div>
+</div>
+
 <div class="modal-overlay" id="modal-program">
  <div class="modal">
  <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')">×</button></div>
@@ -3677,6 +3721,7 @@ function navTo(page,el){
  if(page==='youth-signin') initYouthSignIn()
  if(page==='carpools') loadCarpoolsPage()
  if(page==='production-signin') initProdSignIn()
+ if(page==='surveys') loadSurveys()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -7151,6 +7196,247 @@ async function attachFile(e,volId){
 // ═══════════════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════════════
+// ── SURVEYS ──────────────────────────────────────────────
+var allSurveys = []
+var surveyQuestions = []
+
+async function loadSurveys(){
+ const rows = await api('/api/surveys')
+ allSurveys = rows || []
+ renderSurveys()
+}
+
+function renderSurveys(){
+ const el = document.getElementById('surveys-body')
+ if(!el) return
+ if(!allSurveys.length){
+  el.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:18px;font-weight:600;margin-bottom:8px">No surveys yet</div><div>Create your first survey to start collecting responses.</div></div>'
+  return
+ }
+ el.innerHTML = allSurveys.map(function(s){
+  const statusColor = {draft:'#9ca3af',open:'#16a34a',closed:'#6b7280'}[s.status]||'#9ca3af'
+  const publicUrl = location.origin+'/survey/'+s.slug
+  return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px">'
+   +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'
+   +'<div style="flex:1">'
+   +'<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:4px">'+escHtml(s.title)+'</div>'
+   +(s.description?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">'+escHtml(s.description)+'</div>':'')
+   +'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-muted)">'
+   +'<span style="color:'+statusColor+';font-weight:700;text-transform:uppercase">'+s.status+'</span>'
+   +'<span>'+((s.questions||[]).length)+' questions</span>'
+   +'<span>'+(s.response_count||0)+' response'+(s.response_count===1?'':'s')+'</span>'
+   +(s.closes_at?'<span>Closes '+new Date(s.closes_at).toLocaleDateString()+'</span>':'')
+   +'</div>'
+   +'</div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+   +(s.status==='open'?'<a href="/survey/'+s.slug+'" target="_blank" style="padding:7px 14px;background:var(--teal-light);color:var(--teal);border:1.5px solid var(--teal);border-radius:8px;font-size:12px;font-weight:700;text-decoration:none">View Form</a>':'')
+   +'<button onclick="openSurveyResults(\''+s.id+'\')" style="padding:7px 14px;background:var(--bg);border:1.5px solid var(--border-md);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Results</button>'
+   +'<button onclick="openEditSurveyModal(\''+s.id+'\')" style="padding:7px 14px;background:var(--bg);border:1.5px solid var(--border-md);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Edit</button>'
+   +'<button onclick="deleteSurvey(\''+s.id+'\')" style="padding:7px 14px;background:#fee2e2;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:#dc2626">Delete</button>'
+   +'</div>'
+   +'</div>'
+   +'<div style="margin-top:10px;padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px">'
+   +'<span style="color:var(--text-muted)">Public link:</span>'
+   +'<code style="color:var(--teal);font-size:11px">'+publicUrl+'</code>'
+   +'<button onclick="navigator.clipboard.writeText(\''+publicUrl+'\').then(function(){toast(\'Link copied!\',\'success\')})" style="padding:3px 10px;border:1px solid var(--border-md);border-radius:4px;background:#fff;font-size:11px;cursor:pointer">Copy</button>'
+   +'</div>'
+   +'</div>'
+ }).join('')
+}
+
+function openNewSurveyModal(){
+ document.getElementById('survey-modal-title').textContent='New Survey'
+ document.getElementById('survey-edit-id').value=''
+ document.getElementById('survey-title').value=''
+ document.getElementById('survey-desc').value=''
+ document.getElementById('survey-status').value='draft'
+ document.getElementById('survey-closes-at').value=''
+ document.getElementById('survey-anonymous').checked=true
+ document.getElementById('survey-require-name').checked=false
+ document.getElementById('survey-require-email').checked=false
+ surveyQuestions=[]
+ renderSurveyQuestions()
+ openModal('modal-survey')
+}
+
+function openEditSurveyModal(sid){
+ const s = allSurveys.find(function(x){ return x.id===sid })
+ if(!s) return
+ document.getElementById('survey-modal-title').textContent='Edit Survey'
+ document.getElementById('survey-edit-id').value=s.id
+ document.getElementById('survey-title').value=s.title||''
+ document.getElementById('survey-desc').value=s.description||''
+ document.getElementById('survey-status').value=s.status||'draft'
+ document.getElementById('survey-closes-at').value=(s.closes_at||'').slice(0,10)
+ document.getElementById('survey-anonymous').checked=!!s.allow_anonymous
+ document.getElementById('survey-require-name').checked=!!s.require_name
+ document.getElementById('survey-require-email').checked=!!s.require_email
+ surveyQuestions = (s.questions||[]).map(function(q){
+  return Object.assign({},q,{options: Array.isArray(q.options)?q.options:(JSON.parse(q.options||'[]'))})
+ })
+ renderSurveyQuestions()
+ openModal('modal-survey')
+}
+
+function addSurveyQuestion(){
+ surveyQuestions.push({id:'',question_text:'',question_type:'text',options:[],required:false,allow_other:false})
+ renderSurveyQuestions()
+}
+
+function renderSurveyQuestions(){
+ const el = document.getElementById('survey-questions-list')
+ if(!el) return
+ if(!surveyQuestions.length){
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px">No questions yet. Click "+ Add Question" to begin.</div>'
+  return
+ }
+ el.innerHTML = surveyQuestions.map(function(q,i){
+  var opts = Array.isArray(q.options)?q.options:[]
+  return '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">'
+   +'<div style="display:flex;gap:8px;margin-bottom:10px">'
+   +'<input type="text" placeholder="Question text..." value="'+escHtml(q.question_text||'')+'" oninput="surveyQuestions['+i+'].question_text=this.value" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-size:13px"/>'
+   +'<select onchange="surveyQuestions['+i+'].question_type=this.value;renderSurveyQuestions()" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-size:13px">'
+   +'<option value="text"'+(q.question_type==='text'?' selected':'')+'>Open Text</option>'
+   +'<option value="radio"'+(q.question_type==='radio'?' selected':'')+'>Multiple Choice</option>'
+   +'<option value="checkbox"'+(q.question_type==='checkbox'?' selected':'')+'>Checkboxes</option>'
+   +'<option value="rating"'+(q.question_type==='rating'?' selected':'')+'>Rating (1-5)</option>'
+   +'</select>'
+   +'<button onclick="surveyQuestions.splice('+i+',1);renderSurveyQuestions()" style="padding:8px 12px;background:#fee2e2;color:#dc2626;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">✕</button>'
+   +'</div>'
+   +(q.question_type==='radio'||q.question_type==='checkbox'
+    ? '<div style="margin-bottom:8px">'
+      + opts.map(function(opt,oi){
+        return '<div style="display:flex;gap:6px;margin-bottom:6px">'
+         +'<input type="text" value="'+escHtml(opt)+'" placeholder="Option..." oninput="surveyQuestions['+i+'].options['+oi+']=this.value" style="flex:1;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:6px;font-size:13px"/>'
+         +'<button onclick="surveyQuestions['+i+'].options.splice('+oi+',1);renderSurveyQuestions()" style="padding:4px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer;font-weight:700">✕</button>'
+         +'</div>'
+      }).join('')
+      +'<button onclick="surveyQuestions['+i+'].options.push(\'\');renderSurveyQuestions()" style="font-size:12px;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600">+ Add option</button>'
+      +'</div>'
+      +'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox"'+(q.allow_other?' checked':'')+' onchange="surveyQuestions['+i+'].allow_other=this.checked" style="accent-color:var(--teal)"/> Include "Other" with open field</label>'
+    : '')
+   +'<div style="margin-top:8px"><label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox"'+(q.required?' checked':'')+' onchange="surveyQuestions['+i+'].required=this.checked" style="accent-color:var(--teal)"/> Required</label></div>'
+   +'</div>'
+ }).join('')
+}
+
+async function saveSurvey(){
+ const title = document.getElementById('survey-title').value.trim()
+ if(!title){ toast('Please enter a survey title','error'); return }
+ const sid = document.getElementById('survey-edit-id').value
+ const payload = {
+  title, description: document.getElementById('survey-desc').value.trim(),
+  status: document.getElementById('survey-status').value,
+  closes_at: document.getElementById('survey-closes-at').value||null,
+  allow_anonymous: document.getElementById('survey-anonymous').checked,
+  require_name: document.getElementById('survey-require-name').checked,
+  require_email: document.getElementById('survey-require-email').checked,
+ }
+ var result
+ if(sid){
+  result = await api('/api/surveys/'+sid,'PUT',payload)
+  if(result&&result.ok) await api('/api/surveys/'+sid+'/questions','POST',{questions:surveyQuestions})
+ } else {
+  result = await api('/api/surveys','POST',payload)
+  if(result&&result.ok) await api('/api/surveys/'+result.id+'/questions','POST',{questions:surveyQuestions})
+ }
+ if(result&&result.ok){
+  closeModal('modal-survey')
+  toast('Survey saved!','success')
+  loadSurveys()
+ } else {
+  toast('Error saving survey','error')
+ }
+}
+
+async function deleteSurvey(sid){
+ if(!confirm('Delete this survey and all its responses? This cannot be undone.')) return
+ const r = await api('/api/surveys/'+sid,'DELETE')
+ if(r&&r.ok){ toast('Survey deleted','success'); loadSurveys() }
+ else toast('Error deleting survey','error')
+}
+
+async function openSurveyResults(sid){
+ const data = await api('/api/surveys/'+sid+'/results')
+ if(!data||data.error){ toast('Could not load results','error'); return }
+ const survey = data.survey
+ const questions = data.questions
+ const responses = data.responses
+
+ // Build results modal content
+ let html = '<div style="max-height:70vh;overflow-y:auto;padding:4px">'
+ html += '<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+escHtml(survey.title)+'</div>'
+ html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div>'
+
+ questions.forEach(function(q){
+  const opts = Array.isArray(q.options)?q.options:(JSON.parse(q.options||'[]'))
+  html += '<div style="margin-bottom:24px">'
+  html += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">'+escHtml(q.question_text)+'</div>'
+
+  if(q.question_type==='radio'||q.question_type==='checkbox'){
+   // Count answers
+   var counts = {}
+   responses.forEach(function(r){
+    var ans = (JSON.parse(r.answers||'{}')||{})[q.id]
+    if(!ans) return
+    var vals = Array.isArray(ans)?ans:[ans]
+    vals.forEach(function(v){ counts[v]=(counts[v]||0)+1 })
+   })
+   var total = responses.length||1
+   Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a] }).forEach(function(k){
+    var pct = Math.round(counts[k]/total*100)
+    html += '<div style="margin-bottom:6px">'
+     +'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>'+escHtml(k)+'</span><span style="font-weight:700">'+counts[k]+' ('+pct+'%)</span></div>'
+     +'<div style="background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+pct+'%"></div></div>'
+     +'</div>'
+   })
+  } else if(q.question_type==='rating'){
+   var ratingCounts={1:0,2:0,3:0,4:0,5:0},ratingTotal=0
+   responses.forEach(function(r){
+    var ans=(JSON.parse(r.answers||'{}')||{})[q.id]
+    if(ans){ratingCounts[ans]=(ratingCounts[ans]||0)+1;ratingTotal++}
+   })
+   var avg = ratingTotal ? Object.keys(ratingCounts).reduce(function(s,k){ return s+k*ratingCounts[k] },0)/ratingTotal : 0
+   html += '<div style="font-size:20px;font-weight:700;color:var(--teal);margin-bottom:8px">'+avg.toFixed(1)+' / 5</div>'
+   ;[1,2,3,4,5].forEach(function(i){
+    html += '<div style="margin-bottom:4px;display:flex;align-items:center;gap:8px;font-size:12px">'
+     +'<span style="width:12px">'+i+'</span>'
+     +'<div style="flex:1;background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+(ratingTotal?Math.round(ratingCounts[i]/ratingTotal*100):0)+'%"></div></div>'
+     +'<span style="width:20px">'+ratingCounts[i]+'</span></div>'
+   })
+  } else {
+   // Text answers
+   var textAnswers = responses.map(function(r){
+    return (JSON.parse(r.answers||'{}')||{})[q.id]
+   }).filter(Boolean)
+   if(textAnswers.length){
+    html += '<div style="max-height:150px;overflow-y:auto">'
+    textAnswers.forEach(function(a){
+     html += '<div style="padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:13px;margin-bottom:6px">'+escHtml(a)+'</div>'
+    })
+    html += '</div>'
+   } else {
+    html += '<div style="font-size:13px;color:var(--text-muted)">No responses yet</div>'
+   }
+  }
+  html += '</div>'
+ })
+ html += '</div>'
+
+ // Show in a simple confirm dialog-style overlay
+ const overlay = document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML='<div style="background:#fff;border-radius:12px;padding:28px;max-width:600px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">'
+  +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+  +'<div style="font-size:18px;font-weight:700">Survey Results</div>'
+  +'<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#9ca3af">×</button>'
+  +'</div>'
+  +html
+  +'</div>'
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+}
+
 async function loadSettings(){
  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes]=await Promise.all([
  api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),

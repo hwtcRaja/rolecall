@@ -120,8 +120,8 @@ textarea{resize:vertical;min-height:100px}
           <li>Removal of a participant due to behavioral or conduct concerns</li>
         </ul>
 
-        <h3>Section 4 — Spot Transfer / Replacement Finder Option</h3>
-        <p>If you are unable to continue in the program and you identify a qualified replacement participant, HWTC may issue a full refund upon successful enrollment of that replacement. The replacement must meet all program eligibility requirements and complete registration prior to any refund being issued. HWTC retains final approval authority over all participant transfers and replacements.</p>
+        <h3>Section 4 — Spot Transfer Option</h3>
+        <p>If you are unable to continue in a program, you may request a spot transfer to another participant. If you would like to explore this option, please indicate that in your request and inform us of the person you wish to transfer your spot to. The replacement must meet all program eligibility requirements and complete registration prior to any refund being issued. HWTC retains final approval authority over all participant transfers and replacements.</p>
 
         <h3>Section 5 — Alternative Resolutions & Forfeiture</h3>
         <p>In circumstances where a full cash refund is not approved, HWTC may, at its sole discretion, offer one of the following alternatives. If none of these alternatives are applicable or accepted, registration fees are forfeited in full with no further obligation by HWTC:</p>
@@ -214,12 +214,7 @@ textarea{resize:vertical;min-height:100px}
         </label>
         <div class="option-desc">Transfer your enrollment to someone else. A refund may be issued once the replacement is enrolled.</div>
       </div>
-      <div class="option-card" id="opt-find-replacement" onclick="selectRequestType('find_replacement')">
-        <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
-          <input type="radio" name="req-type" value="find_replacement"/> <span class="option-title">Help Us Find a Replacement</span>
-        </label>
-        <div class="option-desc">I don't have someone in mind but I'm willing to help HWTC find a qualified replacement. A refund may be issued if a replacement is found.</div>
-      </div>
+
 
       <!-- Refund fields -->
       <div id="refund-fields" class="hidden">
@@ -359,7 +354,7 @@ function validateStep(n){
 
 function selectRequestType(type){
   requestType = type
-  ;['refund','credit','transfer','find_replacement'].forEach(function(t){
+  ;['refund','credit','transfer'].forEach(function(t){
     document.getElementById('opt-'+t).classList.remove('selected')
   })
   document.getElementById('opt-'+type).classList.add('selected')

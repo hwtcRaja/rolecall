@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Survey — Horizon West Theater Company</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#111;min-height:100vh}
+.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:20px 24px;display:flex;align-items:center;gap:16px}
+.header img{height:48px;mix-blend-mode:screen}
+.header h1{font-size:18px;font-weight:700;color:#fff}
+.container{max-width:680px;margin:0 auto;padding:32px 20px 80px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;margin-bottom:20px}
+.survey-title{font-size:24px;font-weight:700;color:#111;margin-bottom:8px}
+.survey-desc{font-size:15px;color:#6b7280;line-height:1.6;margin-bottom:4px}
+.q-block{margin-bottom:28px}
+.q-text{font-size:15px;font-weight:600;color:#111;margin-bottom:12px;line-height:1.5}
+.q-required{color:#dc2626;margin-left:3px}
+.opt-label{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all 0.1s;font-size:14px;color:#374151}
+.opt-label:hover{border-color:#145466;background:#f0f9fb}
+.opt-label input{width:16px;height:16px;flex-shrink:0;margin-top:1px;accent-color:#145466;cursor:pointer}
+.opt-label.selected{border-color:#145466;background:#e0f4f0}
+textarea,input[type=text],input[type=email]{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;color:#111;outline:none}
+textarea{resize:vertical;min-height:90px}
+textarea:focus,input:focus{border-color:#145466}
+.btn{padding:14px 32px;background:#145466;color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;width:100%}
+.btn:hover{background:#0d3d4d}
+.btn:disabled{background:#9ca3af;cursor:not-allowed}
+.error{color:#dc2626;font-size:13px;margin-top:6px}
+.success-box{text-align:center;padding:48px 24px}
+.success-box .check{font-size:56px;margin-bottom:16px;color:#16a34a}
+.success-box h2{font-size:22px;font-weight:700;margin-bottom:8px}
+.success-box p{font-size:15px;color:#6b7280;line-height:1.6}
+.rating-row{display:flex;gap:8px;flex-wrap:wrap}
+.rating-btn{width:48px;height:48px;border:2px solid #e5e7eb;border-radius:8px;background:#fff;font-size:16px;font-weight:700;cursor:pointer;color:#374151;transition:all 0.1s}
+.rating-btn:hover,.rating-btn.selected{border-color:#145466;background:#145466;color:#fff}
+.other-input{margin-top:8px;display:none}
+.closed-banner{background:#fef3c7;border:1.5px solid #fde68a;border-radius:10px;padding:20px;text-align:center;margin-bottom:20px;font-size:15px;color:#92400e;font-weight:600}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <h1>Horizon West Theater Company</h1>
+</div>
+<div class="container">
+  <div id="loading" class="card" style="text-align:center;padding:40px;color:#6b7280">Loading survey...</div>
+  <div id="survey-content" style="display:none"></div>
+  <div id="success" style="display:none" class="card">
+    <div class="success-box">
+      <div class="check">✓</div>
+      <h2>Thank you!</h2>
+      <p>Your response has been submitted. We appreciate your feedback!</p>
+    </div>
+  </div>
+</div>
+<script>
+const slug = location.pathname.split('/').pop()
+var survey = null, questions = []
+var answers = {}, ratings = {}
+
+async function loadSurvey(){
+  try{
+    const r = await fetch('/api/public/survey/'+slug)
+    const d = await r.json()
+    if(d.error){ showError(d.error); return }
+    survey = d.survey
+    questions = d.questions
+    renderSurvey()
+  } catch(e){
+    showError('Could not load survey. Please try again.')
+  }
+}
+
+function showError(msg){
+  document.getElementById('loading').innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626;margin-bottom:8px">Survey Unavailable</div><div style="color:#6b7280">'+msg+'</div></div>'
+}
+
+function renderSurvey(){
+  document.getElementById('loading').style.display='none'
+  const el = document.getElementById('survey-content')
+  el.style.display=''
+
+  let html = '<div class="card">'
+    + '<div class="survey-title">'+esc(survey.title)+'</div>'
+    + (survey.description ? '<div class="survey-desc">'+esc(survey.description)+'</div>' : '')
+    + '</div>'
+
+  html += '<div class="card">'
+  questions.forEach(function(q, qi){
+    html += '<div class="q-block" id="qblock-'+qi+'">'
+    html += '<div class="q-text">'+esc(q.question_text)+(q.required?'<span class="q-required">*</span>':'')+'</div>'
+    const opts = Array.isArray(q.options) ? q.options : (JSON.parse(q.options||'[]'))
+
+    if(q.question_type==='radio'){
+      opts.forEach(function(opt,oi){
+        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'" onclick="selectRadio('+qi+',\''+escAttr(opt)+'\')">'
+          + '<input type="radio" name="q'+qi+'" value="'+escAttr(opt)+'"/> '+esc(opt)+'</label>'
+      })
+      if(q.allow_other){
+        html += '<label class="opt-label" id="opt-'+qi+'-other" onclick="selectRadio('+qi+',\'__other__\')">'
+          + '<input type="radio" name="q'+qi+'" value="__other__"/> Other</label>'
+        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOther('+qi+',this.value)"/></div>'
+      }
+    } else if(q.question_type==='checkbox'){
+      opts.forEach(function(opt,oi){
+        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'" onclick="toggleCheck('+qi+',\''+escAttr(opt)+'\',this)">'
+          + '<input type="checkbox" value="'+escAttr(opt)+'"/> '+esc(opt)+'</label>'
+      })
+      if(q.allow_other){
+        html += '<label class="opt-label" id="opt-'+qi+'-other" onclick="toggleOther('+qi+',this)">'
+          + '<input type="checkbox" value="__other__"/> Other</label>'
+        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOtherCheck('+qi+',this.value)"/></div>'
+      }
+    } else if(q.question_type==='rating'){
+      html += '<div class="rating-row">'
+      for(var i=1;i<=5;i++){
+        html += '<button class="rating-btn" id="rating-'+qi+'-'+i+'" onclick="setRating('+qi+','+i+')">'+i+'</button>'
+      }
+      html += '</div><div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-top:4px"><span>Not at all</span><span>Very much</span></div>'
+    } else {
+      html += '<textarea id="text-'+qi+'" rows="3" oninput="setText('+qi+',this.value)" placeholder="Your answer..."></textarea>'
+    }
+    html += '</div>'
+  })
+  html += '<div id="form-error" style="color:#dc2626;font-size:13px;margin-bottom:12px;display:none"></div>'
+  html += '<button class="btn" onclick="submitSurvey()">Submit Response</button>'
+  html += '</div>'
+  el.innerHTML = html
+}
+
+function selectRadio(qi, val){
+  if(!answers[qi]) answers[qi] = ''
+  answers[qi] = val
+  const q = questions[qi]
+  const opts = Array.isArray(q.options) ? q.options : JSON.parse(q.options||'[]')
+  opts.forEach(function(_,oi){
+    const el = document.getElementById('opt-'+qi+'-'+oi)
+    if(el) el.classList.toggle('selected', opts[oi]===val)
+  })
+  const otherEl = document.getElementById('opt-'+qi+'-other')
+  if(otherEl) otherEl.classList.toggle('selected', val==='__other__')
+  const otherInput = document.getElementById('other-'+qi)
+  if(otherInput) otherInput.style.display = val==='__other__' ? '' : 'none'
+}
+
+function toggleCheck(qi, val, labelEl){
+  if(!answers[qi]) answers[qi] = []
+  labelEl.classList.toggle('selected')
+  const cb = labelEl.querySelector('input')
+  cb.checked = labelEl.classList.contains('selected')
+  if(cb.checked) answers[qi].push(val)
+  else answers[qi] = answers[qi].filter(function(v){ return v!==val })
+}
+
+function toggleOther(qi, labelEl){
+  if(!answers[qi]) answers[qi] = []
+  labelEl.classList.toggle('selected')
+  const cb = labelEl.querySelector('input')
+  cb.checked = labelEl.classList.contains('selected')
+  const otherInput = document.getElementById('other-'+qi)
+  if(otherInput) otherInput.style.display = cb.checked ? '' : 'none'
+  if(!cb.checked){
+    answers[qi] = answers[qi].filter(function(v){ return !v.startsWith('Other:') })
+  }
+}
+
+function setOther(qi, val){ answers[qi] = val ? 'Other: '+val : '' }
+function setOtherCheck(qi, val){
+  if(!answers[qi]) answers[qi] = []
+  answers[qi] = answers[qi].filter(function(v){ return !v.startsWith('Other:') })
+  if(val) answers[qi].push('Other: '+val)
+}
+function setText(qi, val){ answers[qi] = val }
+function setRating(qi, val){
+  answers[qi] = val
+  for(var i=1;i<=5;i++){
+    const btn = document.getElementById('rating-'+qi+'-'+i)
+    if(btn) btn.classList.toggle('selected', i<=val)
+  }
+}
+
+async function submitSurvey(){
+  const btn = document.querySelector('.btn')
+  // Validate required
+  for(var qi=0; qi<questions.length; qi++){
+    if(questions[qi].required && (!answers[qi] || (Array.isArray(answers[qi]) && !answers[qi].length))){
+      document.getElementById('form-error').textContent = 'Please answer all required questions (marked with *).'
+      document.getElementById('form-error').style.display=''
+      document.getElementById('qblock-'+qi).scrollIntoView({behavior:'smooth'})
+      return
+    }
+  }
+  document.getElementById('form-error').style.display='none'
+  btn.disabled=true; btn.textContent='Submitting...'
+  try{
+    const r = await fetch('/api/public/survey/'+slug+'/respond',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({answers, name:'', email:''})
+    })
+    const d = await r.json()
+    if(d.ok){
+      document.getElementById('survey-content').style.display='none'
+      document.getElementById('success').style.display=''
+      window.scrollTo(0,0)
+    } else {
+      btn.disabled=false; btn.textContent='Submit Response'
+    }
+  } catch(e){
+    btn.disabled=false; btn.textContent='Submit Response'
+  }
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+function escAttr(s){ return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
+
+loadSurvey()
+</script>
+</body>
+</html>

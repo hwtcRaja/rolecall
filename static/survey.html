@@ -86,7 +86,7 @@ function renderSurvey(){
 
   let html = '<div class="card">'
     + '<div class="survey-title">'+esc(survey.title)+'</div>'
-    + (survey.description ? '<div class="survey-desc">'+esc(survey.description)+'</div>' : '')
+    + (survey.description ? '<div class="survey-desc" style="white-space:pre-line">'+esc(survey.description)+'</div>' : '')
     + '</div>'
 
   html += '<div class="card">'
@@ -97,22 +97,24 @@ function renderSurvey(){
 
     if(q.question_type==='radio'){
       opts.forEach(function(opt,oi){
-        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'" onclick="selectRadio('+qi+',\''+escAttr(opt)+'\')">'
-          + '<input type="radio" name="q'+qi+'" value="'+escAttr(opt)+'"/> '+esc(opt)+'</label>'
+        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'">'
+          + '<input type="radio" name="q'+qi+'" value="'+escAttr(opt)+'" onchange="selectRadio('+qi+',\''+escAttr(opt)+'\')"/> '+esc(opt)+'</label>'
       })
       if(q.allow_other){
-        html += '<label class="opt-label" id="opt-'+qi+'-other" onclick="selectRadio('+qi+',\'__other__\')">'
-          + '<input type="radio" name="q'+qi+'" value="__other__"/> Other</label>'
+        html += '<label class="opt-label" id="opt-'+qi+'-other">'
+          + '<input type="radio" name="q'+qi+'" value="__other__" onchange="selectRadio('+qi+',\'__other__\')"/> Other</label>'
         html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOther('+qi+',this.value)"/></div>'
       }
     } else if(q.question_type==='checkbox'){
       opts.forEach(function(opt,oi){
-        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'" onclick="toggleCheck('+qi+',\''+escAttr(opt)+'\',this)">'
-          + '<input type="checkbox" value="'+escAttr(opt)+'"/> '+esc(opt)+'</label>'
+        html += '<label class="opt-label" id="opt-'+qi+'-'+oi+'">'
+          + '<input type="checkbox" value="'+escAttr(opt)+'" onchange="toggleCheck('+qi+',\''+escAttr(opt)+'\',this.checked,document.getElementById(\'opt-'+qi+'-'+oi+'\'))"/> '+esc(opt)+'</label>'
       })
       if(q.allow_other){
-        html += '<label class="opt-label" id="opt-'+qi+'-other" onclick="toggleOther('+qi+',this)">'
-          + '<input type="checkbox" value="__other__"/> Other</label>'
+        html += '<label class="opt-label" id="opt-'+qi+'-other">'
+          + '<input type="checkbox" value="__other__" onchange="toggleOther('+qi+',this.checked,document.getElementById(\'opt-'+qi+'-other\'))"/> Other</label>'
+        html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOtherCheck('+qi+',this.value)"/></div>'
+      }
         html += '<div class="other-input" id="other-'+qi+'"><input type="text" placeholder="Please specify..." oninput="setOtherCheck('+qi+',this.value)"/></div>'
       }
     } else if(q.question_type==='rating'){
@@ -133,7 +135,6 @@ function renderSurvey(){
 }
 
 function selectRadio(qi, val){
-  if(!answers[qi]) answers[qi] = ''
   answers[qi] = val
   const q = questions[qi]
   const opts = Array.isArray(q.options) ? q.options : JSON.parse(q.options||'[]')
@@ -147,24 +148,20 @@ function selectRadio(qi, val){
   if(otherInput) otherInput.style.display = val==='__other__' ? '' : 'none'
 }
 
-function toggleCheck(qi, val, labelEl){
+function toggleCheck(qi, val, checked, labelEl){
   if(!answers[qi]) answers[qi] = []
-  labelEl.classList.toggle('selected')
-  const cb = labelEl.querySelector('input')
-  cb.checked = labelEl.classList.contains('selected')
-  if(cb.checked) answers[qi].push(val)
+  if(labelEl) labelEl.classList.toggle('selected', checked)
+  if(checked) { if(answers[qi].indexOf(val)<0) answers[qi].push(val) }
   else answers[qi] = answers[qi].filter(function(v){ return v!==val })
 }
 
-function toggleOther(qi, labelEl){
+function toggleOther(qi, checked, labelEl){
   if(!answers[qi]) answers[qi] = []
-  labelEl.classList.toggle('selected')
-  const cb = labelEl.querySelector('input')
-  cb.checked = labelEl.classList.contains('selected')
+  if(labelEl) labelEl.classList.toggle('selected', checked)
   const otherInput = document.getElementById('other-'+qi)
-  if(otherInput) otherInput.style.display = cb.checked ? '' : 'none'
-  if(!cb.checked){
-    answers[qi] = answers[qi].filter(function(v){ return !v.startsWith('Other:') })
+  if(otherInput) otherInput.style.display = checked ? '' : 'none'
+  if(!checked){
+    answers[qi] = answers[qi].filter(function(v){ return !String(v).startsWith('Other:') })
   }
 }
 

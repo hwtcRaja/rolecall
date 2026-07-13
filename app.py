@@ -6554,6 +6554,7 @@ def kiosk_elic_auth():
                    COALESCE(p.stage,'mainstage') as stage,
                    p.stage as production_stage,
                    pg.name as program_name,
+                   pg.requires_guardian as requires_guardian,
                    el.action as current_status
             FROM events e
             LEFT JOIN productions p ON e.production_id=p.id
@@ -6582,6 +6583,7 @@ def kiosk_elic_auth():
                        COALESCE(p.stage,'mainstage') as stage,
                        p.stage as production_stage,
                        pg.name as program_name,
+                       pg.requires_guardian as requires_guardian,
                        el.action as current_status
                 FROM events e
                 LEFT JOIN productions p ON e.production_id=p.id

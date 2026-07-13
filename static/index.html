@@ -2460,7 +2460,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="modal-header"><div class="modal-title" id="survey-modal-title">New Survey</div><button class="modal-close" onclick="closeModal('modal-survey')">×</button></div>
   <div class="modal-body">
    <input type="hidden" id="survey-edit-id"/>
-   <div class="form-group"><label>Survey Title <span style="color:#dc2626">*</span></label><input type="text" id="survey-title" placeholder="e.g. Class Interest Survey 2025"/></div>
+   <div class="form-group"><label>Survey Title <span style="color:#dc2626">*</span></label><input type="text" id="survey-title" placeholder="e.g. Class Interest Survey 2025" oninput="autoSlug()"/></div>
+   <div class="form-group"><label>URL Slug <span style="color:#dc2626">*</span></label>
+    <div style="display:flex;align-items:center;gap:8px">
+     <span style="font-size:13px;color:var(--text-muted);white-space:nowrap">rolecall.hwtco.org/survey/</span>
+     <input type="text" id="survey-slug" placeholder="my-survey-slug" style="flex:1" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'-').replace(/-+/g,'-')"/>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Auto-generated from title. You can customize it — letters, numbers, hyphens only.</div>
+   </div>
    <div class="form-group"><label>Description</label><textarea id="survey-desc" rows="2" placeholder="Tell respondents what this survey is about..."></textarea></div>
    <div class="form-row">
     <div class="form-group"><label>Status</label><select id="survey-status"><option value="draft">Draft</option><option value="open">Open (accepting responses)</option><option value="closed">Closed</option></select></div>
@@ -7200,6 +7207,15 @@ async function attachFile(e,volId){
 var allSurveys = []
 var surveyQuestions = []
 
+function autoSlug(){
+ const title = document.getElementById('survey-title').value
+ const slugEl = document.getElementById('survey-slug')
+ // Only auto-generate if slug hasn't been manually edited
+ if(!slugEl.dataset.manual){
+  slugEl.value = title.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
+ }
+}
+
 async function loadSurveys(){
  const rows = await api('/api/surveys')
  allSurveys = rows || []
@@ -7248,6 +7264,8 @@ function openNewSurveyModal(){
  document.getElementById('survey-modal-title').textContent='New Survey'
  document.getElementById('survey-edit-id').value=''
  document.getElementById('survey-title').value=''
+ document.getElementById('survey-slug').value=''
+ document.getElementById('survey-slug').dataset.manual=''
  document.getElementById('survey-desc').value=''
  document.getElementById('survey-status').value='draft'
  document.getElementById('survey-closes-at').value=''
@@ -7265,6 +7283,8 @@ function openEditSurveyModal(sid){
  document.getElementById('survey-modal-title').textContent='Edit Survey'
  document.getElementById('survey-edit-id').value=s.id
  document.getElementById('survey-title').value=s.title||''
+ document.getElementById('survey-slug').value=s.slug||''
+ document.getElementById('survey-slug').dataset.manual='1'
  document.getElementById('survey-desc').value=s.description||''
  document.getElementById('survey-status').value=s.status||'draft'
  document.getElementById('survey-closes-at').value=(s.closes_at||'').slice(0,10)
@@ -7326,6 +7346,7 @@ async function saveSurvey(){
  const sid = document.getElementById('survey-edit-id').value
  const payload = {
   title, description: document.getElementById('survey-desc').value.trim(),
+  slug: document.getElementById('survey-slug').value.trim()||null,
   status: document.getElementById('survey-status').value,
   closes_at: document.getElementById('survey-closes-at').value||null,
   allow_anonymous: document.getElementById('survey-anonymous').checked,
@@ -7363,78 +7384,194 @@ async function openSurveyResults(sid){
  const questions = data.questions
  const responses = data.responses
 
- // Build results modal content
- let html = '<div style="max-height:70vh;overflow-y:auto;padding:4px">'
- html += '<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+escHtml(survey.title)+'</div>'
- html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div>'
+ const overlay = document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px'
 
- questions.forEach(function(q){
+ function renderView(view){
+  let body = ''
+  if(view==='summary'){
+   body = buildSummaryView(questions, responses)
+  } else if(view==='table'){
+   body = buildTableView(questions, responses)
+  } else if(view==='raw'){
+   body = buildRawView(responses)
+  }
+  overlay.querySelector('#results-body').innerHTML = body
+ }
+
+ overlay.innerHTML='<div style="background:#fff;border-radius:12px;padding:28px;max-width:720px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">'
+  +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">'
+  +'<div><div style="font-size:18px;font-weight:700">'+escHtml(survey.title)+'</div>'
+  +'<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div></div>'
+  +'<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#9ca3af;line-height:1">×</button>'
+  +'</div>'
+  +'<div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">'
+  +'<button class="results-view-btn active" data-view="summary" onclick="setResultsView(this,\'summary\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--teal);background:var(--teal);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Summary</button>'
+  +'<button class="results-view-btn" data-view="table" onclick="setResultsView(this,\'table\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Table</button>'
+  +'<button class="results-view-btn" data-view="raw" onclick="setResultsView(this,\'raw\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Individual</button>'
+  +'<div style="flex:1"></div>'
+  +'<button onclick="exportSurveyCSV()" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;font-size:12px;font-weight:600;cursor:pointer">Export CSV</button>'
+  +'</div>'
+  +'<div id="results-body" style="overflow-y:auto;flex:1"></div>'
+  +'</div>'
+
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+
+ // Store data on overlay for CSV export
+ overlay._surveyData = {survey, questions, responses}
+ window._currentSurveyOverlay = overlay
+
+ overlay.querySelectorAll('.results-view-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+   overlay.querySelectorAll('.results-view-btn').forEach(function(b){
+    b.style.background='#fff'; b.style.color='var(--text-secondary)'; b.style.borderColor='var(--border-md)'
+   })
+   btn.style.background='var(--teal)'; btn.style.color='#fff'; btn.style.borderColor='var(--teal)'
+   renderView(btn.dataset.view)
+  })
+ })
+ overlay.querySelector('[data-view=summary]').click()
+}
+
+function buildSummaryView(questions, responses){
+ if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
+ return questions.map(function(q){
   const opts = Array.isArray(q.options)?q.options:(JSON.parse(q.options||'[]'))
-  html += '<div style="margin-bottom:24px">'
-  html += '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">'+escHtml(q.question_text)+'</div>'
+  let html = '<div style="margin-bottom:24px">'
+  html += '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:10px">'+escHtml(q.question_text)+'</div>'
 
   if(q.question_type==='radio'||q.question_type==='checkbox'){
-   // Count answers
-   var counts = {}
+   var counts={}, total=responses.length||1
    responses.forEach(function(r){
-    var ans = (JSON.parse(r.answers||'{}')||{})[q.id]
+    var ans=(JSON.parse(r.answers||'{}')||{})[q.id]
     if(!ans) return
-    var vals = Array.isArray(ans)?ans:[ans]
-    vals.forEach(function(v){ counts[v]=(counts[v]||0)+1 })
+    ;(Array.isArray(ans)?ans:[ans]).forEach(function(v){ counts[v]=(counts[v]||0)+1 })
    })
-   var total = responses.length||1
-   Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a] }).forEach(function(k){
-    var pct = Math.round(counts[k]/total*100)
-    html += '<div style="margin-bottom:6px">'
-     +'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>'+escHtml(k)+'</span><span style="font-weight:700">'+counts[k]+' ('+pct+'%)</span></div>'
-     +'<div style="background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+pct+'%"></div></div>'
+   var sorted=Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a] })
+   if(!sorted.length){ html+='<div style="font-size:13px;color:var(--text-muted)">No responses</div>' }
+   sorted.forEach(function(k){
+    var pct=Math.round(counts[k]/total*100)
+    html+='<div style="margin-bottom:8px">'
+     +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>'+escHtml(k)+'</span><span style="font-weight:700;color:var(--teal)">'+counts[k]+' ('+pct+'%)</span></div>'
+     +'<div style="background:#e5e7eb;border-radius:6px;height:10px"><div style="background:var(--teal);border-radius:6px;height:10px;width:'+pct+'%;transition:width 0.3s"></div></div>'
      +'</div>'
    })
   } else if(q.question_type==='rating'){
-   var ratingCounts={1:0,2:0,3:0,4:0,5:0},ratingTotal=0
+   var rc={},rt=0
+   ;[1,2,3,4,5].forEach(function(i){rc[i]=0})
    responses.forEach(function(r){
     var ans=(JSON.parse(r.answers||'{}')||{})[q.id]
-    if(ans){ratingCounts[ans]=(ratingCounts[ans]||0)+1;ratingTotal++}
+    if(ans){rc[ans]=(rc[ans]||0)+1;rt++}
    })
-   var avg = ratingTotal ? Object.keys(ratingCounts).reduce(function(s,k){ return s+k*ratingCounts[k] },0)/ratingTotal : 0
-   html += '<div style="font-size:20px;font-weight:700;color:var(--teal);margin-bottom:8px">'+avg.toFixed(1)+' / 5</div>'
-   ;[1,2,3,4,5].forEach(function(i){
-    html += '<div style="margin-bottom:4px;display:flex;align-items:center;gap:8px;font-size:12px">'
-     +'<span style="width:12px">'+i+'</span>'
-     +'<div style="flex:1;background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+(ratingTotal?Math.round(ratingCounts[i]/ratingTotal*100):0)+'%"></div></div>'
-     +'<span style="width:20px">'+ratingCounts[i]+'</span></div>'
+   var avg=rt?Object.keys(rc).reduce(function(s,k){return s+k*rc[k]},0)/rt:0
+   html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:10px">'
+    +'<div style="font-size:28px;font-weight:800;color:var(--teal)">'+avg.toFixed(1)+'</div>'
+    +'<div style="font-size:12px;color:var(--text-muted)">avg out of 5<br>'+rt+' rated</div></div>'
+   ;[5,4,3,2,1].forEach(function(i){
+    var pct=rt?Math.round(rc[i]/rt*100):0
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'
+     +'<span style="width:8px">'+i+'</span>'
+     +'<div style="flex:1;background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+pct+'%"></div></div>'
+     +'<span style="width:28px;color:var(--text-muted)">'+rc[i]+'</span></div>'
    })
   } else {
-   // Text answers
-   var textAnswers = responses.map(function(r){
-    return (JSON.parse(r.answers||'{}')||{})[q.id]
-   }).filter(Boolean)
-   if(textAnswers.length){
-    html += '<div style="max-height:150px;overflow-y:auto">'
-    textAnswers.forEach(function(a){
-     html += '<div style="padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:13px;margin-bottom:6px">'+escHtml(a)+'</div>'
-    })
-    html += '</div>'
-   } else {
-    html += '<div style="font-size:13px;color:var(--text-muted)">No responses yet</div>'
+   var texts=responses.map(function(r){ return (JSON.parse(r.answers||'{}')||{})[q.id] }).filter(Boolean)
+   if(!texts.length){ html+='<div style="font-size:13px;color:var(--text-muted)">No responses</div>' }
+   else {
+    html+='<div style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">'
+    texts.forEach(function(t){ html+='<div style="padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:13px;border:1px solid var(--border)">'+escHtml(t)+'</div>' })
+    html+='</div>'
    }
   }
-  html += '</div>'
- })
- html += '</div>'
+  return html+'</div>'
+ }).join('<hr style="border:none;border-top:1px solid var(--border);margin:8px 0"/>')
+}
 
- // Show in a simple confirm dialog-style overlay
- const overlay = document.createElement('div')
- overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML='<div style="background:#fff;border-radius:12px;padding:28px;max-width:600px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">'
-  +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-  +'<div style="font-size:18px;font-weight:700">Survey Results</div>'
-  +'<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#9ca3af">×</button>'
+function buildTableView(questions, responses){
+ if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
+ let html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+ html+='<thead><tr style="background:#f8fafc">'
+ html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap">#</th>'
+ html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap">Date</th>'
+ questions.forEach(function(q){
+  html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);max-width:160px">'+escHtml(q.question_text.slice(0,40))+(q.question_text.length>40?'…':'')+'</th>'
+ })
+ html+='</tr></thead><tbody>'
+ responses.forEach(function(r,i){
+  var ans=JSON.parse(r.answers||'{}')||{}
+  html+='<tr style="border-bottom:1px solid var(--border)'+(i%2?' background:#fafafa':'')+'"><td style="padding:8px 10px;color:var(--text-muted)">'+(i+1)+'</td>'
+  html+='<td style="padding:8px 10px;white-space:nowrap;color:var(--text-muted)">'+new Date(r.submitted_at).toLocaleDateString()+'</td>'
+  questions.forEach(function(q){
+   var a=ans[q.id]
+   var display=Array.isArray(a)?a.join(', '):(a||'—')
+   html+='<td style="padding:8px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(display)+'">'+escHtml(display)+'</td>'
+  })
+  html+='</tr>'
+ })
+ html+='</tbody></table></div>'
+ return html
+}
+
+function buildRawView(responses){
+ if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
+ window._rawResponses = responses
+ window._rawQuestions = window._currentSurveyOverlay?window._currentSurveyOverlay._surveyData.questions:[]
+ window.rawNav = function(i){
+  document.getElementById('raw-container').innerHTML = buildRawSingle(i)
+ }
+ return '<div id="raw-container">'+buildRawSingle(0)+'</div>'
+}
+
+function buildRawBody(ans){
+ var qs = window._rawQuestions||[]
+ return qs.map(function(q){
+  var a=ans[q.id]
+  var display=Array.isArray(a)?a.join(', '):(a||'—')
+  return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px">'+escHtml(q.question_text)+'</div>'
+   +'<div style="font-size:14px;color:var(--text-primary)">'+escHtml(display)+'</div></div>'
+ }).join('')
+}
+
+function buildRawSingle(i){
+ var responses=window._rawResponses||[]
+ var r=responses[i]
+ if(!r) return ''
+ var ans=JSON.parse(r.answers||'{}')||{}
+ return '<div>'
+  +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+  +'<div style="font-size:13px;font-weight:700">Response '+(i+1)+' of '+responses.length+'</div>'
+  +'<div style="display:flex;gap:8px">'
+  +(i>0?'<button onclick="rawNav('+(i-1)+')" style="padding:5px 12px;border:1.5px solid var(--border-md);border-radius:6px;background:#fff;cursor:pointer;font-size:12px">← Prev</button>':'')
+  +(i<responses.length-1?'<button onclick="rawNav('+(i+1)+')" style="padding:5px 12px;border:1.5px solid var(--border-md);border-radius:6px;background:#fff;cursor:pointer;font-size:12px">Next →</button>':'')
+  +'</div></div>'
+  +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">'+new Date(r.submitted_at).toLocaleString()+(r.respondent_name?' · '+escHtml(r.respondent_name):'')+(r.respondent_email?' · '+escHtml(r.respondent_email):'')+'</div>'
+  +buildRawBody(ans)
   +'</div>'
-  +html
-  +'</div>'
- document.body.appendChild(overlay)
- overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+function exportSurveyCSV(){
+ var overlay=window._currentSurveyOverlay
+ if(!overlay) return
+ var data=overlay._surveyData
+ var qs=data.questions, rs=data.responses
+ var headers=['#','Date','Name','Email'].concat(qs.map(function(q){ return q.question_text }))
+ var rows=rs.map(function(r,i){
+  var ans=JSON.parse(r.answers||'{}')||{}
+  return [i+1, new Date(r.submitted_at).toLocaleDateString(), r.respondent_name||'', r.respondent_email||'']
+   .concat(qs.map(function(q){
+    var a=ans[q.id]
+    return Array.isArray(a)?a.join('; '):(a||'')
+   }))
+ })
+ var csv=[headers].concat(rows).map(function(row){
+  return row.map(function(c){ return '"'+String(c||'').replace(/"/g,'""')+'"' }).join(',')
+ }).join('\n')
+ var blob=new Blob([csv],{type:'text/csv'})
+ var url=URL.createObjectURL(blob)
+ var a=document.createElement('a')
+ a.href=url; a.download=data.survey.slug+'-results.csv'; a.click()
+ URL.revokeObjectURL(url)
 }
 
 async function loadSettings(){

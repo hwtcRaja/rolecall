@@ -503,6 +503,34 @@ def init_db():
     # summer camps (programs with dates)
     # already covered by youth_programs  -  just add date columns via migration
 
+    # Refund requests
+    c.execute("""CREATE TABLE IF NOT EXISTS refund_requests (
+        id TEXT PRIMARY KEY,
+        ref_number TEXT UNIQUE NOT NULL,
+        requester_name TEXT NOT NULL,
+        requester_email TEXT NOT NULL,
+        requester_phone TEXT DEFAULT '',
+        participant_name TEXT NOT NULL,
+        program_name TEXT NOT NULL,
+        square_order_id TEXT DEFAULT '',
+        amount_paid TEXT DEFAULT '',
+        program_start_date TEXT DEFAULT '',
+        request_type TEXT NOT NULL,
+        refund_amount_cents INTEGER,
+        reason_category TEXT NOT NULL,
+        reason_detail TEXT NOT NULL,
+        replacement_name TEXT DEFAULT '',
+        replacement_email TEXT DEFAULT '',
+        replacement_phone TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        admin_notes TEXT DEFAULT '',
+        reviewed_by TEXT DEFAULT '',
+        reviewed_at TIMESTAMP,
+        requires_board_approval BOOLEAN DEFAULT FALSE,
+        square_refund_id TEXT DEFAULT '',
+        registration_id TEXT,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
@@ -1066,6 +1094,11 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
+        """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS requires_guardian BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -2779,11 +2812,12 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
-                 d.get('default_elic_id') or None))
+                 d.get('default_elic_id') or None,
+                 bool(d.get('requires_guardian', False))))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -2799,11 +2833,13 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
-             d.get('default_elic_id') or None, pid))
+             d.get('default_elic_id') or None,
+             bool(d.get('requires_guardian', False)),
+             d.get('status','active'), pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -5006,15 +5042,74 @@ def get_youth_history(yid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    # Sign-in history with event names
-    signins = fetchall(conn, '''SELECT ys.*, e.name as event_name, e.event_date,
-        e.start_time, yp.name as program_name
-        FROM youth_sign_ins ys
-        LEFT JOIN events e ON ys.event_id=e.id
-        LEFT JOIN youth_programs yp ON e.program_id=yp.id
-        WHERE ys.youth_id=%s ORDER BY ys.sign_in_time DESC''', (yid,))
+    timeline = []
+    # 1. Added to RoleCall
+    try:
+        yp = fetchone(conn, 'SELECT created_at, first_name, last_name FROM youth_participants WHERE id=%s', (yid,))
+        if yp and yp.get('created_at'):
+            timeline.append({'type':'joined','icon':'🌟','label':'Added to RoleCall',
+                'detail':f'{yp["first_name"]} {yp["last_name"]} profile created',
+                'ts':str(yp['created_at'])})
+    except Exception as e: app.logger.warning(f'history joined: {e}')
+    # 2. Program enrollments
+    try:
+        regs = fetchall(conn, '''SELECT pr.created_at, pr.status, pr.child_first_name, pr.child_last_name,
+            yp.name as program_name FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.youth_id=%s ORDER BY pr.created_at DESC''', (yid,)) or []
+        for r in regs:
+            sl = {'confirmed':'Enrolled','pending_payment':'Pending Payment','waitlisted':'Waitlisted','cancelled':'Cancelled'}.get(r.get('status',''),'Registered')
+            timeline.append({'type':'program','icon':'📚','label':f'Program: {r.get("program_name","")}',
+                'detail':sl,'ts':str(r.get('created_at') or '')})
+    except Exception as e: app.logger.warning(f'history programs: {e}')
+    # 3. Events attended
+    try:
+        signins = fetchall(conn, '''SELECT ys.signed_in_at, ys.signed_out_at, ys.signed_in_by,
+            e.name as event_name FROM youth_sign_ins ys
+            LEFT JOIN events e ON ys.event_id=e.id
+            WHERE ys.youth_id=%s AND ys.event_id IS NOT NULL
+            ORDER BY ys.signed_in_at DESC''', (yid,)) or []
+        for s in signins:
+            detail = f'Dropped off by {s["signed_in_by"]}' if s.get('signed_in_by') else 'Attended'
+            if s.get('signed_out_at') and s.get('signed_in_at'):
+                try:
+                    diff = int((s['signed_out_at'] - s['signed_in_at']).total_seconds() // 60)
+                    hrs = diff // 60; mins = diff % 60
+                    detail += f' · {hrs}h {mins}m' if hrs else f' · {mins}m'
+                except Exception: pass
+            timeline.append({'type':'event','icon':'📅','label':f'Attended: {s.get("event_name","Event")}',
+                'detail':detail,'ts':str(s.get('signed_in_at') or '')})
+    except Exception as e: app.logger.warning(f'history events: {e}')
+    # 4. Waivers
+    try:
+        waivers = fetchall(conn, '''SELECT yw.created_at, yw.signed_date, yw.signed_by, wt.name as waiver_name
+            FROM youth_waivers yw JOIN waiver_types wt ON wt.id=yw.waiver_type_id
+            WHERE yw.youth_id=%s ORDER BY yw.created_at DESC''', (yid,)) or []
+        for w in waivers:
+            detail = f'Signed {w.get("signed_date","")}' + (f' by {w["signed_by"]}' if w.get('signed_by') else '')
+            timeline.append({'type':'waiver','icon':'📋','label':f'Waiver: {w.get("waiver_name","")}',
+                'detail':detail,'ts':str(w.get('created_at') or w.get('signed_date') or '')})
+    except Exception as e: app.logger.warning(f'history waivers: {e}')
+    # 5. Notes
+    try:
+        notes = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
+        for n in notes:
+            c = (n.get('content') or '')
+            timeline.append({'type':'note','icon':'📝','label':'Note Added',
+                'detail':c[:80]+('…' if len(c)>80 else '') + (f' — {n["author"]}' if n.get('author') else ''),
+                'ts':str(n.get('created_at') or '')})
+    except Exception as e: app.logger.warning(f'history notes: {e}')
+    # 6. Incidents
+    try:
+        incidents = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
+        for i in incidents:
+            timeline.append({'type':'incident','icon':'⚠️','label':f'Incident: {i.get("title","")}',
+                'detail':(i.get('description') or '')[:80],
+                'ts':str(i.get('incident_date') or i.get('created_at') or '')})
+    except Exception as e: app.logger.warning(f'history incidents: {e}')
+    timeline.sort(key=lambda x: x.get('ts','') or '', reverse=True)
     conn.close()
-    return jsonify(signins)
+    return jsonify(timeline)
 
 @app.route('/api/youth/<yid>/waivers', methods=['POST'])
 def add_youth_waiver(yid):
@@ -6400,20 +6495,21 @@ def kiosk_elic_auth():
             LEFT JOIN productions p ON e.production_id=p.id
             LEFT JOIN youth_programs pg ON e.program_id=pg.id
             LEFT JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
                 ON el.event_id=e.id
             WHERE (
-                -- Currently open events regardless of date
+                -- Currently open events (regardless of date)
                 el.action = 'open'
                 OR
-                -- Events within 60 days past or 180 days future
-                (e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
-                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days')
+                -- Upcoming and recent events (14 days past to 180 days future)
+                (e.event_date::date >= CURRENT_DATE - INTERVAL '14 days'
+                 AND e.event_date::date <= CURRENT_DATE + INTERVAL '180 days'
+                 AND (el.action IS NULL OR el.action != 'close'))
                 OR
-                -- Events with no date
-                e.event_date IS NULL
+                -- Events with no date that aren't closed
+                (e.event_date IS NULL AND (el.action IS NULL OR el.action != 'close'))
             )
-            ORDER BY e.event_date DESC NULLS LAST, e.name''')
+            ORDER BY e.event_date ASC NULLS LAST, e.name''')
     else:
         if assigned:
             placeholders = ','.join(['%s']*len(assigned))
@@ -6427,14 +6523,16 @@ def kiosk_elic_auth():
                 LEFT JOIN productions p ON e.production_id=p.id
                 LEFT JOIN youth_programs pg ON e.program_id=pg.id
                 LEFT JOIN (SELECT event_id, action FROM event_logs
-                    WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                    WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
                     ON el.event_id=e.id
                 WHERE e.id IN ({placeholders})
                 AND (
                     el.action = 'open'
-                    OR e.event_date::date >= CURRENT_DATE - INTERVAL '60 days'
-                    OR e.event_date IS NULL
-                )''', tuple(assigned))
+                    OR (e.event_date::date >= CURRENT_DATE - INTERVAL '14 days'
+                        AND (el.action IS NULL OR el.action != 'close'))
+                    OR (e.event_date IS NULL AND (el.action IS NULL OR el.action != 'close'))
+                )
+                ORDER BY e.event_date ASC NULLS LAST, e.name''', tuple(assigned))
         else:
             events = []
     conn.close()
@@ -9153,7 +9251,7 @@ def auto_close_past_events():
         open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
             JOIN event_logs el ON el.event_id=e.id
             WHERE el.action='open'
-            AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+            AND el.id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))
             AND (
                 (e.event_date IS NOT NULL AND e.event_date::date < CURRENT_DATE)
                 OR
@@ -9183,6 +9281,37 @@ def auto_close_past_events():
         except Exception: pass
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/kiosk/walkin-signin', methods=['POST'])
+def kiosk_walkin_signin():
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    event_id = d.get('event_id','')
+    if not name or not event_id:
+        return jsonify({'error': 'Missing name or event_id'}), 400
+    conn = get_db()
+    # Find or create participant by name
+    parts = name.split(' ', 1)
+    first = parts[0]; last = parts[1] if len(parts) > 1 else ''
+    yp = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s LIMIT 1',
+        (first.lower(), last.lower()))
+    if not yp:
+        yid = str(uuid.uuid4())
+        execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,status) VALUES (%s,%s,%s,%s)',
+            (yid, first, last, 'active'))
+        conn.commit()
+        yp = {'id': yid}
+    # Check not already signed in
+    existing = fetchone(conn, 'SELECT id FROM youth_sign_ins WHERE youth_id=%s AND event_id=%s AND signed_out_at IS NULL',
+        (yp['id'], event_id))
+    if existing:
+        conn.close()
+        return jsonify({'ok': True, 'already_in': True})
+    sid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO youth_sign_ins (id,youth_id,event_id,signed_in_at) VALUES (%s,%s,%s,NOW())',
+        (sid, yp['id'], event_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'sign_in_id': sid})
+
 @app.route('/api/kiosk/elic-events')
 def kiosk_elic_events():
     """Lightweight endpoint to refresh ELIC event list without full re-login."""
@@ -9195,7 +9324,7 @@ def kiosk_elic_events():
         events = fetchall(conn, '''SELECT e.*, el.action as current_status
             FROM events e
             LEFT JOIN (SELECT event_id, action FROM event_logs
-                WHERE id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)) el
+                WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
             ON el.event_id=e.id
             WHERE e.id IN (SELECT event_id FROM event_elics WHERE elic_id=%s)
             ORDER BY e.event_date DESC, e.start_time''', (elic_id,)) or []
@@ -9504,18 +9633,31 @@ def kiosk_youth_for_event(event_id):
 def get_youth_sign_ins():
     conn = get_db()
     event_id = request.args.get('event_id')
+    youth_id = request.args.get('youth_id')
     if event_id:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||\' \'||yp.last_name as youth_name
+                   yp.first_name||' '||yp.last_name as youth_name,
+                   e.name as event_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
+            LEFT JOIN events e ON e.id=ysi.event_id
             WHERE ysi.event_id=%s
             ORDER BY ysi.signed_in_at DESC''', (event_id,))
+    elif youth_id:
+        rows = fetchall(conn, '''
+            SELECT ysi.*, yp.first_name, yp.last_name,
+                   yp.first_name||' '||yp.last_name as youth_name,
+                   e.name as event_name
+            FROM youth_sign_ins ysi
+            JOIN youth_participants yp ON ysi.youth_id=yp.id
+            LEFT JOIN events e ON e.id=ysi.event_id
+            WHERE ysi.youth_id=%s
+            ORDER BY ysi.signed_in_at DESC''', (youth_id,))
     else:
         rows = fetchall(conn, '''
             SELECT ysi.*, yp.first_name, yp.last_name,
-                   yp.first_name||\' \'||yp.last_name as youth_name
+                   yp.first_name||' '||yp.last_name as youth_name
             FROM youth_sign_ins ysi
             JOIN youth_participants yp ON ysi.youth_id=yp.id
             WHERE ysi.signed_in_at >= NOW() - INTERVAL '12 hours'
@@ -12315,6 +12457,239 @@ def public_register_production_confirmation(slug):
     return send_from_directory('static', 'register.html')
 
 
+@app.route('/request-a-refund')
+def refund_request_page():
+    return send_from_directory('static', 'request-a-refund.html')
+
+@app.route('/api/public/refund-request', methods=['POST'])
+def submit_refund_request():
+    d = request.json or {}
+    conn = get_db()
+    try:
+        import random, string
+        ref_number = 'RFD-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        rid = str(uuid.uuid4())
+        amount_cents = d.get('refund_amount_cents')
+        requires_board = bool(amount_cents and amount_cents > 100000)  # over $1000
+        execute(conn, '''INSERT INTO refund_requests
+            (id, ref_number, requester_name, requester_email, requester_phone,
+             participant_name, program_name, square_order_id, amount_paid,
+             program_start_date, request_type, refund_amount_cents,
+             reason_category, reason_detail, replacement_name,
+             replacement_email, replacement_phone, requires_board_approval)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (rid, ref_number,
+             d.get('requester_name',''), d.get('requester_email',''), d.get('requester_phone',''),
+             d.get('participant_name',''), d.get('program_name',''), d.get('square_order_id',''),
+             d.get('amount_paid',''), d.get('program_start_date',''),
+             d.get('request_type',''), amount_cents,
+             d.get('reason_category',''), d.get('reason_detail',''),
+             d.get('replacement_name',''), d.get('replacement_email',''), d.get('replacement_phone',''),
+             requires_board))
+        conn.commit()
+        # Send confirmation email to requester
+        try:
+            es = get_email_settings()
+            if es.get('resend_api_key'):
+                type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+                send_email(
+                    d.get('requester_email',''),
+                    f'Refund Request Received — {ref_number}',
+                    f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                        <div style="background:#145466;padding:20px 24px">
+                          <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                        </div>
+                        <div style="padding:28px 24px">
+                          <h2 style="color:#111;margin-bottom:8px">Refund Request Received</h2>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Thank you, {d.get('requester_name','')}. We have received your cancellation and refund request.</p>
+                          <div style="background:#f3f4f6;border-radius:10px;padding:16px;margin:20px 0">
+                            <div style="font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;margin-bottom:4px">Your Request Number</div>
+                            <div style="font-size:24px;font-weight:800;color:#145466;font-family:monospace">{ref_number}</div>
+                          </div>
+                          <table style="width:100%;border-collapse:collapse;font-size:14px">
+                            <tr><td style="padding:6px 0;color:#9ca3af;width:140px">Participant</td><td style="padding:6px 0;color:#111;font-weight:600">{d.get('participant_name','')}</td></tr>
+                            <tr><td style="padding:6px 0;color:#9ca3af">Program</td><td style="padding:6px 0;color:#111;font-weight:600">{d.get('program_name','')}</td></tr>
+                            <tr><td style="padding:6px 0;color:#9ca3af">Request Type</td><td style="padding:6px 0;color:#111;font-weight:600">{type_labels.get(d.get('request_type',''),'')}</td></tr>
+                          </table>
+                          <p style="color:#374151;font-size:14px;margin-top:20px;line-height:1.6">Our team will review your request and respond within <strong>5–7 business days</strong>. If you have supporting documentation (medical records, etc.), please email it to <strong>info@hwtco.org</strong> with your request number in the subject line.</p>
+                          <p style="color:#dc2626;font-size:13px;font-weight:600;margin-top:16px">Please note: Submission of this form does not guarantee a refund. All decisions are at the sole discretion of the HWTC Board of Directors.</p>
+                        </div>
+                      </div>''',
+                    source='refund_request')
+        except Exception as e:
+            app.logger.warning(f'Refund confirmation email failed: {e}')
+        # Notify admin
+        try:
+            es = get_email_settings()
+            admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
+            # Always also notify info@hwtco.org
+            notify_emails = list(set(admin_emails + ['info@hwtco.org']))
+            if notify_emails and es.get('resend_api_key'):
+                board_flag = '<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:12px;margin:12px 0;font-weight:700;color:#92400e">BOARD APPROVAL REQUIRED — Request exceeds $1,000</div>' if requires_board else ''
+                send_email(
+                    ','.join(notify_emails),
+                    f'{"[BOARD APPROVAL REQUIRED] " if requires_board else ""}New Refund Request — {ref_number}',
+                    f'<div style="font-family:sans-serif;padding:20px">{board_flag}<h3>New refund request received</h3><p><b>Ref:</b> {ref_number}<br><b>From:</b> {d.get("requester_name","")} ({d.get("requester_email","")})<br><b>Participant:</b> {d.get("participant_name","")}<br><b>Program:</b> {d.get("program_name","")}<br><b>Type:</b> {d.get("request_type","")}<br><b>Reason:</b> {d.get("reason_detail","")[:300]}</p><p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall Marquee</a></p></div>',
+                    source='refund_request_admin')
+        except Exception as e:
+            app.logger.warning(f'Refund admin notification failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'ref_number': ref_number})
+    except Exception as e:
+        app.logger.error(f'Refund request error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/refund-requests')
+def get_refund_requests():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    status = request.args.get('status','')
+    if status:
+        rows = fetchall(conn, 'SELECT * FROM refund_requests WHERE status=%s ORDER BY created_at DESC', (status,)) or []
+    else:
+        rows = fetchall(conn, 'SELECT * FROM refund_requests ORDER BY created_at DESC') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/refund-requests/<rid>', methods=['PUT'])
+def update_refund_request(rid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    new_status = d.get('status','')
+    admin_notes = d.get('admin_notes','')
+
+    # Get current request before updating
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    execute(conn, '''UPDATE refund_requests SET status=%s, admin_notes=%s,
+        reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
+        (new_status, admin_notes, d.get('reviewed_by',''), rid))
+    conn.commit()
+
+    # Send email to requester on approval or denial
+    try:
+        type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+        req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
+
+        if new_status == 'approved':
+            subject = f'Your Refund Request Has Been Approved — {rr["ref_number"]}'
+            if rr.get('request_type') == 'refund':
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your refund will be processed to your original payment method within <strong>10 business days</strong>.</p>'
+            elif rr.get('request_type') == 'credit':
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">An account credit has been approved and will be applied to your account. Credits are valid for <strong>12 months</strong> from the date of issuance.</p>'
+            elif rr.get('request_type') in ('transfer','find_replacement'):
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your spot transfer request has been approved. We will be in touch regarding next steps for completing the transfer.</p>'
+            else:
+                next_steps = ''
+
+            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Note from HWTC:</strong> {admin_notes}</div>' if admin_notes else ''
+
+            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <div style="background:#145466;padding:20px 24px">
+                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                </div>
+                <div style="padding:28px 24px">
+                  <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
+                    <div style="font-size:16px;font-weight:700;color:#166534">Your request has been approved</div>
+                  </div>
+                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> and it has been <strong>approved</strong>.</p>
+                  {next_steps}
+                  {notes_block}
+                  <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
+                  <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
+                </div>
+              </div>'''
+
+        elif new_status == 'denied':
+            subject = f'Update on Your Refund Request — {rr["ref_number"]}'
+            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Reason:</strong> {admin_notes}</div>' if admin_notes else ''
+
+            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <div style="background:#145466;padding:20px 24px">
+                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                </div>
+                <div style="padding:28px 24px">
+                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong>.</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">After careful consideration, we are unable to approve this request at this time.</p>
+                  {notes_block}
+                  <p style="color:#374151;font-size:14px;line-height:1.6">If you believe this decision should be reconsidered, you may submit a written appeal to the HWTC Board of Directors within <strong>14 days</strong> by emailing <a href="mailto:info@hwtco.org">info@hwtco.org</a> with your request number <strong>{rr["ref_number"]}</strong> in the subject line.</p>
+                  <p style="color:#374151;font-size:14px">Thank you for your understanding,<br><strong>Horizon West Theater Company</strong></p>
+                </div>
+              </div>'''
+        else:
+            html_body = None
+            subject = None
+
+        if html_body and rr.get('requester_email'):
+            send_email(rr['requester_email'], subject, html_body, source='refund_status')
+
+    except Exception as e:
+        app.logger.warning(f'Refund status email failed: {e}')
+
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])
+def process_square_refund(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    if not rr: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if not rr.get('square_order_id'): conn.close(); return jsonify({'error': 'No Square order ID on file'}), 400
+    if not SQUARE_ACCESS_TOKEN: conn.close(); return jsonify({'error': 'Square not configured'}), 400
+    d = request.json or {}
+    amount_cents = d.get('amount_cents') or rr.get('refund_amount_cents')
+    if not amount_cents: conn.close(); return jsonify({'error': 'No refund amount specified'}), 400
+    try:
+        import requests as _req
+        # Get payment ID from order
+        order_resp = _req.get(f'{SQUARE_API_BASE}/v2/orders/{rr["square_order_id"]}', headers=square_headers())
+        order_data = order_resp.json()
+        tenders = order_data.get('order', {}).get('tenders', [])
+        if not tenders: conn.close(); return jsonify({'error': 'No payment found for this order'}), 400
+        payment_id = tenders[0].get('payment_id') or tenders[0].get('id')
+        # Issue refund
+        refund_resp = _req.post(f'{SQUARE_API_BASE}/v2/refunds', headers=square_headers(), json={
+            'idempotency_key': str(uuid.uuid4()),
+            'payment_id': payment_id,
+            'amount_money': {'amount': int(amount_cents), 'currency': 'USD'},
+            'reason': f'HWTC Refund Request {rr["ref_number"]} — {rr["reason_category"]}'
+        })
+        refund_data = refund_resp.json()
+        if 'refund' in refund_data:
+            sq_refund_id = refund_data['refund']['id']
+            execute(conn, '''UPDATE refund_requests SET status='processed',
+                square_refund_id=%s, reviewed_at=NOW() WHERE id=%s''', (sq_refund_id, rid))
+            conn.commit()
+            # Un-enroll from program if registration_id exists
+            if rr.get('registration_id'):
+                try:
+                    execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
+                    conn.commit()
+                except Exception: pass
+            conn.close()
+            return jsonify({'ok': True, 'refund_id': sq_refund_id, 'amount_cents': amount_cents})
+        else:
+            errors = refund_data.get('errors', [])
+            conn.close()
+            return jsonify({'error': errors[0].get('detail','Square refund failed') if errors else 'Square refund failed'}), 400
+    except Exception as e:
+        app.logger.error(f'Square refund error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):
     """Public program info — no auth needed."""
@@ -12477,10 +12852,20 @@ def public_submit_registration(slug):
     session_rows = []
     session_price_total = 0  # price per participant from sessions
     if sessions_enabled and session_ids:
+        import datetime as _dtsess
+        today_str = _dtsess.date.today().isoformat()
+        # Block if all sessions have passed
+        all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
+        if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
+            conn.close()
+            return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
         for sid in session_ids:
             sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
                 (sid, p['id'], 'open'))
             if sr:
+                if sr.get('start_date') and sr['start_date'] < today_str:
+                    conn.close()
+                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
                 session_rows.append(sr)
                 sp = sr.get('price_override') if sr.get('price_override') is not None else price
                 session_price_total += sp
@@ -14280,7 +14665,7 @@ def _start_oncall_scheduler():
                 open_events = fetchall(conn, """SELECT DISTINCT e.id, e.name FROM events e
                     JOIN event_logs el ON el.event_id=e.id
                     WHERE el.action='open'
-                    AND el.id IN (SELECT MAX(id) FROM event_logs GROUP BY event_id)
+                    AND el.id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))
                     AND e.event_date IS NOT NULL
                     AND e.event_date::date < CURRENT_DATE""") or []
                 system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \

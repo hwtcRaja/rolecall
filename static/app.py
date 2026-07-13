@@ -503,6 +503,70 @@ def init_db():
     # summer camps (programs with dates)
     # already covered by youth_programs  -  just add date columns via migration
 
+    # Surveys
+    c.execute("""CREATE TABLE IF NOT EXISTS surveys (
+        id TEXT PRIMARY KEY,
+        slug TEXT UNIQUE NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        status TEXT DEFAULT 'draft',
+        require_name BOOLEAN DEFAULT FALSE,
+        require_email BOOLEAN DEFAULT FALSE,
+        allow_anonymous BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        closes_at TIMESTAMP)""")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS survey_questions (
+        id TEXT PRIMARY KEY,
+        survey_id TEXT NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        question_type TEXT NOT NULL,
+        options JSONB DEFAULT '[]',
+        required BOOLEAN DEFAULT FALSE,
+        allow_other BOOLEAN DEFAULT FALSE,
+        sort_order INTEGER DEFAULT 0)""")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS survey_responses (
+        id TEXT PRIMARY KEY,
+        survey_id TEXT NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+        respondent_name TEXT DEFAULT '',
+        respondent_email TEXT DEFAULT '',
+        answers JSONB DEFAULT '{}',
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        ip_address TEXT DEFAULT '')""")
+
+    # Seed interest survey
+    existing = c.execute("SELECT id FROM surveys WHERE slug='class-interest-2025'") if False else None
+    try:
+        c.execute("SELECT id FROM surveys WHERE slug=%s", ('class-interest-2025',))
+        if not c.fetchone():
+            sid = str(__import__('uuid').uuid4())
+            c.execute("""INSERT INTO surveys (id,slug,title,description,status,allow_anonymous,require_name,require_email)
+                VALUES (%s,'class-interest-2025','Class & Program Interest Survey',
+                'Help us understand what types of classes and programs you would like HWTC to offer.',
+                'open',TRUE,FALSE,FALSE)""", (sid,))
+            questions = [
+                ('What types of classes are you interested in?', 'checkbox',
+                 ['Acting','Musical Theater','Dance — Tap','Dance — Ballet/Contemporary',
+                  'Voice & Singing','Stagecraft & Technical Theater','Playwriting/Screenwriting',
+                  'Directing','Improvisation'], True, True, 1),
+                ('What age group are you registering for?', 'radio',
+                 ['Child (under 12)','Teen (12–17)','Adult (18+)','Multiple age groups'], False, False, 2),
+                ('What days/times work best for you?', 'checkbox',
+                 ['Weekday mornings','Weekday afternoons','Weekday evenings',
+                  'Weekend mornings','Weekend afternoons'], False, False, 3),
+                ('Any other classes or programs you\'d like to see offered?', 'text', [], False, False, 4),
+                ('Your name (optional)', 'text', [], False, False, 5),
+                ('Your email (optional — so we can follow up)', 'text', [], False, False, 6),
+            ]
+            for q_text, q_type, opts, required, allow_other, sort in questions:
+                qid = str(__import__('uuid').uuid4())
+                c.execute("""INSERT INTO survey_questions (id,survey_id,question_text,question_type,options,required,allow_other,sort_order)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (qid, sid, q_text, q_type, __import__('json').dumps(opts), required, allow_other, sort))
+    except Exception as _se:
+        pass
+
     # Refund requests
     c.execute("""CREATE TABLE IF NOT EXISTS refund_requests (
         id TEXT PRIMARY KEY,
@@ -6490,6 +6554,7 @@ def kiosk_elic_auth():
                    COALESCE(p.stage,'mainstage') as stage,
                    p.stage as production_stage,
                    pg.name as program_name,
+                   pg.requires_guardian as requires_guardian,
                    el.action as current_status
             FROM events e
             LEFT JOIN productions p ON e.production_id=p.id
@@ -6518,6 +6583,7 @@ def kiosk_elic_auth():
                        COALESCE(p.stage,'mainstage') as stage,
                        p.stage as production_stage,
                        pg.name as program_name,
+                       pg.requires_guardian as requires_guardian,
                        el.action as current_status
                 FROM events e
                 LEFT JOIN productions p ON e.production_id=p.id
@@ -7851,16 +7917,26 @@ def kiosk_events():
         SELECT e.*,
                p.name as production_name,
                COALESCE(p.stage,'mainstage') as stage,
-               p.stage as production_stage
+               p.stage as production_stage,
+               el.action as current_status
         FROM events e
         LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN (SELECT event_id, action FROM event_logs
+            WHERE (event_id, timestamp) IN (
+                SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id
+            )) el ON el.event_id=e.id
         WHERE e.status='open'
+           OR el.action='open'
            OR (e.status IN ('draft','published','in_progress')
                AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
                AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
-        ORDER BY CASE WHEN e.status='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
+        ORDER BY CASE WHEN e.status='open' OR el.action='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
     """)
     conn.close()
+    # Mark events as open if event_logs says so
+    for e in events:
+        if e.get('current_status') == 'open':
+            e['status'] = 'open'
     return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])
@@ -12457,6 +12533,142 @@ def public_register_production_confirmation(slug):
     return send_from_directory('static', 'register.html')
 
 
+@app.route('/survey/<slug>')
+def survey_page(slug):
+    return send_from_directory('static', 'survey.html')
+
+@app.route('/api/surveys', methods=['GET'])
+def get_surveys():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM surveys ORDER BY created_at DESC') or []
+    for r in rows:
+        r['response_count'] = (fetchone(conn, 'SELECT COUNT(*) as c FROM survey_responses WHERE survey_id=%s', (r['id'],)) or {}).get('c', 0)
+        r['questions'] = fetchall(conn, 'SELECT * FROM survey_questions WHERE survey_id=%s ORDER BY sort_order', (r['id'],)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/surveys', methods=['POST'])
+def create_survey():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sid = str(uuid.uuid4())
+    import re as _re
+    custom_slug = (d.get('slug') or '').strip()
+    if custom_slug:
+        slug = _re.sub(r'[^a-z0-9-]', '-', custom_slug.lower())
+        slug = _re.sub(r'-+', '-', slug).strip('-')
+    else:
+        slug = _re.sub(r'[^a-z0-9-]', '-', (d.get('title','survey')).lower().strip())[:50]
+        slug = _re.sub(r'-+', '-', slug).strip('-')
+    # Ensure unique slug
+    base_slug = slug
+    counter = 1
+    while fetchone(conn, 'SELECT id FROM surveys WHERE slug=%s', (slug,)):
+        slug = f'{base_slug}-{counter}'; counter += 1
+    execute(conn, '''INSERT INTO surveys (id,slug,title,description,status,allow_anonymous,require_name,require_email,closes_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, slug, d.get('title','').strip(), d.get('description',''),
+         d.get('status','draft'), bool(d.get('allow_anonymous',True)),
+         bool(d.get('require_name',False)), bool(d.get('require_email',False)),
+         d.get('closes_at') or None))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': sid, 'slug': slug})
+
+@app.route('/api/surveys/<sid>', methods=['PUT'])
+def update_survey(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    import re as _re
+    new_slug = (d.get('slug') or '').strip()
+    if new_slug:
+        new_slug = _re.sub(r'[^a-z0-9-]', '-', new_slug.lower())
+        new_slug = _re.sub(r'-+', '-', new_slug).strip('-')
+        # Check uniqueness (excluding self)
+        existing = fetchone(conn, 'SELECT id FROM surveys WHERE slug=%s AND id!=%s', (new_slug, sid))
+        if existing:
+            conn.close(); return jsonify({'error': 'That slug is already in use'}), 400
+        execute(conn, '''UPDATE surveys SET title=%s,description=%s,status=%s,slug=%s,
+            allow_anonymous=%s,require_name=%s,require_email=%s,closes_at=%s WHERE id=%s''',
+            (d.get('title',''), d.get('description',''), d.get('status','draft'), new_slug,
+             bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
+             bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
+    else:
+        execute(conn, '''UPDATE surveys SET title=%s,description=%s,status=%s,
+            allow_anonymous=%s,require_name=%s,require_email=%s,closes_at=%s WHERE id=%s''',
+            (d.get('title',''), d.get('description',''), d.get('status','draft'),
+             bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
+             bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/surveys/<sid>', methods=['DELETE'])
+def delete_survey(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM surveys WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/surveys/<sid>/questions', methods=['POST'])
+def save_survey_questions(sid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    questions = d.get('questions', [])
+    conn = get_db()
+    execute(conn, 'DELETE FROM survey_questions WHERE survey_id=%s', (sid,))
+    for i, q in enumerate(questions):
+        qid = q.get('id') or str(uuid.uuid4())
+        execute(conn, '''INSERT INTO survey_questions (id,survey_id,question_text,question_type,options,required,allow_other,sort_order)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (qid, sid, q.get('question_text',''), q.get('question_type','text'),
+             json.dumps(q.get('options',[])), bool(q.get('required',False)),
+             bool(q.get('allow_other',False)), i))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/surveys/<sid>/results', methods=['GET'])
+def get_survey_results(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    survey = fetchone(conn, 'SELECT * FROM surveys WHERE id=%s', (sid,))
+    if not survey: conn.close(); return jsonify({'error': 'Not found'}), 404
+    questions = fetchall(conn, 'SELECT * FROM survey_questions WHERE survey_id=%s ORDER BY sort_order', (sid,)) or []
+    responses = fetchall(conn, 'SELECT * FROM survey_responses WHERE survey_id=%s ORDER BY submitted_at DESC', (sid,)) or []
+    conn.close()
+    return jsonify({'survey': survey, 'questions': questions, 'responses': responses})
+
+@app.route('/api/public/survey/<slug>')
+def get_public_survey(slug):
+    conn = get_db()
+    survey = fetchone(conn, "SELECT * FROM surveys WHERE slug=%s AND status='open'", (slug,))
+    if not survey: conn.close(); return jsonify({'error': 'Survey not found or closed'}), 404
+    questions = fetchall(conn, 'SELECT * FROM survey_questions WHERE survey_id=%s ORDER BY sort_order', (survey['id'],)) or []
+    conn.close()
+    return jsonify({'survey': survey, 'questions': questions})
+
+@app.route('/api/public/survey/<slug>/respond', methods=['POST'])
+def submit_survey_response(slug):
+    conn = get_db()
+    survey = fetchone(conn, "SELECT * FROM surveys WHERE slug=%s AND status='open'", (slug,))
+    if not survey: conn.close(); return jsonify({'error': 'Survey not found or closed'}), 404
+    d = request.json or {}
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO survey_responses (id,survey_id,respondent_name,respondent_email,answers,ip_address)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (rid, survey['id'], d.get('name',''), d.get('email',''),
+         json.dumps(d.get('answers',{})), request.remote_addr or ''))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/request-a-refund')
 def refund_request_page():
     return send_from_directory('static', 'request-a-refund.html')
@@ -12540,6 +12752,28 @@ def submit_refund_request():
         try: conn.rollback(); conn.close()
         except Exception: pass
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/email-test', methods=['POST'])
+def debug_email_test():
+    err = require_auth()
+    if err: return err
+    es = get_email_settings()
+    has_key = bool(es.get('resend_api_key','').strip())
+    try:
+        identities = json.loads(es.get('sender_identities') or '[]')
+    except Exception:
+        identities = []
+    default_sender = identities[0].get('email','') if identities else es.get('from_email','')
+    d = request.json or {}
+    to_email = d.get('to','raja.jalernpan@gmail.com')
+    ok, err_msg = send_email(to_email, 'RoleCall Email Test', '<p>This is a test email from RoleCall.</p>', source='debug')
+    return jsonify({
+        'has_resend_key': has_key,
+        'default_sender': default_sender,
+        'identities': identities,
+        'send_result': ok,
+        'send_error': err_msg
+    })
 
 @app.route('/api/refund-requests')
 def get_refund_requests():
@@ -13926,6 +14160,48 @@ def get_program_sessions(pid):
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
     conn.close()
     return jsonify(sessions or [])
+
+@app.route('/api/programs/<pid>/sessions', methods=['POST'])
+def create_program_session(pid):
+    err = require_permission('programs')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    sid = str(uuid.uuid4())
+    price_override = d.get('price_override')
+    if price_override is not None:
+        try: price_override = int(price_override)
+        except Exception: price_override = None
+    capacity = d.get('capacity')
+    if capacity is not None:
+        try: capacity = int(capacity)
+        except Exception: capacity = None
+    # Get next sort order
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
+    sort_order = (max_sort.get('m') or 0) + 1
+    execute(conn, '''INSERT INTO program_sessions
+        (id, program_id, name, day_of_week, start_time, end_time,
+         start_date, end_date, location, capacity, price_override, status, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, pid,
+         (d.get('name') or '').strip(),
+         d.get('day_of_week') or None,
+         d.get('start_time') or None,
+         d.get('end_time') or None,
+         d.get('start_date') or None,
+         d.get('end_date') or None,
+         d.get('location') or None,
+         capacity,
+         price_override,
+         d.get('status') or 'open',
+         sort_order))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'id': sid})
 
 
 @app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])

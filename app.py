@@ -1163,6 +1163,9 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
         """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS requires_guardian BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_enabled BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_price INTEGER DEFAULT NULL""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_label TEXT DEFAULT 'Book All Sessions'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -2876,12 +2879,15 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
                  d.get('default_elic_id') or None,
-                 bool(d.get('requires_guardian', False))))
+                 bool(d.get('requires_guardian', False)),
+                 bool(d.get('bundle_enabled', False)),
+                 int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
+                 d.get('bundle_label') or 'Book All Sessions'))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -2897,13 +2903,17 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
              d.get('default_elic_id') or None,
              bool(d.get('requires_guardian', False)),
-             d.get('status','active'), pid))
+             d.get('status','active'),
+             bool(d.get('bundle_enabled', False)),
+             int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
+             d.get('bundle_label') or 'Book All Sessions',
+             pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -13088,23 +13098,33 @@ def public_submit_registration(slug):
     if sessions_enabled and session_ids:
         import datetime as _dtsess
         today_str = _dtsess.date.today().isoformat()
-        # Block if all sessions have passed
-        all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
-        if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
-            conn.close()
-            return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
-        for sid in session_ids:
-            sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
-                (sid, p['id'], 'open'))
-            if sr:
-                if sr.get('start_date') and sr['start_date'] < today_str:
-                    conn.close()
-                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
-                session_rows.append(sr)
-                sp = sr.get('price_override') if sr.get('price_override') is not None else price
-                session_price_total += sp
-        # When sessions are used, effective per-participant price = sum of selected session prices
-        price = session_price_total
+        # Check if bundle price override is being used
+        bundle_price_override = d.get('bundle_price_override')
+        if d.get('is_bundle') and bundle_price_override:
+            # Validate all session IDs belong to program and aren't past
+            for sid in session_ids:
+                sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s', (sid, p['id']))
+                if sr:
+                    session_rows.append(sr)
+            session_price_total = int(bundle_price_override)
+            price = session_price_total
+        else:
+            # Block if all sessions have passed
+            all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
+            if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
+                conn.close()
+                return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
+            for sid in session_ids:
+                sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
+                    (sid, p['id'], 'open'))
+                if sr:
+                    if sr.get('start_date') and sr['start_date'] < today_str:
+                        conn.close()
+                        return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
+                    session_rows.append(sr)
+                    sp = sr.get('price_override') if sr.get('price_override') is not None else price
+                    session_price_total += sp
+            price = session_price_total
 
     # Siblings (additional children in same order)
     siblings = d.get('siblings') or []

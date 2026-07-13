@@ -1545,23 +1545,8 @@ async function handleSignInIdx(idx){
   eysEventId = e.id
   eysEventName = e.name || 'Event'
 
-  // Check if this program tracks minors (requires drop-off flow)
-  // Youth programs with rising_stars or camp type use drop-off
-  // Adult programs and standalone events use simple sign-in
-  let usesDropOff = false
-  if(e.program_id){
-    try{
-      const prog = allPrograms ? allPrograms.find(function(p){ return p.id===e.program_id }) : null
-      if(prog){
-        usesDropOff = prog.program_type === 'camp' || prog.program_type === 'youth' || prog.requires_guardian === true
-      } else {
-        // Fetch if not cached
-        const r = await fetch('/api/youth-programs/'+e.program_id)
-        const pd = await r.json()
-        usesDropOff = pd.program_type === 'camp' || pd.program_type === 'youth' || pd.requires_guardian === true
-      }
-    } catch(err){ usesDropOff = false }
-  }
+  // requires_guardian comes directly from the event (joined from youth_programs)
+  const usesDropOff = e.requires_guardian === true || e.requires_guardian === 1 || e.requires_guardian === 't'
 
   if(usesDropOff){
     handleYouthSignInIdx(idx)

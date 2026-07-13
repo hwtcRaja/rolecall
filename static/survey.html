@@ -42,7 +42,7 @@ textarea:focus,input:focus{border-color:#145466}
 <body>
 <div class="header">
   <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
-  <h1>Horizon West Theater Company</h1>
+  <h1 id="header-title">Horizon West Theater Company</h1>
 </div>
 <div class="container">
   <div id="loading" class="card" style="text-align:center;padding:40px;color:#6b7280">Loading survey...</div>
@@ -67,6 +67,8 @@ async function loadSurvey(){
     if(d.error){ showError(d.error); return }
     survey = d.survey
     questions = d.questions
+    document.getElementById('header-title').textContent = survey.title
+    document.title = survey.title + ' — HWTC'
     renderSurvey()
   } catch(e){
     showError('Could not load survey. Please try again.')

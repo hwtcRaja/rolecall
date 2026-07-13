@@ -7917,16 +7917,26 @@ def kiosk_events():
         SELECT e.*,
                p.name as production_name,
                COALESCE(p.stage,'mainstage') as stage,
-               p.stage as production_stage
+               p.stage as production_stage,
+               el.action as current_status
         FROM events e
         LEFT JOIN productions p ON e.production_id=p.id
+        LEFT JOIN (SELECT event_id, action FROM event_logs
+            WHERE (event_id, timestamp) IN (
+                SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id
+            )) el ON el.event_id=e.id
         WHERE e.status='open'
+           OR el.action='open'
            OR (e.status IN ('draft','published','in_progress')
                AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
                AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
-        ORDER BY CASE WHEN e.status='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
+        ORDER BY CASE WHEN e.status='open' OR el.action='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
     """)
     conn.close()
+    # Mark events as open if event_logs says so
+    for e in events:
+        if e.get('current_status') == 'open':
+            e['status'] = 'open'
     return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])

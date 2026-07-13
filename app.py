@@ -14161,6 +14161,48 @@ def get_program_sessions(pid):
     conn.close()
     return jsonify(sessions or [])
 
+@app.route('/api/programs/<pid>/sessions', methods=['POST'])
+def create_program_session(pid):
+    err = require_permission('programs')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    sid = str(uuid.uuid4())
+    price_override = d.get('price_override')
+    if price_override is not None:
+        try: price_override = int(price_override)
+        except Exception: price_override = None
+    capacity = d.get('capacity')
+    if capacity is not None:
+        try: capacity = int(capacity)
+        except Exception: capacity = None
+    # Get next sort order
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
+    sort_order = (max_sort.get('m') or 0) + 1
+    execute(conn, '''INSERT INTO program_sessions
+        (id, program_id, name, day_of_week, start_time, end_time,
+         start_date, end_date, location, capacity, price_override, status, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, pid,
+         (d.get('name') or '').strip(),
+         d.get('day_of_week') or None,
+         d.get('start_time') or None,
+         d.get('end_time') or None,
+         d.get('start_date') or None,
+         d.get('end_date') or None,
+         d.get('location') or None,
+         capacity,
+         price_override,
+         d.get('status') or 'open',
+         sort_order))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
 
 @app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])
 def generate_program_sessions(pid):

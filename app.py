@@ -12490,12 +12490,12 @@ def submit_refund_request():
         # Send confirmation email to requester
         try:
             es = get_email_settings()
-            if es.get('resend_api_key') and es.get('default_sender'):
+            if es.get('resend_api_key'):
                 type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
                 send_email(
-                    to=d.get('requester_email',''),
-                    subject=f'Refund Request Received — {ref_number}',
-                    html=f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                    d.get('requester_email',''),
+                    f'Refund Request Received — {ref_number}',
+                    f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
                         <div style="background:#145466;padding:20px 24px">
                           <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
                         </div>
@@ -12515,20 +12515,22 @@ def submit_refund_request():
                           <p style="color:#dc2626;font-size:13px;font-weight:600;margin-top:16px">Please note: Submission of this form does not guarantee a refund. All decisions are at the sole discretion of the HWTC Board of Directors.</p>
                         </div>
                       </div>''',
-                    sender=es.get('default_sender'))
+                    source='refund_request')
         except Exception as e:
             app.logger.warning(f'Refund confirmation email failed: {e}')
         # Notify admin
         try:
             es = get_email_settings()
             admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
-            if admin_emails and es.get('resend_api_key'):
+            # Always also notify info@hwtco.org
+            notify_emails = list(set(admin_emails + ['info@hwtco.org']))
+            if notify_emails and es.get('resend_api_key'):
                 board_flag = '<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:12px;margin:12px 0;font-weight:700;color:#92400e">BOARD APPROVAL REQUIRED — Request exceeds $1,000</div>' if requires_board else ''
                 send_email(
-                    to=admin_emails[0],
-                    subject=f'{"[BOARD APPROVAL REQUIRED] " if requires_board else ""}New Refund Request — {ref_number}',
-                    html=f'<div style="font-family:sans-serif;padding:20px">{board_flag}<h3>New refund request received</h3><p><b>Ref:</b> {ref_number}<br><b>From:</b> {d.get("requester_name","")} ({d.get("requester_email","")})<br><b>Program:</b> {d.get("program_name","")}<br><b>Type:</b> {d.get("request_type","")}<br><b>Reason:</b> {d.get("reason_detail","")[:200]}</p><p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall Marquee</a></p></div>',
-                    sender=es.get('default_sender'))
+                    ','.join(notify_emails),
+                    f'{"[BOARD APPROVAL REQUIRED] " if requires_board else ""}New Refund Request — {ref_number}',
+                    f'<div style="font-family:sans-serif;padding:20px">{board_flag}<h3>New refund request received</h3><p><b>Ref:</b> {ref_number}<br><b>From:</b> {d.get("requester_name","")} ({d.get("requester_email","")})<br><b>Participant:</b> {d.get("participant_name","")}<br><b>Program:</b> {d.get("program_name","")}<br><b>Type:</b> {d.get("request_type","")}<br><b>Reason:</b> {d.get("reason_detail","")[:300]}</p><p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall Marquee</a></p></div>',
+                    source='refund_request_admin')
         except Exception as e:
             app.logger.warning(f'Refund admin notification failed: {e}')
         conn.close()
@@ -12538,6 +12540,28 @@ def submit_refund_request():
         try: conn.rollback(); conn.close()
         except Exception: pass
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/email-test', methods=['POST'])
+def debug_email_test():
+    err = require_auth()
+    if err: return err
+    es = get_email_settings()
+    has_key = bool(es.get('resend_api_key','').strip())
+    try:
+        identities = json.loads(es.get('sender_identities') or '[]')
+    except Exception:
+        identities = []
+    default_sender = identities[0].get('email','') if identities else es.get('from_email','')
+    d = request.json or {}
+    to_email = d.get('to','raja.jalernpan@gmail.com')
+    ok, err_msg = send_email(to_email, 'RoleCall Email Test', '<p>This is a test email from RoleCall.</p>', source='debug')
+    return jsonify({
+        'has_resend_key': has_key,
+        'default_sender': default_sender,
+        'identities': identities,
+        'send_result': ok,
+        'send_error': err_msg
+    })
 
 @app.route('/api/refund-requests')
 def get_refund_requests():
@@ -12558,10 +12582,83 @@ def update_refund_request(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
+    new_status = d.get('status','')
+    admin_notes = d.get('admin_notes','')
+
+    # Get current request before updating
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
     execute(conn, '''UPDATE refund_requests SET status=%s, admin_notes=%s,
         reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
-        (d.get('status',''), d.get('admin_notes',''), d.get('reviewed_by',''), rid))
-    conn.commit(); conn.close()
+        (new_status, admin_notes, d.get('reviewed_by',''), rid))
+    conn.commit()
+
+    # Send email to requester on approval or denial
+    try:
+        type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+        req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
+
+        if new_status == 'approved':
+            subject = f'Your Refund Request Has Been Approved — {rr["ref_number"]}'
+            if rr.get('request_type') == 'refund':
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your refund will be processed to your original payment method within <strong>10 business days</strong>.</p>'
+            elif rr.get('request_type') == 'credit':
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">An account credit has been approved and will be applied to your account. Credits are valid for <strong>12 months</strong> from the date of issuance.</p>'
+            elif rr.get('request_type') in ('transfer','find_replacement'):
+                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your spot transfer request has been approved. We will be in touch regarding next steps for completing the transfer.</p>'
+            else:
+                next_steps = ''
+
+            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Note from HWTC:</strong> {admin_notes}</div>' if admin_notes else ''
+
+            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <div style="background:#145466;padding:20px 24px">
+                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                </div>
+                <div style="padding:28px 24px">
+                  <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
+                    <div style="font-size:16px;font-weight:700;color:#166534">Your request has been approved</div>
+                  </div>
+                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> and it has been <strong>approved</strong>.</p>
+                  {next_steps}
+                  {notes_block}
+                  <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
+                  <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
+                </div>
+              </div>'''
+
+        elif new_status == 'denied':
+            subject = f'Update on Your Refund Request — {rr["ref_number"]}'
+            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Reason:</strong> {admin_notes}</div>' if admin_notes else ''
+
+            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                <div style="background:#145466;padding:20px 24px">
+                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                </div>
+                <div style="padding:28px 24px">
+                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong>.</p>
+                  <p style="color:#374151;font-size:14px;line-height:1.6">After careful consideration, we are unable to approve this request at this time.</p>
+                  {notes_block}
+                  <p style="color:#374151;font-size:14px;line-height:1.6">If you believe this decision should be reconsidered, you may submit a written appeal to the HWTC Board of Directors within <strong>14 days</strong> by emailing <a href="mailto:info@hwtco.org">info@hwtco.org</a> with your request number <strong>{rr["ref_number"]}</strong> in the subject line.</p>
+                  <p style="color:#374151;font-size:14px">Thank you for your understanding,<br><strong>Horizon West Theater Company</strong></p>
+                </div>
+              </div>'''
+        else:
+            html_body = None
+            subject = None
+
+        if html_body and rr.get('requester_email'):
+            send_email(rr['requester_email'], subject, html_body, source='refund_status')
+
+    except Exception as e:
+        app.logger.warning(f'Refund status email failed: {e}')
+
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])

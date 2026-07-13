@@ -2526,10 +2526,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div class="form-row"><div class="form-group"><label>Status</label><select id="program-status"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div><div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div></div>
  <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-top:4px">
-  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0 0 10px;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
    <input type="checkbox" id="program-requires-guardian" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0"/>
    <span><strong>Require drop-off tracking</strong> — Kiosk will ask for guardian/drop-off name when signing participants in. Use for programs with minors that need guardian tracking.</span>
   </label>
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
+   <input type="checkbox" id="program-bundle-enabled" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0" onchange="document.getElementById('bundle-price-row').style.display=this.checked?'':'none'"/>
+   <span><strong>Enable bundle pricing</strong> — Show a "Book All Sessions" button at a discounted price on the registration form.</span>
+  </label>
+  <div id="bundle-price-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+   <div class="form-row">
+    <div class="form-group"><label>Bundle Price ($)</label><input type="number" id="program-bundle-price" min="0" step="0.01" placeholder="e.g. 299.00"/></div>
+    <div class="form-group"><label>Bundle Label</label><input type="text" id="program-bundle-label" placeholder="Book All Sessions"/></div>
+   </div>
+   <div style="font-size:11px;color:var(--text-muted)">The bundle books all available sessions at this flat price. Individual session prices are still shown for comparison.</div>
+  </div>
  </div>
  </div>
  <div class="modal-footer">
@@ -17902,6 +17913,12 @@ function openNewProgramModal(){
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
  const rgCheck=document.getElementById('program-requires-guardian')
  if(rgCheck) rgCheck.checked=false
+ const bundleCheck=document.getElementById('program-bundle-enabled')
+ if(bundleCheck){ bundleCheck.checked=false }
+ const bundleRow=document.getElementById('bundle-price-row')
+ if(bundleRow) bundleRow.style.display='none'
+ document.getElementById('program-bundle-price')?.value && (document.getElementById('program-bundle-price').value='')
+ document.getElementById('program-bundle-label')?.value && (document.getElementById('program-bundle-label').value='')
  openModal('modal-program')
 }
 
@@ -17922,6 +17939,14 @@ function openEditProgramModal(pid){
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
  const rgCheck=document.getElementById('program-requires-guardian')
  if(rgCheck) rgCheck.checked=!!p.requires_guardian
+ const bundleCheck=document.getElementById('program-bundle-enabled')
+ if(bundleCheck) bundleCheck.checked=!!p.bundle_enabled
+ const bundleRow=document.getElementById('bundle-price-row')
+ if(bundleRow) bundleRow.style.display=p.bundle_enabled?'':'none'
+ const bpEl=document.getElementById('program-bundle-price')
+ if(bpEl) bpEl.value=p.bundle_price?(p.bundle_price/100).toFixed(2):''
+ const blEl=document.getElementById('program-bundle-label')
+ if(blEl) blEl.value=p.bundle_label||'Book All Sessions'
  openModal('modal-program')
 }
 
@@ -18221,7 +18246,10 @@ async function saveYouthProgram(){
  description:document.getElementById('program-desc').value.trim(),
  instructor_id:document.getElementById('program-instructor').value||null,
  default_elic_id:document.getElementById('program-default-elic')?.value||null,
- requires_guardian:!!(document.getElementById('program-requires-guardian')?.checked)
+ requires_guardian:!!(document.getElementById('program-requires-guardian')?.checked),
+ bundle_enabled:!!(document.getElementById('program-bundle-enabled')?.checked),
+ bundle_price:document.getElementById('program-bundle-price')?.value||null,
+ bundle_label:document.getElementById('program-bundle-label')?.value||'Book All Sessions',
  }
  let res
  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)

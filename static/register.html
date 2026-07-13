@@ -334,6 +334,9 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
     var basePrice = program.price || 0
     var isBookingMode = !!program.booking_mode
     var maxPerReg = program.max_sessions_per_reg || 0
+    var bundleEnabled = !!program.bundle_enabled
+    var bundlePrice = program.bundle_price || null
+    var bundleLabel = program.bundle_label || 'Book All Sessions'
     function fmtTimeSess(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
 
     var today = new Date(); today.setHours(0,0,0,0)
@@ -396,9 +399,31 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
           }).join('')
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
     } else if(!allPast && !allUnavailable) {
+      // Build bundle button if enabled
+      var bundleHTML = ''
+      if(bundleEnabled && bundlePrice){
+        var individualTotal = sessions.reduce(function(sum, s){
+          return sum + ((s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice)
+        }, 0)
+        var savings = individualTotal - bundlePrice
+        bundleHTML = '<div id="bundle-option" style="border:2.5px solid #145466;border-radius:12px;padding:16px 18px;margin-bottom:16px;background:#f0f9fb;cursor:pointer" onclick="selectBundle()">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+          + '<div>'
+          + '<div style="font-size:15px;font-weight:800;color:#0d3d4d">'+escHtml(bundleLabel)+'</div>'
+          + '<div style="font-size:13px;color:#145466;margin-top:2px">All '+sessions.filter(function(s){ var p=s.start_date&&new Date(s.start_date+'T12:00:00')<new Date(new Date().toDateString()); return !p && !(s.capacity&&(s.enrolled_count||0)>=s.capacity) }).length+' available sessions included</div>'
+          + (savings > 0 ? '<div style="font-size:12px;color:#16a34a;font-weight:700;margin-top:2px">Save $'+(savings/100).toFixed(2)+' vs buying individually</div>' : '')
+          + '</div>'
+          + '<div style="text-align:right">'
+          + '<div style="font-size:22px;font-weight:800;color:#145466">$'+(bundlePrice/100).toFixed(2)+'</div>'
+          + (savings > 0 ? '<div style="font-size:11px;color:#9ca3af;text-decoration:line-through">$'+(individualTotal/100).toFixed(2)+'</div>' : '')
+          + '</div>'
+          + '</div>'
+          + '</div>'
+      }
+
       // Standard checkbox list
       sessionPickerHTML = '<div class="section-divider">Choose Your Session(s)</div>'
-        + '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>'
+        + (bundleHTML ? bundleHTML + '<div style="font-size:12px;font-weight:600;color:#6b7280;margin-bottom:8px;text-align:center">— or pick individual sessions below —</div>' : '<div style="font-size:13px;color:#6b7280;margin-bottom:10px">Select one or more sessions. Price is per session.</div>')
         + sessions.map(function(s){
             var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
             var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : '')
@@ -750,6 +775,45 @@ function addSiblingBlock(){
   refreshCheckout()
 }
 
+var bundleSelected = false
+
+function selectBundle(){
+  bundleSelected = !bundleSelected
+  var bundleEl = document.getElementById('bundle-option')
+  if(bundleEl){
+    bundleEl.style.border = bundleSelected ? '2.5px solid #16a34a' : '2.5px solid #145466'
+    bundleEl.style.background = bundleSelected ? '#f0fdf4' : '#f0f9fb'
+    bundleEl.querySelector('div').firstChild.innerHTML = bundleSelected
+      ? '<div style="font-size:15px;font-weight:800;color:#0d3d4d">'+bundleEl.querySelector('div').firstChild.querySelector('div').textContent+' <span style="color:#16a34a">Selected</span></div>'
+      : bundleEl.querySelector('div').firstChild.querySelector('div').outerHTML
+  }
+  // Check/uncheck all session checkboxes
+  document.querySelectorAll('.session-checkbox:not([disabled])').forEach(function(cb){
+    cb.checked = bundleSelected
+    var label = cb.closest('label')
+    if(label) label.classList.toggle('selected', bundleSelected)
+  })
+  // Update total display
+  updateSessionTotal()
+}
+
+function updateSessionTotal(){
+  var totalEl = document.getElementById('session-total')
+  if(!totalEl) return
+  var prog = program
+  if(bundleSelected && prog.bundle_enabled && prog.bundle_price){
+    totalEl.style.display=''
+    totalEl.textContent = 'Bundle Total: $'+(prog.bundle_price/100).toFixed(2)
+    return
+  }
+  var total = 0
+  document.querySelectorAll('.session-checkbox:not([disabled])').forEach(function(cb){
+    if(cb.checked) total += parseInt(cb.dataset.price||0)
+  })
+  totalEl.style.display = total > 0 ? '' : 'none'
+  totalEl.textContent = 'Total: $'+(total/100).toFixed(2)
+}
+
 function getSiblings(){
   var result = []
   document.querySelectorAll('.sibling-block').forEach(function(b){
@@ -804,6 +868,8 @@ async function submitRegistration(){
     custom_field_values: getCustomFieldValues(customFields),
     siblings: getSiblings(),
     session_ids: selectedSessionIds,
+    is_bundle: bundleSelected && !!(program.bundle_enabled),
+    bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
     discount_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
     payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
   }
@@ -932,10 +998,19 @@ function updateSessionPicker(){
 
   selectedSessionIds = []
   var total = 0
-  document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
-    selectedSessionIds.push(cb.dataset.sid)
-    total += parseInt(cb.dataset.price||0)
-  })
+
+  // If bundle is selected, use all available session IDs at bundle price
+  if(bundleSelected && program.bundle_enabled && program.bundle_price){
+    document.querySelectorAll('.session-checkbox:not([disabled])').forEach(function(cb){
+      selectedSessionIds.push(cb.dataset.sid)
+    })
+    total = program.bundle_price
+  } else {
+    document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
+      selectedSessionIds.push(cb.dataset.sid)
+      total += parseInt(cb.dataset.price||0)
+    })
+  }
 
   if(isBookingMode){
     // In booking mode, enforce max slots — if maxPerReg=1, uncheck others
@@ -1087,6 +1162,8 @@ function collectFormData(){
     custom_field_values: getCustomFieldValues(customFields),
     siblings: getSiblings(),
     session_ids: selectedSessionIds,
+    is_bundle: bundleSelected && !!(program.bundle_enabled),
+    bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
     promo_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
     payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
     // guardian (used if cart is otherwise empty)

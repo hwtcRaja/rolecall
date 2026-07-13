@@ -12545,8 +12545,13 @@ def create_survey():
     conn = get_db()
     sid = str(uuid.uuid4())
     import re as _re
-    slug = _re.sub(r'[^a-z0-9-]', '-', (d.get('title','survey')).lower().strip())[:50]
-    slug = _re.sub(r'-+', '-', slug).strip('-')
+    custom_slug = (d.get('slug') or '').strip()
+    if custom_slug:
+        slug = _re.sub(r'[^a-z0-9-]', '-', custom_slug.lower())
+        slug = _re.sub(r'-+', '-', slug).strip('-')
+    else:
+        slug = _re.sub(r'[^a-z0-9-]', '-', (d.get('title','survey')).lower().strip())[:50]
+        slug = _re.sub(r'-+', '-', slug).strip('-')
     # Ensure unique slug
     base_slug = slug
     counter = 1
@@ -12567,11 +12572,26 @@ def update_survey(sid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE surveys SET title=%s,description=%s,status=%s,
-        allow_anonymous=%s,require_name=%s,require_email=%s,closes_at=%s WHERE id=%s''',
-        (d.get('title',''), d.get('description',''), d.get('status','draft'),
-         bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
-         bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
+    import re as _re
+    new_slug = (d.get('slug') or '').strip()
+    if new_slug:
+        new_slug = _re.sub(r'[^a-z0-9-]', '-', new_slug.lower())
+        new_slug = _re.sub(r'-+', '-', new_slug).strip('-')
+        # Check uniqueness (excluding self)
+        existing = fetchone(conn, 'SELECT id FROM surveys WHERE slug=%s AND id!=%s', (new_slug, sid))
+        if existing:
+            conn.close(); return jsonify({'error': 'That slug is already in use'}), 400
+        execute(conn, '''UPDATE surveys SET title=%s,description=%s,status=%s,slug=%s,
+            allow_anonymous=%s,require_name=%s,require_email=%s,closes_at=%s WHERE id=%s''',
+            (d.get('title',''), d.get('description',''), d.get('status','draft'), new_slug,
+             bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
+             bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
+    else:
+        execute(conn, '''UPDATE surveys SET title=%s,description=%s,status=%s,
+            allow_anonymous=%s,require_name=%s,require_email=%s,closes_at=%s WHERE id=%s''',
+            (d.get('title',''), d.get('description',''), d.get('status','draft'),
+             bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
+             bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

@@ -15375,44 +15375,21 @@ def twilio_voice():
 
 @app.route('/twilio/hold-music', methods=['POST', 'GET'])
 def twilio_hold_music():
-    """waitUrl for conference — pauses 25s then ends conference."""
+    """waitUrl for conference — loops custom music or silence."""
     conf_name = request.args.get('conf','')
-    count = int(request.args.get('n','0'))
-
-    if count >= 1:
-        # Time's up — end conference via REST API
-        try:
-            ts2 = get_twilio_settings()
-            if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
-                import requests as _rq
-                resp = _rq.get(
-                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
-                    params={'FriendlyName': conf_name},
-                    auth=(ts2['account_sid'], ts2['auth_token']),
-                    timeout=5
-                )
-                for c in resp.json().get('conferences', []):
-                    _rq.post(
-                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
-                        data={'Status': 'completed'},
-                        auth=(ts2['account_sid'], ts2['auth_token']),
-                        timeout=5
-                    )
-        except Exception as e:
-            app.logger.warning(f'hold-music end-conf error: {e}')
-        return '''<?xml version="1.0" encoding="UTF-8"?>
-<Response><Pause length="2"/></Response>''', 200, {'Content-Type': 'text/xml'}
-
     host = 'https://rolecall.hwtco.org'
-    # Get custom hold music URL from settings
     es = get_email_settings()
     custom_music = (es.get('twilio_audio_hold_music') or es.get('twilio_hold_music_url') or '').strip()
-    music_url = custom_music if custom_music else 'https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical'
-    # First pass — play music then increment counter
-    return f'''<?xml version="1.0" encoding="UTF-8"?>
+    if custom_music:
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{music_url}</Play>
-  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}&amp;n=1</Redirect>
+  <Play loop="0">{custom_music}</Play>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    else:
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="60"/>
+  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/screen-call', methods=['POST', 'GET'])
@@ -15458,34 +15435,34 @@ def twilio_end_conf():
 
 @app.route('/twilio/oncall-no-answer', methods=['POST'])
 def twilio_oncall_no_answer():
-    """Called when on-call person doesn't answer — kick them out of conf so caller gets voicemail."""
+    """Called when on-call person doesn't answer — end conference so caller gets voicemail."""
     call_status = request.form.get('CallStatus','')
     conf_name = request.args.get('conf','')
     app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name}')
-    if call_status in ('no-answer','busy','failed','canceled'):
-        # End the conference so the caller's <Dial> times out and falls through to voicemail
+    if call_status in ('no-answer','busy','failed','canceled','completed'):
         try:
             ts2 = get_twilio_settings()
             if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
                 import requests as _rq
-                # Get conference SID and end it
                 resp = _rq.get(
                     f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
-                    params={'FriendlyName': conf_name, 'Status': 'in-progress'},
+                    params={'FriendlyName': conf_name},
                     auth=(ts2['account_sid'], ts2['auth_token']),
                     timeout=5
                 )
                 confs = resp.json().get('conferences', [])
+                app.logger.info(f'Found {len(confs)} conferences named {conf_name}')
                 for c in confs:
-                    _rq.post(
-                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
-                        data={'Status': 'completed'},
-                        auth=(ts2['account_sid'], ts2['auth_token']),
-                        timeout=5
-                    )
-                    app.logger.info(f'Ended conference {c["sid"]} due to no-answer')
+                    if c.get('status') != 'completed':
+                        result = _rq.post(
+                            f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                            data={'Status': 'completed'},
+                            auth=(ts2['account_sid'], ts2['auth_token']),
+                            timeout=5
+                        )
+                        app.logger.info(f'Ended conference {c["sid"]}: {result.status_code}')
         except Exception as e:
-            app.logger.warning(f'Conference end error: {e}')
+            app.logger.warning(f'oncall-no-answer error: {e}')
     return '', 204
 
 @app.route('/twilio/accept-call', methods=['POST'])

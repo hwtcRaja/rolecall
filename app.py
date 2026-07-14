@@ -11045,10 +11045,9 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-try:
-    _start_oncall_scheduler()
-except Exception as _sche:
-    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
+# NOTE: _start_oncall_scheduler() is invoked AFTER its definition (see below,
+# just after the def). Calling it here caused a NameError at startup because
+# the function is defined much later in the file and Python executes top-to-bottom.
 
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
@@ -14993,6 +14992,14 @@ def _start_oncall_scheduler():
     except Exception as e:
         app.logger.warning(f'Could not start scheduler (non-fatal): {e}')
 
+# Start the scheduler now that the function is defined. This runs at import time
+# under gunicorn (Railway) as well as under `python app.py`. Moved here from
+# earlier in the file where it raised: name '_start_oncall_scheduler' is not defined.
+try:
+    _start_oncall_scheduler()
+except Exception as _sche:
+    app.logger.warning(f'Scheduler start failed: {_sche}')
+
 @app.route('/api/admin/backfill-participant-data', methods=['POST'])
 def backfill_participant_data():
     err = require_auth()
@@ -15617,11 +15624,42 @@ def twilio_amd_status():
 
 @app.route('/twilio/call-status', methods=['POST'])
 def twilio_call_status():
-    """Status callback — update call log and post outcome to Slack."""
+    """Status callback — update call log and post outcome to Slack.
+
+    Bulletproof wrapper: this webhook fires on the CALLER's leg the moment the
+    <Dial>/conference ends. If it ever returns an error or throws, Twilio plays
+    the generic "an application error has occurred" message to the caller. So we
+    guarantee it always returns valid TwiML — worst case, the caller is sent to
+    voicemail instead of hearing an error.
+    """
+    try:
+        return _twilio_call_status_impl()
+    except Exception as _cs_err:
+        app.logger.error(f'twilio_call_status crashed, falling back to voicemail: {_cs_err}')
+        host = 'https://rolecall.hwtco.org'
+        try:
+            es = get_email_settings()
+            audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+            voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip() or \
+                'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        except Exception:
+            audio_voicemail = ''
+            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        vm = f'<Play>{audio_voicemail}</Play>' if audio_voicemail else f'<Say voice="Polly.Joanna">{voicemail_greeting}</Say>'
+        return (f'<?xml version="1.0" encoding="UTF-8"?>'
+                f'<Response>{vm}'
+                f'<Record maxLength="120" action="{host}/twilio/voicemail" method="POST" '
+                f'transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>'
+                f'</Response>'), 200, {'Content-Type': 'text/xml'}
+
+def _twilio_call_status_impl():
     call_sid = request.form.get('CallSid','')
     call_status = request.form.get('CallStatus','')       # from statusCallback on <Number>
     dial_status = request.form.get('DialCallStatus','')   # from action on <Dial>
-    duration = int(request.form.get('DialCallDuration', request.form.get('CallDuration', 0)) or 0)
+    try:
+        duration = int(request.form.get('DialCallDuration') or request.form.get('CallDuration') or 0)
+    except (TypeError, ValueError):
+        duration = 0
     caller = request.form.get('From','')
     app.logger.info(f'Call status: sid={call_sid} CallStatus={call_status} DialCallStatus={dial_status} duration={duration}')
     import datetime as _dtcs

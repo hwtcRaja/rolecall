@@ -15326,8 +15326,8 @@ def twilio_voice():
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial action="{host}/twilio/call-status" method="POST" timeout="20">
-    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="false" endConferenceOnExit="true" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST" statusCallbackEvent="start end join leave">{conf_name}</Conference>
+  <Dial action="{host}/twilio/call-status" method="POST" timeout="25">
+    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
   </Dial>
 </Response>'''
             # Separately call the on-call person and require them to press 1 to accept
@@ -15335,24 +15335,23 @@ def twilio_voice():
                 import requests as _rq
                 ts2 = get_twilio_settings()
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
-                    accept_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}" method="POST" timeout="15">
-    <Say voice="Polly.Joanna">You have an incoming call from Horizon West Theater Company. Press 1 to accept.</Say>
-  </Gather>
-  <Say voice="Polly.Joanna">No response received. Goodbye.</Say>
-  <Hangup/>
-</Response>'''
+                    accept_url = f'{host}/twilio/accept-call?conf={conf_name}&caller_sid={call_sid}'
                     _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
                         data={
                             'To': forward_to,
                             'From': ts2['from_phone'],
-                            'Twiml': accept_twiml,
+                            'Url': f'{host}/twilio/screen-call?conf={conf_name}',
+                            'Method': 'POST',
+                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
+                            'StatusCallbackMethod': 'POST',
+                            'StatusCallbackEvent': 'no-answer busy failed canceled',
+                            'Timeout': 20,
                         },
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
                     )
+                    app.logger.info(f'Outbound call initiated to {forward_to} for conf {conf_name}')
             except Exception as e:
                 app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
@@ -15372,6 +15371,52 @@ def twilio_voice():
         return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
 
 
+
+@app.route('/twilio/screen-call', methods=['POST', 'GET'])
+def twilio_screen_call():
+    """TwiML served to the on-call person's outbound leg — ask them to press 1."""
+    conf_name = request.args.get('conf', '')
+    host = 'https://rolecall.hwtco.org'
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}" method="POST" timeout="20">
+    <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept, or hang up to send to voicemail.</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">No response. Sending caller to voicemail. Goodbye.</Say>
+  <Hangup/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/oncall-no-answer', methods=['POST'])
+def twilio_oncall_no_answer():
+    """Called when on-call person doesn't answer — kick them out of conf so caller gets voicemail."""
+    call_status = request.form.get('CallStatus','')
+    conf_name = request.args.get('conf','')
+    app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name}')
+    if call_status in ('no-answer','busy','failed','canceled'):
+        # End the conference so the caller's <Dial> times out and falls through to voicemail
+        try:
+            ts2 = get_twilio_settings()
+            if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
+                import requests as _rq
+                # Get conference SID and end it
+                resp = _rq.get(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                    params={'FriendlyName': conf_name, 'Status': 'in-progress'},
+                    auth=(ts2['account_sid'], ts2['auth_token']),
+                    timeout=5
+                )
+                confs = resp.json().get('conferences', [])
+                for c in confs:
+                    _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                        data={'Status': 'completed'},
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=5
+                    )
+                    app.logger.info(f'Ended conference {c["sid"]} due to no-answer')
+        except Exception as e:
+            app.logger.warning(f'Conference end error: {e}')
+    return '', 204
 
 @app.route('/twilio/accept-call', methods=['POST'])
 def twilio_accept_call():

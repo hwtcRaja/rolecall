@@ -15207,6 +15207,41 @@ def set_call_thread_ts(call_sid, thread_ts):
         return row
     return None
 
+def get_oncall_now():
+    """Return the currently active on-call schedule entry, or None."""
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        import datetime as _dt
+        import json as _json
+        now = _dt.datetime.now(_ZI('America/New_York'))
+        today_str = now.strftime('%Y-%m-%d')
+        now_time = now.strftime('%H:%M')
+        weekday = now.weekday()  # 0=Monday, 6=Sunday
+
+        conn = get_db()
+        rows = fetchall(conn, '''SELECT * FROM on_call_schedule
+            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s)
+            ORDER BY start_date DESC''', (today_str, today_str)) or []
+        conn.close()
+
+        for row in rows:
+            # Check day of week
+            try:
+                days = _json.loads(row.get('days_of_week') or '[0,1,2,3,4,5,6]')
+            except Exception:
+                days = [0,1,2,3,4,5,6]
+            if weekday not in days:
+                continue
+            # Check time window
+            start_t = (row.get('start_time') or '00:00').strip()
+            end_t = (row.get('end_time') or '23:59').strip()
+            if start_t <= now_time <= end_t:
+                return row
+        return None
+    except Exception as e:
+        app.logger.error(f'get_oncall_now error: {e}')
+        return None
+
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
     """Inbound call webhook — forward to on-call person."""

@@ -15374,7 +15374,7 @@ def twilio_voice():
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial action="{host}/twilio/call-status" method="POST">
+  <Dial action="{host}/twilio/direct-voicemail" method="POST">
     <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
   </Dial>
 </Response>'''
@@ -15555,7 +15555,15 @@ def twilio_oncall_no_answer():
 
 @app.route('/twilio/direct-voicemail', methods=['POST', 'GET'])
 def twilio_direct_voicemail():
-    """Voicemail TwiML served directly to the caller when on-call doesn't answer."""
+    """Called when conference Dial exits — play voicemail if call wasn't answered."""
+    dial_status = request.form.get('DialCallStatus', '')
+    app.logger.info(f'direct-voicemail called: DialCallStatus={dial_status}')
+    # If the call was completed normally (on-call person answered and hung up), just end
+    if dial_status in ('completed', 'answered'):
+        return '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. Goodbye.</Say>
+</Response>''', 200, {'Content-Type': 'text/xml'}
     es = get_email_settings()
     host = 'https://rolecall.hwtco.org'
     voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()

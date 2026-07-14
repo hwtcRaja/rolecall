@@ -15321,13 +15321,40 @@ def twilio_voice():
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
+            # Store caller info for the conference
+            conf_name = f'hwtc-{call_sid[-8:]}'
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST" timeout="15" answerOnBridge="true">
-    <Number statusCallbackEvent="initiated ringing answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
+  <Dial action="{host}/twilio/call-status" method="POST" timeout="20">
+    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="false" endConferenceOnExit="true" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST" statusCallbackEvent="start end join leave">{conf_name}</Conference>
   </Dial>
 </Response>'''
+            # Separately call the on-call person and require them to press 1 to accept
+            try:
+                import requests as _rq
+                ts2 = get_twilio_settings()
+                if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
+                    accept_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}" method="POST" timeout="15">
+    <Say voice="Polly.Joanna">You have an incoming call from Horizon West Theater Company. Press 1 to accept.</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">No response received. Goodbye.</Say>
+  <Hangup/>
+</Response>'''
+                    _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
+                        data={
+                            'To': forward_to,
+                            'From': ts2['from_phone'],
+                            'Twiml': accept_twiml,
+                        },
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=10
+                    )
+            except Exception as e:
+                app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
@@ -15345,6 +15372,53 @@ def twilio_voice():
         return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
 
 
+
+@app.route('/twilio/accept-call', methods=['POST'])
+def twilio_accept_call():
+    """On-call person pressed 1 to accept — join them to the conference."""
+    digit = request.form.get('Digits','')
+    conf_name = request.args.get('conf','')
+    host = 'https://rolecall.hwtco.org'
+    if digit == '1' and conf_name:
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Connecting you now.</Say>
+  <Dial>
+    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">{conf_name}</Conference>
+  </Dial>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    else:
+        return '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Call declined. Goodbye.</Say>
+  <Hangup/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/amd-status', methods=['POST'])
+def twilio_amd_status():
+    """Answering Machine Detection callback — if machine detected, hang up the forwarded leg."""
+    answered_by = request.form.get('AnsweredBy', '')  # human, machine_start, machine_end_beep, machine_end_silence, fax, unknown
+    call_sid = request.form.get('CallSid', '')
+    child_call_sid = request.form.get('CallSid', '')
+    app.logger.info(f'AMD result: {answered_by} for call {call_sid}')
+
+    if answered_by in ('machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other', 'fax'):
+        # It's a voicemail — hang up the forwarded call
+        try:
+            ts = get_twilio_settings()
+            if ts.get('account_sid') and ts.get('auth_token'):
+                import requests as _rq
+                _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Calls/{child_call_sid}.json',
+                    data={'Status': 'completed'},
+                    auth=(ts['account_sid'], ts['auth_token']),
+                    timeout=5
+                )
+                app.logger.info(f'AMD: hung up machine call {child_call_sid}')
+        except Exception as e:
+            app.logger.warning(f'AMD hangup error: {e}')
+
+    return '', 204
 
 @app.route('/twilio/call-status', methods=['POST'])
 def twilio_call_status():

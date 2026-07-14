@@ -15336,6 +15336,7 @@ def twilio_voice():
             try:
                 import requests as _rq
                 ts2 = get_twilio_settings()
+                app.logger.info(f'Twilio settings: has_sid={bool(ts2.get("account_sid"))} has_token={bool(ts2.get("auth_token"))} has_phone={bool(ts2.get("from_phone"))} forward_to={forward_to}')
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
                     resp2 = _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',

@@ -1393,6 +1393,7 @@ def init_db():
             status TEXT DEFAULT 'initiated',
             duration INTEGER DEFAULT 0,
             is_after_hours BOOLEAN DEFAULT FALSE,
+            conf_name TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
@@ -1681,6 +1682,7 @@ def init_db():
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS conf_name TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
     ]:
@@ -15325,6 +15327,15 @@ def twilio_voice():
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
             conf_name = f'hwtc-{call_sid[-8:]}'
+            # Persist conf_name so the on-call person's separate leg (which only
+            # knows the conference name, not the caller's CallSid) can flip this
+            # row to 'answered' when they press 1 in /twilio/accept-call.
+            try:
+                _cc = get_db()
+                execute(_cc, 'UPDATE call_log SET conf_name=%s WHERE call_sid=%s', (conf_name, call_sid))
+                _cc.commit(); _cc.close()
+            except Exception as _ce:
+                app.logger.warning(f'Could not store conf_name for {call_sid}: {_ce}')
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
@@ -15345,19 +15356,39 @@ def twilio_voice():
                             ('From', ts2['from_phone']),
                             ('Url', f'{host}/twilio/screen-call?conf={conf_name}'),
                             ('Method', 'POST'),
-                            ('Timeout', 20),
+                            # <Dial>-style ring timeout. If the on-call person doesn't
+                            # pick up within this window the leg ends as 'no-answer'.
+                            ('Timeout', '20'),
+                            # Answering Machine Detection: the on-call person's CARRIER
+                            # voicemail will often "answer" the leg, which otherwise looks
+                            # like a human pickup and traps the caller on hold forever.
+                            # Enable async AMD so the call proceeds while Twilio decides,
+                            # then /twilio/amd-status hangs up the leg if a machine answered.
+                            ('MachineDetection', 'Enable'),
+                            ('AsyncAmd', 'true'),
+                            ('AsyncAmdStatusCallback', f'{host}/twilio/amd-status?conf={conf_name}'),
+                            ('AsyncAmdStatusCallbackMethod', 'POST'),
+                            # Status callback fires the on-call leg's progress to the
+                            # teardown handler so the waiting conference gets ended.
                             ('StatusCallback', f'{host}/twilio/oncall-no-answer?conf={conf_name}'),
                             ('StatusCallbackMethod', 'POST'),
-                            ('StatusCallbackEvent', 'no-answer'),
-                            ('StatusCallbackEvent', 'busy'),
-                            ('StatusCallbackEvent', 'failed'),
-                            ('StatusCallbackEvent', 'canceled'),
+                            # NOTE: Twilio only accepts these four StatusCallbackEvent
+                            # values: initiated, ringing, answered, completed. The old
+                            # code passed 'no-answer'/'busy'/'failed'/'canceled', which
+                            # Twilio silently ignores. 'completed' fires for ALL terminal
+                            # outcomes (busy, no-answer, failed, canceled, completed), so
+                            # subscribing to it is what we actually need for teardown.
+                            ('StatusCallbackEvent', 'initiated'),
+                            ('StatusCallbackEvent', 'ringing'),
+                            ('StatusCallbackEvent', 'answered'),
                             ('StatusCallbackEvent', 'completed'),
                         ],
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
                     )
                     app.logger.info(f'Outbound call to {forward_to} for conf {conf_name}: {resp2.status_code} {resp2.text[:200]}')
+                    if resp2.status_code >= 400:
+                        app.logger.error(f'Twilio outbound call rejected ({resp2.status_code}): {resp2.text[:300]}')
             except Exception as e:
                 app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
@@ -15442,32 +15473,61 @@ def twilio_end_conf():
 def twilio_oncall_no_answer():
     """Called when on-call person doesn't answer — end conference so caller gets voicemail."""
     call_status = request.form.get('CallStatus','')
+    answered_by = request.form.get('AnsweredBy','')  # populated when AMD is on
     conf_name = request.args.get('conf','')
-    app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name}')
-    if call_status in ('no-answer','busy','failed','canceled','completed'):
-        try:
-            ts2 = get_twilio_settings()
-            if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
-                import requests as _rq
-                resp = _rq.get(
-                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
-                    params={'FriendlyName': conf_name},
+    app.logger.info(f'On-call leg status: status={call_status} answered_by={answered_by} conf={conf_name}')
+
+    # Only tear down on terminal statuses of the on-call leg. 'completed' is
+    # included because a carrier voicemail that "answers" then hangs up reports
+    # 'completed' rather than 'no-answer' — the exact case that used to trap the
+    # caller on looping hold music.
+    if call_status not in ('no-answer', 'busy', 'failed', 'canceled', 'completed'):
+        return '', 204
+
+    # Safety guard: never end the conference if the on-call person actually
+    # accepted the call (pressed 1). /twilio/accept-call sets status='answered'.
+    # A live, bridged conversation must not be cut short by this teardown.
+    try:
+        conn = get_db()
+        row = fetchone(conn, 'SELECT status FROM call_log WHERE conf_name=%s', (conf_name,))
+        conn.close()
+        if (row or {}).get('status') == 'answered':
+            app.logger.info(f'oncall-no-answer: {conf_name} already answered by human — leaving conference intact')
+            return '', 204
+    except Exception as e:
+        app.logger.warning(f'oncall-no-answer status check failed for {conf_name}: {e}')
+
+    try:
+        ts2 = get_twilio_settings()
+        if not (ts2.get('account_sid') and ts2.get('auth_token') and conf_name):
+            app.logger.error(f'oncall-no-answer: cannot end conf {conf_name} — missing Twilio creds or conf name')
+            return '', 204
+        import requests as _rq
+        resp = _rq.get(
+            f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+            params={'FriendlyName': conf_name, 'Status': 'in-progress'},
+            auth=(ts2['account_sid'], ts2['auth_token']),
+            timeout=5
+        )
+        if resp.status_code >= 400:
+            app.logger.error(f'oncall-no-answer: conference lookup failed ({resp.status_code}): {resp.text[:300]}')
+            return '', 204
+        confs = resp.json().get('conferences', [])
+        app.logger.info(f'oncall-no-answer: found {len(confs)} active conference(s) named {conf_name}')
+        for c in confs:
+            if c.get('status') != 'completed':
+                result = _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                    data={'Status': 'completed'},
                     auth=(ts2['account_sid'], ts2['auth_token']),
                     timeout=5
                 )
-                confs = resp.json().get('conferences', [])
-                app.logger.info(f'Found {len(confs)} conferences named {conf_name}')
-                for c in confs:
-                    if c.get('status') != 'completed':
-                        result = _rq.post(
-                            f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
-                            data={'Status': 'completed'},
-                            auth=(ts2['account_sid'], ts2['auth_token']),
-                            timeout=5
-                        )
-                        app.logger.info(f'Ended conference {c["sid"]}: {result.status_code}')
-        except Exception as e:
-            app.logger.warning(f'oncall-no-answer error: {e}')
+                if result.status_code >= 400:
+                    app.logger.error(f'oncall-no-answer: FAILED to end conference {c["sid"]} ({result.status_code}): {result.text[:300]}')
+                else:
+                    app.logger.info(f'oncall-no-answer: ended conference {c["sid"]} ({result.status_code}) — caller will fall through to voicemail')
+    except Exception as e:
+        app.logger.error(f'oncall-no-answer error while ending conf {conf_name}: {e}')
     return '', 204
 
 @app.route('/twilio/accept-call', methods=['POST'])
@@ -15476,6 +15536,17 @@ def twilio_accept_call():
     digit = request.form.get('Digits','')
     conf_name = request.args.get('conf','')
     if digit == '1' and conf_name:
+        # The on-call person accepted — mark the call as genuinely answered by a
+        # human. /twilio/call-status uses this flag to decide whether the caller
+        # was actually helped or should fall through to voicemail. Matching on the
+        # conf name keeps this correct even across concurrent calls.
+        try:
+            conn = get_db()
+            execute(conn, "UPDATE call_log SET status='answered', updated_at=NOW() WHERE conf_name=%s",
+                    (conf_name,))
+            conn.commit(); conn.close()
+        except Exception as e:
+            app.logger.warning(f'accept-call: could not mark answered for {conf_name}: {e}')
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">Connecting now.</Say>
@@ -15495,25 +15566,52 @@ def twilio_accept_call():
 def twilio_amd_status():
     """Answering Machine Detection callback — if machine detected, hang up the forwarded leg."""
     answered_by = request.form.get('AnsweredBy', '')  # human, machine_start, machine_end_beep, machine_end_silence, fax, unknown
-    call_sid = request.form.get('CallSid', '')
-    child_call_sid = request.form.get('CallSid', '')
-    app.logger.info(f'AMD result: {answered_by} for call {call_sid}')
+    # This is the on-call person's OUTBOUND leg. Its CallSid here is that leg's SID.
+    oncall_leg_sid = request.form.get('CallSid', '')
+    conf_name = request.args.get('conf', '')
+    app.logger.info(f'AMD result: answered_by={answered_by} oncall_leg={oncall_leg_sid} conf={conf_name}')
 
     if answered_by in ('machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other', 'fax'):
-        # It's a voicemail — hang up the forwarded call
+        # The on-call person's CARRIER VOICEMAIL picked up (not a human). Without
+        # this, the leg looks "answered", the screen-call prompt plays into their
+        # voicemail, nobody presses 1, and the caller is stranded on hold music.
         try:
             ts = get_twilio_settings()
-            if ts.get('account_sid') and ts.get('auth_token'):
-                import requests as _rq
-                _rq.post(
-                    f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Calls/{child_call_sid}.json',
+            if not (ts.get('account_sid') and ts.get('auth_token')):
+                app.logger.error('AMD: missing Twilio creds — cannot hang up machine leg')
+                return '', 204
+            import requests as _rq
+            # 1) Hang up the on-call leg that hit voicemail.
+            if oncall_leg_sid:
+                r1 = _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Calls/{oncall_leg_sid}.json',
                     data={'Status': 'completed'},
                     auth=(ts['account_sid'], ts['auth_token']),
                     timeout=5
                 )
-                app.logger.info(f'AMD: hung up machine call {child_call_sid}')
+                if r1.status_code >= 400:
+                    app.logger.error(f'AMD: failed to hang up machine leg {oncall_leg_sid} ({r1.status_code}): {r1.text[:200]}')
+                else:
+                    app.logger.info(f'AMD: hung up machine leg {oncall_leg_sid} ({r1.status_code})')
+            # 2) End the caller's waiting conference so they fall through to
+            #    voicemail instead of looping on hold music forever.
+            if conf_name:
+                lookup = _rq.get(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Conferences.json',
+                    params={'FriendlyName': conf_name, 'Status': 'in-progress'},
+                    auth=(ts['account_sid'], ts['auth_token']),
+                    timeout=5
+                )
+                for c in (lookup.json().get('conferences', []) if lookup.status_code < 400 else []):
+                    r2 = _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Conferences/{c["sid"]}.json',
+                        data={'Status': 'completed'},
+                        auth=(ts['account_sid'], ts['auth_token']),
+                        timeout=5
+                    )
+                    app.logger.info(f'AMD: ended conference {c["sid"]} ({r2.status_code}) after machine detection')
         except Exception as e:
-            app.logger.warning(f'AMD hangup error: {e}')
+            app.logger.error(f'AMD hangup error (conf {conf_name}): {e}')
 
     return '', 204
 
@@ -15539,20 +15637,39 @@ def twilio_call_status():
     host = 'https://rolecall.hwtco.org'
     def mins(s): return f'{s//60}m {s%60}s' if s>=60 else f'{s}s'
 
+    # Was the caller ACTUALLY bridged to a human? /twilio/accept-call flips the
+    # log row to 'answered' only when the on-call person presses 1. This is the
+    # source of truth — NOT DialCallStatus. When the on-call person never picks up
+    # we force-end the waiting conference, and Twilio then reports the caller's
+    # <Dial> as DialCallStatus='completed' (because they WERE connected to a
+    # conference), even though no human ever joined. The old code trusted that
+    # 'completed' and marked the call answered + returned an empty response, so the
+    # caller never reached voicemail and stayed stuck on looping hold music.
+    human_answered = ((row or {}).get('status') == 'answered')
+
     # Case 1: <Dial> action fired — this is the definitive call outcome
     if dial_status:
-        if dial_status == 'completed':
+        play_voicemail = False
+        if dial_status == 'completed' and human_answered:
             status = 'answered'
             emoji = '✅'
             status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
+        elif dial_status == 'completed':
+            # Conference ended but nobody pressed 1 — caller was never helped.
+            status = 'missed'
+            emoji = '❌'
+            status_text = f'MISSED — {person_name} did not answer (conference ended, no pickup)'
+            play_voicemail = True
         elif dial_status in ('no-answer','busy'):
             status = 'missed'
             emoji = '❌'
             status_text = f'MISSED — {person_name} did not answer'
-        elif dial_status == 'failed':
-            status = 'failed'
+            play_voicemail = True
+        elif dial_status in ('failed', 'canceled'):
+            status = 'failed' if dial_status == 'failed' else 'missed'
             emoji = '🔴'
-            status_text = f'Failed to connect to {person_name}'
+            status_text = f'Could not connect to {person_name} ({dial_status})'
+            play_voicemail = True
         else:
             status = dial_status
             emoji = '❓'
@@ -15570,8 +15687,10 @@ def twilio_call_status():
                 f'{emoji} *{status_text}*'}},
         ], text=f'{emoji} {status_text}', thread_ts=thread_ts)
 
-        # If not answered, play HWTC voicemail instead of hanging up
-        if dial_status in ('no-answer', 'busy', 'failed', 'canceled'):
+        # If the caller was not actually helped, play the HWTC voicemail greeting
+        # and record a message instead of returning an empty response (which would
+        # drop them back into the still-looping conference / dead air).
+        if play_voicemail:
             es = get_email_settings()
             voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
             audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
@@ -15594,14 +15713,13 @@ def twilio_call_status():
 
         return '', 204
 
-    # Case 2: statusCallback on <Number> fired (in-progress updates like answered)
-    if call_status == 'in-progress':
-        try:
-            conn3 = get_db()
-            execute(conn3, "UPDATE call_log SET status='answered', updated_at=NOW() WHERE call_sid=%s", (call_sid,))
-            conn3.commit(); conn3.close()
-        except Exception:
-            pass
+    # Case 2: statusCallback fired with in-progress. NOTE: for this conference
+    # design 'in-progress' also fires when the CALLER simply enters the waiting
+    # conference (hold music) — that is NOT a human pickup. Only treat it as
+    # answered if the on-call person actually accepted (pressed 1), which
+    # /twilio/accept-call records as status='answered'. Otherwise leave the row
+    # as-is so the eventual <Dial> action can still route the caller to voicemail.
+    if call_status == 'in-progress' and human_answered:
         thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':

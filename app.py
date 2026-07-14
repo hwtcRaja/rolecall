@@ -14751,6 +14751,51 @@ def save_lobby_banner():
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/upload/image', methods=['POST'])
+def upload_image():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    # Validate image type
+    allowed = {'png','jpg','jpeg','gif','webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed:
+        return jsonify({'error': 'File must be an image (PNG, JPG, GIF, WEBP)'}), 400
+    try:
+        import base64 as _b64, uuid as _uuid
+        content = file.read()
+        b64 = _b64.b64encode(content).decode()
+        filename = f'volunteer-photo-{str(_uuid.uuid4())[:8]}.{ext}'
+        # Try to upload to GitHub static images
+        import os as _os, requests as _rq
+        github_token = _os.environ.get('GITHUB_TOKEN','')
+        github_repo = _os.environ.get('GITHUB_REPO','hwtcRaja/rolecall')
+        if github_token and github_repo:
+            path = f'static/images/{filename}'
+            resp = _rq.put(
+                f'https://api.github.com/repos/{github_repo}/contents/{path}',
+                headers={'Authorization': f'token {github_token}', 'Content-Type': 'application/json'},
+                json={'message': f'Upload volunteer photo {filename}', 'content': b64},
+                timeout=15
+            )
+            if resp.status_code in (200, 201):
+                url = f'https://raw.githubusercontent.com/{github_repo}/main/{path}'
+                return jsonify({'ok': True, 'url': url})
+        # Fallback: save to local static/images
+        import os
+        save_path = os.path.join('static', 'images', filename)
+        with open(save_path, 'wb') as f_out:
+            f_out.write(content)
+        url = f'/static/images/{filename}'
+        return jsonify({'ok': True, 'url': url})
+    except Exception as e:
+        app.logger.error(f'Image upload error: {e}')
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/twilio/audio/upload', methods=['POST'])
 def upload_twilio_audio():
     err = require_auth()

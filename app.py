@@ -15321,13 +15321,11 @@ def twilio_voice():
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
-            # Store caller info for the conference
-            conf_name = f'hwtc-{call_sid[-8:]}'
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial action="{host}/twilio/call-status" method="POST" timeout="25">
-    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
+  <Dial action="{host}/twilio/call-status" method="POST" timeout="22">
+    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="false" endConferenceOnExit="true" maxParticipants="2" waitUrlMethod="GET">{conf_name}</Conference>
   </Dial>
 </Response>'''
             # Separately call the on-call person and require them to press 1 to accept
@@ -15335,7 +15333,6 @@ def twilio_voice():
                 import requests as _rq
                 ts2 = get_twilio_settings()
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
-                    accept_url = f'{host}/twilio/accept-call?conf={conf_name}&caller_sid={call_sid}'
                     _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
                         data={
@@ -15343,9 +15340,6 @@ def twilio_voice():
                             'From': ts2['from_phone'],
                             'Url': f'{host}/twilio/screen-call?conf={conf_name}',
                             'Method': 'POST',
-                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
-                            'StatusCallbackMethod': 'POST',
-                            'StatusCallbackEvent': 'no-answer busy failed canceled',
                             'Timeout': 20,
                         },
                         auth=(ts2['account_sid'], ts2['auth_token']),

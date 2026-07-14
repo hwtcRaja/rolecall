@@ -15369,24 +15369,43 @@ def twilio_voice():
 
 @app.route('/twilio/hold-music', methods=['POST', 'GET'])
 def twilio_hold_music():
-    """waitUrl for conference — plays music then ends conference after 25s if nobody joined."""
+    """waitUrl for conference — plays music, then after one loop ends the conference."""
     conf_name = request.args.get('conf','')
     host = 'https://rolecall.hwtco.org'
-    # This TwiML plays 25s of music then redirects to end-conf
-    # The waitUrl loops, so we track via a counter param
     count = int(request.args.get('n','0'))
+
     if count >= 1:
-        # Already played one loop (~25s) — end the conference
-        return f'''<?xml version="1.0" encoding="UTF-8"?>
+        # Already played one loop — end the conference via API and tell caller to wait
+        try:
+            ts2 = get_twilio_settings()
+            if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
+                import requests as _rq
+                resp = _rq.get(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                    params={'FriendlyName': conf_name},
+                    auth=(ts2['account_sid'], ts2['auth_token']),
+                    timeout=5
+                )
+                for c in resp.json().get('conferences', []):
+                    _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                        data={'Status': 'completed'},
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=5
+                    )
+        except Exception as e:
+            app.logger.warning(f'hold-music end-conf error: {e}')
+        # Return pause TwiML — conference ending will kick the caller out anyway
+        return '''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">We were unable to reach our team. Please leave a message after the tone.</Say>
-  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}</Redirect>
+  <Pause length="2"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
-    # First loop — play music for ~25s via Pause, then increment counter
+
+    # First pass — play the music track then increment counter
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>https://com.twilio.music.classical.s3.amazonaws.com/ith_brahms-116-5-intermezzo.mp3</Play>
-  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}&amp;n={count+1}</Redirect>
+  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}&amp;n=1</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/screen-call', methods=['POST', 'GET'])

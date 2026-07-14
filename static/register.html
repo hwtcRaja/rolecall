@@ -590,13 +590,17 @@ function buildPaymentOptions(prog){
   // Compute effective price per participant from sessions if enabled
   var effectivePrice = price
   if(program.sessions_enabled && selectedSessionIds.length > 0){
-    var sessionTotal = 0
-    ;(program._sessions||[]).forEach(function(s){
-      if(selectedSessionIds.indexOf(s.id) !== -1){
-        sessionTotal += (s.price_override !== null && s.price_override !== undefined) ? s.price_override : (program.price||0)
-      }
-    })
-    effectivePrice = sessionTotal
+    if(bundleSelected && program.bundle_enabled && program.bundle_price){
+      effectivePrice = program.bundle_price
+    } else {
+      var sessionTotal = 0
+      ;(program._sessions||[]).forEach(function(s){
+        if(selectedSessionIds.indexOf(s.id) !== -1){
+          sessionTotal += (s.price_override !== null && s.price_override !== undefined) ? s.price_override : (program.price||0)
+        }
+      })
+      effectivePrice = sessionTotal
+    }
   }
   const basket = effectivePrice * numParticipants
   const totalDiscount = promoDiscount + sibDiscount

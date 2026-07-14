@@ -801,18 +801,26 @@ function selectBundle(){
   if(bundleEl){
     bundleEl.style.border = bundleSelected ? '2.5px solid #16a34a' : '2.5px solid #145466'
     bundleEl.style.background = bundleSelected ? '#f0fdf4' : '#f0f9fb'
-    bundleEl.querySelector('div').firstChild.innerHTML = bundleSelected
-      ? '<div style="font-size:15px;font-weight:800;color:#0d3d4d">'+bundleEl.querySelector('div').firstChild.querySelector('div').textContent+' <span style="color:#16a34a">Selected</span></div>'
-      : bundleEl.querySelector('div').firstChild.querySelector('div').outerHTML
+    var titleEl = bundleEl.querySelector('.option-title') || bundleEl.querySelector('div > div > div')
+    if(titleEl) titleEl.textContent = bundleSelected
+      ? (program.bundle_label||'Book All Sessions') + ' ✓ Selected'
+      : (program.bundle_label||'Book All Sessions')
   }
   // Check/uncheck all session checkboxes
+  selectedSessionIds = []
   document.querySelectorAll('.session-checkbox:not([disabled])').forEach(function(cb){
     cb.checked = bundleSelected
     var label = cb.closest('label')
     if(label) label.classList.toggle('selected', bundleSelected)
+    if(bundleSelected && cb.dataset.sid) selectedSessionIds.push(cb.dataset.sid)
   })
   // Update total display
   updateSessionTotal()
+  // Rebuild payment section with correct price
+  var paySection = document.getElementById('payment-options-section')
+  if(paySection && program){
+    paySection.innerHTML = buildPaymentOptions(program)
+  }
 }
 
 function updateSessionTotal(){

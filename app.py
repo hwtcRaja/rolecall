@@ -15389,7 +15389,7 @@ def twilio_voice():
                         data={
                             'To': forward_to,
                             'From': ts2['from_phone'],
-                            'Url': f'{host}/twilio/screen-call?conf={conf_name}',
+                            'Url': f'{host}/twilio/screen-call?conf={conf_name}&caller_sid={call_sid}',
                             'Method': 'POST',
                             'Timeout': 20,
                             'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}&caller_sid={call_sid}',
@@ -15443,10 +15443,11 @@ def twilio_hold_music():
 def twilio_screen_call():
     """TwiML for the on-call person's outbound leg — ask them to press 1."""
     conf_name = request.args.get('conf', '')
+    caller_sid = request.args.get('caller_sid', '')
     host = 'https://rolecall.hwtco.org'
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}" method="POST" timeout="20">
+  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}&amp;caller_sid={caller_sid}" method="POST" timeout="20">
     <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept.</Say>
   </Gather>
   <Say voice="Polly.Joanna">No response. Sending to voicemail.</Say>
@@ -15555,17 +15556,29 @@ def twilio_oncall_no_answer():
 
 @app.route('/twilio/direct-voicemail', methods=['POST', 'GET'])
 def twilio_direct_voicemail():
-    """Called when conference Dial exits — play voicemail if call wasn't answered."""
+    """Called when conference Dial exits — play voicemail unless call was answered."""
     dial_status = request.form.get('DialCallStatus', '')
-    app.logger.info(f'direct-voicemail called: DialCallStatus={dial_status}')
-    # If the call was completed normally (on-call person answered and hung up), just end
-    if dial_status in ('completed', 'answered'):
-        return '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. Goodbye.</Say>
-</Response>''', 200, {'Content-Type': 'text/xml'}
+    call_sid = request.form.get('CallSid', '')
+    app.logger.info(f'direct-voicemail called: DialCallStatus={dial_status} CallSid={call_sid}')
     es = get_email_settings()
     host = 'https://rolecall.hwtco.org'
+
+    # Check if the call was actually answered (on-call person joined and talked)
+    # We check the call_logs table for a 'answered' status
+    try:
+        conn = get_db()
+        log = fetchone(conn, 'SELECT * FROM call_logs WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        was_answered = log and log.get('status') in ('answered', 'connected', 'completed')
+        app.logger.info(f'direct-voicemail: was_answered={was_answered} log_status={log.get("status") if log else None}')
+    except Exception as e:
+        app.logger.warning(f'direct-voicemail log check error: {e}')
+        was_answered = False
+
+    if was_answered:
+        return '''<?xml version="1.0" encoding="UTF-8"?>
+<Response/>''', 200, {'Content-Type': 'text/xml'}
+
     voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
     audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
     no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
@@ -15589,13 +15602,22 @@ def twilio_accept_call():
     digit = request.form.get('Digits','')
     conf_name = request.args.get('conf','')
     if digit == '1' and conf_name:
+        # Mark the call as answered in call_logs
+        try:
+            caller_sid = request.args.get('caller_sid','')
+            if caller_sid:
+                conn = get_db()
+                execute(conn, "UPDATE call_logs SET status='answered' WHERE call_sid=%s", (caller_sid,))
+                conn.commit(); conn.close()
+        except Exception as e:
+            app.logger.warning(f'accept-call log update error: {e}')
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">Connecting now.</Say>
   <Dial>
     <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="true">{conf_name}</Conference>
   </Dial>
-</Response>''', 200, {{'Content-Type': 'text/xml'}}
+</Response>''', 200, {'Content-Type': 'text/xml'}
     else:
         # Declined or no response — hang up, caller stays in conf waiting until timeout
         return '''<?xml version="1.0" encoding="UTF-8"?>

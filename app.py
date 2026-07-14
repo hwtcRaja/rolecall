@@ -15321,33 +15321,34 @@ def twilio_voice():
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
+            conf_name = f'hwtc-{call_sid[-8:]}'
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial action="{host}/twilio/call-status" method="POST" timeout="22">
-    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="false" endConferenceOnExit="true" maxParticipants="2" waitUrlMethod="GET">{conf_name}</Conference>
+  <Dial action="{host}/twilio/call-status" method="POST">
+    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
   </Dial>
 </Response>'''
-            # Separately call the on-call person and require them to press 1 to accept
+            # Separately call the on-call person with a whisper to press 1
             try:
                 import requests as _rq
                 ts2 = get_twilio_settings()
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
                     _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
-                        data={
+                        data={{
                             'To': forward_to,
                             'From': ts2['from_phone'],
                             'Url': f'{host}/twilio/screen-call?conf={conf_name}',
                             'Method': 'POST',
                             'Timeout': 20,
-                        },
+                        }},
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
                     )
-                    app.logger.info(f'Outbound call initiated to {forward_to} for conf {conf_name}')
+                    app.logger.info(f'Outbound call initiated to {{forward_to}} for conf {{conf_name}}')
             except Exception as e:
-                app.logger.warning(f'Outbound call to on-call failed: {e}')
+                app.logger.warning(f'Outbound call to on-call failed: {{e}}')
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
@@ -15368,17 +15369,44 @@ def twilio_voice():
 
 @app.route('/twilio/screen-call', methods=['POST', 'GET'])
 def twilio_screen_call():
-    """TwiML served to the on-call person's outbound leg — ask them to press 1."""
+    """TwiML for the on-call person's outbound leg — ask them to press 1."""
     conf_name = request.args.get('conf', '')
     host = 'https://rolecall.hwtco.org'
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}" method="POST" timeout="20">
-    <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept, or hang up to send to voicemail.</Say>
+    <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept.</Say>
   </Gather>
-  <Say voice="Polly.Joanna">No response. Sending caller to voicemail. Goodbye.</Say>
-  <Hangup/>
+  <Say voice="Polly.Joanna">No response. Sending to voicemail.</Say>
+  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/end-conf', methods=['POST'])
+def twilio_end_conf():
+    """End the waiting conference so the caller falls through to voicemail."""
+    conf_name = request.args.get('conf','')
+    app.logger.info(f'Ending conference: {conf_name}')
+    try:
+        ts2 = get_twilio_settings()
+        if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
+            import requests as _rq
+            resp = _rq.get(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                params={'FriendlyName': conf_name},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            for c in resp.json().get('conferences', []):
+                _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                    data={'Status': 'completed'},
+                    auth=(ts2['account_sid'], ts2['auth_token']),
+                    timeout=5
+                )
+                app.logger.info(f'Ended conference {c["sid"]}')
+    except Exception as e:
+        app.logger.warning(f'end-conf error: {e}')
+    return '', 204
 
 @app.route('/twilio/oncall-no-answer', methods=['POST'])
 def twilio_oncall_no_answer():
@@ -15414,22 +15442,22 @@ def twilio_oncall_no_answer():
 
 @app.route('/twilio/accept-call', methods=['POST'])
 def twilio_accept_call():
-    """On-call person pressed 1 to accept — join them to the conference."""
+    """On-call person pressed 1 — join conference to bridge call."""
     digit = request.form.get('Digits','')
     conf_name = request.args.get('conf','')
-    host = 'https://rolecall.hwtco.org'
     if digit == '1' and conf_name:
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Connecting you now.</Say>
+  <Say voice="Polly.Joanna">Connecting now.</Say>
   <Dial>
-    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">{conf_name}</Conference>
+    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="true">{conf_name}</Conference>
   </Dial>
-</Response>''', 200, {'Content-Type': 'text/xml'}
+</Response>''', 200, {{'Content-Type': 'text/xml'}}
     else:
+        # Declined or no response — hang up, caller stays in conf waiting until timeout
         return '''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Call declined. Goodbye.</Say>
+  <Say voice="Polly.Joanna">Sending to voicemail. Goodbye.</Say>
   <Hangup/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 

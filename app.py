@@ -15324,11 +15324,9 @@ def twilio_voice():
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
-    <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
+  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST" timeout="25" answerOnBridge="true">
+    <Number statusCallbackEvent="initiated ringing answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
   </Dial>
-  {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
-  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
         else:
             ts_val = post_to_slack_calls([
@@ -15400,6 +15398,29 @@ def twilio_call_status():
             {'type':'section','text':{'type':'mrkdwn','text':
                 f'{emoji} *{status_text}*'}},
         ], text=f'{emoji} {status_text}', thread_ts=thread_ts)
+
+        # If not answered, play HWTC voicemail instead of hanging up
+        if dial_status in ('no-answer', 'busy', 'failed', 'canceled'):
+            es = get_email_settings()
+            voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+            audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+            no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+            if not voicemail_greeting:
+                voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+            if not no_answer_msg:
+                no_answer_msg = 'We were unable to reach our team right now. Please leave a message after the tone.'
+            def say_or_play_vm(text, audio_url):
+                if audio_url: return f'<Play>{audio_url}</Play>'
+                return f'<Say voice="Polly.Joanna">{text}</Say>'
+            host = 'https://rolecall.hwtco.org'
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play_vm(no_answer_msg, '')}
+  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
         return '', 204
 
     # Case 2: statusCallback on <Number> fired (in-progress updates like answered)

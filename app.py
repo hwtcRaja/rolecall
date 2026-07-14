@@ -15326,10 +15326,10 @@ def twilio_voice():
 <Response>
   {say_or_play(greeting, audio_greeting)}
   <Dial action="{host}/twilio/call-status" method="POST">
-    <Conference waitUrl="https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical" waitMethod="GET" beep="false" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
+    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
   </Dial>
 </Response>'''
-            # Separately call the on-call person with a whisper to press 1
+            # Separately call the on-call person
             try:
                 import requests as _rq
                 ts2 = get_twilio_settings()
@@ -15366,6 +15366,28 @@ def twilio_voice():
         return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
 
 
+
+@app.route('/twilio/hold-music', methods=['POST', 'GET'])
+def twilio_hold_music():
+    """waitUrl for conference — plays music then ends conference after 25s if nobody joined."""
+    conf_name = request.args.get('conf','')
+    host = 'https://rolecall.hwtco.org'
+    # This TwiML plays 25s of music then redirects to end-conf
+    # The waitUrl loops, so we track via a counter param
+    count = int(request.args.get('n','0'))
+    if count >= 1:
+        # Already played one loop (~25s) — end the conference
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">We were unable to reach our team. Please leave a message after the tone.</Say>
+  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}</Redirect>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    # First loop — play music for ~25s via Pause, then increment counter
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>https://com.twilio.music.classical.s3.amazonaws.com/ith_brahms-116-5-intermezzo.mp3</Play>
+  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}&amp;n={count+1}</Redirect>
+</Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/screen-call', methods=['POST', 'GET'])
 def twilio_screen_call():

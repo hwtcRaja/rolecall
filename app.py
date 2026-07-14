@@ -6984,6 +6984,7 @@ def save_email_settings_route():
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
         'twilio_voice_voicemail','twilio_audio_voicemail',
+        'twilio_hold_music_url','twilio_audio_hold_music',
         'slack_call_webhook',
         'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
         'slack_bot_token','slack_call_channel']
@@ -14396,6 +14397,8 @@ def run_migrations_manual():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_hold_music_url TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_audio_hold_music TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
@@ -15342,6 +15345,9 @@ def twilio_voice():
                             'Url': f'{host}/twilio/screen-call?conf={conf_name}',
                             'Method': 'POST',
                             'Timeout': 20,
+                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
+                            'StatusCallbackMethod': 'POST',
+                            'StatusCallbackEvent': 'no-answer busy failed canceled completed',
                         }},
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
@@ -15369,13 +15375,12 @@ def twilio_voice():
 
 @app.route('/twilio/hold-music', methods=['POST', 'GET'])
 def twilio_hold_music():
-    """waitUrl for conference — plays music, then after one loop ends the conference."""
+    """waitUrl for conference — pauses 25s then ends conference."""
     conf_name = request.args.get('conf','')
-    host = 'https://rolecall.hwtco.org'
     count = int(request.args.get('n','0'))
 
     if count >= 1:
-        # Already played one loop — end the conference via API and tell caller to wait
+        # Time's up — end conference via REST API
         try:
             ts2 = get_twilio_settings()
             if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
@@ -15395,16 +15400,18 @@ def twilio_hold_music():
                     )
         except Exception as e:
             app.logger.warning(f'hold-music end-conf error: {e}')
-        # Return pause TwiML — conference ending will kick the caller out anyway
         return '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Pause length="2"/>
-</Response>''', 200, {'Content-Type': 'text/xml'}
+<Response><Pause length="2"/></Response>''', 200, {'Content-Type': 'text/xml'}
 
-    # First pass — play the music track then increment counter
+    host = 'https://rolecall.hwtco.org'
+    # Get custom hold music URL from settings
+    es = get_email_settings()
+    custom_music = (es.get('twilio_audio_hold_music') or es.get('twilio_hold_music_url') or '').strip()
+    music_url = custom_music if custom_music else 'https://twimlets.com/holdmusic?Bucket=com.twilio.music.classical'
+    # First pass — play music then increment counter
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>https://com.twilio.music.classical.s3.amazonaws.com/ith_brahms-116-5-intermezzo.mp3</Play>
+  <Play>{music_url}</Play>
   <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}&amp;n=1</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 

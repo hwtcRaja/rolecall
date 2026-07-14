@@ -15392,7 +15392,7 @@ def twilio_voice():
                             'Url': f'{host}/twilio/screen-call?conf={conf_name}',
                             'Method': 'POST',
                             'Timeout': 20,
-                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
+                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}&caller_sid={call_sid}',
                             'StatusCallbackMethod': 'POST',
                             'StatusCallbackEvent': 'no-answer busy failed canceled completed',
                         },
@@ -15482,35 +15482,98 @@ def twilio_end_conf():
 
 @app.route('/twilio/oncall-no-answer', methods=['POST'])
 def twilio_oncall_no_answer():
-    """Called when on-call person doesn't answer — end conference so caller gets voicemail."""
+    """Called when on-call person doesn't answer — redirect caller directly to voicemail."""
     call_status = request.form.get('CallStatus','')
     conf_name = request.args.get('conf','')
-    app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name}')
-    if call_status in ('no-answer','busy','failed','canceled','completed'):
+    caller_sid = request.args.get('caller_sid','')
+    app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name} caller_sid={caller_sid}')
+
+    if call_status not in ('no-answer','busy','failed','canceled'):
+        return '', 204
+
+    try:
+        import requests as _rq
+        ts2 = get_twilio_settings()
+        es = get_email_settings()
+        host = 'https://rolecall.hwtco.org'
+
+        if not ts2.get('account_sid') or not ts2.get('auth_token'):
+            return '', 204
+
+        # Build voicemail TwiML
+        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+        audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+        if not voicemail_greeting:
+            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        if not no_answer_msg:
+            no_answer_msg = 'We were unable to reach our on-call team.'
+
+        def say_or_play_vm(text, audio_url):
+            if audio_url: return f'<Play>{audio_url}</Play>'
+            return f'<Say voice="Polly.Joanna">{text}</Say>'
+
+        voicemail_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play_vm(no_answer_msg, '')}
+  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>'''
+
+        # Redirect the caller's call leg directly to voicemail
+        if caller_sid:
+            result = _rq.post(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls/{caller_sid}.json',
+                data={'Url': f'{host}/twilio/direct-voicemail', 'Method': 'POST'},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            app.logger.info(f'Redirected caller {caller_sid} to voicemail: {result.status_code} {result.text[:100]}')
+
+        # Also end the conference
         try:
-            ts2 = get_twilio_settings()
-            if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
-                import requests as _rq
-                resp = _rq.get(
-                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
-                    params={'FriendlyName': conf_name},
-                    auth=(ts2['account_sid'], ts2['auth_token']),
-                    timeout=5
-                )
-                confs = resp.json().get('conferences', [])
-                app.logger.info(f'Found {len(confs)} conferences named {conf_name}')
-                for c in confs:
-                    if c.get('status') != 'completed':
-                        result = _rq.post(
-                            f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
-                            data={'Status': 'completed'},
-                            auth=(ts2['account_sid'], ts2['auth_token']),
-                            timeout=5
-                        )
-                        app.logger.info(f'Ended conference {c["sid"]}: {result.status_code}')
-        except Exception as e:
-            app.logger.warning(f'oncall-no-answer error: {e}')
+            conf_resp = _rq.get(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                params={'FriendlyName': conf_name},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            for c in conf_resp.json().get('conferences', []):
+                if c.get('status') != 'completed':
+                    _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                        data={'Status': 'completed'},
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=5
+                    )
+        except Exception as e2:
+            app.logger.warning(f'Conference end error: {e2}')
+
+    except Exception as e:
+        app.logger.warning(f'oncall-no-answer error: {e}')
     return '', 204
+
+@app.route('/twilio/direct-voicemail', methods=['POST', 'GET'])
+def twilio_direct_voicemail():
+    """Voicemail TwiML served directly to the caller when on-call doesn't answer."""
+    es = get_email_settings()
+    host = 'https://rolecall.hwtco.org'
+    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+    audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+    if not voicemail_greeting:
+        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+    if not no_answer_msg:
+        no_answer_msg = 'We were unable to reach our on-call team.'
+    def say_or_play_vm(text, audio_url):
+        if audio_url: return f'<Play>{audio_url}</Play>'
+        return f'<Say voice="Polly.Joanna">{text}</Say>'
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play_vm(no_answer_msg, '')}
+  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/accept-call', methods=['POST'])
 def twilio_accept_call():

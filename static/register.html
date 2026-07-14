@@ -625,30 +625,40 @@ function buildPaymentOptions(prog){
     + '</div>'
 
   // Order summary (when price > 0)
-  if(price > 0){
+  if(effectivePrice > 0){
     html += '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:14px">'
       + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#6b7280;margin-bottom:10px">Order Summary</div>'
 
     // Session line items
     if(program.sessions_enabled && selectedSessionIds.length > 0){
-      var sessions = program._sessions || []
-      selectedSessionIds.forEach(function(sid){
-        var s = sessions.find(function(x){ return x.id===sid })
-        if(!s) return
-        var sp = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : (program.price||0)
+      if(bundleSelected && program.bundle_enabled && program.bundle_price){
+        // Bundle — show single line
+        var bundleLbl = program.bundle_label || 'Bundle — All Sessions'
         if(numParticipants === 1){
-          html += summaryLine(escHtml(s.name), sp)
+          html += summaryLine(escHtml(bundleLbl), program.bundle_price)
         } else {
-          html += summaryLine(escHtml(s.name)+' &times; '+numParticipants, sp*numParticipants)
+          html += summaryLine(escHtml(bundleLbl)+' &times; '+numParticipants, program.bundle_price*numParticipants)
         }
-      })
+      } else {
+        var sessions = program._sessions || []
+        selectedSessionIds.forEach(function(sid){
+          var s = sessions.find(function(x){ return x.id===sid })
+          if(!s) return
+          var sp = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : (program.price||0)
+          if(numParticipants === 1){
+            html += summaryLine(escHtml(s.name), sp)
+          } else {
+            html += summaryLine(escHtml(s.name)+' &times; '+numParticipants, sp*numParticipants)
+          }
+        })
+      }
     } else {
       // Base line
       if(numParticipants === 1){
-        html += summaryLine((isProduction?'Production':'Program')+' fee', price)
+        html += summaryLine((isProduction?'Production':'Program')+' fee', effectivePrice)
       } else {
         html += summaryLine((isProduction?'Production':'Program')+' fee &times; '+numParticipants+' participants', basket)
-          + '<div style="font-size:12px;color:#9ca3af;margin:-4px 0 8px 4px">$'+(price/100).toFixed(2)+' each</div>'
+          + '<div style="font-size:12px;color:#9ca3af;margin:-4px 0 8px 4px">$'+(effectivePrice/100).toFixed(2)+' each</div>'
       }
     }
 

@@ -2827,7 +2827,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin:14px 0 10px;padding-top:14px;border-top:1px solid var(--border)">Portal / Instructor Profile</div>
- <div class="form-group"><label>Photo URL <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><input type="text" id="vol-photo-url" placeholder="https://..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Direct image URL only. For Google Drive: share the file, then use <code>https://drive.google.com/uc?export=view&amp;id=FILE_ID</code></div></div>
+ <div class="form-group"><label>Profile Photo <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label>
+  <div style="display:flex;align-items:center;gap:10px">
+   <div id="vol-photo-preview" style="width:56px;height:56px;border-radius:50%;background:var(--bg);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:20px"></div>
+   <div style="flex:1">
+    <input type="hidden" id="vol-photo-url"/>
+    <label style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--surface);border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary);margin:0">
+     Upload Photo
+     <input type="file" accept="image/*" style="display:none" onchange="uploadVolunteerPhoto(this)"/>
+    </label>
+    <button type="button" onclick="document.getElementById('vol-photo-url').value='';document.getElementById('vol-photo-preview').innerHTML=''" style="margin-left:6px;padding:7px 12px;background:none;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;cursor:pointer;color:var(--text-muted)">Remove</button>
+    <div id="vol-photo-upload-status" style="font-size:11px;color:var(--teal-dark);margin-top:4px"></div>
+   </div>
+  </div>
+ </div>
  <div class="form-group"><label>Bio <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><textarea id="vol-bio" rows="3" placeholder="A short bio shown to enrolled families..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
@@ -7132,6 +7145,11 @@ function openEditVolModal(volId){
  if(epEl) epEl.value=v.employer_program||''
  const bioEl=document.getElementById('vol-bio'); if(bioEl) bioEl.value=v.bio||''
  const photoEl=document.getElementById('vol-photo-url'); if(photoEl) photoEl.value=v.photo_url||''
+ const photoPreview=document.getElementById('vol-photo-preview')
+ if(photoPreview){
+  if(v.photo_url) photoPreview.innerHTML='<img src="'+v.photo_url+'" style="width:100%;height:100%;object-fit:cover"/>'
+  else photoPreview.innerHTML=''
+ }
 
  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
  try{
@@ -7592,6 +7610,31 @@ function exportSurveyCSV(){
  var a=document.createElement('a')
  a.href=url; a.download=data.survey.slug+'-results.csv'; a.click()
  URL.revokeObjectURL(url)
+}
+
+async function uploadVolunteerPhoto(input){
+ const file = input.files[0]
+ if(!file) return
+ const status = document.getElementById('vol-photo-upload-status')
+ const preview = document.getElementById('vol-photo-preview')
+ if(status) status.textContent = 'Uploading...'
+ try{
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('type', 'volunteer_photo')
+  const r = await fetch('/api/upload/image', {method:'POST', body: formData})
+  const d = await r.json()
+  if(d.url){
+   document.getElementById('vol-photo-url').value = d.url
+   if(preview) preview.innerHTML = '<img src="'+d.url+'" style="width:100%;height:100%;object-fit:cover"/>'
+   if(status) status.textContent = 'Photo uploaded!'
+   setTimeout(function(){ if(status) status.textContent='' }, 3000)
+  } else {
+   if(status) status.textContent = d.error || 'Upload failed'
+  }
+ } catch(e){
+  if(status) status.textContent = 'Upload failed'
+ }
 }
 
 async function loadSettings(){

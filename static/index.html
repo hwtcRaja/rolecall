@@ -1962,6 +1962,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <input type="time" id="es-twilio-cov-end" value="22:00"/>
    </div>
   </div>
+
+  <div class="form-group" style="margin-bottom:12px">
+   <label>Hold Music <span style="font-weight:400;color:var(--text-muted)">— played while caller waits to be connected</span></label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="es-twilio-hold-music" placeholder="URL to MP3 (leave blank for default classical music)" style="flex:1"/>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">Upload MP3<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'hold_music')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-hold_music-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
+  </div>
  </div>
  <div class="form-group" style="margin-bottom:12px">
   <label>Slack Bot Token <span style="font-weight:400;color:var(--text-muted)">— for threading support (starts with xoxb-)</span></label>
@@ -8321,6 +8330,8 @@ async function saveTwilioSettings(){
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
   twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
   twilio_audio_after_hours: window._twilioAudio?.after_hours||'',
+  twilio_audio_hold_music: window._twilioAudio?.hold_music||'',
+  twilio_hold_music_url: (document.getElementById('es-twilio-hold-music')||{}).value||'',
   twilio_audio_voicemail: window._twilioAudio?.voicemail||''
  }
  const res = await api('/api/email-settings','PUT',data)
@@ -8345,6 +8356,7 @@ function loadTwilioSettings(s){
  set('es-twilio-voicemail', s.twilio_voice_voicemail||'')
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
+ set('es-twilio-hold-music', s.twilio_hold_music_url||'')
  set('es-twilio-slack-webhook', s.slack_call_webhook||'')
  set('es-slack-bot-token', s.slack_bot_token||'')
  set('es-slack-channel', s.slack_call_channel||'')
@@ -8357,7 +8369,8 @@ function loadTwilioSettings(s){
   no_answer: s.twilio_audio_no_answer||'',
   unavailable: s.twilio_audio_unavailable||'',
   after_hours: s.twilio_audio_after_hours||'',
-  voicemail: s.twilio_audio_voicemail||''
+  voicemail: s.twilio_audio_voicemail||'',
+  hold_music: s.twilio_audio_hold_music||''
  }
  // Show existing audio status
  Object.keys(window._twilioAudio).forEach(function(key){

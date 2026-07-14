@@ -15324,7 +15324,7 @@ def twilio_voice():
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST" timeout="25" answerOnBridge="true">
+  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST" timeout="15" answerOnBridge="true">
     <Number statusCallbackEvent="initiated ringing answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
   </Dial>
 </Response>'''

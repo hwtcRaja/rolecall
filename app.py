@@ -15337,9 +15337,9 @@ def twilio_voice():
                 import requests as _rq
                 ts2 = get_twilio_settings()
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
-                    _rq.post(
+                    resp2 = _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
-                        data={{
+                        data={
                             'To': forward_to,
                             'From': ts2['from_phone'],
                             'Url': f'{host}/twilio/screen-call?conf={conf_name}',
@@ -15348,13 +15348,13 @@ def twilio_voice():
                             'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
                             'StatusCallbackMethod': 'POST',
                             'StatusCallbackEvent': 'no-answer busy failed canceled completed',
-                        }},
+                        },
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
                     )
-                    app.logger.info(f'Outbound call initiated to {{forward_to}} for conf {{conf_name}}')
+                    app.logger.info(f'Outbound call to {forward_to} for conf {conf_name}: {resp2.status_code} {resp2.text[:200]}')
             except Exception as e:
-                app.logger.warning(f'Outbound call to on-call failed: {{e}}')
+                app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':

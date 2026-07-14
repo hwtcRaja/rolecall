@@ -15394,7 +15394,10 @@ def twilio_voice():
                             'Timeout': 20,
                             'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}&caller_sid={call_sid}',
                             'StatusCallbackMethod': 'POST',
-                            'StatusCallbackEvent': 'no-answer busy failed canceled completed',
+                            'StatusCallbackEvent[0]': 'no-answer',
+                            'StatusCallbackEvent[1]': 'busy',
+                            'StatusCallbackEvent[2]': 'failed',
+                            'StatusCallbackEvent[3]': 'canceled',
                         },
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
@@ -15567,7 +15570,7 @@ def twilio_direct_voicemail():
     # We check the call_logs table for a 'answered' status
     try:
         conn = get_db()
-        log = fetchone(conn, 'SELECT * FROM call_logs WHERE call_sid=%s', (call_sid,))
+        log = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
         conn.close()
         was_answered = log and log.get('status') in ('answered', 'connected', 'completed')
         app.logger.info(f'direct-voicemail: was_answered={was_answered} log_status={log.get("status") if log else None}')
@@ -15607,7 +15610,7 @@ def twilio_accept_call():
             caller_sid = request.args.get('caller_sid','')
             if caller_sid:
                 conn = get_db()
-                execute(conn, "UPDATE call_logs SET status='answered' WHERE call_sid=%s", (caller_sid,))
+                execute(conn, "UPDATE call_log SET status='answered' WHERE call_sid=%s", (caller_sid,))
                 conn.commit(); conn.close()
         except Exception as e:
             app.logger.warning(f'accept-call log update error: {e}')

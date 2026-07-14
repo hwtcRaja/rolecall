@@ -15340,16 +15340,20 @@ def twilio_voice():
                 if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
                     resp2 = _rq.post(
                         f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
-                        data={
-                            'To': forward_to,
-                            'From': ts2['from_phone'],
-                            'Url': f'{host}/twilio/screen-call?conf={conf_name}',
-                            'Method': 'POST',
-                            'Timeout': 20,
-                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}',
-                            'StatusCallbackMethod': 'POST',
-                            'StatusCallbackEvent': 'no-answer busy failed canceled completed',
-                        },
+                        data=[
+                            ('To', forward_to),
+                            ('From', ts2['from_phone']),
+                            ('Url', f'{host}/twilio/screen-call?conf={conf_name}'),
+                            ('Method', 'POST'),
+                            ('Timeout', 20),
+                            ('StatusCallback', f'{host}/twilio/oncall-no-answer?conf={conf_name}'),
+                            ('StatusCallbackMethod', 'POST'),
+                            ('StatusCallbackEvent', 'no-answer'),
+                            ('StatusCallbackEvent', 'busy'),
+                            ('StatusCallbackEvent', 'failed'),
+                            ('StatusCallbackEvent', 'canceled'),
+                            ('StatusCallbackEvent', 'completed'),
+                        ],
                         auth=(ts2['account_sid'], ts2['auth_token']),
                         timeout=10
                     )
@@ -15478,7 +15482,7 @@ def twilio_accept_call():
   <Dial>
     <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="true">{conf_name}</Conference>
   </Dial>
-</Response>''', 200, {{'Content-Type': 'text/xml'}}
+</Response>''', 200, {'Content-Type': 'text/xml'}
     else:
         # Declined or no response — hang up, caller stays in conf waiting until timeout
         return '''<?xml version="1.0" encoding="UTF-8"?>

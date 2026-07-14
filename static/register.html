@@ -173,7 +173,11 @@ async function init(){
   // Load sessions if enabled (programs only for now)
   if(program.sessions_enabled && !isProduction){
     const sd = await apiFetch('/api/public/program/'+slug+'/sessions')
-    program._sessions = Array.isArray(sd) ? sd : []
+    program._sessions = Array.isArray(sd) ? sd.slice().sort(function(a,b){
+      var da = (a.start_date||'9999') + (a.start_time||'')
+      var db = (b.start_date||'9999') + (b.start_time||'')
+      return da < db ? -1 : da > db ? 1 : 0
+    }) : []
   }
   renderPage()
   updateHeaderCart()
@@ -1050,15 +1054,25 @@ function updateSessionPicker(){
   if(totalEl){
     if(selectedSessionIds.length > 0){
       totalEl.style.display = ''
-      totalEl.textContent = selectedSessionIds.length+' slot'+(selectedSessionIds.length===1?'':'s')+' selected'+(total>0?' — $'+(total/100).toFixed(2)+'/person':'')
+      var displayTotal = (bundleSelected && program.bundle_enabled && program.bundle_price) ? program.bundle_price : total
+      var bundleLabel = (bundleSelected && program.bundle_enabled) ? (program.bundle_label||'Bundle') : null
+      totalEl.textContent = bundleLabel
+        ? bundleLabel + ' — $'+(displayTotal/100).toFixed(2)
+        : selectedSessionIds.length+' slot'+(selectedSessionIds.length===1?'':'s')+' selected'+(displayTotal>0?' — $'+(displayTotal/100).toFixed(2)+'/person':'')
     } else {
       totalEl.style.display = 'none'
     }
   }
-  // Refresh payment options
+  // Refresh payment options using effective price
   var paySection = document.getElementById('payment-options-section')
   if(paySection && program && program.price >= 0){
-    paySection.innerHTML = buildPaymentOptions(program)
+    var progForPayment = Object.assign({}, program)
+    if(bundleSelected && program.bundle_enabled && program.bundle_price){
+      progForPayment = Object.assign({}, program, {price: program.bundle_price})
+    } else if(total > 0){
+      progForPayment = Object.assign({}, program, {price: total})
+    }
+    paySection.innerHTML = buildPaymentOptions(progForPayment)
   }
 }
 

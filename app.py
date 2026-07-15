@@ -2288,6 +2288,24 @@ def set_event_status(eid):
         return jsonify({'error': f'Invalid status: {status}'}), 400
     conn = get_db()
     execute(conn, 'UPDATE events SET status=%s WHERE id=%s', (status, eid))
+    # The kiosk determines open/closed state purely from the latest event_logs
+    # row (not events.status), so admin-side status changes need a matching
+    # log entry or they won't be reflected on the kiosk.
+    if status in ('open', 'closed'):
+        try:
+            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+            if system_elic_id:
+                action = 'open' if status == 'open' else 'close'
+                notes = f'Status set to {status} via admin'
+                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                    VALUES (%s,%s,%s,%s,%s,'')''',
+                    (str(uuid.uuid4()), eid, system_elic_id, action, notes))
+            else:
+                app.logger.warning('set_event_status: no elic found, skipping event_logs entry')
+        except Exception as e:
+            app.logger.warning(f'set_event_status log entry failed (non-fatal): {e}')
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
     conn.close()
@@ -2299,6 +2317,9 @@ def update_event(eid):
     if err: return err
     d = request.json or {}
     conn = get_db()
+    prev = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (eid,))
+    prev_status = prev.get('status') if prev else None
+    new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
@@ -2310,8 +2331,24 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), d.get('status','draft'),
+         d.get('rsvp_message',''), new_status,
          d.get('carpools_enabled', False), eid))
+    # Kiosk state is driven by event_logs, not events.status — if the status
+    # actually changed to open/closed here, mirror it into event_logs too.
+    if new_status != prev_status and new_status in ('open', 'closed'):
+        try:
+            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+            if system_elic_id:
+                action = 'open' if new_status == 'open' else 'close'
+                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                    VALUES (%s,%s,%s,%s,%s,'')''',
+                    (str(uuid.uuid4()), eid, system_elic_id, action, f'Status set to {new_status} via admin edit'))
+            else:
+                app.logger.warning('update_event: no elic found, skipping event_logs entry')
+        except Exception as e:
+            app.logger.warning(f'update_event log entry failed (non-fatal): {e}')
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,

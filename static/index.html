@@ -20210,6 +20210,8 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-show-almost" '+(prog.show_almost_sold_out!==false?'checked':'')+' style="accent-color:var(--teal)"/> Show "Almost Sold Out" badge when &ge;90% full</label>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-show-sold-out-strikethrough" '+(prog.show_sold_out_strikethrough?'checked':'')+' style="accent-color:var(--teal)"/> Show sold-out sessions with <span style="text-decoration:line-through;color:#9ca3af">strikethrough</span> instead of hiding them</label>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-sessions-enabled" '+(prog.sessions_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable sessions for this program</label>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-booking-mode" '+(prog.booking_mode?'checked':'')+' style="accent-color:var(--teal)"/> Booking Mode (studio/slot reservations — one slot per booking)</label>'
@@ -20905,6 +20907,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     max_sessions_per_reg: parseInt((document.getElementById('rs-max-sessions')||{}).value||0)||0,
     show_capacity_public: (document.getElementById('rs-show-capacity')||{}).checked!==false,
     show_almost_sold_out: (document.getElementById('rs-show-almost')||{}).checked!==false,
+    show_sold_out_strikethrough: !!(document.getElementById('rs-show-sold-out-strikethrough')||{}).checked,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,

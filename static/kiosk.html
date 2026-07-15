@@ -1467,15 +1467,17 @@ function startCountdownTimers(){
       if(!e.start_time||!e.event_date) return
       try{
         const parts=e.start_time.toString().split(':')
-        const start=new Date(e.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00')
-        const mins=(start-now)/60000
+        const startStr=e.event_date+'T'+parts[0].padStart(2,'0')+':'+parts[1].padStart(2,'0')+':00'
+        const startMs=new Date(startStr).getTime()
+        const unlockMs=startMs-60*60*1000
+        const mins=(unlockMs-now)/60000
         if(mins<=60){
           // Crossed the threshold — re-render to show the Open button
           clearInterval(_countdownTimer)
           renderElicMenu()
           return
         }
-        const totalSecs=Math.max(0,Math.round((start-now)/1000))
+        const totalSecs=Math.max(0,Math.round((unlockMs-now.getTime())/1000))
         const d=Math.floor(totalSecs/86400)
         const h=Math.floor((totalSecs%86400)/3600)
         const m=Math.floor((totalSecs%3600)/60)

@@ -15338,6 +15338,7 @@ def twilio_voice():
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
         oncall = get_oncall_now()
+        app.logger.info(f'oncall lookup: {oncall}')
         forward_to = (oncall or {}).get('phone') or ts['fallback']
         person_name = (oncall or {}).get('person_name') or 'our team'
         greeting = (es.get('twilio_voice_greeting') or '').strip()

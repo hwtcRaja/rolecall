@@ -15375,7 +15375,7 @@ def twilio_voice():
 <Response>
   {say_or_play(greeting, audio_greeting)}
   <Dial action="{host}/twilio/direct-voicemail" method="POST">
-    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="true" maxParticipants="2">{conf_name}</Conference>
+    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="false" maxParticipants="2">{conf_name}</Conference>
   </Dial>
 </Response>'''
             # Separately call the on-call person
@@ -15618,7 +15618,7 @@ def twilio_accept_call():
 <Response>
   <Say voice="Polly.Joanna">Connecting now.</Say>
   <Dial>
-    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="true">{conf_name}</Conference>
+    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">{conf_name}</Conference>
   </Dial>
 </Response>''', 200, {'Content-Type': 'text/xml'}
     else:

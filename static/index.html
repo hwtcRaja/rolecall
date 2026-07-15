@@ -23465,6 +23465,14 @@ async function renderMarqueeCatalog(el){
   // RS Productions with registration enabled
   var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
 
+  // Session-level enrollment (for programs with sessions_enabled), keyed by program_id
+  var sessByProg = {}
+  try{
+    var overviewData = await api('/api/marquee/overview')
+    var sessions = (overviewData && overviewData.session_breakdown) || []
+    sessions.forEach(function(s){ if(!sessByProg[s.program_id]) sessByProg[s.program_id]=[]; sessByProg[s.program_id].push(s) })
+  } catch(e){}
+
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
   var statusBadge = {
     open:'background:#dcfce7;color:#166534',
@@ -23493,6 +23501,26 @@ async function renderMarqueeCatalog(el){
     var settingsFn = type==='production'
       ? 'openProductionRegistrationSettingsModal(\''+item.id+'\')'
       : 'openRegistrationSettingsModal(\''+item.id+'\')'
+    var enrolledCount = item.reg_enrolled||item.registration_count||0
+    var progSessions = item.sessions_enabled ? (sessByProg[item.id] || []) : []
+    // Flat capacity sold-out badge only applies when the program isn't session-based
+    var isSoldOut = !item.sessions_enabled && !!item.capacity && enrolledCount >= item.capacity
+    // Per-session rows for session-based programs
+    var sessionsHTML = ''
+    if(progSessions.length){
+      sessionsHTML = '<div style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px">'
+        + progSessions.map(function(s){
+            var sConfirmed = s.confirmed_count||0
+            var sSoldOut = !!s.capacity && sConfirmed >= s.capacity
+            return '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;padding:4px 8px;background:#f9fafb;border-radius:6px">'
+              + '<span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(s.name||'')+'</span>'
+              + (sSoldOut
+                  ? '<span style="flex-shrink:0;padding:1px 6px;border-radius:20px;font-size:9px;font-weight:700;background:#fee2e2;color:#991b1b">SOLD OUT</span>'
+                  : '<span style="flex-shrink:0;color:var(--text-muted)">'+(s.capacity ? sConfirmed+' / '+s.capacity : sConfirmed+' enrolled')+'</span>')
+              + '</div>'
+          }).join('')
+        + '</div>'
+    }
     return '<div class="card" style="padding:0;overflow:hidden">'
       + '<div style="height:4px;background:'+(type==='production'?'#7c3aed':'#145466')+'"></div>'
       + '<div style="padding:16px">'
@@ -23502,11 +23530,13 @@ async function renderMarqueeCatalog(el){
       + '<div style="display:flex;gap:4px;flex-wrap:wrap">'
       + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+typeBg+';color:'+typeColor+'">'+typeLabel+'</span>'
       + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;'+badge+'">'+st.replace('_',' ')+'</span>'
+      + (isSoldOut ? '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#fee2e2;color:#991b1b">SOLD OUT</span>' : '')
       + '</div></div></div>'
       + (item.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+fmtDate(item.start_date)+(item.end_date&&item.end_date!==item.start_date?' – '+fmtDate(item.end_date):'')+'</div>' : '')
       + (item.price ? '<div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">$'+(item.price/100).toFixed(2)+'/participant</div>'
                     : '<div style="font-size:13px;font-weight:700;color:#166534;margin-bottom:8px">Free</div>')
-      + (item.capacity ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+(item.reg_enrolled||item.registration_count||0)+' / '+item.capacity+' spots filled</div>' : '')
+      + (item.capacity && !item.sessions_enabled ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+enrolledCount+' / '+item.capacity+' spots filled</div>' : '')
+      + sessionsHTML
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       + '<button class="btn btn-secondary btn-sm" onclick="'+settingsFn+'" style="font-size:11px;padding:5px 10px">Settings</button>'
       + (item.slug ? '<a href="'+regUrl+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:5px 10px;text-decoration:none">Reg Page</a>' : '')

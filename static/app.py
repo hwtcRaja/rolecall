@@ -1163,6 +1163,10 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
         """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS requires_guardian BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS show_sold_out_strikethrough BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_enabled BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_price INTEGER DEFAULT NULL""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS bundle_label TEXT DEFAULT 'Book All Sessions'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_note TEXT DEFAULT ''""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sessions_enabled BOOLEAN DEFAULT FALSE""",
@@ -2876,12 +2880,15 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
                  d.get('default_elic_id') or None,
-                 bool(d.get('requires_guardian', False))))
+                 bool(d.get('requires_guardian', False)),
+                 bool(d.get('bundle_enabled', False)),
+                 int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
+                 d.get('bundle_label') or 'Book All Sessions'))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -2897,13 +2904,17 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
              d.get('default_elic_id') or None,
              bool(d.get('requires_guardian', False)),
-             d.get('status','active'), pid))
+             d.get('status','active'),
+             bool(d.get('bundle_enabled', False)),
+             int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
+             d.get('bundle_label') or 'Book All Sessions',
+             pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -4428,6 +4439,7 @@ def save_registration_settings(pid):
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
         booking_mode=%s, max_sessions_per_reg=%s, show_capacity_public=%s, show_almost_sold_out=%s,
+        show_sold_out_strikethrough=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
@@ -4447,6 +4459,7 @@ def save_registration_settings(pid):
          int(d.get('max_sessions_per_reg') or 0),
          bool(d.get('show_capacity_public', True)),
          bool(d.get('show_almost_sold_out', True)),
+         bool(d.get('show_sold_out_strikethrough', False)),
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
@@ -6974,6 +6987,7 @@ def save_email_settings_route():
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
         'twilio_audio_greeting','twilio_audio_no_answer','twilio_audio_unavailable','twilio_audio_after_hours',
         'twilio_voice_voicemail','twilio_audio_voicemail',
+        'twilio_hold_music_url','twilio_audio_hold_music',
         'slack_call_webhook',
         'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
         'slack_bot_token','slack_call_channel']
@@ -9466,10 +9480,13 @@ def kiosk_close_event():
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
         # Auto-log ELIC hours based on time from open to close
+        # Wrapped in a SAVEPOINT so a failure here can never poison/roll back
+        # the rest of this transaction (status update, checklist, hours approval).
         try:
-            open_log = fetchone(conn, '''SELECT el.created_at FROM event_logs el
+            execute(conn, 'SAVEPOINT elic_hours_sp')
+            open_log = fetchone(conn, '''SELECT el.timestamp FROM event_logs el
                 WHERE el.event_id=%s AND el.elic_id=%s AND el.action='open'
-                ORDER BY el.created_at DESC LIMIT 1''', (event_id, elic_id))
+                ORDER BY el.timestamp DESC LIMIT 1''', (event_id, elic_id))
             elic_vol = fetchone(conn, '''SELECT v.id, v.name, e.name as event_name
                 FROM elics el
                 JOIN volunteers v ON v.id=el.volunteer_id
@@ -9477,10 +9494,13 @@ def kiosk_close_event():
                 WHERE el.id=%s''', (event_id, elic_id))
             if open_log and elic_vol:
                 import datetime as _dtel
-                open_time = open_log['created_at']
-                close_time = _dtel.datetime.now()
+                from zoneinfo import ZoneInfo as _ZIelic
+                open_time = open_log['timestamp']
+                close_time = _dtel.datetime.now(_ZIelic('America/New_York'))
                 if isinstance(open_time, str):
                     open_time = _dtel.datetime.fromisoformat(open_time)
+                if open_time.tzinfo is None:
+                    open_time = open_time.replace(tzinfo=_ZIelic('America/New_York'))
                 duration_hrs = round((close_time - open_time).total_seconds() / 3600, 2)
                 duration_hrs = max(0.25, duration_hrs)  # minimum 15 min
                 today = close_time.strftime('%Y-%m-%d')
@@ -9490,8 +9510,15 @@ def kiosk_close_event():
                     (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
                      today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
                 app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
+            execute(conn, 'RELEASE SAVEPOINT elic_hours_sp')
         except Exception as e:
             app.logger.warning(f'ELIC auto-hours error (non-fatal): {e}')
+            try:
+                execute(conn, 'ROLLBACK TO SAVEPOINT elic_hours_sp')
+            except Exception as e2:
+                app.logger.error(f'Failed to rollback to savepoint, aborting close: {e2}')
+                conn.rollback(); conn.close()
+                return jsonify({'error': 'Internal error closing event, please try again'}), 500
 
         conn.commit()
         # Send checklist report email
@@ -9501,7 +9528,7 @@ def kiosk_close_event():
             if recipients:
                 evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
                 evt_name = evt['name'] if evt else event_id
-                now_str = __import__('datetime').datetime.now().strftime('%I:%M %p')
+                now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%I:%M %p')
                 # Get opening checklist from the open log
                 open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
                     LEFT JOIN elics eli ON el.elic_id=eli.id
@@ -13088,23 +13115,33 @@ def public_submit_registration(slug):
     if sessions_enabled and session_ids:
         import datetime as _dtsess
         today_str = _dtsess.date.today().isoformat()
-        # Block if all sessions have passed
-        all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
-        if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
-            conn.close()
-            return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
-        for sid in session_ids:
-            sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
-                (sid, p['id'], 'open'))
-            if sr:
-                if sr.get('start_date') and sr['start_date'] < today_str:
-                    conn.close()
-                    return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
-                session_rows.append(sr)
-                sp = sr.get('price_override') if sr.get('price_override') is not None else price
-                session_price_total += sp
-        # When sessions are used, effective per-participant price = sum of selected session prices
-        price = session_price_total
+        # Check if bundle price override is being used
+        bundle_price_override = d.get('bundle_price_override')
+        if d.get('is_bundle') and bundle_price_override:
+            # Validate all session IDs belong to program and aren't past
+            for sid in session_ids:
+                sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s', (sid, p['id']))
+                if sr:
+                    session_rows.append(sr)
+            session_price_total = int(bundle_price_override)
+            price = session_price_total
+        else:
+            # Block if all sessions have passed
+            all_sessions = fetchall(conn, "SELECT * FROM program_sessions WHERE program_id=%s AND status='open'", (p['id'],)) or []
+            if all_sessions and all(s.get('start_date','') < today_str for s in all_sessions if s.get('start_date')):
+                conn.close()
+                return jsonify({'error': 'Registration is closed — all sessions for this program have already taken place.'}), 400
+            for sid in session_ids:
+                sr = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s AND status=%s',
+                    (sid, p['id'], 'open'))
+                if sr:
+                    if sr.get('start_date') and sr['start_date'] < today_str:
+                        conn.close()
+                        return jsonify({'error': f'Session "{sr.get("name","")}" has already passed and is no longer available.'}), 400
+                    session_rows.append(sr)
+                    sp = sr.get('price_override') if sr.get('price_override') is not None else price
+                    session_price_total += sp
+            price = session_price_total
 
     # Siblings (additional children in same order)
     siblings = d.get('siblings') or []
@@ -14376,6 +14413,8 @@ def run_migrations_manual():
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_phone TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_fallback_phone TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_hold_music_url TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_audio_hold_music TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
@@ -14727,6 +14766,51 @@ def save_lobby_banner():
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/upload/image', methods=['POST'])
+def upload_image():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    # Validate image type
+    allowed = {'png','jpg','jpeg','gif','webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed:
+        return jsonify({'error': 'File must be an image (PNG, JPG, GIF, WEBP)'}), 400
+    try:
+        import base64 as _b64, uuid as _uuid
+        content = file.read()
+        b64 = _b64.b64encode(content).decode()
+        filename = f'volunteer-photo-{str(_uuid.uuid4())[:8]}.{ext}'
+        # Try to upload to GitHub static images
+        import os as _os, requests as _rq
+        github_token = _os.environ.get('GITHUB_TOKEN','')
+        github_repo = _os.environ.get('GITHUB_REPO','hwtcRaja/rolecall')
+        if github_token and github_repo:
+            path = f'static/images/{filename}'
+            resp = _rq.put(
+                f'https://api.github.com/repos/{github_repo}/contents/{path}',
+                headers={'Authorization': f'token {github_token}', 'Content-Type': 'application/json'},
+                json={'message': f'Upload volunteer photo {filename}', 'content': b64},
+                timeout=15
+            )
+            if resp.status_code in (200, 201):
+                url = f'https://raw.githubusercontent.com/{github_repo}/main/{path}'
+                return jsonify({'ok': True, 'url': url})
+        # Fallback: save to local static/images
+        import os
+        save_path = os.path.join('static', 'images', filename)
+        with open(save_path, 'wb') as f_out:
+            f_out.write(content)
+        url = f'/static/images/{filename}'
+        return jsonify({'ok': True, 'url': url})
+    except Exception as e:
+        app.logger.error(f'Image upload error: {e}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/twilio/audio/upload', methods=['POST'])
 def upload_twilio_audio():
@@ -15187,9 +15271,45 @@ def set_call_thread_ts(call_sid, thread_ts):
         return row
     return None
 
+def get_oncall_now():
+    """Return the currently active on-call schedule entry, or None."""
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        import datetime as _dt
+        import json as _json
+        now = _dt.datetime.now(_ZI('America/New_York'))
+        today_str = now.strftime('%Y-%m-%d')
+        now_time = now.strftime('%H:%M')
+        weekday = now.weekday()  # 0=Monday, 6=Sunday
+
+        conn = get_db()
+        rows = fetchall(conn, '''SELECT * FROM on_call_schedule
+            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s)
+            ORDER BY start_date DESC''', (today_str, today_str)) or []
+        conn.close()
+
+        for row in rows:
+            # Check day of week
+            try:
+                days = _json.loads(row.get('days_of_week') or '[0,1,2,3,4,5,6]')
+            except Exception:
+                days = [0,1,2,3,4,5,6]
+            if weekday not in days:
+                continue
+            # Check time window
+            start_t = (row.get('start_time') or '00:00').strip()
+            end_t = (row.get('end_time') or '23:59').strip()
+            if start_t <= now_time <= end_t:
+                return row
+        return None
+    except Exception as e:
+        app.logger.error(f'get_oncall_now error: {e}')
+        return None
+
 @app.route('/twilio/voice', methods=['POST'])
 def twilio_voice():
     """Inbound call webhook — forward to on-call person."""
+    app.logger.info(f'twilio_voice called: {dict(request.form)}')
     FALLBACK_TWIML = '''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">Thank you for calling Horizon West Theater Company. We are currently unavailable. Please try again later or send us a text message.</Say>
@@ -15234,6 +15354,7 @@ def twilio_voice():
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
         oncall = get_oncall_now()
+        app.logger.info(f'oncall lookup: {oncall}')
         forward_to = (oncall or {}).get('phone') or ts['fallback']
         person_name = (oncall or {}).get('person_name') or 'our team'
         greeting = (es.get('twilio_voice_greeting') or '').strip()
@@ -15266,15 +15387,41 @@ def twilio_voice():
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
+            conf_name = f'hwtc-{call_sid[-8:]}'
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   {say_or_play(greeting, audio_greeting)}
-  <Dial callerId="{request.form.get('To','')}" action="{host}/twilio/call-status" method="POST">
-    <Number statusCallbackEvent="answered completed" statusCallback="{host}/twilio/call-status" statusCallbackMethod="POST">{forward_to}</Number>
+  <Dial action="{host}/twilio/direct-voicemail" method="POST">
+    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="false" maxParticipants="2">{conf_name}</Conference>
   </Dial>
-  {say_or_play(voicemail_greeting, audio_voicemail_greeting)}
-  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
+            # Separately call the on-call person
+            try:
+                import requests as _rq
+                ts2 = get_twilio_settings()
+                app.logger.info(f'Twilio settings: has_sid={bool(ts2.get("account_sid"))} has_token={bool(ts2.get("auth_token"))} has_phone={bool(ts2.get("from_phone"))} forward_to={forward_to}')
+                if ts2.get('account_sid') and ts2.get('auth_token') and ts2.get('from_phone'):
+                    resp2 = _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls.json',
+                        data={
+                            'To': forward_to,
+                            'From': ts2['from_phone'],
+                            'Url': f'{host}/twilio/screen-call?conf={conf_name}&caller_sid={call_sid}',
+                            'Method': 'POST',
+                            'Timeout': 20,
+                            'StatusCallback': f'{host}/twilio/oncall-no-answer?conf={conf_name}&caller_sid={call_sid}',
+                            'StatusCallbackMethod': 'POST',
+                            'StatusCallbackEvent[0]': 'no-answer',
+                            'StatusCallbackEvent[1]': 'busy',
+                            'StatusCallbackEvent[2]': 'failed',
+                            'StatusCallbackEvent[3]': 'canceled',
+                        },
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=10
+                    )
+                    app.logger.info(f'Outbound call to {forward_to} for conf {conf_name}: {resp2.status_code} {resp2.text[:200]}')
+            except Exception as e:
+                app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
@@ -15292,6 +15439,238 @@ def twilio_voice():
         return FALLBACK_TWIML, 200, {'Content-Type': 'text/xml'}
 
 
+
+@app.route('/twilio/hold-music', methods=['POST', 'GET'])
+def twilio_hold_music():
+    """waitUrl for conference — loops custom music or silence."""
+    conf_name = request.args.get('conf','')
+    host = 'https://rolecall.hwtco.org'
+    es = get_email_settings()
+    custom_music = (es.get('twilio_audio_hold_music') or es.get('twilio_hold_music_url') or '').strip()
+    if custom_music:
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play loop="0">{custom_music}</Play>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    else:
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Pause length="60"/>
+  <Redirect method="POST">{host}/twilio/hold-music?conf={conf_name}</Redirect>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/screen-call', methods=['POST', 'GET'])
+def twilio_screen_call():
+    """TwiML for the on-call person's outbound leg — ask them to press 1."""
+    conf_name = request.args.get('conf', '')
+    caller_sid = request.args.get('caller_sid', '')
+    host = 'https://rolecall.hwtco.org'
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" action="{host}/twilio/accept-call?conf={conf_name}&amp;caller_sid={caller_sid}" method="POST" timeout="20">
+    <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept.</Say>
+  </Gather>
+  <Say voice="Polly.Joanna">No response. Sending to voicemail.</Say>
+  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}</Redirect>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/end-conf', methods=['POST'])
+def twilio_end_conf():
+    """End the waiting conference so the caller falls through to voicemail."""
+    conf_name = request.args.get('conf','')
+    app.logger.info(f'Ending conference: {conf_name}')
+    try:
+        ts2 = get_twilio_settings()
+        if ts2.get('account_sid') and ts2.get('auth_token') and conf_name:
+            import requests as _rq
+            resp = _rq.get(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                params={'FriendlyName': conf_name},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            for c in resp.json().get('conferences', []):
+                _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                    data={'Status': 'completed'},
+                    auth=(ts2['account_sid'], ts2['auth_token']),
+                    timeout=5
+                )
+                app.logger.info(f'Ended conference {c["sid"]}')
+    except Exception as e:
+        app.logger.warning(f'end-conf error: {e}')
+    return '', 204
+
+@app.route('/twilio/oncall-no-answer', methods=['POST'])
+def twilio_oncall_no_answer():
+    """Called when on-call person doesn't answer — redirect caller directly to voicemail."""
+    call_status = request.form.get('CallStatus','')
+    conf_name = request.args.get('conf','')
+    caller_sid = request.args.get('caller_sid','')
+    app.logger.info(f'On-call no-answer: status={call_status} conf={conf_name} caller_sid={caller_sid}')
+
+    if call_status not in ('no-answer','busy','failed','canceled'):
+        return '', 204
+
+    try:
+        import requests as _rq
+        ts2 = get_twilio_settings()
+        es = get_email_settings()
+        host = 'https://rolecall.hwtco.org'
+
+        if not ts2.get('account_sid') or not ts2.get('auth_token'):
+            return '', 204
+
+        # Build voicemail TwiML
+        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+        audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+        if not voicemail_greeting:
+            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+        if not no_answer_msg:
+            no_answer_msg = 'We were unable to reach our on-call team.'
+
+        def say_or_play_vm(text, audio_url):
+            if audio_url: return f'<Play>{audio_url}</Play>'
+            return f'<Say voice="Polly.Joanna">{text}</Say>'
+
+        voicemail_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {say_or_play_vm(no_answer_msg, '')}
+  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>'''
+
+        # Redirect the caller's call leg directly to voicemail
+        if caller_sid:
+            result = _rq.post(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls/{caller_sid}.json',
+                data={'Url': f'{host}/twilio/direct-voicemail', 'Method': 'POST'},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            app.logger.info(f'Redirected caller {caller_sid} to voicemail: {result.status_code} {result.text[:100]}')
+
+        # Also end the conference
+        try:
+            conf_resp = _rq.get(
+                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
+                params={'FriendlyName': conf_name},
+                auth=(ts2['account_sid'], ts2['auth_token']),
+                timeout=5
+            )
+            for c in conf_resp.json().get('conferences', []):
+                if c.get('status') != 'completed':
+                    _rq.post(
+                        f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences/{c["sid"]}.json',
+                        data={'Status': 'completed'},
+                        auth=(ts2['account_sid'], ts2['auth_token']),
+                        timeout=5
+                    )
+        except Exception as e2:
+            app.logger.warning(f'Conference end error: {e2}')
+
+    except Exception as e:
+        app.logger.warning(f'oncall-no-answer error: {e}')
+    return '', 204
+
+@app.route('/twilio/direct-voicemail', methods=['POST', 'GET'])
+def twilio_direct_voicemail():
+    """Called when conference Dial exits — play voicemail unless call was answered."""
+    dial_status = request.form.get('DialCallStatus', '')
+    call_sid = request.form.get('CallSid', '')
+    app.logger.info(f'direct-voicemail called: DialCallStatus={dial_status} CallSid={call_sid}')
+    es = get_email_settings()
+    host = 'https://rolecall.hwtco.org'
+
+    # Check if the call was actually answered (on-call person joined and talked)
+    # We check the call_logs table for a 'answered' status
+    try:
+        conn = get_db()
+        log = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (call_sid,))
+        conn.close()
+        was_answered = log and log.get('status') in ('answered', 'connected', 'completed')
+        app.logger.info(f'direct-voicemail: was_answered={was_answered} log_status={log.get("status") if log else None}')
+    except Exception as e:
+        app.logger.warning(f'direct-voicemail log check error: {e}')
+        was_answered = False
+
+    if was_answered:
+        return '''<?xml version="1.0" encoding="UTF-8"?>
+<Response/>''', 200, {'Content-Type': 'text/xml'}
+
+    voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+    audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+    no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+    if not voicemail_greeting:
+        voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+    if not no_answer_msg:
+        no_answer_msg = 'We were unable to reach our on-call team.'
+    def _say_play(text, audio_url):
+        if audio_url: return f'<Play>{audio_url}</Play>'
+        return f'<Say voice="Polly.Joanna">{text}</Say>'
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {_say_play(no_answer_msg, '')}
+  {_say_play(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/accept-call', methods=['POST'])
+def twilio_accept_call():
+    """On-call person pressed 1 — join conference to bridge call."""
+    digit = request.form.get('Digits','')
+    conf_name = request.args.get('conf','')
+    if digit == '1' and conf_name:
+        # Mark the call as answered in call_logs
+        try:
+            caller_sid = request.args.get('caller_sid','')
+            if caller_sid:
+                conn = get_db()
+                execute(conn, "UPDATE call_log SET status='answered' WHERE call_sid=%s", (caller_sid,))
+                conn.commit(); conn.close()
+        except Exception as e:
+            app.logger.warning(f'accept-call log update error: {e}')
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Connecting now.</Say>
+  <Dial>
+    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">{conf_name}</Conference>
+  </Dial>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+    else:
+        # Declined or no response — hang up, caller stays in conf waiting until timeout
+        return '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Sending to voicemail. Goodbye.</Say>
+  <Hangup/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
+@app.route('/twilio/amd-status', methods=['POST'])
+def twilio_amd_status():
+    """Answering Machine Detection callback — if machine detected, hang up the forwarded leg."""
+    answered_by = request.form.get('AnsweredBy', '')  # human, machine_start, machine_end_beep, machine_end_silence, fax, unknown
+    call_sid = request.form.get('CallSid', '')
+    child_call_sid = request.form.get('CallSid', '')
+    app.logger.info(f'AMD result: {answered_by} for call {call_sid}')
+
+    if answered_by in ('machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other', 'fax'):
+        # It's a voicemail — hang up the forwarded call
+        try:
+            ts = get_twilio_settings()
+            if ts.get('account_sid') and ts.get('auth_token'):
+                import requests as _rq
+                _rq.post(
+                    f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/Calls/{child_call_sid}.json',
+                    data={'Status': 'completed'},
+                    auth=(ts['account_sid'], ts['auth_token']),
+                    timeout=5
+                )
+                app.logger.info(f'AMD: hung up machine call {child_call_sid}')
+        except Exception as e:
+            app.logger.warning(f'AMD hangup error: {e}')
+
+    return '', 204
 
 @app.route('/twilio/call-status', methods=['POST'])
 def twilio_call_status():
@@ -15345,6 +15724,29 @@ def twilio_call_status():
             {'type':'section','text':{'type':'mrkdwn','text':
                 f'{emoji} *{status_text}*'}},
         ], text=f'{emoji} {status_text}', thread_ts=thread_ts)
+
+        # If not answered, play HWTC voicemail instead of hanging up
+        if dial_status in ('no-answer', 'busy', 'failed', 'canceled'):
+            es = get_email_settings()
+            voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
+            audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
+            no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
+            if not voicemail_greeting:
+                voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
+            if not no_answer_msg:
+                no_answer_msg = 'We were unable to reach our team right now. Please leave a message after the tone.'
+            def _svm(text, audio_url):
+                if audio_url: return f'<Play>{audio_url}</Play>'
+                return f'<Say voice="Polly.Joanna">{text}</Say>'
+            host = 'https://rolecall.hwtco.org'
+            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  {_svm(no_answer_msg, '')}
+  {_svm(voicemail_greeting, audio_voicemail)}
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
         return '', 204
 
     # Case 2: statusCallback on <Number> fired (in-progress updates like answered)

@@ -9480,10 +9480,13 @@ def kiosk_close_event():
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
         # Auto-log ELIC hours based on time from open to close
+        # Wrapped in a SAVEPOINT so a failure here can never poison/roll back
+        # the rest of this transaction (status update, checklist, hours approval).
         try:
-            open_log = fetchone(conn, '''SELECT el.created_at FROM event_logs el
+            execute(conn, 'SAVEPOINT elic_hours_sp')
+            open_log = fetchone(conn, '''SELECT el.timestamp FROM event_logs el
                 WHERE el.event_id=%s AND el.elic_id=%s AND el.action='open'
-                ORDER BY el.created_at DESC LIMIT 1''', (event_id, elic_id))
+                ORDER BY el.timestamp DESC LIMIT 1''', (event_id, elic_id))
             elic_vol = fetchone(conn, '''SELECT v.id, v.name, e.name as event_name
                 FROM elics el
                 JOIN volunteers v ON v.id=el.volunteer_id
@@ -9491,10 +9494,13 @@ def kiosk_close_event():
                 WHERE el.id=%s''', (event_id, elic_id))
             if open_log and elic_vol:
                 import datetime as _dtel
-                open_time = open_log['created_at']
-                close_time = _dtel.datetime.now()
+                from zoneinfo import ZoneInfo as _ZIelic
+                open_time = open_log['timestamp']
+                close_time = _dtel.datetime.now(_ZIelic('America/New_York'))
                 if isinstance(open_time, str):
                     open_time = _dtel.datetime.fromisoformat(open_time)
+                if open_time.tzinfo is None:
+                    open_time = open_time.replace(tzinfo=_ZIelic('America/New_York'))
                 duration_hrs = round((close_time - open_time).total_seconds() / 3600, 2)
                 duration_hrs = max(0.25, duration_hrs)  # minimum 15 min
                 today = close_time.strftime('%Y-%m-%d')
@@ -9504,8 +9510,15 @@ def kiosk_close_event():
                     (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
                      today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
                 app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
+            execute(conn, 'RELEASE SAVEPOINT elic_hours_sp')
         except Exception as e:
             app.logger.warning(f'ELIC auto-hours error (non-fatal): {e}')
+            try:
+                execute(conn, 'ROLLBACK TO SAVEPOINT elic_hours_sp')
+            except Exception as e2:
+                app.logger.error(f'Failed to rollback to savepoint, aborting close: {e2}')
+                conn.rollback(); conn.close()
+                return jsonify({'error': 'Internal error closing event, please try again'}), 500
 
         conn.commit()
         # Send checklist report email
@@ -9515,7 +9528,7 @@ def kiosk_close_event():
             if recipients:
                 evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
                 evt_name = evt['name'] if evt else event_id
-                now_str = __import__('datetime').datetime.now().strftime('%I:%M %p')
+                now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%I:%M %p')
                 # Get opening checklist from the open log
                 open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
                     LEFT JOIN elics eli ON el.elic_id=eli.id

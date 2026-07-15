@@ -15590,13 +15590,13 @@ def twilio_direct_voicemail():
         voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
     if not no_answer_msg:
         no_answer_msg = 'We were unable to reach our on-call team.'
-    def say_or_play_vm(text, audio_url):
+    def _say_play(text, audio_url):
         if audio_url: return f'<Play>{audio_url}</Play>'
         return f'<Say voice="Polly.Joanna">{text}</Say>'
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  {say_or_play_vm(no_answer_msg, '')}
-  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  {_say_play(no_answer_msg, '')}
+  {_say_play(voicemail_greeting, audio_voicemail)}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
@@ -15719,14 +15719,14 @@ def twilio_call_status():
                 voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
             if not no_answer_msg:
                 no_answer_msg = 'We were unable to reach our team right now. Please leave a message after the tone.'
-            def say_or_play_vm(text, audio_url):
+            def _svm(text, audio_url):
                 if audio_url: return f'<Play>{audio_url}</Play>'
                 return f'<Say voice="Polly.Joanna">{text}</Say>'
             host = 'https://rolecall.hwtco.org'
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  {say_or_play_vm(no_answer_msg, '')}
-  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
+  {_svm(no_answer_msg, '')}
+  {_svm(voicemail_greeting, audio_voicemail)}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>'''
             return twiml, 200, {'Content-Type': 'text/xml'}

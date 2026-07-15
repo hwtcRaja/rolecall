@@ -1691,7 +1691,7 @@ async function submitChecklist(){
       elicEventList=elicEventList.map(function(e){return e.id===closingEvent.id?Object.assign({},e,{current_status:'close',status:'closed'}):e})
       // Refresh from server in background to ensure accuracy
       fetch('/api/kiosk/elic-events?elic_id='+elicData.id)
-        .then(function(r2){return r2.json()}).then(function(d2){if(d2&&d2.events)elicEventList=d2.events}).catch(function(){})
+        .then(function(r2){return r2.json()}).then(function(d2){if(d2&&d2.events){elicEventList=d2.events;renderElicMenu()}}).catch(function(){})
       showConfirm('','Event Closed!','"'+closingEvent.name+'" has been closed.','Checklist submitted to admin portal.',function(){renderElicMenu();showScreen('screen-elic-menu')})
     }catch(err){alert('Network error: '+err.message+'. Please check connection and try again.')}
   })

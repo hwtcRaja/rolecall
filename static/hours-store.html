@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hours Store — Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f0f4f8;min-height:100vh;color:#1a2332}
+.header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:24px;text-align:center}
+.header img{height:64px;mix-blend-mode:screen;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto}
+.header h1{color:#fff;font-size:20px;font-weight:700;margin-bottom:4px}
+.header p{color:rgba(255,255,255,0.75);font-size:13px}
+.container{max-width:640px;margin:0 auto;padding:24px 16px 60px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;margin-bottom:16px}
+.card-header{padding:18px 22px;border-bottom:1px solid #e5e7eb}
+.card-header h2{font-size:17px;font-weight:700;color:#0d3d4d}
+.card-body{padding:20px 22px}
+.alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
+.alert-success{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.alert-info{background:#e0f2fe;color:#075985;border:1px solid #bae6fd}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 20px;border-radius:10px;
+  font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;width:100%}
+.btn-primary{background:#145466;color:#fff}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{opacity:0.45;cursor:not-allowed}
+#loading{text-align:center;padding:60px 20px;color:#6b7280;font-size:15px}
+.spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#145466;
+  border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.balance-hero{background:linear-gradient(135deg,#0d3d4d 0%,#145466 100%);border-radius:14px;padding:26px 22px;text-align:center;color:#fff;margin-bottom:16px}
+.balance-hero .big{font-size:38px;font-weight:800;line-height:1}
+.balance-hero .sub{font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px}
+.item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.item-card{border:1.5px solid #e5e7eb;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.item-name{font-size:15px;font-weight:700;color:#0d3d4d}
+.item-desc{font-size:12.5px;color:#6b7280;line-height:1.5;flex:1}
+.item-price{font-size:22px;font-weight:800;color:#145466}
+.item-price span{font-size:12px;font-weight:500;color:#9ca3af}
+.status-badge{display:inline-flex;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:capitalize}
+.status-pending{background:#fef3c7;color:#92400e}
+.status-approved{background:#dbeafe;color:#1e40af}
+.status-fulfilled{background:#dcfce7;color:#166534}
+.status-denied{background:#fee2e2;color:#991b1b}
+.history-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9}
+.history-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <h1>Volunteer Hours Store</h1>
+  <p id="header-sub">Trade your logged hours for classes and rewards</p>
+</div>
+<div class="container">
+  <div id="loading"><div class="spinner"></div>Loading...</div>
+  <div id="app" style="display:none"></div>
+</div>
+<script>
+const pathParts = location.pathname.split('/').filter(Boolean)
+const token = pathParts[1] || ''
+let storeData = null
+
+async function apiFetch(path, method, body){
+  const opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  const r = await fetch(path, opts)
+  return r.json()
+}
+function escHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+function fmtDollars(cents){ return '$'+(cents/100).toFixed(2) }
+
+async function init(){
+  storeData = await apiFetch('/api/public/hours-store/'+token)
+  document.getElementById('loading').style.display = 'none'
+  const app = document.getElementById('app')
+  app.style.display = ''
+  if(storeData.error){
+    app.innerHTML = '<div class="card"><div class="card-body"><div class="alert alert-error">'+escHtml(storeData.error)+'</div></div></div>'
+    return
+  }
+  document.getElementById('header-sub').textContent = 'Hi ' + storeData.volunteer_name + ' — here\'s your balance'
+  render()
+}
+
+function render(){
+  const d = storeData
+  const rateDollars = (d.rate_cents/100).toFixed(2)
+  let html = ''
+
+  html += '<div class="balance-hero">'
+    + '<div class="big">'+d.available_hours+'h</div>'
+    + '<div class="sub">available to spend &middot; worth '+fmtDollars(d.available_dollars_cents)+' at $'+rateDollars+'/hour</div>'
+    + '<div class="sub" style="margin-top:6px">'+d.total_hours+'h logged total &middot; '+d.redeemed_hours+'h redeemed or pending</div>'
+    + '</div>'
+
+  html += '<div class="card"><div class="card-header"><h2>Available Items</h2></div><div class="card-body">'
+  if(!d.items.length){
+    html += '<div style="color:#6b7280;font-size:13px">Nothing in the store right now — check back soon!</div>'
+  } else {
+    html += '<div class="item-grid">'
+    html += d.items.map(function(it){
+      const canAfford = it.hours_cost <= d.available_hours
+      return '<div class="item-card">'
+        + (it.image_url ? '<img src="'+escHtml(it.image_url)+'" style="width:100%;height:110px;object-fit:cover;border-radius:8px"/>' : '')
+        + '<div class="item-name">'+escHtml(it.name)+'</div>'
+        + (it.description ? '<div class="item-desc">'+escHtml(it.description)+'</div>' : '<div class="item-desc"></div>')
+        + '<div class="item-price">'+it.hours_cost+'h <span>('+fmtDollars(it.price_cents)+')</span></div>'
+        + '<button class="btn btn-primary" '+(canAfford?'':'disabled')+' onclick="redeemItem(\''+it.id+'\')">'
+        + (canAfford ? 'Redeem' : 'Not enough hours') + '</button>'
+        + '</div>'
+    }).join('')
+    html += '</div>'
+  }
+  html += '</div></div>'
+
+  if(d.redemptions && d.redemptions.length){
+    html += '<div class="card"><div class="card-header"><h2>Your Requests</h2></div><div class="card-body">'
+    html += d.redemptions.map(function(r){
+      return '<div class="history-row">'
+        + '<div><div style="font-weight:600;font-size:13px">'+escHtml(r.item_name_snapshot||r.current_item_name||'Item')+'</div>'
+        + '<div style="font-size:11px;color:#9ca3af">'+r.hours_spent+'h &middot; '+(r.requested_at?r.requested_at.slice(0,10):'')+'</div></div>'
+        + '<span class="status-badge status-'+r.status+'">'+r.status+'</span>'
+        + '</div>'
+    }).join('')
+    html += '</div></div>'
+  }
+
+  document.getElementById('app').innerHTML = html
+}
+
+async function redeemItem(itemId){
+  const item = storeData.items.find(function(i){ return i.id===itemId })
+  if(!item) return
+  if(!confirm('Redeem '+item.hours_cost+' hours for "'+item.name+'"? This will send a request to HWTC staff for approval.')) return
+  const res = await apiFetch('/api/public/hours-store/'+token+'/redeem', 'POST', {store_item_id: itemId})
+  if(res.error){ alert(res.error); return }
+  storeData = await apiFetch('/api/public/hours-store/'+token)
+  render()
+  document.getElementById('app').insertAdjacentHTML('afterbegin', '<div class="alert alert-success">Request sent! We\'ll email you once it\'s reviewed.</div>')
+  window.scrollTo(0,0)
+}
+
+init()
+</script>
+</body>
+</html>

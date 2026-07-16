@@ -436,6 +436,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
+        <div class="nav-item" onclick="navTo('hours-store',this)"><span class="nav-icon" id="ni-hours-store"></span>Hours Store</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
@@ -839,6 +840,48 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="qt-recent-list"><div style="font-size:12px;color:var(--text-muted);font-style:italic">Nothing yet this session</div></div>
  </div>
  </div>
+ </div>
+ </section>
+
+ <!-- HOURS STORE -->
+ <section class="page" id="page-hours-store">
+ <div class="page-header" style="flex-shrink:0">
+ <div><div class="page-title"> Hours Store</div><div class="page-subtitle">Let volunteers redeem logged hours for classes and rewards</div></div>
+ </div>
+ <div class="page-body">
+  <div class="card" style="padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+   <div style="font-size:13px;font-weight:700">Exchange Rate</div>
+   <div style="display:flex;align-items:center;gap:6px">
+    <span style="font-size:13px;color:var(--text-muted)">1 hour =</span>
+    <span style="font-size:14px;color:var(--text-muted)">$</span>
+    <input type="number" id="hs-rate-dollars" min="0.01" step="0.01" style="width:80px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+   </div>
+   <button class="btn btn-primary btn-sm" onclick="saveHoursStoreRate()">Save Rate</button>
+   <span id="hs-rate-status" style="font-size:12px;color:var(--teal-dark)"></span>
+  </div>
+
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+   <button onclick="switchHsTab('requests')" id="hstab-requests" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Redemption Requests</button>
+   <button onclick="switchHsTab('items')" id="hstab-items" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Store Items</button>
+  </div>
+
+  <div id="hs-pane-requests">
+   <div style="display:flex;gap:8px;margin-bottom:14px">
+    <select class="filter-select" id="hs-req-filter" onchange="renderHoursStoreRequests()">
+     <option value="pending">Pending</option>
+     <option value="approved">Approved</option>
+     <option value="fulfilled">Fulfilled</option>
+     <option value="denied">Denied</option>
+     <option value="">All</option>
+    </select>
+   </div>
+   <div id="hs-requests-list"></div>
+  </div>
+
+  <div id="hs-pane-items" style="display:none">
+   <div style="margin-bottom:14px"><button class="btn btn-primary btn-sm" onclick="openStoreItemModal()">+ New Store Item</button></div>
+   <div id="hs-items-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px"></div>
+  </div>
  </div>
  </section>
 
@@ -3702,6 +3745,7 @@ function navTo(page,el){
  if(page==='dashboard') renderDashboard()
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
  if(page==='hours') renderHours()
+ if(page==='hours-store') renderHoursStorePage()
  if(page==='waivers') renderWaivers()
  if(page==='email'){ renderEmailPage(); loadEmailLog() }
  if(page==='oncall') loadOncallPage()
@@ -4525,6 +4569,7 @@ async function openProfile(volId){
  <div class="tab" onclick="switchTab(this,'tab-notes')">Notes (${(v.notes||[]).length})</div>
  <div class="tab" onclick="switchTab(this,'tab-files')">Files (${(v.files||[]).length})</div>
  <div class="tab" onclick="switchTab(this,'tab-comms');loadVolComms('${v.id}')"> Emails</div>
+ <div class="tab" onclick="switchTab(this,'tab-store')"> Hours Store</div>
  </div>
  <div style="padding:0 0 20px">
  <div class="tab-pane active" id="tab-hours">
@@ -4557,6 +4602,30 @@ async function openProfile(volId){
  </div>
  <div class="tab-pane" id="tab-comms">
  <div id="vol-comms-list"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+ </div>
+ <div class="tab-pane" id="tab-store">
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+ <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--teal-dark)">${v.total_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total Logged</div></div>
+ <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
+ <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
+ </div>
+ <div class="card" style="padding:16px;margin-bottom:16px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Their Personal Store Link</div>
+ <div style="display:flex;gap:8px">
+ <input readonly id="vol-store-link" value="${window.location.origin}/hours-store/${v.store_token}" style="flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--bg)"/>
+ <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('vol-store-link').value);toast('Link copied!','success')">Copy</button>
+ </div>
+ </div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Redemption History</div>
+ ${!(v.redemptions||[]).length ? '<div style="color:var(--text-muted);font-size:13px">No redemptions yet</div>' :
+ (v.redemptions||[]).map(function(r){
+  const stBg = {pending:'#fef3c7;color:#92400e',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+  return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+   + '<div><div style="font-weight:600;font-size:13px">'+escHtml(r.item_name_snapshot||r.current_item_name||'Item')+'</div>'
+   + '<div style="font-size:11px;color:var(--text-muted)">'+r.hours_spent+'h &middot; '+(r.requested_at?r.requested_at.slice(0,10):'')+'</div></div>'
+   + '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status+'</span>'
+   + '</div>'
+ }).join('')}
  </div>
  </div>
  </div>
@@ -4753,6 +4822,173 @@ async function quickAddTime(){
  toast(' '+hoursVal+'h logged for '+volName,'success')
  await loadAllData()
  renderHours()
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HOURS STORE
+// ═══════════════════════════════════════════════════════════════
+var _hsRateCents = 1000
+var _hsItemsCache = []
+
+async function renderHoursStorePage(){
+ const res = await api('/api/admin/hours-store/settings')
+ _hsRateCents = (res && res.rate_cents) || 1000
+ const rateEl = document.getElementById('hs-rate-dollars')
+ if(rateEl) rateEl.value = (_hsRateCents/100).toFixed(2)
+ switchHsTab('requests')
+}
+
+async function saveHoursStoreRate(){
+ const val = parseFloat(document.getElementById('hs-rate-dollars').value)
+ if(!val || val<=0){ toast('Enter a valid dollar amount','error'); return }
+ const res = await api('/api/admin/hours-store/settings','PUT',{rate_dollars:val})
+ if(res.error){ toast(res.error,'error'); return }
+ _hsRateCents = res.rate_cents
+ document.getElementById('hs-rate-status').textContent = 'Saved!'
+ setTimeout(()=>{ const s=document.getElementById('hs-rate-status'); if(s) s.textContent='' },2000)
+ toast('Exchange rate updated','success')
+ renderHoursStoreItems()
+}
+
+function switchHsTab(tab){
+ ['requests','items'].forEach(function(t){
+  const btn = document.getElementById('hstab-'+t)
+  const pane = document.getElementById('hs-pane-'+t)
+  if(btn) btn.style.cssText = t===tab
+   ? 'padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer'
+   : 'padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer'
+  if(pane) pane.style.display = t===tab ? '' : 'none'
+ })
+ if(tab==='requests') renderHoursStoreRequests()
+ else renderHoursStoreItems()
+}
+
+async function renderHoursStoreRequests(){
+ const el = document.getElementById('hs-requests-list')
+ if(!el) return
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading…</div>'
+ const status = document.getElementById('hs-req-filter').value
+ const res = await api('/api/admin/hour-redemptions'+(status?'?status='+status:''))
+ const rows = (res && res.redemptions) || []
+ if(!rows.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No requests here.</div>'; return }
+ const stBg = {pending:'#fef3c7;color:#92400e',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+ el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+  + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Volunteer</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Item</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Hours</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Requested</th><th></th></tr></thead><tbody>'
+  + rows.map(function(r){
+    var actions = ''
+    if(r.status==='pending'){
+     actions += '<button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px" onclick="approveHsRequest(\''+r.id+'\')">Approve</button> '
+     actions += '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer" onclick="denyHsRequest(\''+r.id+'\')">Deny</button>'
+    } else if(r.status==='approved'){
+     actions += '<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="fulfillHsRequest(\''+r.id+'\')">Mark Fulfilled</button>'
+    }
+    return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:8px 12px"><div style="font-weight:600">'+escHtml(r.volunteer_name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.volunteer_email||'')+'</div></td>'
+      + '<td style="padding:8px 12px">'+escHtml(r.item_name_snapshot||r.current_item_name||'—')+'</td>'
+      + '<td style="padding:8px 12px;font-weight:600">'+r.hours_spent+'h</td>'
+      + '<td style="padding:8px 12px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status+'</span>'+(r.admin_notes?'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+escHtml(r.admin_notes)+'</div>':'')+'</td>'
+      + '<td style="padding:8px 12px;color:var(--text-muted)">'+(r.requested_at?r.requested_at.slice(0,10):'')+'</td>'
+      + '<td style="padding:8px 12px;white-space:nowrap">'+actions+'</td>'
+      + '</tr>'
+  }).join('')
+  + '</tbody></table></div>'
+}
+
+async function approveHsRequest(rid){
+ if(!confirm('Approve this redemption? If the item is linked to a program, the volunteer will be enrolled automatically.')) return
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/approve','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Request approved','success')
+ renderHoursStoreRequests()
+}
+
+async function denyHsRequest(rid){
+ const reason = prompt('Reason for denying (optional, will be emailed to the volunteer):')||''
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/deny','POST',{reason:reason})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Request denied — hours returned to their balance','success')
+ renderHoursStoreRequests()
+}
+
+async function fulfillHsRequest(rid){
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/fulfill','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Marked fulfilled','success')
+ renderHoursStoreRequests()
+}
+
+async function renderHoursStoreItems(){
+ const el = document.getElementById('hs-items-list')
+ if(!el) return
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);grid-column:1/-1">Loading…</div>'
+ const res = await api('/api/admin/store-items')
+ _hsItemsCache = (res && res.items) || []
+ _hsRateCents = (res && res.rate_cents) || _hsRateCents
+ if(!_hsItemsCache.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);grid-column:1/-1">No store items yet.</div>'; return }
+ el.innerHTML = _hsItemsCache.map(function(it){
+  return '<div class="card" style="padding:16px;'+(it.active?'':'opacity:0.55')+'">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">'
+   + '<div style="font-weight:700;font-size:14px">'+escHtml(it.name)+'</div>'
+   + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+(it.active?'#dcfce7;color:#166534':'#f3f4f6;color:#6b7280')+'">'+(it.active?'Active':'Inactive')+'</span>'
+   + '</div>'
+   + (it.description?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">'+escHtml(it.description)+'</div>':'')
+   + (it.program_name?'<div style="font-size:11px;color:var(--teal-dark);margin-bottom:8px"> Enrolls in: '+escHtml(it.program_name)+'</div>':'')
+   + '<div style="font-size:20px;font-weight:800;color:var(--teal-dark)">'+it.hours_cost+'h<span style="font-size:12px;font-weight:500;color:var(--text-muted)"> ($'+(it.price_cents/100).toFixed(2)+')</span></div>'
+   + '<div style="display:flex;gap:6px;margin-top:10px">'
+   + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="openStoreItemModal(\''+it.id+'\')">Edit</button>'
+   + '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="deleteStoreItem(\''+it.id+'\')">Delete</button>'
+   + '</div></div>'
+ }).join('')
+}
+
+function openStoreItemModal(iid){
+ const existing = document.getElementById('store-item-overlay')
+ if(existing) existing.remove()
+ const it = iid ? _hsItemsCache.find(function(i){ return i.id===iid }) : null
+ const progOpts = (allPrograms||[]).filter(function(p){ return (p.program_type||'class')!=='production' })
+  .map(function(p){ return '<option value="'+p.id+'"'+(it&&it.linked_program_id===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')
+ const overlay = document.createElement('div')
+ overlay.id = 'store-item-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:460px;padding:22px;max-height:90vh;overflow-y:auto">'
+  + '<div style="font-size:16px;font-weight:700;margin-bottom:16px">'+(it?'Edit':'New')+' Store Item</div>'
+  + '<div class="form-group"><label>Name</label><input id="si-name" value="'+(it?escHtml(it.name):'')+'" placeholder="e.g. Fall Tap Class"/></div>'
+  + '<div class="form-group"><label>Description</label><textarea id="si-desc" rows="2" placeholder="Optional details shown to volunteers">'+(it?escHtml(it.description||''):'')+'</textarea></div>'
+  + '<div class="form-group"><label>Price ($)</label><input id="si-price" type="number" min="0" step="0.01" value="'+(it?(it.price_cents/100).toFixed(2):'')+'" placeholder="e.g. 50.00"/></div>'
+  + '<div class="form-group"><label>Linked Program (optional)</label><select id="si-program"><option value="">— None (manual fulfillment) —</option>'+progOpts+'</select>'
+  + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">If set, approving a request auto-enrolls the volunteer in this program.</div></div>'
+  + '<label style="display:flex;align-items:center;gap:8px;margin:10px 0;cursor:pointer"><input type="checkbox" id="si-active" '+(!it||it.active?'checked':'')+'/> Active (visible in the store)</label>'
+  + '<div style="display:flex;gap:8px;margin-top:16px">'
+  + '<button class="btn btn-primary" style="flex:1" onclick="saveStoreItem('+(it?"'"+it.id+"'":'null')+')">'+(it?'Save Changes':'Create Item')+'</button>'
+  + '<button class="btn btn-secondary" onclick="document.getElementById(\'store-item-overlay\').remove()">Cancel</button>'
+  + '</div></div>'
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+async function saveStoreItem(iid){
+ const name = document.getElementById('si-name').value.trim()
+ if(!name){ toast('Name is required','error'); return }
+ const data = {
+  name: name,
+  description: document.getElementById('si-desc').value.trim(),
+  price_dollars: parseFloat(document.getElementById('si-price').value)||0,
+  linked_program_id: document.getElementById('si-program').value||null,
+  active: document.getElementById('si-active').checked
+ }
+ const res = iid ? await api('/api/admin/store-items/'+iid,'PUT',data) : await api('/api/admin/store-items','POST',data)
+ if(res.error){ toast(res.error,'error'); return }
+ document.getElementById('store-item-overlay').remove()
+ toast(iid?'Item updated!':'Item added!','success')
+ renderHoursStoreItems()
+}
+
+async function deleteStoreItem(iid){
+ if(!confirm('Delete this store item? If it has redemption history, deletion will be blocked — deactivate it instead.')) return
+ const res = await api('/api/admin/store-items/'+iid,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Item deleted')
+ renderHoursStoreItems()
 }
 
 function renderHours(){

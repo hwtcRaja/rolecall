@@ -1258,10 +1258,26 @@ function renderElicMenu(){
     let actionArea=''
     if(status==='open'){
       const hasYouth = (e.production_id && isRS) || e.program_id
+      const kioskMode = e.kiosk_signin_mode || 'auto'
+      let showProdBtn=false, showStandardProgramBtn=false, showPickupBtn=false
+      if(kioskMode==='standard'){
+        if(e.production_id) showProdBtn=true
+        else if(e.program_id) showStandardProgramBtn=true
+      } else if(kioskMode==='pickup'){
+        showPickupBtn = !!(e.production_id || e.program_id)
+      } else if(kioskMode==='both'){
+        if(e.production_id) showProdBtn=true
+        else if(e.program_id) showStandardProgramBtn=true
+        showPickupBtn = !!(e.production_id || e.program_id)
+      } else { // auto — legacy inferred behavior
+        showProdBtn = !!e.production_id
+        showPickupBtn = hasYouth
+      }
       actionArea='<div style="display:flex;gap:8px;flex-wrap:wrap">'
         +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')">🔒 Close Event</button>'
-        +(e.production_id?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')">🎭 Production Sign-In</button>':'')
-        +(hasYouth?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👶 Youth Sign-In</button>':'')
+        +(showProdBtn?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')">🎭 Production Sign-In</button>':'')
+        +(showStandardProgramBtn?'<button style="background:var(--blue-light,#dbeafe);color:var(--blue,#1e40af);border:2px solid #bfdbfe;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleStandardYouthSignInIdx('+idx+')">📋 Standard Sign-In</button>':'')
+        +(showPickupBtn?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👤 Participant Pickup</button>':'')
         +'</div>'
     } else if(status==='closed'){
       actionArea='<div style="font-size:13px;color:var(--hint);padding:6px 0">Event closed ✓</div>'
@@ -1386,6 +1402,9 @@ function handleProdSignInIdx(idx){
 function handleYouthSignInIdx(idx){
   handleYouthSignIn({getAttribute:()=>String(idx)})
 }
+function handleStandardYouthSignInIdx(idx){
+  handleStandardYouthSignIn({getAttribute:()=>String(idx)})
+}
 async function doOpenEvent(){
   const {evid,evname,openingResponses}=pendingAction
   const r=await fetch('/api/kiosk/open-event-checklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elic_id:elicData.id,event_id:evid,responses:openingResponses||[]})})
@@ -1473,10 +1492,19 @@ async function submitChecklist(){
 function handleYouthSignIn(btn){
   const idx=parseInt(btn.getAttribute('data-eidx'))
   const e=elicEventList[idx]
-  if(e) openEysSignIn(e)
+  if(e) openEysSignIn(e,'full')
 }
 
-async function openEysSignIn(evt){
+function handleStandardYouthSignIn(btn){
+  const idx=parseInt(btn.getAttribute('data-eidx'))
+  const e=elicEventList[idx]
+  if(e) openEysSignIn(e,'quick')
+}
+
+let eysMode='full' // 'full' = drop-off/pick-up with authorized names, 'quick' = simple self sign-in/out, no auth step
+
+async function openEysSignIn(evt, mode){
+  eysMode = mode || 'full'
   eysEventId=evt.id
   eysEventData=evt
   const isProgram = !evt.production_id && evt.program_id
@@ -1642,8 +1670,8 @@ function filterEysRoster(){
       card+='<div style="font-size:12px;font-weight:700;color:'+(isIn?'var(--green)':'var(--hint)')+'">'+( isIn?'✅ IN':'◯')+'</div>'
       card+='</div>'
       card+='<div style="display:flex;gap:8px">'
-      if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">'+(eysMode==='quick'?'Sign In':'Drop Off')+'</button>'
+      if(isIn) card+='<button style="flex:1;padding:10px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">'+(eysMode==='quick'?'Sign Out':'Pick Up')+'</button>'
       card+='</div></div>'
       return card
     }).join('')
@@ -1656,10 +1684,10 @@ function filterEysRoster(){
       let row='<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)'+(isIn?';background:var(--teal-light);border-radius:8px;padding-left:8px':'')+'">'
       row+='<div style="width:36px;height:36px;border-radius:50%;background:'+(isIn?'var(--green)':'var(--hint)')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
       row+='<div style="flex:1"><div style="font-weight:600;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
-      if(isIn) row+='<div style="font-size:11px;color:var(--green)">Dropped off by '+(rec.signed_in_by||'—')+'</div>'
+      if(isIn) row+='<div style="font-size:11px;color:var(--green)">'+(eysMode==='quick'?'Signed in':'Dropped off by '+(rec.signed_in_by||'—'))+'</div>'
       row+='</div>'
-      if(!isIn) row+='<button style="padding:8px 14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">Drop Off</button>'
-      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">Pick Up</button>'
+      if(!isIn) row+='<button style="padding:8px 14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">'+(eysMode==='quick'?'Sign In':'Drop Off')+'</button>'
+      if(isIn) row+='<button style="padding:8px 14px;background:var(--orange-light);color:var(--orange);border:2px solid #FED7AA;border-radius:var(--radius);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer" data-rid="'+rec.id+'" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartPickUp(this)">'+(eysMode==='quick'?'Sign Out':'Pick Up')+'</button>'
       row+='</div>'
       return row
     }).join('')
@@ -1672,6 +1700,10 @@ async function eysStartDropOff(btn){
   const yid=btn.getAttribute('data-yid')
   const yname=btn.getAttribute('data-yname')
   eysDropOffTarget={yid,yname}
+  if(eysMode==='quick'){
+    await eysDoSignInWithName('Self sign-in')
+    return
+  }
   // Load authorized pickups
   const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
   eysAuthPickups=await r.json()
@@ -1689,6 +1721,10 @@ async function eysStartPickUp(btn){
   const yname=btn.getAttribute('data-yname')
   eysSignOutTarget=rid
   eysDropOffTarget={yid,yname}
+  if(eysMode==='quick'){
+    await eysDoSignOutWithName('Self sign-in')
+    return
+  }
   const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
   eysAuthPickups=await r.json()
   eysAuthAction='pickup'
@@ -1991,7 +2027,7 @@ function showConfirm(icon,title,sub,note,onBack){
 <div class="screen hidden" id="screen-elic-youth-signin">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
   <div class="screen-heading">
-    <div class="screen-title" id="eys-prod-name">Youth Sign-In</div>
+    <div class="screen-title" id="eys-prod-name">Participant Sign-In</div>
     <div class="screen-sub" id="eys-event-name">⭐ Rising Stars</div>
   </div>
   <div style="width:100%;max-width:720px">
@@ -1999,7 +2035,7 @@ function showConfirm(icon,title,sub,note,onBack){
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
       <button id="eys-tab-roster" onclick="setEysTab('roster')"
         style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--teal-dark);border-bottom:3px solid var(--teal);margin-bottom:-2px">
-        👶 Participants
+        👤 Participants
       </button>
       <button id="eys-tab-carpools" onclick="setEysTab('carpools')"
         style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px">

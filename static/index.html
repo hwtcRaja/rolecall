@@ -3098,6 +3098,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <textarea id="edit-event-rsvp-msg" placeholder="e.g. 'We especially need help with setup and teardown this time!'" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
  </div>
  <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Kiosk Sign-In Mode</label>
+ <select id="edit-event-kiosk-mode" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+  <option value="auto">Automatic (default — based on production/program setup)</option>
+  <option value="standard">Standard Sign-In only — quick self sign-in/out, no pickup verification</option>
+  <option value="pickup">Participant Pickup only — full drop-off/pick-up with authorized names</option>
+  <option value="both">Both — show both options, staff pick per person</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Controls what shows on the kiosk once this event is open. "Automatic" keeps the current behavior based on whether it's a production or program event.</div>
+ </div>
+ <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Hours Store Bonus (optional)</label>
  <select id="edit-event-hs-bonus-type" onchange="toggleHsBonusFields()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
   <option value="">None</option>
@@ -16249,6 +16259,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-hs-multiplier').value=''
  document.getElementById('edit-event-hs-flat').value=''
  toggleHsBonusFields()
+ document.getElementById('edit-event-kiosk-mode').value='auto'
  setEventElicUI(null, null) // reset ELIC
  // If opened from a program or production context, pre-fill parent and default ELIC
  if(eid===null && window._openEventParent){
@@ -16296,6 +16307,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-hs-multiplier').value=e.hours_store_bonus_multiplier||''
  document.getElementById('edit-event-hs-flat').value=e.hours_store_bonus_flat_cents?(e.hours_store_bonus_flat_cents/100).toFixed(2):''
  toggleHsBonusFields()
+ document.getElementById('edit-event-kiosk-mode').value=e.kiosk_signin_mode||'auto'
  setTimeout(updateEventBgcLock, 50) // after selects are populated
  }
  // Reset repeat section
@@ -16355,6 +16367,7 @@ async function saveEditEvent(){
    ? (parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)||null): null,
  hours_store_bonus_flat_cents:document.getElementById('edit-event-hs-bonus-type')?.value==='flat'
    ? Math.round((parseFloat(document.getElementById('edit-event-hs-flat')?.value)||0)*100): null,
+ kiosk_signin_mode:document.getElementById('edit-event-kiosk-mode')?.value||'auto',
  // Preserve existing status — never reset it via the edit modal
  status: eid ? (allEvents.find(e=>e.id===eid)?.status||'draft'): 'draft'
  }

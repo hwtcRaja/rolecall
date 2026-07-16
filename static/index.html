@@ -19521,7 +19521,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'

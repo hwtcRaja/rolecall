@@ -1300,6 +1300,7 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS desired_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -2279,8 +2280,8 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -2290,7 +2291,8 @@ def create_event():
          d.get('auto_log_hours', False),
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
-         d.get('hours_store_bonus_flat_cents') or None))
+         d.get('hours_store_bonus_flat_cents') or None,
+         d.get('kiosk_signin_mode') or 'auto'))
     conn.commit()
     # Auto-assign program instructor/default ELIC when event belongs to a program
     program_id = d.get('program_id') or None
@@ -2369,7 +2371,8 @@ def update_event(eid):
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s,
-        hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s WHERE id=%s''',
+        hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
+        kiosk_signin_mode=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -2381,7 +2384,8 @@ def update_event(eid):
          d.get('carpools_enabled', False),
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
-         d.get('hours_store_bonus_flat_cents') or None, eid))
+         d.get('hours_store_bonus_flat_cents') or None,
+         d.get('kiosk_signin_mode') or 'auto', eid))
     # Kiosk state is driven by event_logs, not events.status — if the status
     # actually changed to open/closed here, mirror it into event_logs too.
     if new_status != prev_status and new_status in ('open', 'closed'):

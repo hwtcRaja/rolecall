@@ -296,6 +296,8 @@ function renderPage(){
     actionHTML = buildWaitlistForm(formType, customFields)
   } else if(status==='interest_list'){
     actionHTML = buildInterestForm()
+  } else if(status==='closed'){
+    actionHTML = '<div class="card"><div class="card-body"><div class="alert alert-info">This program has ended. Registrations are no longer being accepted.</div></div></div>'
   } else {
     actionHTML = '<div class="card"><div class="card-body"><div class="alert alert-info">Registrations are not currently open. Check back soon!</div></div></div>'
   }

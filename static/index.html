@@ -1105,7 +1105,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()">
    <option value="">All Statuses</option>
    <option value="upcoming">Upcoming</option>
-   <option value="active">Active</option>
+   <option value="active" selected>Active</option>
    <option value="completed">Completed</option>
    <option value="archived">Archived</option>
   </select>
@@ -17853,6 +17853,53 @@ async function saveYouthProgram(){
  toast(eid?'Program updated!':'Program added!','success')
 }
 
+async function closeProgramRegistrations(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Close registrations for "${p.name}"?\n\nThe public registration page will show "This program has ended" and no new sign-ups (or waitlist joins) will be accepted. You can reopen it later if needed.`)) return
+ const res = await api(`/api/youth-programs/${pid}/registration-status`,'PUT',{registration_status:'closed'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Registrations closed','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
+async function reopenProgramRegistrations(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Reopen registrations for "${p.name}"?`)) return
+ const res = await api(`/api/youth-programs/${pid}/registration-status`,'PUT',{registration_status:'open'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Registrations reopened','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
+async function archiveProgram(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Archive "${p.name}"?\n\nIt will be hidden from the default Programs & Classes list, but you can still find it by filtering for Archived. This does not delete any data.`)) return
+ const res = await api(`/api/youth-programs/${pid}/archive-status`,'PUT',{status:'archived'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Program archived','success')
+ navTo('youth-programs-page')
+ renderYouthProgramsPage()
+}
+
+async function unarchiveProgram(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ const res = await api(`/api/youth-programs/${pid}/archive-status`,'PUT',{status:'active'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Program unarchived','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // PROFILE BANNER HELPER
@@ -17988,8 +18035,14 @@ async function openProgramDetail(programId){
  actions: isAdmin ? [
  {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"},
  {label:' Email Roster', onclick:"openProgramEmailModal('"+programId+"')"},
- {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"}
- ]: []
+ {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"},
+ (p.registration_status==='open'
+ ? {label:'Close Registrations', onclick:"closeProgramRegistrations('"+programId+"')"}
+ : (p.registration_status==='closed' ? {label:'Reopen Registrations', onclick:"reopenProgramRegistrations('"+programId+"')"} : null)),
+ (p.status==='archived'
+ ? {label:'Unarchive', onclick:"unarchiveProgram('"+programId+"')"}
+ : {label:'Archive', onclick:"archiveProgram('"+programId+"')", danger:true})
+ ].filter(Boolean): []
  })
 
  // Load enrolled youth

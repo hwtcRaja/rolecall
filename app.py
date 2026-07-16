@@ -2957,6 +2957,46 @@ def update_youth_program(pid):
     conn.close()
     return jsonify(row)
 
+@app.route('/api/youth-programs/<pid>/registration-status', methods=['PUT'])
+def set_program_registration_status(pid):
+    """Quick action to open/close registrations without touching any other program settings."""
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    reg_status = d.get('registration_status')
+    if reg_status not in ('draft', 'interest_list', 'open', 'closed', 'cancelled'):
+        return jsonify({'error': 'Invalid registration status'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    execute(conn, 'UPDATE youth_programs SET registration_status=%s WHERE id=%s', (reg_status, pid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-programs/<pid>/archive-status', methods=['PUT'])
+def set_program_archive_status(pid):
+    """Quick action to archive/unarchive a program without touching any other program settings."""
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    status = d.get('status')
+    if status not in ('upcoming', 'active', 'completed', 'archived'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    execute(conn, 'UPDATE youth_programs SET status=%s WHERE id=%s', (status, pid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row)
+
 @app.route('/api/youth-programs/<pid>/announcements/<aid>/push', methods=['POST'])
 def push_program_announcement(pid, aid):
     err = require_auth()

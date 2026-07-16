@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Artistic Partnership Interest — Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17;min-height:100vh}
+.page-header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:40px 24px 36px;text-align:center;color:#fff}
+.logo{height:56px;mix-blend-mode:screen;margin-bottom:20px}
+.page-header h1{font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px}
+.page-header p{font-size:15px;opacity:0.85;max-width:520px;margin:0 auto;line-height:1.6}
+.form-wrap{max-width:600px;margin:0 auto;padding:32px 16px 60px}
+.card{background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,0.07);padding:28px;margin-bottom:20px}
+.card-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:#5f5e5a;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.card-title::after{content:'';flex:1;height:1px;background:#efefec}
+.policy-text{font-size:14px;line-height:1.7;color:#374151;white-space:pre-wrap}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px}
+.form-group label span{font-weight:400;text-transform:none;color:#9b9b94}
+.form-group input[type=text],.form-group input[type=email],.form-group input[type=tel],.form-group input[type=url],.form-group select,.form-group textarea{width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-family:inherit;font-size:15px;color:#1a1a17;outline:none;background:#fff;transition:border-color 0.15s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#145466}
+.form-group textarea{min-height:80px;resize:vertical;line-height:1.5}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.form-row{grid-template-columns:1fr}}
+.check-wrap{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border:1.5px solid #e0e0db;border-radius:10px;cursor:pointer;transition:border-color 0.15s;user-select:none;margin-bottom:16px}
+.check-wrap:hover{border-color:#145466}
+.check-wrap input[type=checkbox]{width:20px;height:20px;accent-color:#145466;cursor:pointer;flex-shrink:0;margin-top:2px}
+.check-label{font-size:14px;font-weight:600}
+.submit-btn{width:100%;padding:16px;background:#145466;color:#fff;border:none;border-radius:12px;font-family:inherit;font-size:17px;font-weight:700;cursor:pointer;transition:background 0.15s;margin-top:8px}
+.submit-btn:hover{background:#0d3d4d}
+.submit-btn:disabled{background:#9b9b94;cursor:not-allowed}
+.alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.alert-success{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+#loading{text-align:center;padding:60px 20px;color:#6b7280}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <img class="logo" src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <h1>Artistic Partnership Interest</h1>
+  <p>Interested in using our space for your organization or project? Tell us a bit about what you have in mind and we'll follow up.</p>
+</div>
+<div class="form-wrap">
+  <div id="loading">Loading…</div>
+  <div id="app" style="display:none"></div>
+</div>
+<script>
+async function apiFetch(path, method, body){
+  const opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  const r = await fetch(path, opts)
+  return r.json()
+}
+function escHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+
+let info = null
+
+async function init(){
+  info = await apiFetch('/api/public/partnership-interest-info')
+  document.getElementById('loading').style.display = 'none'
+  document.getElementById('app').style.display = ''
+  render()
+}
+
+function render(){
+  let html = ''
+  if(info.policy_text){
+    html += '<div class="card"><div class="card-title">Our General Policy</div><div class="policy-text">'+escHtml(info.policy_text)+'</div></div>'
+  }
+  html += '<div class="card">'
+    + '<div class="card-title">Tell Us About Your Organization</div>'
+    + '<div id="form-alert"></div>'
+    + '<div class="form-group"><label>Organization Name <span>*</span></label><input type="text" id="f-org-name" placeholder="Your organization or group name"/></div>'
+    + '<div class="form-row">'
+      + '<div class="form-group"><label>Contact Name <span>*</span></label><input type="text" id="f-contact-name" placeholder="Your name"/></div>'
+      + '<div class="form-group"><label>Organization Type</label><select id="f-org-type"><option value="">Select…</option><option>School</option><option>Nonprofit</option><option>Community Group</option><option>Business</option><option>Individual Artist</option><option>Other</option></select></div>'
+    + '</div>'
+    + '<div class="form-row">'
+      + '<div class="form-group"><label>Email <span>*</span></label><input type="email" id="f-email" placeholder="you@example.com"/></div>'
+      + '<div class="form-group"><label>Phone</label><input type="tel" id="f-phone" placeholder="(555) 555-5555"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Website <span>(optional)</span></label><input type="url" id="f-website" placeholder="https://"/></div>'
+    + '<div class="form-group"><label>What would you like to use the space for? <span>*</span></label><textarea id="f-purpose" placeholder="e.g. rehearsal space for our dance company, a community workshop series, a one-time fundraiser event..."></textarea></div>'
+    + '<div class="form-group"><label>How often would you use it? <span>*</span></label><select id="f-frequency">'
+      + '<option value="">Select…</option>'
+      + '<option value="One-time event">One-time event</option>'
+      + '<option value="Weekly">Weekly</option>'
+      + '<option value="Monthly">Monthly</option>'
+      + '<option value="A few times a year">A few times a year</option>'
+      + '<option value="Not sure yet">Not sure yet</option>'
+      + '</select></div>'
+    + '<div class="form-group"><label>Anything else we should know? <span>(optional)</span></label><textarea id="f-notes" placeholder="Additional details, preferred dates/times, expected group size, etc."></textarea></div>'
+    + '<label class="check-wrap"><input type="checkbox" id="f-policy-agree"/><span class="check-label">I have read and understand HWTC\'s general venue partnership policy above.</span></label>'
+    + '<button class="submit-btn" id="submit-btn" onclick="submitInterest()">Submit Interest</button>'
+    + '</div>'
+  document.getElementById('app').innerHTML = html
+}
+
+function show(msg, type){
+  document.getElementById('form-alert').innerHTML = '<div class="alert alert-'+type+'">'+escHtml(msg)+'</div>'
+}
+
+async function submitInterest(){
+  const org = document.getElementById('f-org-name').value.trim()
+  const contactName = document.getElementById('f-contact-name').value.trim()
+  const email = document.getElementById('f-email').value.trim()
+  const purpose = document.getElementById('f-purpose').value.trim()
+  const frequency = document.getElementById('f-frequency').value
+  const policyAgreed = document.getElementById('f-policy-agree').checked
+
+  if(!org || !contactName || !email || !purpose || !frequency){
+    show('Please fill in all required fields.','error'); return
+  }
+  if(info.policy_text && !policyAgreed){
+    show('Please confirm you have read and understand our general policy.','error'); return
+  }
+  const btn = document.getElementById('submit-btn')
+  btn.disabled = true; btn.textContent = 'Submitting…'
+  const res = await apiFetch('/api/public/partnership-interest', 'POST', {
+    organization_name: org,
+    contact_name: contactName,
+    contact_email: email,
+    contact_phone: document.getElementById('f-phone').value.trim(),
+    organization_type: document.getElementById('f-org-type').value,
+    organization_website: document.getElementById('f-website').value.trim(),
+    purpose,
+    desired_frequency: frequency,
+    additional_notes: document.getElementById('f-notes').value.trim(),
+    policy_agreed: policyAgreed || !info.policy_text,
+  })
+  if(res.error){
+    show(res.error,'error')
+    btn.disabled = false; btn.textContent = 'Submit Interest'
+    return
+  }
+  document.getElementById('app').innerHTML = '<div class="card"><div class="alert alert-success" style="margin-bottom:0">Thank you! Your interest has been submitted. Someone from Horizon West Theater Company will follow up with you soon.</div></div>'
+}
+
+init()
+</script>
+</body>
+</html>

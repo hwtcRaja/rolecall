@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!-- v1783693563 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -39,7 +39,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 
 /* APP SHELL */
 #app{display:none;min-height:100vh}
-.app-layout{display:flex;height:100vh;overflow:hidden}
+.app-layout{display:flex;min-height:100vh}
 .sidebar{width:240px;min-width:240px;background:var(--teal-800);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
 .sidebar-header{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.1)}
 .sidebar-logo{display:flex;align-items:center;gap:10px}
@@ -63,14 +63,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .logout-btn:hover{color:rgba(255,255,255,0.8)}
 
 /* MAIN */
-.main-content{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.main-content{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .page{display:none;flex:1;flex-direction:column;min-height:0}
 .page.active{display:flex}
 .page-header{padding:28px 32px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .page-title{font-size:22px;font-weight:600;letter-spacing:-0.3px}
 .page-subtitle{color:var(--text-muted);font-size:14px;margin-top:3px}
 .page-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
-.page-body{padding:24px 32px 40px;flex:1;overflow-y:auto}
+.page-body{padding:24px 32px 40px;flex:1;min-height:0;overflow-y:auto}
 
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
@@ -248,15 +248,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .alert-item.warning{background:var(--amber-50);border:1px solid #FAC775}
 .alert-item.danger{background:var(--red-50);border:1px solid var(--red-200)}
 .alert-action{cursor:pointer;color:var(--teal-600);font-weight:500;text-decoration:none;margin-left:auto}
-.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;box-shadow:var(--shadow-sm)}
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
 .settings-nav-btn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 8px;border:none;background:transparent;border-radius:var(--radius);cursor:pointer;font-family:inherit;font-size:13px;color:var(--text-muted);text-align:left;transition:background 0.1s}
 .settings-nav-btn:hover{background:var(--surface);color:var(--text-primary)}
 .settings-nav-btn.active{background:var(--teal-light,#e0f4f0);color:var(--teal-dark);font-weight:600}
 .settings-nav-btn i{font-size:15px;flex-shrink:0}
+.settings-panel>div[style*="font-size:15px"]{display:none}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
+#page-settings{overflow:hidden;display:flex;flex-direction:column;height:100%}
+#page-settings .page-body{padding:0!important;display:flex!important;flex-direction:row!important;overflow:hidden!important;flex:1;min-height:0}
+#settings-sidebar{width:210px;min-width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px}
+#settings-panels{flex:1;min-width:0;overflow-y:auto;padding:24px 28px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
-.banner-pos-btn,.sched-bg-pos-btn,.banner-fit-btn,.sched-bg-fit-btn{padding:5px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text-muted);font-family:inherit;font-size:12px;cursor:pointer}
-.banner-pos-btn.active,.sched-bg-pos-btn.active,.banner-fit-btn.active,.sched-bg-fit-btn.active{background:var(--teal-light,#e0f4f0);color:var(--teal-dark);border-color:var(--teal-dark);font-weight:600}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
 .inline-input-row input:focus{border-color:var(--teal-400)}
 .setting-item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--gray-50);border-radius:8px;margin-bottom:6px}
@@ -315,7 +318,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .settings-grid{grid-template-columns:1fr!important}
 
  /* Email page layout: stack */
- div[style*="grid-template-columns:1fr 340px"]{display:flex!important;flex-direction:column-reverse!important}
+ div[style*="grid-template-columns:1fr 380px"]{display:flex!important;flex-direction:column-reverse!important}
 
  /* Tables: horizontal scroll */
 .card{overflow-x:auto}
@@ -431,7 +434,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
-        <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
@@ -961,7 +963,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <button class="btn btn-secondary btn-sm" onclick="loadEmailLog()">Refresh</button>
    </div>
   </div>
-  <div id="email-log-table" style="overflow-x:auto">
+  <div id="email-log-table" style="overflow:auto;max-height:420px">
    <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading delivery log…</div>
   </div>
  </div>
@@ -1098,7 +1100,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()">
    <option value="">All Statuses</option>
    <option value="upcoming">Upcoming</option>
-   <option value="active" selected>Active</option>
+   <option value="active">Active</option>
    <option value="completed">Completed</option>
    <option value="archived">Archived</option>
   </select>
@@ -1158,7 +1160,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div class="page-body">
  <div class="search-bar">
- <div class="search-input-wrap"><span></span><input type="text" id="youth-search" placeholder="Search by name or guardian…" oninput="renderYouth()"></div>
+ <div class="search-input-wrap"><span></span><input type="text" id="youth-search" placeholder="Search by name…" oninput="renderYouth()"></div>
  <select class="filter-select" id="youth-filter-status" onchange="renderYouth()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
  <select class="filter-select" id="youth-filter-program" onchange="renderYouth()"><option value="">All Programs</option></select>
  </div>
@@ -1368,7 +1370,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
       <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Promotions</button>
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
-      <button class="marquee-tab" data-tab="refunds" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Refund Requests <span id="refund-requests-badge" style="display:none;background:#dc2626;color:#fff;border-radius:20px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:4px"></span></button>
     </div>
     <div id="marquee-tab-dashboard"></div>
     <div id="marquee-tab-catalog" style="display:none"></div>
@@ -1376,7 +1377,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div id="marquee-tab-registrations" style="display:none"></div>
     <div id="marquee-tab-discounts" style="display:none"></div>
     <div id="marquee-tab-donations" style="display:none"></div>
-    <div id="marquee-tab-refunds" style="display:none"></div>
   </div>
 </section>
 
@@ -1477,65 +1477,52 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
- <!-- SURVEYS -->
- <section class="page" id="page-surveys">
-  <div class="page-header">
-   <div><div class="page-title">Surveys</div><div class="page-subtitle">Create and manage surveys, collect responses</div></div>
-   <button class="btn btn-primary btn-sm" onclick="openNewSurveyModal()">+ New Survey</button>
-  </div>
-  <div class="page-body" id="surveys-body">
-   <div style="color:var(--text-muted);text-align:center;padding:60px">Loading surveys...</div>
-  </div>
- </section>
-
  <!-- SETTINGS -->
  <section class="page" id="page-settings">
- <div class="page-header">
+ <div class="page-header" style="padding-bottom:12px;flex-shrink:0">
   <div><div class="page-title">Settings</div><div class="page-subtitle">Configure RoleCall for your organization</div></div>
  </div>
- <div class="page-body" style="padding:0!important;display:flex;flex-direction:row;overflow:hidden;flex:1;min-height:0">
+ <div class="page-body">
 
-  <!-- Settings Sidebar -->
-  <div id="settings-sidebar" style="width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px;height:100%">
+  <div id="settings-sidebar">
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Organization</div>
-    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)"><i class="ti ti-building" aria-hidden="true"></i>General</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)"><i class="ti ti-users" aria-hidden="true"></i>Users &amp; access</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)"><i class="ti ti-mail" aria-hidden="true"></i>Email &amp; alerts</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)"><i class="ti ti-home" aria-hidden="true"></i>Families &amp; portal</button>
+    <button class="settings-nav-btn active" onclick="switchSettingsPanel('general',this)">General</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('users',this)">Users &amp; access</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email',this)">Email &amp; alerts</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('families',this)">Families &amp; portal</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Kiosk &amp; events</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)"><i class="ti ti-shield-check" aria-hidden="true"></i>ELIC management</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)"><i class="ti ti-clipboard-list" aria-hidden="true"></i>Checklists</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)"><i class="ti ti-calendar-event" aria-hidden="true"></i>Event types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)">ELIC management</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)">Checklists</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)">Event types</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Programs</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)"><i class="ti ti-tag" aria-hidden="true"></i>Interest types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)"><i class="ti ti-file-check" aria-hidden="true"></i>Waiver types</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)"><i class="ti ti-template" aria-hidden="true"></i>Email templates</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('interest-types',this)">Interest types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('waiver-types',this)">Waiver types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('email-templates',this)">Email templates</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Integrations</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)"><i class="ti ti-phone" aria-hidden="true"></i>Phone &amp; Twilio</button>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)"><i class="ti ti-tv" aria-hidden="true"></i>Lobby TV</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)">Phone &amp; Twilio</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)">Lobby TV</button>
    </div>
 
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Display</div>
-    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)"><i class="ti ti-layout-navbar" aria-hidden="true"></i>Nav icons</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('nav-icons',this)">Nav icons</button>
    </div>
   </div>
 
-  <!-- Settings Panels Container -->
-  <div style="flex:1;overflow-y:auto;padding:24px 28px;height:100%">
+  <div id="settings-panels">
 
-   <div id="settings-panel-general" class="settings-panel">
+   <div id="settings-panel-general" class="settings-panel" style="">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
     <div class="settings-section" style="margin-bottom:16px">
@@ -1620,6 +1607,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div></div>
+   </div>
 
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
@@ -1638,7 +1626,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <button class="btn btn-primary" onclick="createUser()">Add User</button>
  </div>
-<div class="settings-section" >
+<div class="settings-section">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
  <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
  </div>
@@ -1650,7 +1638,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-email" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Email & alerts</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure Resend for automated emails and reports</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Email & Notifications</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -1738,7 +1726,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-families" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Families & portal</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Create family groups and manage portal access</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
  <div id="families-list" style="margin-bottom:16px"></div>
@@ -1748,12 +1736,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
  </div>
  </div>
+
+ </div>
+ </div>
+ </section>
    </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Event Leads In Charge — manage PINs and assignments</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
  <div id="elics-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1770,7 +1762,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
  <div id="checklist-items-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1787,7 +1779,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
  </div>
-<div class="settings-section" >
+<div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
  <div id="opening-checklist-items-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -1864,7 +1856,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-twilio" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure your Twilio phone number, voicemail, and on-call routing</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
@@ -1962,15 +1954,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <input type="time" id="es-twilio-cov-end" value="22:00"/>
    </div>
   </div>
-
-  <div class="form-group" style="margin-bottom:12px">
-   <label>Hold Music <span style="font-weight:400;color:var(--text-muted)">— played while caller waits to be connected</span></label>
-   <div style="display:flex;gap:8px;align-items:center">
-    <input type="text" id="es-twilio-hold-music" placeholder="URL to MP3 (leave blank for default classical music)" style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">Upload MP3<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'hold_music')" style="display:none"/></label>
-   </div>
-   <div id="twilio-audio-hold_music-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
-  </div>
  </div>
  <div class="form-group" style="margin-bottom:12px">
   <label>Slack Bot Token <span style="font-weight:400;color:var(--text-muted)">— for threading support (starts with xoxb-)</span></label>
@@ -2022,101 +2005,35 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
-
-    <div class="settings-section" style="margin-bottom:16px">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px">Theme</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Choose which visual theme is live on the lobby display.</div>
- <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:14px"></div>
- <div id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark);min-height:18px"></div>
- <select id="lobby-theme-select" style="display:none"></select>
- <div id="lobby-theme-status" style="font-size:13px;margin-top:6px"></div>
- </div>
-
-    <div class="settings-section" style="margin-bottom:16px">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px">Banner</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Background image for the top banner (clock and date are overlaid live).</div>
- <div id="lobby-banner-preview" style="display:none;position:relative;width:100%;max-width:480px;aspect-ratio:16/5;border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:12px;background-color:#111">
- <div id="banner-preview-clock" style="position:absolute;bottom:10px;left:14px;color:#fff;font-size:20px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>
- <div id="banner-preview-date" style="position:absolute;bottom:34px;left:14px;color:#fff;font-size:12px;text-shadow:0 1px 4px rgba(0,0,0,0.6)"></div>
- </div>
- <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
- <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Banner Image<input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/></label>
- <button class="btn btn-secondary btn-sm" id="lobby-banner-clear-btn" style="display:none" onclick="clearLobbyBanner()">Remove</button>
- </div>
- <div id="lobby-banner-controls" style="display:none;margin-bottom:12px">
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Position</div>
- <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
- <button class="banner-pos-btn" data-pos="0% 0%">↖</button>
- <button class="banner-pos-btn" data-pos="50% 0%">↑</button>
- <button class="banner-pos-btn" data-pos="100% 0%">↗</button>
- <button class="banner-pos-btn" data-pos="0% 50%">←</button>
- <button class="banner-pos-btn" data-pos="50% 50%">•</button>
- <button class="banner-pos-btn" data-pos="100% 50%">→</button>
- <button class="banner-pos-btn" data-pos="0% 100%">↙</button>
- <button class="banner-pos-btn" data-pos="50% 100%">↓</button>
- <button class="banner-pos-btn" data-pos="100% 100%">↘</button>
- </div>
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Fit</div>
- <div style="display:flex;gap:6px;margin-bottom:10px">
- <button class="banner-fit-btn" data-fit="cover">Cover</button>
- <button class="banner-fit-btn" data-fit="contain">Contain</button>
- </div>
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Zoom: <span id="banner-zoom-val">100%</span></div>
- <input type="range" id="lobby-banner-zoom" min="50" max="200" value="100" style="width:100%;max-width:300px"/>
- </div>
- <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()">Save Banner Settings</button>
- <div id="lobby-banner-status" style="font-size:13px;margin-top:8px"></div>
- </div>
-
-    <div class="settings-section" style="margin-bottom:16px">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px">Schedule Background</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Background image behind the schedule/roles board on the lobby TV.</div>
- <div id="sched-bg-preview" style="display:none;width:100%;max-width:480px;aspect-ratio:16/9;border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:12px;background-color:#111"></div>
- <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
- <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Background Image<input type="file" id="sched-bg-input" accept="image/*" style="display:none"/></label>
- <button class="btn btn-secondary btn-sm" id="sched-bg-clear-btn" style="display:none" onclick="clearSchedBg()">Remove</button>
- </div>
- <div id="sched-bg-controls" style="display:none;margin-bottom:12px">
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Position</div>
- <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
- <button class="sched-bg-pos-btn" data-pos="0% 0%">↖</button>
- <button class="sched-bg-pos-btn" data-pos="50% 0%">↑</button>
- <button class="sched-bg-pos-btn" data-pos="100% 0%">↗</button>
- <button class="sched-bg-pos-btn" data-pos="0% 50%">←</button>
- <button class="sched-bg-pos-btn" data-pos="50% 50%">•</button>
- <button class="sched-bg-pos-btn" data-pos="100% 50%">→</button>
- <button class="sched-bg-pos-btn" data-pos="0% 100%">↙</button>
- <button class="sched-bg-pos-btn" data-pos="50% 100%">↓</button>
- <button class="sched-bg-pos-btn" data-pos="100% 100%">↘</button>
- </div>
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Fit</div>
- <div style="display:flex;gap:6px;margin-bottom:10px">
- <button class="sched-bg-fit-btn" data-fit="cover">Cover</button>
- <button class="sched-bg-fit-btn" data-fit="contain">Contain</button>
- </div>
- <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Zoom: <span id="sched-bg-zoom-val">100%</span></div>
- <input type="range" id="sched-bg-zoom" min="50" max="200" value="100" style="width:100%;max-width:300px"/>
- </div>
- <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()">Save Background Settings</button>
- <div id="sched-bg-status" style="font-size:13px;margin-top:8px"></div>
- </div>
-
     <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px">Photo Slideshow</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Images to rotate through on the lobby display, with optional captions.</div>
- <div style="margin-bottom:10px">
- <label class="btn btn-secondary btn-sm" style="cursor:pointer">Upload Images<input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/></label>
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+ <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
  </div>
- <div id="lobby-img-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:14px"></div>
- <button class="btn btn-primary btn-sm" onclick="saveLobbyImages()">Save Changes</button>
- <div id="lobby-img-status" style="font-size:13px;margin-top:8px"></div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
+ <div id="users-management-list"></div>
  </div>
+
+ <!-- Family / Portal Management -->
+ <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
+ <div id="families-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+ </div>
+ </div>
+
+ </div>
+ </div>
+ </section
    </div>
 
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Nav icons</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Customize the icons shown in the sidebar navigation</div>
-    <div class="settings-section" >
+    <div class="settings-section">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
  <div>
  <div style="font-weight:600;font-size:15px;margin-bottom:4px"> Nav Icons</div>
@@ -2464,45 +2381,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <!-- Volunteer Modal -->
 <!-- New/Edit Program Modal -->
-<div class="modal-overlay" id="modal-survey">
- <div class="modal" style="max-width:640px;width:100%">
-  <div class="modal-header"><div class="modal-title" id="survey-modal-title">New Survey</div><button class="modal-close" onclick="closeModal('modal-survey')">×</button></div>
-  <div class="modal-body">
-   <input type="hidden" id="survey-edit-id"/>
-   <div class="form-group"><label>Survey Title <span style="color:#dc2626">*</span></label><input type="text" id="survey-title" placeholder="e.g. Class Interest Survey 2025" oninput="autoSlug()"/></div>
-   <div class="form-group"><label>URL Slug <span style="color:#dc2626">*</span></label>
-    <div style="display:flex;align-items:center;gap:8px">
-     <span style="font-size:13px;color:var(--text-muted);white-space:nowrap">rolecall.hwtco.org/survey/</span>
-     <input type="text" id="survey-slug" placeholder="my-survey-slug" style="flex:1" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'-').replace(/-+/g,'-')"/>
-    </div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Auto-generated from title. You can customize it — letters, numbers, hyphens only.</div>
-   </div>
-   <div class="form-group"><label>Description</label><textarea id="survey-desc" rows="2" placeholder="Tell respondents what this survey is about..."></textarea></div>
-   <div class="form-row">
-    <div class="form-group"><label>Status</label><select id="survey-status"><option value="draft">Draft</option><option value="open">Open (accepting responses)</option><option value="closed">Closed</option></select></div>
-    <div class="form-group"><label>Close Date (optional)</label><input type="date" id="survey-closes-at"/></div>
-   </div>
-   <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Response Options</div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px"><input type="checkbox" id="survey-anonymous" style="accent-color:var(--teal)"/> Allow anonymous responses</label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px"><input type="checkbox" id="survey-require-name"/> Require name</label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="survey-require-email"/> Require email</label>
-   </div>
-   <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-     <div style="font-size:14px;font-weight:600">Questions</div>
-     <button class="btn btn-secondary btn-sm" onclick="addSurveyQuestion()">+ Add Question</button>
-    </div>
-    <div id="survey-questions-list"></div>
-   </div>
-  </div>
-  <div class="modal-footer">
-   <button class="btn btn-secondary" onclick="closeModal('modal-survey')">Cancel</button>
-   <button class="btn btn-primary" onclick="saveSurvey()">Save Survey</button>
-  </div>
- </div>
-</div>
-
 <div class="modal-overlay" id="modal-program">
  <div class="modal">
  <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')">×</button></div>
@@ -2534,23 +2412,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>End Date</label><input type="date" id="program-end"/></div>
  </div>
  <div class="form-row"><div class="form-group"><label>Status</label><select id="program-status"><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div><div class="form-group"><label>Description</label><textarea id="program-desc" placeholder="What is this program about?"></textarea></div></div>
- <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-top:4px">
-  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0 0 10px;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
-   <input type="checkbox" id="program-requires-guardian" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0"/>
-   <span><strong>Require drop-off tracking</strong> — Kiosk will ask for guardian/drop-off name when signing participants in. Use for programs with minors that need guardian tracking.</span>
-  </label>
-  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-size:13px;font-weight:400">
-   <input type="checkbox" id="program-bundle-enabled" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0" onchange="document.getElementById('bundle-price-row').style.display=this.checked?'':'none'"/>
-   <span><strong>Enable bundle pricing</strong> — Show a "Book All Sessions" button at a discounted price on the registration form.</span>
-  </label>
-  <div id="bundle-price-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-   <div class="form-row">
-    <div class="form-group"><label>Bundle Price ($)</label><input type="number" id="program-bundle-price" min="0" step="0.01" placeholder="e.g. 299.00"/></div>
-    <div class="form-group"><label>Bundle Label</label><input type="text" id="program-bundle-label" placeholder="Book All Sessions"/></div>
-   </div>
-   <div style="font-size:11px;color:var(--text-muted)">The bundle books all available sessions at this flat price. Individual session prices are still shown for comparison.</div>
-  </div>
- </div>
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-program')">Cancel</button>
@@ -2827,20 +2688,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin:14px 0 10px;padding-top:14px;border-top:1px solid var(--border)">Portal / Instructor Profile</div>
- <div class="form-group"><label>Profile Photo <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label>
-  <div style="display:flex;align-items:center;gap:10px">
-   <div id="vol-photo-preview" style="width:56px;height:56px;border-radius:50%;background:var(--bg);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:20px"></div>
-   <div style="flex:1">
-    <input type="hidden" id="vol-photo-url"/>
-    <label style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--surface);border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary);margin:0">
-     Upload Photo
-     <input type="file" accept="image/*" style="display:none" onchange="uploadVolunteerPhoto(this)"/>
-    </label>
-    <button type="button" onclick="document.getElementById('vol-photo-url').value='';document.getElementById('vol-photo-preview').innerHTML=''" style="margin-left:6px;padding:7px 12px;background:none;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;cursor:pointer;color:var(--text-muted)">Remove</button>
-    <div id="vol-photo-upload-status" style="font-size:11px;color:var(--teal-dark);margin-top:4px"></div>
-   </div>
-  </div>
- </div>
+ <div class="form-group"><label>Photo URL <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><input type="text" id="vol-photo-url" placeholder="https://..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Direct image URL only. For Google Drive: share the file, then use <code>https://drive.google.com/uc?export=view&amp;id=FILE_ID</code></div></div>
  <div class="form-group"><label>Bio <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><textarea id="vol-bio" rows="3" placeholder="A short bio shown to enrolled families..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
@@ -3206,6 +3054,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Pronouns</label><input type="text" id="youth-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>
  </div>
  <div class="form-row">
+ <div class="form-group"><label>Grade</label><select id="youth-grade">
+ <option value="">— Not set —</option>
+ <option>Pre-K</option><option>Kindergarten</option>
+ <option>1st Grade</option><option>2nd Grade</option><option>3rd Grade</option>
+ <option>4th Grade</option><option>5th Grade</option><option>6th Grade</option>
+ <option>7th Grade</option><option>8th Grade</option><option>9th Grade</option>
+ <option>10th Grade</option><option>11th Grade</option><option>12th Grade</option>
+ </select></div>
  <div class="form-group"><label>Allergies</label><input type="text" id="youth-allergies" placeholder="e.g. Peanuts, Tree nuts (None if none)"/></div>
  </div>
  <div class="form-group"><label>Medical Notes</label><textarea id="youth-medical" placeholder="Any medical conditions or medications…"></textarea></div>
@@ -3761,7 +3617,6 @@ function navTo(page,el){
  if(page==='youth-signin') initYouthSignIn()
  if(page==='carpools') loadCarpoolsPage()
  if(page==='production-signin') initProdSignIn()
- if(page==='surveys') loadSurveys()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -5497,7 +5352,7 @@ async function loadEmailLog(){
  const failedCount = rows.filter(function(r){ return r.status==='failed' }).length
  el.innerHTML = (failedCount>0?'<div style="padding:10px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:13px;color:#991b1b;font-weight:600">&#x26a0; '+failedCount+' failed email'+(failedCount!==1?'s':'')+' — click Retry to resend</div>':'')
   + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
-  + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg)">'
+  + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:1">'
   + '<th style="text-align:left;padding:8px 14px;color:var(--text-muted);font-size:11px;text-transform:uppercase">To</th>'
   + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Subject</th>'
   + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Source</th>'
@@ -5606,8 +5461,7 @@ function renderYouth(){
  let filtered=allYouth.filter(y=>{
  const name=`${y.first_name} ${y.last_name}`.toLowerCase()
  const programNames=(y.enrollments||[]).map(e=>e.program_name||'').join(' ').toLowerCase()
- const guardianNames=(y.guardians||[]).map(g=>`${g.name||''} ${g.email||''}`).join(' ').toLowerCase()
- if(search&&!name.includes(search)&&!programNames.includes(search)&&!guardianNames.includes(search)) return false
+ if(search&&!name.includes(search)&&!programNames.includes(search)) return false
  if(fs&&y.status!==fs) return false
  if(fp&&!(y.enrollments||[]).find(e=>e.program_id===fp)) return false
  return true
@@ -5760,6 +5614,7 @@ async function openYouthProfile(yid){
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
  ${y.dob?`<div> ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
  ${y.pronouns?`<div style="color:var(--teal-dark);font-weight:500">${escHtml(y.pronouns)}</div>`:''}
+ ${y.grade?`<div>📚 ${escHtml(y.grade)}</div>`:''}
  ${y.program?`<div> ${escHtml(y.program)}</div>`:''}
  ${y.shirt_size?`<div> ${escHtml(y.shirt_size)}</div>`:''}
  </div>
@@ -6885,6 +6740,7 @@ async function openEditYouthModal(yid){
  document.getElementById('youth-allergies').value=y.allergies||''
  document.getElementById('youth-shirt-size').value=y.shirt_size||''
  document.getElementById('youth-pronouns').value=y.pronouns||''
+ document.getElementById('youth-grade').value=y.grade||''
  document.getElementById('youth-photo-consent').checked=!!y.photo_consent
  document.getElementById('youth-medical-consent').checked=!!y.medical_consent
  // Determine minor based on DOB or presence of guardians
@@ -6927,6 +6783,7 @@ async function saveYouth(){
  allergies:document.getElementById('youth-allergies').value.trim()||'None',
  shirt_size:document.getElementById('youth-shirt-size').value||'',
  pronouns:document.getElementById('youth-pronouns').value.trim(),
+ grade:document.getElementById('youth-grade').value||'',
  photo_consent:document.getElementById('youth-photo-consent').checked,
  medical_consent:document.getElementById('youth-medical-consent').checked,
  guardians:[{name:guardianName,relationship:document.getElementById('youth-guardian-rel').value.trim(),phone:guardianPhone,email:document.getElementById('youth-guardian-email').value.trim(),is_primary:true}],
@@ -7145,11 +7002,6 @@ function openEditVolModal(volId){
  if(epEl) epEl.value=v.employer_program||''
  const bioEl=document.getElementById('vol-bio'); if(bioEl) bioEl.value=v.bio||''
  const photoEl=document.getElementById('vol-photo-url'); if(photoEl) photoEl.value=v.photo_url||''
- const photoPreview=document.getElementById('vol-photo-preview')
- if(photoPreview){
-  if(v.photo_url) photoPreview.innerHTML='<img src="'+v.photo_url+'" style="width:100%;height:100%;object-fit:cover"/>'
-  else photoPreview.innerHTML=''
- }
 
  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
  try{
@@ -7241,402 +7093,6 @@ async function attachFile(e,volId){
 // ═══════════════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════════════
-// ── SURVEYS ──────────────────────────────────────────────
-var allSurveys = []
-var surveyQuestions = []
-
-function autoSlug(){
- const title = document.getElementById('survey-title').value
- const slugEl = document.getElementById('survey-slug')
- // Only auto-generate if slug hasn't been manually edited
- if(!slugEl.dataset.manual){
-  slugEl.value = title.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
- }
-}
-
-async function loadSurveys(){
- const rows = await api('/api/surveys')
- allSurveys = rows || []
- renderSurveys()
-}
-
-function renderSurveys(){
- const el = document.getElementById('surveys-body')
- if(!el) return
- if(!allSurveys.length){
-  el.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted)"><div style="font-size:18px;font-weight:600;margin-bottom:8px">No surveys yet</div><div>Create your first survey to start collecting responses.</div></div>'
-  return
- }
- el.innerHTML = allSurveys.map(function(s){
-  const statusColor = {draft:'#9ca3af',open:'#16a34a',closed:'#6b7280'}[s.status]||'#9ca3af'
-  const publicUrl = location.origin+'/survey/'+s.slug
-  return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px">'
-   +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">'
-   +'<div style="flex:1">'
-   +'<div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:4px">'+escHtml(s.title)+'</div>'
-   +(s.description?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">'+escHtml(s.description)+'</div>':'')
-   +'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-muted)">'
-   +'<span style="color:'+statusColor+';font-weight:700;text-transform:uppercase">'+s.status+'</span>'
-   +'<span>'+((s.questions||[]).length)+' questions</span>'
-   +'<span>'+(s.response_count||0)+' response'+(s.response_count===1?'':'s')+'</span>'
-   +(s.closes_at?'<span>Closes '+new Date(s.closes_at).toLocaleDateString()+'</span>':'')
-   +'</div>'
-   +'</div>'
-   +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-   +(s.status==='open'?'<a href="/survey/'+s.slug+'" target="_blank" style="padding:7px 14px;background:var(--teal-light);color:var(--teal);border:1.5px solid var(--teal);border-radius:8px;font-size:12px;font-weight:700;text-decoration:none">View Form</a>':'')
-   +'<button onclick="openSurveyResults(\''+s.id+'\')" style="padding:7px 14px;background:var(--bg);border:1.5px solid var(--border-md);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Results</button>'
-   +'<button onclick="openEditSurveyModal(\''+s.id+'\')" style="padding:7px 14px;background:var(--bg);border:1.5px solid var(--border-md);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Edit</button>'
-   +'<button onclick="deleteSurvey(\''+s.id+'\')" style="padding:7px 14px;background:#fee2e2;border:1.5px solid #fecaca;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:#dc2626">Delete</button>'
-   +'</div>'
-   +'</div>'
-   +'<div style="margin-top:10px;padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px">'
-   +'<span style="color:var(--text-muted)">Public link:</span>'
-   +'<code style="color:var(--teal);font-size:11px">'+publicUrl+'</code>'
-   +'<button onclick="navigator.clipboard.writeText(\''+publicUrl+'\').then(function(){toast(\'Link copied!\',\'success\')})" style="padding:3px 10px;border:1px solid var(--border-md);border-radius:4px;background:#fff;font-size:11px;cursor:pointer">Copy</button>'
-   +'</div>'
-   +'</div>'
- }).join('')
-}
-
-function openNewSurveyModal(){
- document.getElementById('survey-modal-title').textContent='New Survey'
- document.getElementById('survey-edit-id').value=''
- document.getElementById('survey-title').value=''
- document.getElementById('survey-slug').value=''
- document.getElementById('survey-slug').dataset.manual=''
- document.getElementById('survey-desc').value=''
- document.getElementById('survey-status').value='draft'
- document.getElementById('survey-closes-at').value=''
- document.getElementById('survey-anonymous').checked=true
- document.getElementById('survey-require-name').checked=false
- document.getElementById('survey-require-email').checked=false
- surveyQuestions=[]
- renderSurveyQuestions()
- openModal('modal-survey')
-}
-
-function openEditSurveyModal(sid){
- const s = allSurveys.find(function(x){ return x.id===sid })
- if(!s) return
- document.getElementById('survey-modal-title').textContent='Edit Survey'
- document.getElementById('survey-edit-id').value=s.id
- document.getElementById('survey-title').value=s.title||''
- document.getElementById('survey-slug').value=s.slug||''
- document.getElementById('survey-slug').dataset.manual='1'
- document.getElementById('survey-desc').value=s.description||''
- document.getElementById('survey-status').value=s.status||'draft'
- document.getElementById('survey-closes-at').value=(s.closes_at||'').slice(0,10)
- document.getElementById('survey-anonymous').checked=!!s.allow_anonymous
- document.getElementById('survey-require-name').checked=!!s.require_name
- document.getElementById('survey-require-email').checked=!!s.require_email
- surveyQuestions = (s.questions||[]).map(function(q){
-  return Object.assign({},q,{options: Array.isArray(q.options)?q.options:(JSON.parse(q.options||'[]'))})
- })
- renderSurveyQuestions()
- openModal('modal-survey')
-}
-
-function addSurveyQuestion(){
- surveyQuestions.push({id:'',question_text:'',question_type:'text',options:[],required:false,allow_other:false})
- renderSurveyQuestions()
-}
-
-function renderSurveyQuestions(){
- const el = document.getElementById('survey-questions-list')
- if(!el) return
- if(!surveyQuestions.length){
-  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px">No questions yet. Click "+ Add Question" to begin.</div>'
-  return
- }
- el.innerHTML = surveyQuestions.map(function(q,i){
-  var opts = Array.isArray(q.options)?q.options:[]
-  return '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px">'
-   +'<div style="display:flex;gap:8px;margin-bottom:10px">'
-   +'<input type="text" placeholder="Question text..." value="'+escHtml(q.question_text||'')+'" oninput="surveyQuestions['+i+'].question_text=this.value" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-size:13px"/>'
-   +'<select onchange="surveyQuestions['+i+'].question_type=this.value;renderSurveyQuestions()" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-size:13px">'
-   +'<option value="text"'+(q.question_type==='text'?' selected':'')+'>Open Text</option>'
-   +'<option value="radio"'+(q.question_type==='radio'?' selected':'')+'>Multiple Choice</option>'
-   +'<option value="checkbox"'+(q.question_type==='checkbox'?' selected':'')+'>Checkboxes</option>'
-   +'<option value="rating"'+(q.question_type==='rating'?' selected':'')+'>Rating (1-5)</option>'
-   +'</select>'
-   +'<button onclick="surveyQuestions.splice('+i+',1);renderSurveyQuestions()" style="padding:8px 12px;background:#fee2e2;color:#dc2626;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">✕</button>'
-   +'</div>'
-   +(q.question_type==='radio'||q.question_type==='checkbox'
-    ? '<div style="margin-bottom:8px">'
-      + opts.map(function(opt,oi){
-        return '<div style="display:flex;gap:6px;margin-bottom:6px">'
-         +'<input type="text" value="'+escHtml(opt)+'" placeholder="Option..." oninput="surveyQuestions['+i+'].options['+oi+']=this.value" style="flex:1;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:6px;font-size:13px"/>'
-         +'<button onclick="surveyQuestions['+i+'].options.splice('+oi+',1);renderSurveyQuestions()" style="padding:4px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;cursor:pointer;font-weight:700">✕</button>'
-         +'</div>'
-      }).join('')
-      +'<button onclick="surveyQuestions['+i+'].options.push(\'\');renderSurveyQuestions()" style="font-size:12px;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600">+ Add option</button>'
-      +'</div>'
-      +'<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox"'+(q.allow_other?' checked':'')+' onchange="surveyQuestions['+i+'].allow_other=this.checked" style="accent-color:var(--teal)"/> Include "Other" with open field</label>'
-    : '')
-   +'<div style="margin-top:8px"><label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox"'+(q.required?' checked':'')+' onchange="surveyQuestions['+i+'].required=this.checked" style="accent-color:var(--teal)"/> Required</label></div>'
-   +'</div>'
- }).join('')
-}
-
-async function saveSurvey(){
- const title = document.getElementById('survey-title').value.trim()
- if(!title){ toast('Please enter a survey title','error'); return }
- const sid = document.getElementById('survey-edit-id').value
- const payload = {
-  title, description: document.getElementById('survey-desc').value.trim(),
-  slug: document.getElementById('survey-slug').value.trim()||null,
-  status: document.getElementById('survey-status').value,
-  closes_at: document.getElementById('survey-closes-at').value||null,
-  allow_anonymous: document.getElementById('survey-anonymous').checked,
-  require_name: document.getElementById('survey-require-name').checked,
-  require_email: document.getElementById('survey-require-email').checked,
- }
- var result
- if(sid){
-  result = await api('/api/surveys/'+sid,'PUT',payload)
-  if(result&&result.ok) await api('/api/surveys/'+sid+'/questions','POST',{questions:surveyQuestions})
- } else {
-  result = await api('/api/surveys','POST',payload)
-  if(result&&result.ok) await api('/api/surveys/'+result.id+'/questions','POST',{questions:surveyQuestions})
- }
- if(result&&result.ok){
-  closeModal('modal-survey')
-  toast('Survey saved!','success')
-  loadSurveys()
- } else {
-  toast('Error saving survey','error')
- }
-}
-
-async function deleteSurvey(sid){
- if(!confirm('Delete this survey and all its responses? This cannot be undone.')) return
- const r = await api('/api/surveys/'+sid,'DELETE')
- if(r&&r.ok){ toast('Survey deleted','success'); loadSurveys() }
- else toast('Error deleting survey','error')
-}
-
-async function openSurveyResults(sid){
- const data = await api('/api/surveys/'+sid+'/results')
- if(!data||data.error){ toast('Could not load results','error'); return }
- const survey = data.survey
- const questions = data.questions
- const responses = data.responses
-
- const overlay = document.createElement('div')
- overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px'
-
- function renderView(view){
-  let body = ''
-  if(view==='summary'){
-   body = buildSummaryView(questions, responses)
-  } else if(view==='table'){
-   body = buildTableView(questions, responses)
-  } else if(view==='raw'){
-   body = buildRawView(responses)
-  }
-  overlay.querySelector('#results-body').innerHTML = body
- }
-
- overlay.innerHTML='<div style="background:#fff;border-radius:12px;padding:28px;max-width:720px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">'
-  +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">'
-  +'<div><div style="font-size:18px;font-weight:700">'+escHtml(survey.title)+'</div>'
-  +'<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div></div>'
-  +'<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#9ca3af;line-height:1">×</button>'
-  +'</div>'
-  +'<div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">'
-  +'<button class="results-view-btn active" data-view="summary" onclick="setResultsView(this,\'summary\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--teal);background:var(--teal);color:#fff;font-size:13px;font-weight:600;cursor:pointer">Summary</button>'
-  +'<button class="results-view-btn" data-view="table" onclick="setResultsView(this,\'table\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Table</button>'
-  +'<button class="results-view-btn" data-view="raw" onclick="setResultsView(this,\'raw\')" style="padding:6px 16px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Individual</button>'
-  +'<div style="flex:1"></div>'
-  +'<button onclick="exportSurveyCSV()" style="padding:6px 14px;border-radius:20px;border:1.5px solid var(--border-md);background:#fff;font-size:12px;font-weight:600;cursor:pointer">Export CSV</button>'
-  +'</div>'
-  +'<div id="results-body" style="overflow-y:auto;flex:1"></div>'
-  +'</div>'
-
- document.body.appendChild(overlay)
- overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
-
- // Store data on overlay for CSV export
- overlay._surveyData = {survey, questions, responses}
- window._currentSurveyOverlay = overlay
-
- overlay.querySelectorAll('.results-view-btn').forEach(function(btn){
-  btn.addEventListener('click', function(){
-   overlay.querySelectorAll('.results-view-btn').forEach(function(b){
-    b.style.background='#fff'; b.style.color='var(--text-secondary)'; b.style.borderColor='var(--border-md)'
-   })
-   btn.style.background='var(--teal)'; btn.style.color='#fff'; btn.style.borderColor='var(--teal)'
-   renderView(btn.dataset.view)
-  })
- })
- overlay.querySelector('[data-view=summary]').click()
-}
-
-function buildSummaryView(questions, responses){
- if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
- return questions.map(function(q){
-  const opts = Array.isArray(q.options)?q.options:(JSON.parse(q.options||'[]'))
-  let html = '<div style="margin-bottom:24px">'
-  html += '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:10px">'+escHtml(q.question_text)+'</div>'
-
-  if(q.question_type==='radio'||q.question_type==='checkbox'){
-   var counts={}, total=responses.length||1
-   responses.forEach(function(r){
-    var ans=(JSON.parse(r.answers||'{}')||{})[q.id]
-    if(!ans) return
-    ;(Array.isArray(ans)?ans:[ans]).forEach(function(v){ counts[v]=(counts[v]||0)+1 })
-   })
-   var sorted=Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a] })
-   if(!sorted.length){ html+='<div style="font-size:13px;color:var(--text-muted)">No responses</div>' }
-   sorted.forEach(function(k){
-    var pct=Math.round(counts[k]/total*100)
-    html+='<div style="margin-bottom:8px">'
-     +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>'+escHtml(k)+'</span><span style="font-weight:700;color:var(--teal)">'+counts[k]+' ('+pct+'%)</span></div>'
-     +'<div style="background:#e5e7eb;border-radius:6px;height:10px"><div style="background:var(--teal);border-radius:6px;height:10px;width:'+pct+'%;transition:width 0.3s"></div></div>'
-     +'</div>'
-   })
-  } else if(q.question_type==='rating'){
-   var rc={},rt=0
-   ;[1,2,3,4,5].forEach(function(i){rc[i]=0})
-   responses.forEach(function(r){
-    var ans=(JSON.parse(r.answers||'{}')||{})[q.id]
-    if(ans){rc[ans]=(rc[ans]||0)+1;rt++}
-   })
-   var avg=rt?Object.keys(rc).reduce(function(s,k){return s+k*rc[k]},0)/rt:0
-   html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:10px">'
-    +'<div style="font-size:28px;font-weight:800;color:var(--teal)">'+avg.toFixed(1)+'</div>'
-    +'<div style="font-size:12px;color:var(--text-muted)">avg out of 5<br>'+rt+' rated</div></div>'
-   ;[5,4,3,2,1].forEach(function(i){
-    var pct=rt?Math.round(rc[i]/rt*100):0
-    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'
-     +'<span style="width:8px">'+i+'</span>'
-     +'<div style="flex:1;background:#e5e7eb;border-radius:4px;height:8px"><div style="background:var(--teal);border-radius:4px;height:8px;width:'+pct+'%"></div></div>'
-     +'<span style="width:28px;color:var(--text-muted)">'+rc[i]+'</span></div>'
-   })
-  } else {
-   var texts=responses.map(function(r){ return (JSON.parse(r.answers||'{}')||{})[q.id] }).filter(Boolean)
-   if(!texts.length){ html+='<div style="font-size:13px;color:var(--text-muted)">No responses</div>' }
-   else {
-    html+='<div style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">'
-    texts.forEach(function(t){ html+='<div style="padding:8px 12px;background:#f8fafc;border-radius:6px;font-size:13px;border:1px solid var(--border)">'+escHtml(t)+'</div>' })
-    html+='</div>'
-   }
-  }
-  return html+'</div>'
- }).join('<hr style="border:none;border-top:1px solid var(--border);margin:8px 0"/>')
-}
-
-function buildTableView(questions, responses){
- if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
- let html='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
- html+='<thead><tr style="background:#f8fafc">'
- html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap">#</th>'
- html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap">Date</th>'
- questions.forEach(function(q){
-  html+='<th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border);max-width:160px">'+escHtml(q.question_text.slice(0,40))+(q.question_text.length>40?'…':'')+'</th>'
- })
- html+='</tr></thead><tbody>'
- responses.forEach(function(r,i){
-  var ans=JSON.parse(r.answers||'{}')||{}
-  html+='<tr style="border-bottom:1px solid var(--border)'+(i%2?' background:#fafafa':'')+'"><td style="padding:8px 10px;color:var(--text-muted)">'+(i+1)+'</td>'
-  html+='<td style="padding:8px 10px;white-space:nowrap;color:var(--text-muted)">'+new Date(r.submitted_at).toLocaleDateString()+'</td>'
-  questions.forEach(function(q){
-   var a=ans[q.id]
-   var display=Array.isArray(a)?a.join(', '):(a||'—')
-   html+='<td style="padding:8px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(display)+'">'+escHtml(display)+'</td>'
-  })
-  html+='</tr>'
- })
- html+='</tbody></table></div>'
- return html
-}
-
-function buildRawView(responses){
- if(!responses.length) return '<div style="text-align:center;padding:40px;color:var(--text-muted)">No responses yet</div>'
- window._rawResponses = responses
- window._rawQuestions = window._currentSurveyOverlay?window._currentSurveyOverlay._surveyData.questions:[]
- window.rawNav = function(i){
-  document.getElementById('raw-container').innerHTML = buildRawSingle(i)
- }
- return '<div id="raw-container">'+buildRawSingle(0)+'</div>'
-}
-
-function buildRawBody(ans){
- var qs = window._rawQuestions||[]
- return qs.map(function(q){
-  var a=ans[q.id]
-  var display=Array.isArray(a)?a.join(', '):(a||'—')
-  return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px">'+escHtml(q.question_text)+'</div>'
-   +'<div style="font-size:14px;color:var(--text-primary)">'+escHtml(display)+'</div></div>'
- }).join('')
-}
-
-function buildRawSingle(i){
- var responses=window._rawResponses||[]
- var r=responses[i]
- if(!r) return ''
- var ans=JSON.parse(r.answers||'{}')||{}
- return '<div>'
-  +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
-  +'<div style="font-size:13px;font-weight:700">Response '+(i+1)+' of '+responses.length+'</div>'
-  +'<div style="display:flex;gap:8px">'
-  +(i>0?'<button onclick="rawNav('+(i-1)+')" style="padding:5px 12px;border:1.5px solid var(--border-md);border-radius:6px;background:#fff;cursor:pointer;font-size:12px">← Prev</button>':'')
-  +(i<responses.length-1?'<button onclick="rawNav('+(i+1)+')" style="padding:5px 12px;border:1.5px solid var(--border-md);border-radius:6px;background:#fff;cursor:pointer;font-size:12px">Next →</button>':'')
-  +'</div></div>'
-  +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">'+new Date(r.submitted_at).toLocaleString()+(r.respondent_name?' · '+escHtml(r.respondent_name):'')+(r.respondent_email?' · '+escHtml(r.respondent_email):'')+'</div>'
-  +buildRawBody(ans)
-  +'</div>'
-}
-
-function exportSurveyCSV(){
- var overlay=window._currentSurveyOverlay
- if(!overlay) return
- var data=overlay._surveyData
- var qs=data.questions, rs=data.responses
- var headers=['#','Date','Name','Email'].concat(qs.map(function(q){ return q.question_text }))
- var rows=rs.map(function(r,i){
-  var ans=JSON.parse(r.answers||'{}')||{}
-  return [i+1, new Date(r.submitted_at).toLocaleDateString(), r.respondent_name||'', r.respondent_email||'']
-   .concat(qs.map(function(q){
-    var a=ans[q.id]
-    return Array.isArray(a)?a.join('; '):(a||'')
-   }))
- })
- var csv=[headers].concat(rows).map(function(row){
-  return row.map(function(c){ return '"'+String(c||'').replace(/"/g,'""')+'"' }).join(',')
- }).join('\n')
- var blob=new Blob([csv],{type:'text/csv'})
- var url=URL.createObjectURL(blob)
- var a=document.createElement('a')
- a.href=url; a.download=data.survey.slug+'-results.csv'; a.click()
- URL.revokeObjectURL(url)
-}
-
-async function uploadVolunteerPhoto(input){
- const file = input.files[0]
- if(!file) return
- const status = document.getElementById('vol-photo-upload-status')
- const preview = document.getElementById('vol-photo-preview')
- if(status) status.textContent = 'Uploading...'
- try{
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('type', 'volunteer_photo')
-  const r = await fetch('/api/upload/image', {method:'POST', body: formData})
-  const d = await r.json()
-  if(d.url){
-   document.getElementById('vol-photo-url').value = d.url
-   if(preview) preview.innerHTML = '<img src="'+d.url+'" style="width:100%;height:100%;object-fit:cover"/>'
-   if(status) status.textContent = 'Photo uploaded!'
-   setTimeout(function(){ if(status) status.textContent='' }, 3000)
-  } else {
-   if(status) status.textContent = d.error || 'Upload failed'
-  }
- } catch(e){
-  if(status) status.textContent = 'Upload failed'
- }
-}
-
 async function loadSettings(){
  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes]=await Promise.all([
  api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
@@ -8373,8 +7829,6 @@ async function saveTwilioSettings(){
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
   twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
   twilio_audio_after_hours: window._twilioAudio?.after_hours||'',
-  twilio_audio_hold_music: window._twilioAudio?.hold_music||'',
-  twilio_hold_music_url: (document.getElementById('es-twilio-hold-music')||{}).value||'',
   twilio_audio_voicemail: window._twilioAudio?.voicemail||''
  }
  const res = await api('/api/email-settings','PUT',data)
@@ -8399,7 +7853,6 @@ function loadTwilioSettings(s){
  set('es-twilio-voicemail', s.twilio_voice_voicemail||'')
  set('es-twilio-cov-start', s.twilio_coverage_start||'08:00')
  set('es-twilio-cov-end', s.twilio_coverage_end||'22:00')
- set('es-twilio-hold-music', s.twilio_hold_music_url||'')
  set('es-twilio-slack-webhook', s.slack_call_webhook||'')
  set('es-slack-bot-token', s.slack_bot_token||'')
  set('es-slack-channel', s.slack_call_channel||'')
@@ -8412,8 +7865,7 @@ function loadTwilioSettings(s){
   no_answer: s.twilio_audio_no_answer||'',
   unavailable: s.twilio_audio_unavailable||'',
   after_hours: s.twilio_audio_after_hours||'',
-  voicemail: s.twilio_audio_voicemail||'',
-  hold_music: s.twilio_audio_hold_music||''
+  voicemail: s.twilio_audio_voicemail||''
  }
  // Show existing audio status
  Object.keys(window._twilioAudio).forEach(function(key){
@@ -8730,7 +8182,9 @@ function switchSettingsPanel(id, btn){
  document.querySelectorAll('.settings-panel').forEach(p=>p.style.display='none')
  document.querySelectorAll('.settings-nav-btn').forEach(b=>b.classList.remove('active'))
  const panel = document.getElementById('settings-panel-'+id)
- if(panel){ panel.style.display=''; panel.closest('div[style*="overflow-y"]')?.scrollTo(0,0) }
+ if(panel){ panel.style.display='' }
+ const panels = document.getElementById('settings-panels')
+ if(panels) panels.scrollTop=0
  if(btn) btn.classList.add('active')
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()
@@ -17967,14 +17421,6 @@ function openNewProgramModal(){
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
- const rgCheck=document.getElementById('program-requires-guardian')
- if(rgCheck) rgCheck.checked=false
- const bundleCheck=document.getElementById('program-bundle-enabled')
- if(bundleCheck){ bundleCheck.checked=false }
- const bundleRow=document.getElementById('bundle-price-row')
- if(bundleRow) bundleRow.style.display='none'
- document.getElementById('program-bundle-price')?.value && (document.getElementById('program-bundle-price').value='')
- document.getElementById('program-bundle-label')?.value && (document.getElementById('program-bundle-label').value='')
  openModal('modal-program')
 }
 
@@ -17993,16 +17439,6 @@ function openEditProgramModal(pid){
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
- const rgCheck=document.getElementById('program-requires-guardian')
- if(rgCheck) rgCheck.checked=!!p.requires_guardian
- const bundleCheck=document.getElementById('program-bundle-enabled')
- if(bundleCheck) bundleCheck.checked=!!p.bundle_enabled
- const bundleRow=document.getElementById('bundle-price-row')
- if(bundleRow) bundleRow.style.display=p.bundle_enabled?'':'none'
- const bpEl=document.getElementById('program-bundle-price')
- if(bpEl) bpEl.value=p.bundle_price?(p.bundle_price/100).toFixed(2):''
- const blEl=document.getElementById('program-bundle-label')
- if(blEl) blEl.value=p.bundle_label||'Book All Sessions'
  openModal('modal-program')
 }
 
@@ -18301,11 +17737,7 @@ async function saveYouthProgram(){
  end_date:document.getElementById('program-end').value||null,
  description:document.getElementById('program-desc').value.trim(),
  instructor_id:document.getElementById('program-instructor').value||null,
- default_elic_id:document.getElementById('program-default-elic')?.value||null,
- requires_guardian:!!(document.getElementById('program-requires-guardian')?.checked),
- bundle_enabled:!!(document.getElementById('program-bundle-enabled')?.checked),
- bundle_price:document.getElementById('program-bundle-price')?.value||null,
- bundle_label:document.getElementById('program-bundle-label')?.value||'Book All Sessions',
+ default_elic_id:document.getElementById('program-default-elic')?.value||null
  }
  let res
  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)
@@ -20210,8 +19642,6 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-show-almost" '+(prog.show_almost_sold_out!==false?'checked':'')+' style="accent-color:var(--teal)"/> Show "Almost Sold Out" badge when &ge;90% full</label>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
-    + '<input type="checkbox" id="rs-show-sold-out-strikethrough" '+(prog.show_sold_out_strikethrough?'checked':'')+' style="accent-color:var(--teal)"/> Show sold-out sessions with <span style="text-decoration:line-through;color:#9ca3af">strikethrough</span> instead of hiding them</label>'
-    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-sessions-enabled" '+(prog.sessions_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Enable sessions for this program</label>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
     + '<input type="checkbox" id="rs-booking-mode" '+(prog.booking_mode?'checked':'')+' style="accent-color:var(--teal)"/> Booking Mode (studio/slot reservations — one slot per booking)</label>'
@@ -20907,7 +20337,6 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     max_sessions_per_reg: parseInt((document.getElementById('rs-max-sessions')||{}).value||0)||0,
     show_capacity_public: (document.getElementById('rs-show-capacity')||{}).checked!==false,
     show_almost_sold_out: (document.getElementById('rs-show-almost')||{}).checked!==false,
-    show_sold_out_strikethrough: !!(document.getElementById('rs-show-sold-out-strikethrough')||{}).checked,
     registration_note: (document.getElementById('rs-registration-note')||{}).value || '',
     custom_fields: getCustomFieldsFromModal(),
     square_catalog_item_id: (document.getElementById('rs-catalog-item')||{}).value || null,
@@ -23148,102 +22577,6 @@ async function renderMarqueeTab(tab){
   else if(tab==='orders') await renderMarqueeOrders(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
   else if(tab==='donations') await renderMarqueeDonations(el)
-  else if(tab==='refunds') await renderMarqueeRefunds(el)
-}
-
-var REFUND_TYPE_LABELS = {refund:'Cash Refund',credit:'Account Credit',transfer:'Spot Transfer',find_replacement:'Help Find Replacement'}
-var REFUND_REASON_LABELS = {medical:'Medical emergency',family_death:'Death in family',act_of_god:'Act of God / disaster',hwtc_change:'HWTC schedule change',other:'Other'}
-var REFUND_STATUS_COLORS = {pending:'#fbbf24',approved:'#22c55e',denied:'#ef4444',processed:'#145466',cancelled:'#9ca3af'}
-
-async function renderMarqueeRefunds(el){
-  var statusFilter = el.dataset.statusFilter||''
-  var rows = await api('/api/refund-requests'+(statusFilter?'?status='+statusFilter:''))
-  if(!rows){ el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-muted)">Could not load refund requests.</div>'; return }
-
-  // Update badge
-  var pending = rows.filter(function(r){ return r.status==='pending' })
-  var badge = document.getElementById('refund-requests-badge')
-  if(badge){ if(pending.length){ badge.textContent=pending.length; badge.style.display='' } else badge.style.display='none' }
-
-  var filterBtns = ['','pending','approved','denied','processed'].map(function(s){
-    var label = s?s.charAt(0).toUpperCase()+s.slice(1):'All'
-    var active = (el.dataset.statusFilter||'')=== s
-    return '<button onclick="document.getElementById(\'marquee-tab-refunds\').dataset.statusFilter=\''+s+'\';renderMarqueeRefunds(document.getElementById(\'marquee-tab-refunds\'))" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(active?'var(--teal)':'var(--border-md)')+';background:'+(active?'var(--teal)':'var(--surface)')+';color:'+(active?'#fff':'var(--text-secondary)')+';font-size:12px;font-weight:600;cursor:pointer">'+label+(s==='pending'&&pending.length?' ('+pending.length+')':'')+'</button>'
-  }).join('')
-
-  if(!rows.length){
-    el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:20px">'+filterBtns+'</div><div style="padding:40px;text-align:center;color:var(--text-muted)">No refund requests yet.</div>'
-    return
-  }
-
-  var cards = rows.filter(function(r){ return !statusFilter||r.status===statusFilter }).map(function(r){
-    var statusColor = REFUND_STATUS_COLORS[r.status]||'#9ca3af'
-    var boardBadge = r.requires_board_approval ? '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px">Board Review Required</span>' : ''
-    var amtDisplay = r.refund_amount_cents ? '$'+(r.refund_amount_cents/100).toFixed(2) : (r.amount_paid||'—')
-    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:12px">'
-      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">'
-      +'<div>'
-      +'<div style="font-size:15px;font-weight:700;color:var(--text-primary)">'+(r.participant_name||'')+'</div>'
-      +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(r.program_name||'')+(r.square_order_id?' &nbsp;·&nbsp; Order: <code>'+r.square_order_id+'</code>':'')+'</div>'
-      +'<div style="font-size:12px;color:var(--text-muted)">Requested by: '+(r.requester_name||'')+' &lt;'+(r.requester_email||'')+'&gt;</div>'
-      +'</div>'
-      +'<div style="text-align:right;flex-shrink:0">'
-      +'<div style="font-size:10px;font-family:monospace;color:var(--text-muted)">'+(r.ref_number||'')+'</div>'
-      +'<span style="background:'+statusColor+'22;color:'+statusColor+';font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px">'+((r.status||'').toUpperCase())+'</span>'
-      +boardBadge
-      +'</div>'
-      +'</div>'
-      +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">'
-      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Type</div><div style="font-weight:600">'+(REFUND_TYPE_LABELS[r.request_type]||r.request_type||'—')+'</div></div>'
-      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Amount</div><div style="font-weight:600">'+amtDisplay+'</div></div>'
-      +'<div><div style="color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px">Reason</div><div style="font-weight:600">'+(REFUND_REASON_LABELS[r.reason_category]||r.reason_category||'—')+'</div></div>'
-      +'</div>'
-      +'<div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;padding:10px 12px;background:#f8fafc;border-radius:8px;line-height:1.5">'+(r.reason_detail||'')+'</div>'
-      +(r.replacement_name&&r.replacement_name.trim() ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Replacement: '+r.replacement_name+' — '+r.replacement_email+'</div>' : '')
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
-      +(r.status==='pending'||r.status==='approved' ? '<button onclick="approveRefundRequest(\''+r.id+'\')" style="padding:7px 16px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Approve</button>' : '')
-      +(r.status==='pending' ? '<button onclick="denyRefundRequest(\''+r.id+'\')" style="padding:7px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Deny</button>' : '')
-      +(r.status==='approved'&&r.request_type==='refund'&&r.square_order_id ? '<button onclick="processSquareRefund(\''+r.id+'\',\''+r.ref_number+'\','+r.refund_amount_cents+')" style="padding:7px 16px;background:#145466;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Process in Square</button>' : '')
-      +(r.status==='processed'&&r.square_refund_id ? '<span style="font-size:11px;color:var(--text-muted)">Square Refund ID: '+r.square_refund_id+'</span>' : '')
-      +'<div style="flex:1"></div>'
-      +'<span style="font-size:11px;color:var(--text-muted)">Submitted '+new Date(r.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</span>'
-      +'</div>'
-      +'</div>'
-  }).join('')
-
-  el.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center">'
-    + filterBtns
-    + '<div style="flex:1"></div>'
-    + '<a href="/request-a-refund" target="_blank" style="font-size:12px;color:var(--teal);text-decoration:none;font-weight:600">View public form</a>'
-    + '</div>'
-    + cards
-}
-
-async function approveRefundRequest(id){
-  var notes = prompt('Add a note for the requester (optional):') || ''
-  var r = await api('/api/refund-requests/'+id,'PUT',{status:'approved',admin_notes:notes,reviewed_by:currentUser?.name||'Admin'})
-  if(r&&r.ok) renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
-  else toast('Error updating request','error')
-}
-
-async function denyRefundRequest(id){
-  var notes = prompt('Reason for denial (will be shared with requester):')
-  if(notes===null) return
-  var r = await api('/api/refund-requests/'+id,'PUT',{status:'denied',admin_notes:notes,reviewed_by:currentUser?.name||'Admin'})
-  if(r&&r.ok) renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
-  else toast('Error updating request','error')
-}
-
-async function processSquareRefund(id, refNum, amountCents){
-  var confirmed = confirm('Process Square refund for request '+refNum+'?\n\nAmount: $'+(amountCents/100).toFixed(2)+'\n\nThis will issue the refund immediately via Square. This cannot be undone.')
-  if(!confirmed) return
-  var r = await api('/api/refund-requests/'+id+'/process-square','POST',{amount_cents:amountCents})
-  if(r&&r.ok){
-    toast('Refund of $'+(r.amount_cents/100).toFixed(2)+' processed in Square!','success')
-    renderMarqueeRefunds(document.getElementById('marquee-tab-refunds'))
-  } else {
-    toast((r&&r.error)||'Square refund failed','error')
-  }
 }
 
 async function renderMarqueeDashboard(el){
@@ -23465,14 +22798,6 @@ async function renderMarqueeCatalog(el){
   // RS Productions with registration enabled
   var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
 
-  // Session-level enrollment (for programs with sessions_enabled), keyed by program_id
-  var sessByProg = {}
-  try{
-    var overviewData = await api('/api/marquee/overview')
-    var sessions = (overviewData && overviewData.session_breakdown) || []
-    sessions.forEach(function(s){ if(!sessByProg[s.program_id]) sessByProg[s.program_id]=[]; sessByProg[s.program_id].push(s) })
-  } catch(e){}
-
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
   var statusBadge = {
     open:'background:#dcfce7;color:#166534',
@@ -23501,26 +22826,6 @@ async function renderMarqueeCatalog(el){
     var settingsFn = type==='production'
       ? 'openProductionRegistrationSettingsModal(\''+item.id+'\')'
       : 'openRegistrationSettingsModal(\''+item.id+'\')'
-    var enrolledCount = item.reg_enrolled||item.registration_count||0
-    var progSessions = item.sessions_enabled ? (sessByProg[item.id] || []) : []
-    // Flat capacity sold-out badge only applies when the program isn't session-based
-    var isSoldOut = !item.sessions_enabled && !!item.capacity && enrolledCount >= item.capacity
-    // Per-session rows for session-based programs
-    var sessionsHTML = ''
-    if(progSessions.length){
-      sessionsHTML = '<div style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px">'
-        + progSessions.map(function(s){
-            var sConfirmed = s.confirmed_count||0
-            var sSoldOut = !!s.capacity && sConfirmed >= s.capacity
-            return '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;padding:4px 8px;background:#f9fafb;border-radius:6px">'
-              + '<span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(s.name||'')+'</span>'
-              + (sSoldOut
-                  ? '<span style="flex-shrink:0;padding:1px 6px;border-radius:20px;font-size:9px;font-weight:700;background:#fee2e2;color:#991b1b">SOLD OUT</span>'
-                  : '<span style="flex-shrink:0;color:var(--text-muted)">'+(s.capacity ? sConfirmed+' / '+s.capacity : sConfirmed+' enrolled')+'</span>')
-              + '</div>'
-          }).join('')
-        + '</div>'
-    }
     return '<div class="card" style="padding:0;overflow:hidden">'
       + '<div style="height:4px;background:'+(type==='production'?'#7c3aed':'#145466')+'"></div>'
       + '<div style="padding:16px">'
@@ -23530,13 +22835,11 @@ async function renderMarqueeCatalog(el){
       + '<div style="display:flex;gap:4px;flex-wrap:wrap">'
       + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:'+typeBg+';color:'+typeColor+'">'+typeLabel+'</span>'
       + '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;'+badge+'">'+st.replace('_',' ')+'</span>'
-      + (isSoldOut ? '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#fee2e2;color:#991b1b">SOLD OUT</span>' : '')
       + '</div></div></div>'
       + (item.start_date ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">'+fmtDate(item.start_date)+(item.end_date&&item.end_date!==item.start_date?' – '+fmtDate(item.end_date):'')+'</div>' : '')
       + (item.price ? '<div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">$'+(item.price/100).toFixed(2)+'/participant</div>'
                     : '<div style="font-size:13px;font-weight:700;color:#166534;margin-bottom:8px">Free</div>')
-      + (item.capacity && !item.sessions_enabled ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+enrolledCount+' / '+item.capacity+' spots filled</div>' : '')
-      + sessionsHTML
+      + (item.capacity ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">'+(item.reg_enrolled||item.registration_count||0)+' / '+item.capacity+' spots filled</div>' : '')
       + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       + '<button class="btn btn-secondary btn-sm" onclick="'+settingsFn+'" style="font-size:11px;padding:5px 10px">Settings</button>'
       + (item.slug ? '<a href="'+regUrl+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;padding:5px 10px;text-decoration:none">Reg Page</a>' : '')

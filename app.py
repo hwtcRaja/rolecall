@@ -1293,6 +1293,9 @@ def init_db():
         "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_order_id TEXT",
         "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_payment_id TEXT",
         "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS payment_url TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_type TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_multiplier REAL",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_flat_cents INTEGER",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -2272,15 +2275,18 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
-         d.get('auto_log_hours', False)))
+         d.get('auto_log_hours', False),
+         d.get('hours_store_bonus_type') or None,
+         d.get('hours_store_bonus_multiplier') or None,
+         d.get('hours_store_bonus_flat_cents') or None))
     conn.commit()
     # Auto-assign program instructor/default ELIC when event belongs to a program
     program_id = d.get('program_id') or None
@@ -2358,7 +2364,8 @@ def update_event(eid):
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s WHERE id=%s''',
+        rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s,
+        hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
@@ -2367,7 +2374,10 @@ def update_event(eid):
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
          d.get('rsvp_message',''), new_status,
-         d.get('carpools_enabled', False), eid))
+         d.get('carpools_enabled', False),
+         d.get('hours_store_bonus_type') or None,
+         d.get('hours_store_bonus_multiplier') or None,
+         d.get('hours_store_bonus_flat_cents') or None, eid))
     # Kiosk state is driven by event_logs, not events.status — if the status
     # actually changed to open/closed here, mirror it into event_logs too.
     if new_status != prev_status and new_status in ('open', 'closed'):
@@ -2535,15 +2545,31 @@ def _get_hours_store_rate_cents(conn):
         return 1000
 
 def _get_store_eligible_hours(conn, volunteer_id):
-    """Total logged hours minus any hours tied to Board Meeting events — those still
-    count toward the volunteer's overall total hours, but not toward Hours Store credit."""
-    row = fetchone(conn, '''SELECT COALESCE(SUM(h.hours),0) as t FROM hours h
+    """Store-credit-eligible hours: total logged hours, minus anything tied to a Board
+    Meeting event (excluded — see _get_store_eligible_hours docs elsewhere), plus any
+    per-event Hours Store bonuses (a 'multiplier' event counts its hours at e.g. 2x for
+    store credit only; a 'flat' event grants a one-time bonus, converted to hours at the
+    current rate, to anyone who logged any hours there). None of this touches the
+    volunteer's real total_hours — only what's available to spend in the store."""
+    base_row = fetchone(conn, '''SELECT COALESCE(SUM(
+            CASE WHEN e.hours_store_bonus_type='multiplier' AND e.hours_store_bonus_multiplier IS NOT NULL
+                 THEN h.hours * e.hours_store_bonus_multiplier
+                 ELSE h.hours END
+        ),0) as t
+        FROM hours h
+        LEFT JOIN events e ON e.id = h.event_id
+        LEFT JOIN event_types et ON et.id = e.event_type_id
         WHERE h.volunteer_id=%s
-        AND (h.event_id IS NULL OR h.event_id NOT IN (
-            SELECT e.id FROM events e JOIN event_types et ON et.id=e.event_type_id
-            WHERE LOWER(et.name)='board meeting'
-        ))''', (volunteer_id,))
-    return row['t'] if row else 0
+        AND (et.name IS NULL OR LOWER(et.name) != 'board meeting')''', (volunteer_id,))
+    base = base_row['t'] if base_row else 0
+    flat_rows = fetchall(conn, '''SELECT DISTINCT e.id, e.hours_store_bonus_flat_cents
+        FROM hours h JOIN events e ON e.id = h.event_id
+        WHERE h.volunteer_id=%s AND e.hours_store_bonus_type='flat'
+        AND e.hours_store_bonus_flat_cents IS NOT NULL''', (volunteer_id,)) or []
+    flat_bonus_cents = sum((r.get('hours_store_bonus_flat_cents') or 0) for r in flat_rows)
+    rate = _get_hours_store_rate_cents(conn)
+    flat_bonus_hours = (flat_bonus_cents / rate) if rate else 0
+    return (base or 0) + flat_bonus_hours
 
 def sync_hours_store_for_program(conn, program_id):
     """Create/update/retire auto-synced store_items to match a program's current
@@ -2614,6 +2640,18 @@ def get_hours_store_settings():
     rate = _get_hours_store_rate_cents(conn)
     conn.close()
     return jsonify({'rate_cents': rate})
+
+@app.route('/api/admin/hours-store/event-bonuses', methods=['GET'])
+def list_hours_store_event_bonuses():
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT id, name, event_date, hours_store_bonus_type,
+        hours_store_bonus_multiplier, hours_store_bonus_flat_cents
+        FROM events WHERE hours_store_bonus_type IS NOT NULL
+        ORDER BY event_date DESC NULLS LAST''') or []
+    conn.close()
+    return jsonify({'events': rows})
 
 @app.route('/api/admin/hours-store/settings', methods=['PUT'])
 def save_hours_store_settings():

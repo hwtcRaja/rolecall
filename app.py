@@ -1296,6 +1296,10 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_type TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_multiplier REAL",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_flat_cents INTEGER",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'admin'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS desired_frequency TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
+        "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -16895,13 +16899,14 @@ def create_rental_partner():
     conn = get_db()
     pid = str(_urp.uuid4())
     execute(conn, '''INSERT INTO rental_partners
-        (id, name, contact_name, contact_email, contact_phone, organization_type, notes, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,'active')''',
+        (id, name, contact_name, contact_email, contact_phone, organization_type, organization_website, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')''',
         (pid, (d.get('name') or '').strip(),
          (d.get('contact_name') or '').strip(),
          (d.get('contact_email') or '').strip(),
          (d.get('contact_phone') or '').strip(),
          (d.get('organization_type') or '').strip(),
+         (d.get('organization_website') or '').strip(),
          (d.get('notes') or '').strip()))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})
@@ -16913,12 +16918,115 @@ def update_rental_partner(pid):
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE rental_partners SET name=%s, contact_name=%s, contact_email=%s,
-        contact_phone=%s, organization_type=%s, notes=%s, status=%s, updated_at=NOW() WHERE id=%s''',
+        contact_phone=%s, organization_type=%s, organization_website=%s, notes=%s, status=%s, updated_at=NOW() WHERE id=%s''',
         ((d.get('name') or '').strip(), (d.get('contact_name') or '').strip(),
          (d.get('contact_email') or '').strip(), (d.get('contact_phone') or '').strip(),
-         (d.get('organization_type') or '').strip(), (d.get('notes') or '').strip(),
+         (d.get('organization_type') or '').strip(), (d.get('organization_website') or '').strip(),
+         (d.get('notes') or '').strip(),
          d.get('status') or 'active', pid))
     conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ARTISTIC PARTNERSHIP INTEREST FORM (public)
+# ─────────────────────────────────────────────
+
+@app.route('/api/rental/partnership-policy', methods=['GET'])
+def get_partnership_policy_admin():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='rental_partnership_policy'")
+    conn.close()
+    return jsonify({'policy_text': (row or {}).get('value') or ''})
+
+@app.route('/api/rental/partnership-policy', methods=['PUT'])
+def save_partnership_policy():
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('rental_partnership_policy', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ((d.get('policy_text') or '').strip(),))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/partnership-interest')
+def public_partnership_interest_page():
+    """Public-facing artistic partnership interest form."""
+    return send_from_directory('static', 'partnership-interest.html')
+
+@app.route('/api/public/partnership-interest-info')
+def public_partnership_interest_info():
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='rental_partnership_policy'")
+    spaces = fetchall(conn, 'SELECT id, name, description, capacity FROM rental_spaces WHERE active=true ORDER BY sort_order') or []
+    conn.close()
+    return jsonify({'policy_text': (row or {}).get('value') or '', 'spaces': spaces})
+
+@app.route('/api/public/partnership-interest', methods=['POST'])
+def public_partnership_interest_submit():
+    import uuid as _upi
+    d = request.json or {}
+    org_name = (d.get('organization_name') or '').strip()
+    contact_name = (d.get('contact_name') or '').strip()
+    contact_email = (d.get('contact_email') or '').strip()
+    purpose = (d.get('purpose') or '').strip()
+    if not org_name or not contact_name or not contact_email or not purpose:
+        return jsonify({'error': 'Please fill in all required fields.'}), 400
+    if not d.get('policy_agreed'):
+        return jsonify({'error': 'Please confirm you have read and understand our general policy.'}), 400
+    conn = get_db()
+    # Find existing partner by email, or create a new one
+    partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE LOWER(contact_email)=LOWER(%s)', (contact_email,))
+    if partner:
+        partner_id = partner['id']
+    else:
+        partner_id = str(_upi.uuid4())
+        execute(conn, '''INSERT INTO rental_partners
+            (id, name, contact_name, contact_email, contact_phone, organization_type, organization_website, notes, status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')''',
+            (partner_id, org_name, contact_name, contact_email,
+             (d.get('contact_phone') or '').strip(),
+             (d.get('organization_type') or '').strip(),
+             (d.get('organization_website') or '').strip(),
+             'Submitted via Partnership Interest Form'))
+    rid = str(_upi.uuid4())
+    execute(conn, '''INSERT INTO rental_requests
+        (id, partner_id, title, purpose, start_date, desired_frequency, source, status, notes)
+        VALUES (%s,%s,%s,%s,%s,%s,'interest_form','pending',%s)''',
+        (rid, partner_id, f'{org_name} — Partnership Interest', purpose, '',
+         (d.get('desired_frequency') or '').strip(),
+         (d.get('additional_notes') or '').strip()))
+    conn.commit()
+    try:
+        es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
+        approver_emails = []
+        try:
+            import json as _jpi
+            levels = _jpi.loads(es.get('rental_approval_levels') or '[]')
+            if levels and levels[0].get('emails'):
+                approver_emails = [e.strip() for e in levels[0]['emails'].replace(',', '\n').splitlines() if e.strip()]
+        except Exception:
+            pass
+        if not approver_emails:
+            raw = (es.get('rental_approver_emails') or '').strip()
+            approver_emails = [e.strip() for e in raw.replace(',', '\n').splitlines() if e.strip()]
+        subject = f'New Artistic Partnership Interest — {org_name}'
+        body = (f'A new partnership interest form has been submitted.<br><br>'
+                f'<strong>Organization:</strong> {org_name}<br>'
+                f'<strong>Contact:</strong> {contact_name} ({contact_email})<br>'
+                f'<strong>Wants to use the space for:</strong> {purpose}<br>'
+                f'<strong>How often:</strong> {(d.get("desired_frequency") or "Not specified")}<br><br>'
+                f'Please log in to RoleCall → Venue Rentals to review and follow up.')
+        for email_addr in approver_emails:
+            try:
+                send_email(email_addr, subject, body)
+            except Exception as email_err:
+                app.logger.warning(f'Partnership interest notify to {email_addr} failed: {email_err}')
+    except Exception as e:
+        app.logger.warning(f'Partnership interest notification error: {e}')
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/rental/requests', methods=['GET'])

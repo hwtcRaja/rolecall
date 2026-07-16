@@ -1258,6 +1258,9 @@ def init_db():
             UNIQUE(program_id, email))""",
         # missing columns found in audit
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS general_content TEXT DEFAULT ''",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_failed_at TIMESTAMP",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -13397,6 +13400,26 @@ def square_webhook():
                             (order_id, order_id))
                         if don:
                             finalize_donation(conn, don['id'], payment_id, amount_cents)
+                conn.close()
+            elif status in ('FAILED', 'CANCELED') and order_id:
+                conn = get_db()
+                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                    (order_id, order_id))
+                if reg and reg['status'] in ('pending_payment', 'waitlisted'):
+                    card_details = obj.get('card_details', {}) or {}
+                    errors = obj.get('errors') or []
+                    reason = ''
+                    if errors:
+                        reason = '; '.join((e.get('detail') or e.get('code') or '') for e in errors if isinstance(e, dict))
+                    elif card_details.get('status'):
+                        reason = f"Card {card_details['status'].lower()}"
+                    execute(conn, '''UPDATE program_registrations SET
+                        payment_attempt_failed_at=NOW(),
+                        payment_failure_reason=%s,
+                        payment_attempt_count=COALESCE(payment_attempt_count,0)+1
+                        WHERE id=%s''', (reason or 'Payment attempt failed', reg['id']))
+                    conn.commit()
+                    app.logger.info(f'Payment attempt failed for registration {reg["id"]}: {reason}')
                 conn.close()
         except Exception as e:
             app.logger.error(f'Webhook processing error: {e}', exc_info=True)

@@ -869,6 +869,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="display:flex;gap:8px;margin-bottom:14px">
     <select class="filter-select" id="hs-req-filter" onchange="renderHoursStoreRequests()">
      <option value="pending">Pending</option>
+     <option value="awaiting_payment">Awaiting Payment</option>
      <option value="approved">Approved</option>
      <option value="fulfilled">Fulfilled</option>
      <option value="denied">Denied</option>
@@ -4620,11 +4621,11 @@ async function openProfile(volId){
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Redemption History</div>
  ${!(v.redemptions||[]).length ? '<div style="color:var(--text-muted);font-size:13px">No redemptions yet</div>' :
  (v.redemptions||[]).map(function(r){
-  const stBg = {pending:'#fef3c7;color:#92400e',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+  const stBg = {pending:'#fef3c7;color:#92400e',awaiting_payment:'#fce7f3;color:#9d174d',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
   return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
    + '<div><div style="font-weight:600;font-size:13px">'+escHtml(r.item_name_snapshot||r.current_item_name||'Item')+'</div>'
-   + '<div style="font-size:11px;color:var(--text-muted)">'+r.hours_spent+'h &middot; '+(r.requested_at?r.requested_at.slice(0,10):'')+'</div></div>'
-   + '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status+'</span>'
+   + '<div style="font-size:11px;color:var(--text-muted)">'+r.hours_spent+'h applied'+(r.balance_due_cents?' &middot; $'+(r.balance_due_cents/100).toFixed(2)+' balance':'')+' &middot; '+(r.requested_at?r.requested_at.slice(0,10):'')+'</div></div>'
+   + '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status.replace('_',' ')+'</span>'
    + '</div>'
  }).join('')}
  </div>
@@ -4872,22 +4873,25 @@ async function renderHoursStoreRequests(){
  const res = await api('/api/admin/hour-redemptions'+(status?'?status='+status:''))
  const rows = (res && res.redemptions) || []
  if(!rows.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No requests here.</div>'; return }
- const stBg = {pending:'#fef3c7;color:#92400e',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+ const stBg = {pending:'#fef3c7;color:#92400e',awaiting_payment:'#fce7f3;color:#9d174d',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
  el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-  + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Volunteer</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Item</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Hours</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Requested</th><th></th></tr></thead><tbody>'
+  + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Volunteer</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Item</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Hours + Balance</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Requested</th><th></th></tr></thead><tbody>'
   + rows.map(function(r){
     var actions = ''
     if(r.status==='pending'){
      actions += '<button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px" onclick="approveHsRequest(\''+r.id+'\')">Approve</button> '
      actions += '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer" onclick="denyHsRequest(\''+r.id+'\')">Deny</button>'
+    } else if(r.status==='awaiting_payment'){
+     actions += '<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="resendHsPaymentLink(\''+r.id+'\')">Resend Link</button> '
+     actions += '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer" onclick="denyHsRequest(\''+r.id+'\')">Cancel</button>'
     } else if(r.status==='approved'){
      actions += '<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="fulfillHsRequest(\''+r.id+'\')">Mark Fulfilled</button>'
     }
     return '<tr style="border-bottom:1px solid var(--border)">'
       + '<td style="padding:8px 12px"><div style="font-weight:600">'+escHtml(r.volunteer_name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.volunteer_email||'')+'</div></td>'
       + '<td style="padding:8px 12px">'+escHtml(r.item_name_snapshot||r.current_item_name||'—')+'</td>'
-      + '<td style="padding:8px 12px;font-weight:600">'+r.hours_spent+'h</td>'
-      + '<td style="padding:8px 12px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status+'</span>'+(r.admin_notes?'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+escHtml(r.admin_notes)+'</div>':'')+'</td>'
+      + '<td style="padding:8px 12px;font-weight:600">'+r.hours_spent+'h'+(r.balance_due_cents?' <span style="color:#9d174d">+ $'+(r.balance_due_cents/100).toFixed(2)+'</span>':'')+'</td>'
+      + '<td style="padding:8px 12px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status.replace('_',' ')+'</span>'+(r.admin_notes?'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+escHtml(r.admin_notes)+'</div>':'')+'</td>'
       + '<td style="padding:8px 12px;color:var(--text-muted)">'+(r.requested_at?r.requested_at.slice(0,10):'')+'</td>'
       + '<td style="padding:8px 12px;white-space:nowrap">'+actions+'</td>'
       + '</tr>'
@@ -4896,18 +4900,24 @@ async function renderHoursStoreRequests(){
 }
 
 async function approveHsRequest(rid){
- if(!confirm('Approve this redemption? If the item is linked to a program, the volunteer will be enrolled automatically.')) return
+ if(!confirm('Approve this redemption? If there\'s a balance due, a Square payment link will be emailed to the volunteer, and enrollment (if linked to a program) will happen once it\'s paid. If fully covered by hours, they\'ll be enrolled right away.')) return
  const res = await api('/api/admin/hour-redemptions/'+rid+'/approve','POST',{})
  if(res.error){ toast(res.error,'error'); return }
- toast('Request approved','success')
+ toast(res.status==='awaiting_payment' ? 'Approved — payment link sent to volunteer' : 'Request approved','success')
  renderHoursStoreRequests()
 }
 
+async function resendHsPaymentLink(rid){
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/resend-payment-link','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Payment link resent','success')
+}
+
 async function denyHsRequest(rid){
- const reason = prompt('Reason for denying (optional, will be emailed to the volunteer):')||''
+ const reason = prompt('Reason (optional, will be emailed to the volunteer):')||''
  const res = await api('/api/admin/hour-redemptions/'+rid+'/deny','POST',{reason:reason})
  if(res.error){ toast(res.error,'error'); return }
- toast('Request denied — hours returned to their balance','success')
+ toast('Request denied/canceled — hours returned to their balance','success')
  renderHoursStoreRequests()
 }
 

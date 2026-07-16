@@ -259,6 +259,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 #page-settings .page-body{padding:0!important;display:flex!important;flex-direction:row!important;overflow:hidden!important;flex:1;min-height:0}
 #settings-sidebar{width:210px;min-width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px}
 #settings-panels{flex:1;min-width:0;overflow-y:auto;padding:24px 28px}
+.banner-fit-btn,.banner-pos-btn,.sched-bg-fit-btn,.sched-bg-pos-btn{padding:7px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text-muted);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.banner-fit-btn.active,.banner-pos-btn.active,.sched-bg-fit-btn.active,.sched-bg-pos-btn.active{background:var(--teal-light,#e0f4f0);border-color:var(--teal);color:var(--teal-dark)}
+.pos-grid-3x3{display:grid;grid-template-columns:repeat(3,32px);grid-template-rows:repeat(3,32px);gap:4px}
+.pos-grid-3x3 .banner-pos-btn,.pos-grid-3x3 .sched-bg-pos-btn{padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+.lobby-img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
 .inline-input-row input:focus{border-color:var(--teal-400)}
@@ -1607,7 +1612,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div></div>
-   </div>
 
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
@@ -1738,9 +1742,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  </div>
- </div>
- </section>
-   </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
@@ -2005,29 +2006,129 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
+
     <div class="settings-section">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
- <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
- </div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
- <div id="users-management-list"></div>
- </div>
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Active Layout</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Choose which lobby layout is currently live on the TV display.</div>
+     <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:8px"></div>
+     <div id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark)"></div>
+    </div>
 
- <!-- Family / Portal Management -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
- <div id="families-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
- </div>
- </div>
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Seasonal Color Theme</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Applies a seasonal color scheme and decorations on top of the Standard layout.</div>
+     <div class="form-group" style="max-width:280px">
+      <label>Theme</label>
+      <select id="lobby-theme-select">
+       <option value="none">None</option>
+       <option value="winter">Winter</option>
+       <option value="spring">Spring</option>
+       <option value="summer">Summer</option>
+       <option value="fall">Fall</option>
+       <option value="halloween">Halloween</option>
+       <option value="show">Show / Spotlight</option>
+       <option value="jungle">Jungle</option>
+       <option value="seuss">Seuss</option>
+      </select>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyTheme()">Apply Theme</button>
+      <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
 
- </div>
- </div>
- </section
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Banner</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload an image to display in the lobby banner, shown alongside a live clock.</div>
+     <div id="lobby-banner-preview" style="display:none;position:relative;width:100%;max-width:480px;aspect-ratio:16/5;border-radius:10px;border:1px solid var(--border);background-color:#000;margin-bottom:12px;overflow:hidden">
+      <div style="position:absolute;bottom:8px;right:12px;text-align:right;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.6)">
+       <div id="banner-preview-clock" style="font-size:20px;font-weight:700"></div>
+       <div id="banner-preview-date" style="font-size:11px"></div>
+      </div>
+     </div>
+     <div style="margin-bottom:12px">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Choose Image
+       <input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/>
+      </label>
+      <button class="btn btn-secondary btn-sm" id="lobby-banner-clear-btn" style="display:none" onclick="clearLobbyBanner()">Remove Banner</button>
+     </div>
+     <div id="lobby-banner-controls" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Fit</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+       <button class="banner-fit-btn" data-fit="cover">Cover</button>
+       <button class="banner-fit-btn" data-fit="contain">Contain</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
+      <div class="pos-grid-3x3" style="margin-bottom:12px">
+       <button class="banner-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="banner-pos-btn" data-pos="50% 0%">↑</button>
+       <button class="banner-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="banner-pos-btn" data-pos="0% 50%">←</button>
+       <button class="banner-pos-btn" data-pos="50% 50%">•</button>
+       <button class="banner-pos-btn" data-pos="100% 50%">→</button>
+       <button class="banner-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="banner-pos-btn" data-pos="50% 100%">↓</button>
+       <button class="banner-pos-btn" data-pos="100% 100%">↘</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="banner-zoom-val">100%</span></div>
+      <input type="range" id="lobby-banner-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()">Save Banner Settings</button>
+      <span id="lobby-banner-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Schedule Background</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload a background image to display behind the upcoming events schedule.</div>
+     <div id="sched-bg-preview" style="display:none;width:100%;max-width:480px;aspect-ratio:16/9;border-radius:10px;border:1px solid var(--border);background-color:#000;margin-bottom:12px"></div>
+     <div style="margin-bottom:12px">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Choose Image
+       <input type="file" id="sched-bg-input" accept="image/*" style="display:none"/>
+      </label>
+      <button class="btn btn-secondary btn-sm" id="sched-bg-clear-btn" style="display:none" onclick="clearSchedBg()">Remove Background</button>
+     </div>
+     <div id="sched-bg-controls" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Fit</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+       <button class="sched-bg-fit-btn" data-fit="cover">Cover</button>
+       <button class="sched-bg-fit-btn" data-fit="contain">Contain</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
+      <div class="pos-grid-3x3" style="margin-bottom:12px">
+       <button class="sched-bg-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 0%">↑</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 50%">←</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 50%">•</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 50%">→</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 100%">↓</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 100%">↘</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="sched-bg-zoom-val">100%</span></div>
+      <input type="range" id="sched-bg-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()">Save Background Settings</button>
+      <span id="sched-bg-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Photo Slideshow</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload photos to rotate through on the lobby TV display. Add an optional caption to each.</div>
+     <div id="lobby-img-grid" class="lobby-img-grid" style="margin-bottom:12px"></div>
+     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Add Photos
+       <input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/>
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyImages()">Save Changes</button>
+      <span id="lobby-img-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
    </div>
 
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">

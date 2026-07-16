@@ -1261,6 +1261,29 @@ def init_db():
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_failed_at TIMESTAMP",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
+        """CREATE TABLE IF NOT EXISTS store_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            image_url TEXT,
+            price_cents INTEGER NOT NULL DEFAULT 0,
+            linked_program_id TEXT REFERENCES youth_programs(id) ON DELETE SET NULL,
+            active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS hour_redemptions (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            store_item_id TEXT REFERENCES store_items(id) ON DELETE SET NULL,
+            item_name_snapshot TEXT,
+            hours_spent REAL NOT NULL,
+            dollar_value_cents INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            registration_id TEXT REFERENCES program_registrations(id) ON DELETE SET NULL,
+            admin_notes TEXT DEFAULT '',
+            requested_at TIMESTAMP DEFAULT NOW(),
+            reviewed_at TIMESTAMP,
+            reviewed_by TEXT)""",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -2471,6 +2494,17 @@ def get_volunteer(vol_id):
         WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC NULLS LAST''', (vol_id,))
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol_id,))['t']
+    vol['available_hours'] = max(0, (vol['total_hours'] or 0) - (vol['redeemed_hours'] or 0))
+    if not vol.get('store_token'):
+        import secrets as _secrets
+        token = _secrets.token_urlsafe(16)
+        execute(conn, 'UPDATE volunteers SET store_token=%s WHERE id=%s', (token, vol_id))
+        vol['store_token'] = token
+        conn.commit()
+    vol['redemptions'] = fetchall(conn, '''SELECT hr.*, si.name as current_item_name FROM hour_redemptions hr
+        LEFT JOIN store_items si ON si.id=hr.store_item_id
+        WHERE hr.volunteer_id=%s ORDER BY hr.requested_at DESC''', (vol_id,))
     # Board membership
     vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
@@ -2478,6 +2512,303 @@ def get_volunteer(vol_id):
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
     return jsonify(vol)
+
+# ─────────────────────────────────────────────
+#  HOURS STORE
+# ─────────────────────────────────────────────
+
+def _get_hours_store_rate_cents(conn):
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='hours_store_rate_cents'")
+    try:
+        return int(row['value']) if row and row.get('value') else 1000
+    except Exception:
+        return 1000
+
+@app.route('/api/admin/hours-store/settings', methods=['GET'])
+def get_hours_store_settings():
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    rate = _get_hours_store_rate_cents(conn)
+    conn.close()
+    return jsonify({'rate_cents': rate})
+
+@app.route('/api/admin/hours-store/settings', methods=['PUT'])
+def save_hours_store_settings():
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    try:
+        rate_cents = max(1, int(round(float(d.get('rate_dollars') or 10) * 100)))
+    except Exception:
+        return jsonify({'error': 'Invalid rate'}), 400
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('hours_store_rate_cents', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (str(rate_cents),))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'rate_cents': rate_cents})
+
+@app.route('/api/admin/store-items', methods=['GET'])
+def list_store_items():
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, '''SELECT si.*, yp.name as program_name FROM store_items si
+        LEFT JOIN youth_programs yp ON yp.id=si.linked_program_id
+        ORDER BY si.active DESC, si.name''') or []
+    rate = _get_hours_store_rate_cents(conn)
+    conn.close()
+    for it in items:
+        it['hours_cost'] = round(it['price_cents'] / rate, 2) if rate else 0
+    return jsonify({'items': items, 'rate_cents': rate})
+
+@app.route('/api/admin/store-items', methods=['POST'])
+def create_store_item():
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    iid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO store_items (id, name, description, image_url, price_cents, linked_program_id, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (iid, name, (d.get('description') or '').strip(), d.get('image_url') or None,
+         int(round(float(d.get('price_dollars') or 0) * 100)),
+         d.get('linked_program_id') or None, bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/admin/store-items/<iid>', methods=['PUT'])
+def update_store_item(iid):
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    execute(conn, '''UPDATE store_items SET name=%s, description=%s, image_url=%s, price_cents=%s,
+        linked_program_id=%s, active=%s WHERE id=%s''',
+        (name, (d.get('description') or '').strip(), d.get('image_url') or None,
+         int(round(float(d.get('price_dollars') or 0) * 100)),
+         d.get('linked_program_id') or None, bool(d.get('active', True)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/admin/store-items/<iid>', methods=['DELETE'])
+def delete_store_item(iid):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    used = fetchone(conn, 'SELECT COUNT(*) as c FROM hour_redemptions WHERE store_item_id=%s', (iid,))
+    if used and used['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This item has redemption history and cannot be deleted. Mark it inactive instead.'}), 400
+    execute(conn, 'DELETE FROM store_items WHERE id=%s', (iid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/hour-redemptions', methods=['GET'])
+def list_hour_redemptions():
+    err = require_permission('volunteers')
+    if err: return err
+    status = request.args.get('status') or ''
+    conn = get_db()
+    q = '''SELECT hr.*, v.name as volunteer_name, v.email as volunteer_email,
+        si.name as current_item_name FROM hour_redemptions hr
+        JOIN volunteers v ON v.id=hr.volunteer_id
+        LEFT JOIN store_items si ON si.id=hr.store_item_id'''
+    params = ()
+    if status:
+        q += ' WHERE hr.status=%s'
+        params = (status,)
+    q += ' ORDER BY hr.requested_at DESC'
+    rows = fetchall(conn, q, params) or []
+    conn.close()
+    return jsonify({'redemptions': rows})
+
+@app.route('/api/admin/hour-redemptions/<rid>/approve', methods=['POST'])
+def approve_hour_redemption(rid):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'This request has already been reviewed'}), 400
+    reviewer = session.get('name') or session.get('email') or 'Admin'
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (red['store_item_id'],)) if red['store_item_id'] else None
+    new_reg_id = None
+    if item and item.get('linked_program_id'):
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        vol_name_parts = (vol['name'] if vol else '').strip().split(' ', 1)
+        vol_first = vol_name_parts[0] if vol_name_parts else ''
+        vol_last = vol_name_parts[1] if len(vol_name_parts) > 1 else ''
+        new_reg_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO program_registrations
+            (id, program_id, registration_type, status, registration_form_type,
+             child_first_name, child_last_name,
+             guardian_name, guardian_email, guardian_phone, notes, payment_type)
+            VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours')''',
+            (new_reg_id, item['linked_program_id'], vol_first, vol_last,
+             vol['name'] if vol else '',
+             vol['email'] if vol else '', vol.get('phone') if vol else None,
+             f'Paid via Hours Store redemption ({red["hours_spent"]}h)'))
+        finalize_registration(conn, new_reg_id)
+        execute(conn, 'UPDATE hour_redemptions SET registration_id=%s WHERE id=%s', (new_reg_id, rid))
+    execute(conn, '''UPDATE hour_redemptions SET status='approved', reviewed_at=NOW(), reviewed_by=%s WHERE id=%s''',
+        (reviewer, rid))
+    conn.commit()
+    try:
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Your Hours Store request has been approved!',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Approved!</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>Your redemption of <strong>{red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong> '
+                f'for {red["hours_spent"]} volunteer hours has been approved'
+                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store approval email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'registration_id': new_reg_id})
+
+@app.route('/api/admin/hour-redemptions/<rid>/deny', methods=['POST'])
+def deny_hour_redemption(rid):
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'This request has already been reviewed'}), 400
+    reviewer = session.get('name') or session.get('email') or 'Admin'
+    execute(conn, '''UPDATE hour_redemptions SET status='denied', reviewed_at=NOW(), reviewed_by=%s, admin_notes=%s WHERE id=%s''',
+        (reviewer, (d.get('reason') or '').strip(), rid))
+    conn.commit()
+    try:
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Update on your Hours Store request',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Hours Store Update</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>We were not able to approve your redemption of <strong>{red.get("item_name_snapshot") or "your item"}</strong> '
+                f'({red["hours_spent"]} hours).{" Note: " + d.get("reason","") if d.get("reason") else ""}</p>'
+                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store denial email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/hour-redemptions/<rid>/fulfill', methods=['POST'])
+def fulfill_hour_redemption(rid):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] not in ('approved',):
+        conn.close()
+        return jsonify({'error': 'Only approved requests can be marked fulfilled'}), 400
+    execute(conn, "UPDATE hour_redemptions SET status='fulfilled' WHERE id=%s", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/hours-store/<token>')
+def public_hours_store_page(token):
+    """Public-facing per-volunteer Hours Store page."""
+    return send_from_directory('static', 'hours-store.html')
+
+@app.route('/api/public/hours-store/<token>')
+def public_hours_store_data(token):
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE store_token=%s', (token,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired link'}), 404
+    total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
+    available = max(0, total_hours - redeemed)
+    rate = _get_hours_store_rate_cents(conn)
+    items = fetchall(conn, 'SELECT * FROM store_items WHERE active=true ORDER BY price_cents') or []
+    for it in items:
+        it['hours_cost'] = round(it['price_cents'] / rate, 2) if rate else 0
+    my_redemptions = fetchall(conn, '''SELECT hr.*, si.name as current_item_name FROM hour_redemptions hr
+        LEFT JOIN store_items si ON si.id=hr.store_item_id
+        WHERE hr.volunteer_id=%s ORDER BY hr.requested_at DESC''', (vol['id'],)) or []
+    conn.close()
+    return jsonify({
+        'volunteer_name': vol['name'],
+        'total_hours': total_hours,
+        'redeemed_hours': redeemed,
+        'available_hours': available,
+        'available_dollars_cents': int(round(available * rate)),
+        'rate_cents': rate,
+        'items': items,
+        'redemptions': my_redemptions,
+    })
+
+@app.route('/api/public/hours-store/<token>/redeem', methods=['POST'])
+def public_hours_store_redeem(token):
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE store_token=%s', (token,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired link'}), 404
+    d = request.json or {}
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s AND active=true', (d.get('store_item_id'),))
+    if not item:
+        conn.close()
+        return jsonify({'error': 'Item not found or no longer available'}), 404
+    rate = _get_hours_store_rate_cents(conn)
+    hours_cost = round(item['price_cents'] / rate, 2) if rate else 0
+    total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
+    available = max(0, total_hours - redeemed)
+    if hours_cost > available:
+        conn.close()
+        return jsonify({'error': 'Not enough hours available for this item'}), 400
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO hour_redemptions
+        (id, volunteer_id, store_item_id, item_name_snapshot, hours_spent, dollar_value_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,'pending')''',
+        (rid, vol['id'], item['id'], item['name'], hours_cost, item['price_cents']))
+    conn.commit()
+    conn.close()
+    try:
+        recipients = get_recipient_emails()
+        if recipients:
+            send_email(recipients, f'New Hours Store request — {vol["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">New Hours Store Request</h2>'
+                f'<p><strong>{vol["name"]}</strong> ({vol.get("email","")}) has requested to redeem '
+                f'<strong>{hours_cost} hours</strong> for <strong>{item["name"]}</strong>.</p>'
+                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store admin notify failed: {e}')
+    return jsonify({'ok': True, 'status': 'pending'})
 
 @app.route('/api/volunteers', methods=['POST'])
 def create_volunteer():

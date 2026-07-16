@@ -1288,6 +1288,11 @@ def init_db():
         "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS linked_session_id TEXT REFERENCES program_sessions(id) ON DELETE CASCADE",
         "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS is_bundle_item BOOLEAN DEFAULT false",
         "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS auto_synced BOOLEAN DEFAULT false",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS balance_due_cents INTEGER DEFAULT 0",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_checkout_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_order_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_payment_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS payment_url TEXT",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -2499,7 +2504,7 @@ def get_volunteer(vol_id):
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
     vol['store_eligible_hours'] = _get_store_eligible_hours(conn, vol_id)
-    vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol_id,))['t']
+    vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol_id,))['t']
     vol['available_hours'] = max(0, (vol['store_eligible_hours'] or 0) - (vol['redeemed_hours'] or 0))
     if not vol.get('store_token'):
         import secrets as _secrets
@@ -2721,6 +2726,41 @@ def list_hour_redemptions():
     conn.close()
     return jsonify({'redemptions': rows})
 
+def _enroll_from_hours_redemption(conn, red, item):
+    """Create + finalize a program registration for a redemption whose cost is fully
+    covered (by hours alone, or hours + a paid balance). Returns the new registration id, or None
+    if the item isn't linked to a program (manual-fulfillment reward)."""
+    if not item or not item.get('linked_program_id'):
+        return None
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+    vol_name_parts = (vol['name'] if vol else '').strip().split(' ', 1)
+    vol_first = vol_name_parts[0] if vol_name_parts else ''
+    vol_last = vol_name_parts[1] if len(vol_name_parts) > 1 else ''
+    import json as _jhs
+    if item.get('linked_session_id'):
+        session_ids = [item['linked_session_id']]
+    elif item.get('is_bundle_item'):
+        all_sessions = fetchall(conn, 'SELECT id FROM program_sessions WHERE program_id=%s', (item['linked_program_id'],)) or []
+        session_ids = [s['id'] for s in all_sessions]
+    else:
+        session_ids = []
+    balance = red.get('balance_due_cents') or 0
+    note = f'Paid via Hours Store redemption ({red["hours_spent"]}h applied'
+    note += f' + ${balance/100:.2f} balance)' if balance else ')'
+    new_reg_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO program_registrations
+        (id, program_id, registration_type, status, registration_form_type,
+         child_first_name, child_last_name,
+         guardian_name, guardian_email, guardian_phone, notes, payment_type, session_ids)
+        VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours',%s)''',
+        (new_reg_id, item['linked_program_id'], vol_first, vol_last,
+         vol['name'] if vol else '',
+         vol['email'] if vol else '', vol.get('phone') if vol else None,
+         note, _jhs.dumps(session_ids)))
+    finalize_registration(conn, new_reg_id)
+    execute(conn, 'UPDATE hour_redemptions SET registration_id=%s WHERE id=%s', (new_reg_id, red['id']))
+    return new_reg_id
+
 @app.route('/api/admin/hour-redemptions/<rid>/approve', methods=['POST'])
 def approve_hour_redemption(rid):
     err = require_permission('volunteers')
@@ -2735,32 +2775,47 @@ def approve_hour_redemption(rid):
         return jsonify({'error': 'This request has already been reviewed'}), 400
     reviewer = session.get('name') or session.get('email') or 'Admin'
     item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (red['store_item_id'],)) if red['store_item_id'] else None
-    new_reg_id = None
-    if item and item.get('linked_program_id'):
+    balance = red.get('balance_due_cents') or 0
+
+    if balance > 0:
+        # Partial redemption — hours are approved, but a cash balance remains. Send a Square
+        # payment link for just that balance; enrollment happens once it's paid (see webhook).
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
-        vol_name_parts = (vol['name'] if vol else '').strip().split(' ', 1)
-        vol_first = vol_name_parts[0] if vol_name_parts else ''
-        vol_last = vol_name_parts[1] if len(vol_name_parts) > 1 else ''
-        import json as _jhs
-        if item.get('linked_session_id'):
-            session_ids = [item['linked_session_id']]
-        elif item.get('is_bundle_item'):
-            all_sessions = fetchall(conn, 'SELECT id FROM program_sessions WHERE program_id=%s', (item['linked_program_id'],)) or []
-            session_ids = [s['id'] for s in all_sessions]
-        else:
-            session_ids = []
-        new_reg_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO program_registrations
-            (id, program_id, registration_type, status, registration_form_type,
-             child_first_name, child_last_name,
-             guardian_name, guardian_email, guardian_phone, notes, payment_type, session_ids)
-            VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours',%s)''',
-            (new_reg_id, item['linked_program_id'], vol_first, vol_last,
-             vol['name'] if vol else '',
-             vol['email'] if vol else '', vol.get('phone') if vol else None,
-             f'Paid via Hours Store redemption ({red["hours_spent"]}h)', _jhs.dumps(session_ids)))
-        finalize_registration(conn, new_reg_id)
-        execute(conn, 'UPDATE hour_redemptions SET registration_id=%s WHERE id=%s', (new_reg_id, rid))
+        pseudo_program = {'id': (item['linked_program_id'] if item else None) or 'hours-store',
+                           'slug': None, 'name': (item['name'] if item else red.get('item_name_snapshot')) or 'Hours Store Balance',
+                           'square_catalog_item_id': None}
+        redirect_url = f"{APP_BASE_URL}/hours-store/{vol['store_token']}" if vol else None
+        pay_url, link_id, order_id = square_create_payment_link(
+            pseudo_program, rid, vol['email'] if vol else '', vol['name'] if vol else '', balance,
+            note=f'Hours Store balance — {pseudo_program["name"]} ({red["hours_spent"]}h applied)',
+            redirect_url=redirect_url)
+        if not pay_url:
+            conn.close()
+            return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+        execute(conn, '''UPDATE hour_redemptions SET status='awaiting_payment', reviewed_at=NOW(), reviewed_by=%s,
+            square_checkout_id=%s, square_order_id=%s, payment_url=%s WHERE id=%s''', (reviewer, link_id, order_id, pay_url, rid))
+        conn.commit()
+        try:
+            if vol and vol.get('email'):
+                send_email([vol['email']], 'Your Hours Store request was approved — balance due',
+                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                    f'<h2 style="color:#145466">Approved — almost there!</h2>'
+                    f'<p>Hi {vol.get("name","there")},</p>'
+                    f'<p>Your redemption of <strong>{pseudo_program["name"]}</strong> has been approved. '
+                    f'You applied <strong>{red["hours_spent"]} hours</strong> toward it, leaving a balance of '
+                    f'<strong>${balance/100:.2f}</strong> to complete it.</p>'
+                    f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+                    f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+                    f'Pay Remaining Balance</a></p>'
+                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+                    f'<p>Horizon West Theater Company</p></div>')
+        except Exception as e:
+            app.logger.warning(f'Hours store partial-approval email failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'status': 'awaiting_payment', 'payment_url': pay_url})
+
+    # Fully covered by hours — enroll immediately
+    new_reg_id = _enroll_from_hours_redemption(conn, red, item)
     execute(conn, '''UPDATE hour_redemptions SET status='approved', reviewed_at=NOW(), reviewed_by=%s WHERE id=%s''',
         (reviewer, rid))
     conn.commit()
@@ -2790,7 +2845,7 @@ def deny_hour_redemption(rid):
     if not red:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    if red['status'] != 'pending':
+    if red['status'] not in ('pending', 'awaiting_payment'):
         conn.close()
         return jsonify({'error': 'This request has already been reviewed'}), 400
     reviewer = session.get('name') or session.get('email') or 'Admin'
@@ -2830,6 +2885,52 @@ def fulfill_hour_redemption(rid):
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/admin/hour-redemptions/<rid>/resend-payment-link', methods=['POST'])
+def resend_hour_redemption_payment_link(rid):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] != 'awaiting_payment':
+        conn.close()
+        return jsonify({'error': 'This request is not awaiting payment'}), 400
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (red['store_item_id'],)) if red['store_item_id'] else None
+    item_name = (item['name'] if item else red.get('item_name_snapshot')) or 'Hours Store Balance'
+    pseudo_program = {'id': (item['linked_program_id'] if item else None) or 'hours-store',
+                       'slug': None, 'name': item_name, 'square_catalog_item_id': None}
+    redirect_url = f"{APP_BASE_URL}/hours-store/{vol['store_token']}" if vol else None
+    pay_url, link_id, order_id = square_create_payment_link(
+        pseudo_program, rid, vol['email'] if vol else '', vol['name'] if vol else '', red['balance_due_cents'],
+        note=f'Hours Store balance — {item_name} ({red["hours_spent"]}h applied)',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    execute(conn, 'UPDATE hour_redemptions SET square_checkout_id=%s, square_order_id=%s, payment_url=%s WHERE id=%s',
+        (link_id, order_id, pay_url, rid))
+    conn.commit()
+    try:
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Reminder — balance due for your Hours Store request',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Balance Due</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>Just a reminder — there\'s a balance of <strong>${red["balance_due_cents"]/100:.2f}</strong> remaining on your '
+                f'<strong>{item_name}</strong> redemption.</p>'
+                f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+                f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+                f'Pay Remaining Balance</a></p>'
+                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store resend-link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
 @app.route('/hours-store/<token>')
 def public_hours_store_page(token):
     """Public-facing per-volunteer Hours Store page."""
@@ -2844,7 +2945,7 @@ def public_hours_store_data(token):
         return jsonify({'error': 'Invalid or expired link'}), 404
     total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
     store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
-    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol['id'],))['t'] or 0
     available = max(0, store_eligible_hours - redeemed)
     rate = _get_hours_store_rate_cents(conn)
     items = fetchall(conn, 'SELECT * FROM store_items WHERE active=true ORDER BY price_cents') or []
@@ -2879,32 +2980,33 @@ def public_hours_store_redeem(token):
         conn.close()
         return jsonify({'error': 'Item not found or no longer available'}), 404
     rate = _get_hours_store_rate_cents(conn)
-    hours_cost = round(item['price_cents'] / rate, 2) if rate else 0
+    hours_cost_needed = round(item['price_cents'] / rate, 2) if rate else 0
     store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
-    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol['id'],))['t'] or 0
     available = max(0, store_eligible_hours - redeemed)
-    if hours_cost > available:
-        conn.close()
-        return jsonify({'error': 'Not enough hours available for this item'}), 400
+    hours_to_apply = min(available, hours_cost_needed)
+    dollar_value_cents = int(round(hours_to_apply * rate)) if rate else 0
+    balance_due_cents = max(0, item['price_cents'] - dollar_value_cents)
     rid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO hour_redemptions
-        (id, volunteer_id, store_item_id, item_name_snapshot, hours_spent, dollar_value_cents, status)
-        VALUES (%s,%s,%s,%s,%s,%s,'pending')''',
-        (rid, vol['id'], item['id'], item['name'], hours_cost, item['price_cents']))
+        (id, volunteer_id, store_item_id, item_name_snapshot, hours_spent, dollar_value_cents, balance_due_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (rid, vol['id'], item['id'], item['name'], hours_to_apply, dollar_value_cents, balance_due_cents))
     conn.commit()
     conn.close()
     try:
         recipients = get_recipient_emails()
         if recipients:
+            balance_note = f' plus a ${balance_due_cents/100:.2f} balance to be invoiced' if balance_due_cents else ''
             send_email(recipients, f'New Hours Store request — {vol["name"]}',
                 f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
                 f'<h2 style="color:#145466">New Hours Store Request</h2>'
                 f'<p><strong>{vol["name"]}</strong> ({vol.get("email","")}) has requested to redeem '
-                f'<strong>{hours_cost} hours</strong> for <strong>{item["name"]}</strong>.</p>'
+                f'<strong>{hours_to_apply} hours</strong> for <strong>{item["name"]}</strong>{balance_note}.</p>'
                 f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p></div>')
     except Exception as e:
         app.logger.warning(f'Hours store admin notify failed: {e}')
-    return jsonify({'ok': True, 'status': 'pending'})
+    return jsonify({'ok': True, 'status': 'pending', 'hours_applied': hours_to_apply, 'balance_due_cents': balance_due_cents})
 
 @app.route('/api/volunteers', methods=['POST'])
 def create_volunteer():
@@ -12848,13 +12950,14 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
 
-def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note=''):
+def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note='', redirect_url=None):
     """Create a Square hosted checkout link for a registration."""
     import uuid as _uuid
     if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
         app.logger.error('Square not configured: SQUARE_ACCESS_TOKEN or SQUARE_LOCATION_ID missing')
         return None, None, None
-    redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
+    if not redirect_url:
+        redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
         'order': {
@@ -13807,29 +13910,51 @@ def square_webhook():
                     finalize_registration(conn, reg['id'], payment_id, order_id)
                     conn.commit()
                 else:
-                    # Check cart orders
-                    import json as _jw
-                    cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    # Check hours store balance payments
+                    hour_red = fetchone(conn, "SELECT * FROM hour_redemptions WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='awaiting_payment'",
                         (order_id, order_id))
-                    if cart:
-                        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
-                        try:
-                            items = _jw.loads(cart.get('items_json') or '[]')
-                        except Exception:
-                            items = []
-                        for it in items:
-                            rid = it.get('registration_id')
-                            if rid:
-                                reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
-                                if reg2 and reg2['status'] == 'pending_payment':
-                                    finalize_registration(conn, rid, payment_id, order_id)
+                    if hour_red:
+                        item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (hour_red['store_item_id'],)) if hour_red['store_item_id'] else None
+                        new_reg_id = _enroll_from_hours_redemption(conn, hour_red, item)
+                        execute(conn, "UPDATE hour_redemptions SET status='approved', square_payment_id=%s WHERE id=%s",
+                            (payment_id, hour_red['id']))
                         conn.commit()
+                        try:
+                            vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (hour_red['volunteer_id'],))
+                            if vol and vol.get('email'):
+                                send_email([vol['email']], 'Payment received — Hours Store',
+                                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                                    f'<h2 style="color:#145466">Payment Received!</h2>'
+                                    f'<p>Hi {vol.get("name","there")},</p>'
+                                    f'<p>Thanks — we received your balance payment for <strong>{hour_red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong>.'
+                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'
+                                    f'<p>Horizon West Theater Company</p></div>')
+                        except Exception as e:
+                            app.logger.warning(f'Hours store balance-paid email failed: {e}')
                     else:
-                        # Check pending donations
-                        don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                        # Check cart orders
+                        import json as _jw
+                        cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                             (order_id, order_id))
-                        if don:
-                            finalize_donation(conn, don['id'], payment_id, amount_cents)
+                        if cart:
+                            execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                            try:
+                                items = _jw.loads(cart.get('items_json') or '[]')
+                            except Exception:
+                                items = []
+                            for it in items:
+                                rid = it.get('registration_id')
+                                if rid:
+                                    reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                                    if reg2 and reg2['status'] == 'pending_payment':
+                                        finalize_registration(conn, rid, payment_id, order_id)
+                            conn.commit()
+                        else:
+                            # Check pending donations
+                            don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                (order_id, order_id))
+                            if don:
+                                finalize_donation(conn, don['id'], payment_id, amount_cents)
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()

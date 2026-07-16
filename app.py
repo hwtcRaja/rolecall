@@ -2608,7 +2608,7 @@ def sync_hours_store_for_program(conn, program_id):
 
 @app.route('/api/admin/hours-store/settings', methods=['GET'])
 def get_hours_store_settings():
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     rate = _get_hours_store_rate_cents(conn)
@@ -2617,7 +2617,7 @@ def get_hours_store_settings():
 
 @app.route('/api/admin/hours-store/settings', methods=['PUT'])
 def save_hours_store_settings():
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     d = request.json or {}
     try:
@@ -2633,7 +2633,7 @@ def save_hours_store_settings():
 
 @app.route('/api/admin/store-items', methods=['GET'])
 def list_store_items():
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     items = fetchall(conn, '''SELECT si.*, yp.name as program_name, ps.name as session_name FROM store_items si
@@ -2648,7 +2648,7 @@ def list_store_items():
 
 @app.route('/api/admin/store-items', methods=['POST'])
 def create_store_item():
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     d = request.json or {}
     name = (d.get('name') or '').strip()
@@ -2668,7 +2668,7 @@ def create_store_item():
 
 @app.route('/api/admin/store-items/<iid>', methods=['PUT'])
 def update_store_item(iid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     d = request.json or {}
     name = (d.get('name') or '').strip()
@@ -2691,7 +2691,7 @@ def update_store_item(iid):
 
 @app.route('/api/admin/store-items/<iid>', methods=['DELETE'])
 def delete_store_item(iid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     existing = fetchone(conn, 'SELECT auto_synced FROM store_items WHERE id=%s', (iid,))
@@ -2709,7 +2709,7 @@ def delete_store_item(iid):
 
 @app.route('/api/admin/hour-redemptions', methods=['GET'])
 def list_hour_redemptions():
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     status = request.args.get('status') or ''
     conn = get_db()
@@ -2763,7 +2763,7 @@ def _enroll_from_hours_redemption(conn, red, item):
 
 @app.route('/api/admin/hour-redemptions/<rid>/approve', methods=['POST'])
 def approve_hour_redemption(rid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
@@ -2837,7 +2837,7 @@ def approve_hour_redemption(rid):
 
 @app.route('/api/admin/hour-redemptions/<rid>/deny', methods=['POST'])
 def deny_hour_redemption(rid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -2870,7 +2870,7 @@ def deny_hour_redemption(rid):
 
 @app.route('/api/admin/hour-redemptions/<rid>/fulfill', methods=['POST'])
 def fulfill_hour_redemption(rid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
@@ -2887,7 +2887,7 @@ def fulfill_hour_redemption(rid):
 
 @app.route('/api/admin/hour-redemptions/<rid>/resend-payment-link', methods=['POST'])
 def resend_hour_redemption_payment_link(rid):
-    err = require_permission('volunteers')
+    err = require_permission('hours_store')
     if err: return err
     conn = get_db()
     red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
@@ -16495,7 +16495,7 @@ def get_oncall_schedule():
 
 @app.route('/api/oncall', methods=['POST'])
 def create_oncall():
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
@@ -16511,7 +16511,7 @@ def create_oncall():
 
 @app.route('/api/oncall/<oid>', methods=['PUT'])
 def update_oncall(oid):
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
@@ -16525,7 +16525,7 @@ def update_oncall(oid):
 
 @app.route('/api/oncall/<oid>', methods=['DELETE'])
 def delete_oncall(oid):
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))

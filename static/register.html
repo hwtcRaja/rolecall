@@ -904,7 +904,8 @@ async function submitRegistration(){
   if(!email.trim() || !firstName.trim() || (isYouth && !contactName.trim())){
     show('Please fill in all required fields.','error'); return
   }
-  if(!(document.getElementById('f-refund-policy-agree')||{}).checked){
+  const refundCheckbox = document.getElementById('f-refund-policy-agree')
+  if(refundCheckbox && !refundCheckbox.checked){
     show('Please read and agree to the HWTC Cancellation & Refund Policy to continue.','error'); return
   }
   btn.disabled=true; btn.textContent='Submitting...'

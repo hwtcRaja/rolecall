@@ -1262,6 +1262,7 @@ def init_db():
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS hours_store_enabled BOOLEAN DEFAULT false",
         """CREATE TABLE IF NOT EXISTS store_items (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -1284,6 +1285,9 @@ def init_db():
             requested_at TIMESTAMP DEFAULT NOW(),
             reviewed_at TIMESTAMP,
             reviewed_by TEXT)""",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS linked_session_id TEXT REFERENCES program_sessions(id) ON DELETE CASCADE",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS is_bundle_item BOOLEAN DEFAULT false",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS auto_synced BOOLEAN DEFAULT false",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -2494,8 +2498,9 @@ def get_volunteer(vol_id):
         WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC NULLS LAST''', (vol_id,))
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    vol['store_eligible_hours'] = _get_store_eligible_hours(conn, vol_id)
     vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol_id,))['t']
-    vol['available_hours'] = max(0, (vol['total_hours'] or 0) - (vol['redeemed_hours'] or 0))
+    vol['available_hours'] = max(0, (vol['store_eligible_hours'] or 0) - (vol['redeemed_hours'] or 0))
     if not vol.get('store_token'):
         import secrets as _secrets
         token = _secrets.token_urlsafe(16)
@@ -2523,6 +2528,78 @@ def _get_hours_store_rate_cents(conn):
         return int(row['value']) if row and row.get('value') else 1000
     except Exception:
         return 1000
+
+def _get_store_eligible_hours(conn, volunteer_id):
+    """Total logged hours minus any hours tied to Board Meeting events — those still
+    count toward the volunteer's overall total hours, but not toward Hours Store credit."""
+    row = fetchone(conn, '''SELECT COALESCE(SUM(h.hours),0) as t FROM hours h
+        WHERE h.volunteer_id=%s
+        AND (h.event_id IS NULL OR h.event_id NOT IN (
+            SELECT e.id FROM events e JOIN event_types et ON et.id=e.event_type_id
+            WHERE LOWER(et.name)='board meeting'
+        ))''', (volunteer_id,))
+    return row['t'] if row else 0
+
+def sync_hours_store_for_program(conn, program_id):
+    """Create/update/retire auto-synced store_items to match a program's current
+    hours_store_enabled flag, price, sessions, and bundle settings. Only ever touches
+    rows with auto_synced=true so manually-created store items are never disturbed."""
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (program_id,))
+    if not prog:
+        return
+    if not prog.get('hours_store_enabled'):
+        execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true', (program_id,))
+        return
+
+    if prog.get('sessions_enabled'):
+        sessions = fetchall(conn, 'SELECT * FROM program_sessions WHERE program_id=%s ORDER BY sort_order', (program_id,)) or []
+        seen_session_ids = set()
+        for s in sessions:
+            price = s['price_override'] if s.get('price_override') is not None else (prog.get('price') or 0)
+            seen_session_ids.add(s['id'])
+            existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_session_id=%s AND auto_synced=true', (s['id'],))
+            item_name = f"{prog['name']} — {s['name']}"
+            if existing:
+                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                    (item_name, price, existing['id']))
+            else:
+                iid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO store_items
+                    (id, name, price_cents, linked_program_id, linked_session_id, auto_synced, active)
+                    VALUES (%s,%s,%s,%s,%s,true,true)''', (iid, item_name, price, program_id, s['id']))
+        # retire synced items for sessions that no longer exist
+        stale = fetchall(conn, '''SELECT id FROM store_items
+            WHERE linked_program_id=%s AND auto_synced=true AND linked_session_id IS NOT NULL
+            AND linked_session_id NOT IN %s''',
+            (program_id, tuple(seen_session_ids) if seen_session_ids else ('',))) or []
+        for st in stale:
+            execute(conn, 'UPDATE store_items SET active=false WHERE id=%s', (st['id'],))
+        # bundle item, if enabled
+        if prog.get('bundle_enabled') and prog.get('bundle_price'):
+            existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_program_id=%s AND is_bundle_item=true AND auto_synced=true', (program_id,))
+            bundle_name = f"{prog['name']} — {prog.get('bundle_label') or 'Full Bundle'}"
+            if existing:
+                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                    (bundle_name, prog['bundle_price'], existing['id']))
+            else:
+                iid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO store_items
+                    (id, name, price_cents, linked_program_id, is_bundle_item, auto_synced, active)
+                    VALUES (%s,%s,%s,%s,true,true,true)''', (iid, bundle_name, prog['bundle_price'], program_id))
+        else:
+            execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND is_bundle_item=true AND auto_synced=true', (program_id,))
+    else:
+        price = prog.get('price') or 0
+        existing = fetchone(conn, '''SELECT id FROM store_items WHERE linked_program_id=%s AND auto_synced=true
+            AND linked_session_id IS NULL AND is_bundle_item=false''', (program_id,))
+        if existing:
+            execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                (prog['name'], price, existing['id']))
+        else:
+            iid = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO store_items (id, name, price_cents, linked_program_id, auto_synced, active)
+                VALUES (%s,%s,%s,%s,true,true)''', (iid, prog['name'], price, program_id))
+    conn.commit()
 
 @app.route('/api/admin/hours-store/settings', methods=['GET'])
 def get_hours_store_settings():
@@ -2554,8 +2631,9 @@ def list_store_items():
     err = require_permission('volunteers')
     if err: return err
     conn = get_db()
-    items = fetchall(conn, '''SELECT si.*, yp.name as program_name FROM store_items si
+    items = fetchall(conn, '''SELECT si.*, yp.name as program_name, ps.name as session_name FROM store_items si
         LEFT JOIN youth_programs yp ON yp.id=si.linked_program_id
+        LEFT JOIN program_sessions ps ON ps.id=si.linked_session_id
         ORDER BY si.active DESC, si.name''') or []
     rate = _get_hours_store_rate_cents(conn)
     conn.close()
@@ -2592,6 +2670,10 @@ def update_store_item(iid):
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
+    existing = fetchone(conn, 'SELECT auto_synced FROM store_items WHERE id=%s', (iid,))
+    if existing and existing.get('auto_synced'):
+        conn.close()
+        return jsonify({'error': "This item is synced from a program's pricing. Edit it from the program's Registration Settings instead."}), 400
     execute(conn, '''UPDATE store_items SET name=%s, description=%s, image_url=%s, price_cents=%s,
         linked_program_id=%s, active=%s WHERE id=%s''',
         (name, (d.get('description') or '').strip(), d.get('image_url') or None,
@@ -2607,6 +2689,10 @@ def delete_store_item(iid):
     err = require_permission('volunteers')
     if err: return err
     conn = get_db()
+    existing = fetchone(conn, 'SELECT auto_synced FROM store_items WHERE id=%s', (iid,))
+    if existing and existing.get('auto_synced'):
+        conn.close()
+        return jsonify({'error': "This item is synced from a program's pricing. Turn off \"Add to Hours Store\" in the program's Registration Settings to remove it."}), 400
     used = fetchone(conn, 'SELECT COUNT(*) as c FROM hour_redemptions WHERE store_item_id=%s', (iid,))
     if used and used['c'] > 0:
         conn.close()
@@ -2655,16 +2741,24 @@ def approve_hour_redemption(rid):
         vol_name_parts = (vol['name'] if vol else '').strip().split(' ', 1)
         vol_first = vol_name_parts[0] if vol_name_parts else ''
         vol_last = vol_name_parts[1] if len(vol_name_parts) > 1 else ''
+        import json as _jhs
+        if item.get('linked_session_id'):
+            session_ids = [item['linked_session_id']]
+        elif item.get('is_bundle_item'):
+            all_sessions = fetchall(conn, 'SELECT id FROM program_sessions WHERE program_id=%s', (item['linked_program_id'],)) or []
+            session_ids = [s['id'] for s in all_sessions]
+        else:
+            session_ids = []
         new_reg_id = str(uuid.uuid4())
         execute(conn, '''INSERT INTO program_registrations
             (id, program_id, registration_type, status, registration_form_type,
              child_first_name, child_last_name,
-             guardian_name, guardian_email, guardian_phone, notes, payment_type)
-            VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours')''',
+             guardian_name, guardian_email, guardian_phone, notes, payment_type, session_ids)
+            VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours',%s)''',
             (new_reg_id, item['linked_program_id'], vol_first, vol_last,
              vol['name'] if vol else '',
              vol['email'] if vol else '', vol.get('phone') if vol else None,
-             f'Paid via Hours Store redemption ({red["hours_spent"]}h)'))
+             f'Paid via Hours Store redemption ({red["hours_spent"]}h)', _jhs.dumps(session_ids)))
         finalize_registration(conn, new_reg_id)
         execute(conn, 'UPDATE hour_redemptions SET registration_id=%s WHERE id=%s', (new_reg_id, rid))
     execute(conn, '''UPDATE hour_redemptions SET status='approved', reviewed_at=NOW(), reviewed_by=%s WHERE id=%s''',
@@ -2749,8 +2843,9 @@ def public_hours_store_data(token):
         conn.close()
         return jsonify({'error': 'Invalid or expired link'}), 404
     total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
+    store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
     redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
-    available = max(0, total_hours - redeemed)
+    available = max(0, store_eligible_hours - redeemed)
     rate = _get_hours_store_rate_cents(conn)
     items = fetchall(conn, 'SELECT * FROM store_items WHERE active=true ORDER BY price_cents') or []
     for it in items:
@@ -2762,6 +2857,7 @@ def public_hours_store_data(token):
     return jsonify({
         'volunteer_name': vol['name'],
         'total_hours': total_hours,
+        'store_eligible_hours': store_eligible_hours,
         'redeemed_hours': redeemed,
         'available_hours': available,
         'available_dollars_cents': int(round(available * rate)),
@@ -2784,9 +2880,9 @@ def public_hours_store_redeem(token):
         return jsonify({'error': 'Item not found or no longer available'}), 404
     rate = _get_hours_store_rate_cents(conn)
     hours_cost = round(item['price_cents'] / rate, 2) if rate else 0
-    total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
+    store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
     redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','approved','fulfilled')", (vol['id'],))['t'] or 0
-    available = max(0, total_hours - redeemed)
+    available = max(0, store_eligible_hours - redeemed)
     if hours_cost > available:
         conn.close()
         return jsonify({'error': 'Not enough hours available for this item'}), 400
@@ -4857,7 +4953,7 @@ def save_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, form_fields=%s
+        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -4891,8 +4987,11 @@ def save_registration_settings(pid):
          d.get('start_date') or None,
          d.get('end_date') or None,
          _json.dumps(d.get('form_fields') or {}),
+         bool(d.get('hours_store_enabled', False)),
          pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 
@@ -14677,6 +14776,7 @@ def create_program_session(pid):
          d.get('status') or 'open',
          sort_order))
     conn.commit()
+    sync_hours_store_for_program(conn, pid)
     conn.close()
     return jsonify({'ok': True, 'id': sid})
 
@@ -14805,7 +14905,9 @@ def update_program_session(pid, sid):
          d.get('status') or 'open',
          int(d.get('sort_order') or 0),
          sid, pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 
@@ -14815,7 +14917,9 @@ def delete_program_session(pid, sid):
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 

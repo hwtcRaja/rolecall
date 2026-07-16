@@ -860,6 +860,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <span id="hs-rate-status" style="font-size:12px;color:var(--teal-dark)"></span>
   </div>
 
+  <div class="card" style="padding:16px 20px;margin-bottom:16px">
+   <div style="font-size:13px;font-weight:700;margin-bottom:10px"> Active Event Bonuses</div>
+   <div id="hs-event-bonuses-list" style="font-size:12px;color:var(--text-muted)">Loading…</div>
+   <div style="font-size:11px;color:var(--text-hint);margin-top:8px">Set these from the Hours Store Bonus section on an event's edit form (Events &amp; Calendar).</div>
+  </div>
+
   <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
    <button onclick="switchHsTab('requests')" id="hstab-requests" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Redemption Requests</button>
    <button onclick="switchHsTab('items')" id="hstab-items" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Store Items</button>
@@ -3089,6 +3095,23 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for RSVP invites (optional)</label>
  <textarea id="edit-event-rsvp-msg" placeholder="e.g. 'We especially need help with setup and teardown this time!'" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
  </div>
+ <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Hours Store Bonus (optional)</label>
+ <select id="edit-event-hs-bonus-type" onchange="toggleHsBonusFields()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+  <option value="">None</option>
+  <option value="multiplier">Multiplier — e.g. double dollars per hour</option>
+  <option value="flat">Flat bonus credit — e.g. extra $10 for attending</option>
+ </select>
+ <div id="edit-event-hs-multiplier-wrap" style="display:none;margin-top:8px">
+  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Multiplier (2 = double, 1.5 = time-and-a-half)</label>
+  <input type="number" id="edit-event-hs-multiplier" min="1" step="0.1" placeholder="2" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ </div>
+ <div id="edit-event-hs-flat-wrap" style="display:none;margin-top:8px">
+  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Flat bonus, per volunteer who logs any hours here ($)</label>
+  <input type="number" id="edit-event-hs-flat" min="0" step="0.01" placeholder="10.00" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ </div>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Boosts Hours Store credit only — doesn't change anyone's actual logged hours total.</div>
+ </div>
  </div>
  </div>
 
@@ -4634,7 +4657,8 @@ async function openProfile(volId){
  <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
  <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
  </div>
- ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${v.total_hours-v.store_eligible_hours}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
+ ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${(v.total_hours-v.store_eligible_hours).toFixed(2)}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
+ ${v.store_eligible_hours > v.total_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#f0fdf4;border-color:#bbf7d0"><div style="font-size:12px;color:#166534">Includes ${(v.store_eligible_hours-v.total_hours).toFixed(2)}h in Hours Store bonus credit from promotional events (${v.store_eligible_hours}h store-eligible vs ${v.total_hours}h actually logged).</div></div>` : ''}
  <div class="card" style="padding:16px;margin-bottom:16px">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Their Personal Store Link</div>
  <div style="display:flex;gap:8px">
@@ -4861,7 +4885,27 @@ async function renderHoursStorePage(){
  _hsRateCents = (res && res.rate_cents) || 1000
  const rateEl = document.getElementById('hs-rate-dollars')
  if(rateEl) rateEl.value = (_hsRateCents/100).toFixed(2)
+ renderHsEventBonuses()
  switchHsTab('requests')
+}
+
+async function renderHsEventBonuses(){
+ const el = document.getElementById('hs-event-bonuses-list')
+ if(!el) return
+ const res = await api('/api/admin/hours-store/event-bonuses')
+ const rows = (res && res.events) || []
+ if(!rows.length){ el.innerHTML = '<span style="color:var(--text-hint)">No events currently have a bonus set up.</span>'; return }
+ const today = new Date().toISOString().split('T')[0]
+ el.innerHTML = rows.map(function(e){
+  const isPast = e.event_date && e.event_date < today
+  const detail = e.hours_store_bonus_type==='multiplier'
+    ? (e.hours_store_bonus_multiplier+'\u00d7 hours toward store credit')
+    : ('+$'+(e.hours_store_bonus_flat_cents/100).toFixed(2)+' flat credit for attending')
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);'+(isPast?'opacity:0.55':'')+'">'
+    + '<div><span style="font-weight:600">'+escHtml(e.name)+'</span> <span style="color:var(--text-hint)">'+(e.event_date?formatDate(e.event_date):'')+'</span></div>'
+    + '<div style="color:var(--teal-dark);font-weight:600">'+detail+'</div>'
+    + '</div>'
+ }).join('')
 }
 
 async function saveHoursStoreRate(){
@@ -16199,6 +16243,10 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-rsvp-msg').value=''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=false
+ document.getElementById('edit-event-hs-bonus-type').value=''
+ document.getElementById('edit-event-hs-multiplier').value=''
+ document.getElementById('edit-event-hs-flat').value=''
+ toggleHsBonusFields()
  setEventElicUI(null, null) // reset ELIC
  // If opened from a program or production context, pre-fill parent and default ELIC
  if(eid===null && window._openEventParent){
@@ -16242,6 +16290,10 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=!!e.carpools_enabled
+ document.getElementById('edit-event-hs-bonus-type').value=e.hours_store_bonus_type||''
+ document.getElementById('edit-event-hs-multiplier').value=e.hours_store_bonus_multiplier||''
+ document.getElementById('edit-event-hs-flat').value=e.hours_store_bonus_flat_cents?(e.hours_store_bonus_flat_cents/100).toFixed(2):''
+ toggleHsBonusFields()
  setTimeout(updateEventBgcLock, 50) // after selects are populated
  }
  // Reset repeat section
@@ -16265,6 +16317,13 @@ async function saveEditEvent(){
  if(!name){toast('Event name is required','error');return}
  const event_date=document.getElementById('edit-event-date').value
  if(!event_date){toast('Event date is required','error');return}
+ const hsBonusType=document.getElementById('edit-event-hs-bonus-type')?.value||''
+ if(hsBonusType==='multiplier' && !(parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)>1)){
+ toast('Enter a multiplier greater than 1 (e.g. 2 for double)','error');return
+ }
+ if(hsBonusType==='flat' && !(parseFloat(document.getElementById('edit-event-hs-flat')?.value)>0)){
+ toast('Enter a flat bonus amount greater than $0','error');return
+ }
 
  // Read location/room safely
  let location='HWTC', room=''
@@ -16289,6 +16348,11 @@ async function saveEditEvent(){
  rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
  rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
  carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false,
+ hours_store_bonus_type:document.getElementById('edit-event-hs-bonus-type')?.value||null,
+ hours_store_bonus_multiplier:document.getElementById('edit-event-hs-bonus-type')?.value==='multiplier'
+   ? (parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)||null): null,
+ hours_store_bonus_flat_cents:document.getElementById('edit-event-hs-bonus-type')?.value==='flat'
+   ? Math.round((parseFloat(document.getElementById('edit-event-hs-flat')?.value)||0)*100): null,
  // Preserve existing status — never reset it via the edit modal
  status: eid ? (allEvents.find(e=>e.id===eid)?.status||'draft'): 'draft'
  }
@@ -16418,6 +16482,14 @@ function toggleRsvpMessage(){
  const enabled = document.getElementById('edit-event-rsvp')?.checked
  const wrap = document.getElementById('edit-event-rsvp-msg-wrap')
  if(wrap) wrap.style.display = enabled ? '': 'none'
+}
+
+function toggleHsBonusFields(){
+ const type = document.getElementById('edit-event-hs-bonus-type')?.value||''
+ const multWrap = document.getElementById('edit-event-hs-multiplier-wrap')
+ const flatWrap = document.getElementById('edit-event-hs-flat-wrap')
+ if(multWrap) multWrap.style.display = type==='multiplier' ? '': 'none'
+ if(flatWrap) flatWrap.style.display = type==='flat' ? '': 'none'
 }
 
 function setRsvpFilter(type, eid){

@@ -96,6 +96,7 @@ function render(){
     + '<div class="sub">available to spend &middot; worth '+fmtDollars(d.available_dollars_cents)+' at $'+rateDollars+'/hour</div>'
     + '<div class="sub" style="margin-top:6px">'+d.total_hours+'h logged total &middot; '+d.redeemed_hours+'h redeemed or pending</div>'
     + (d.total_hours > d.store_eligible_hours ? '<div class="sub" style="margin-top:6px;opacity:0.85">Note: Board Meeting hours count toward your total but aren\'t eligible for Hours Store credit</div>' : '')
+    + (d.store_eligible_hours > d.total_hours ? '<div class="sub" style="margin-top:6px;opacity:0.95"> You earned '+(d.store_eligible_hours-d.total_hours).toFixed(2)+'h in bonus credit from a promotional event!</div>' : '')
     + '</div>'
 
   html += '<div class="card"><div class="card-header"><h2>Available Items</h2></div><div class="card-body">'

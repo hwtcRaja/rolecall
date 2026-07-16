@@ -4609,6 +4609,7 @@ async function openProfile(volId){
  <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
  <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
  </div>
+ ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${v.total_hours-v.store_eligible_hours}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
  <div class="card" style="padding:16px;margin-bottom:16px">
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Their Personal Store Link</div>
  <div style="display:flex;gap:8px">
@@ -4932,12 +4933,16 @@ async function renderHoursStoreItems(){
    + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+(it.active?'#dcfce7;color:#166534':'#f3f4f6;color:#6b7280')+'">'+(it.active?'Active':'Inactive')+'</span>'
    + '</div>'
    + (it.description?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">'+escHtml(it.description)+'</div>':'')
-   + (it.program_name?'<div style="font-size:11px;color:var(--teal-dark);margin-bottom:8px"> Enrolls in: '+escHtml(it.program_name)+'</div>':'')
+   + (it.program_name?'<div style="font-size:11px;color:var(--teal-dark);margin-bottom:8px"> Enrolls in: '+escHtml(it.program_name)+(it.session_name?' — '+escHtml(it.session_name):(it.is_bundle_item?' (full bundle)':''))+'</div>':'')
+   + (it.auto_synced?'<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;font-style:italic">↻ Synced from program pricing</div>':'')
    + '<div style="font-size:20px;font-weight:800;color:var(--teal-dark)">'+it.hours_cost+'h<span style="font-size:12px;font-weight:500;color:var(--text-muted)"> ($'+(it.price_cents/100).toFixed(2)+')</span></div>'
-   + '<div style="display:flex;gap:6px;margin-top:10px">'
-   + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="openStoreItemModal(\''+it.id+'\')">Edit</button>'
-   + '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="deleteStoreItem(\''+it.id+'\')">Delete</button>'
-   + '</div></div>'
+   + (it.auto_synced
+     ? '<div style="font-size:11px;color:var(--text-muted);margin-top:10px">Managed from the program\'s Registration Settings</div>'
+     : '<div style="display:flex;gap:6px;margin-top:10px">'
+       + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="openStoreItemModal(\''+it.id+'\')">Edit</button>'
+       + '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="deleteStoreItem(\''+it.id+'\')">Delete</button>'
+       + '</div>')
+   + '</div>'
  }).join('')
 }
 
@@ -20128,6 +20133,14 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Deposit Amount (USD)</label>'
     + '<input type="number" id="rs-deposit" value="'+(prog.deposit_amount?(prog.deposit_amount/100).toFixed(2):'')+'" placeholder="Leave blank — no deposit option" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
 
+    // Hours Store
+    + (_saveEndpoint.indexOf('/productions/')===-1 ?
+      '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px"> Hours Store</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Let volunteers redeem logged hours toward enrollment in this program. If sessions are enabled, each session is listed separately (priced from its own price override, or the base price above if none is set) — plus a bundle item if bundle pricing is enabled below.</div>'
+      + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+      + '<input type="checkbox" id="rs-hours-store-enabled" '+(prog.hours_store_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Add this program to the Hours Store</label>'
+      : '')
+
     // Automatic sibling discount
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Automatic Sibling Discount</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Automatically discounts each additional child — no code needed. Applied on top of any promo code.</div>'
@@ -20745,6 +20758,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     // Use the appropriate date fields based on schedule type
     start_date: (document.getElementById('rs-start-date-field')||document.getElementById('rs-recurring-start')||{}).value || null,
     end_date: (document.getElementById('rs-end-date-field')||document.getElementById('rs-recurring-end')||{}).value || null,
+    hours_store_enabled: (document.getElementById('rs-hours-store-enabled')||{}).checked||false,
   }
   const res = await api(saveEndpoint, 'PUT', payload)
   if(res && res.ok){

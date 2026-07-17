@@ -1362,9 +1362,9 @@ function fmtTime(t){
 
 async function openEvent(evid,evname){
   pendingAction={type:'open',evid,evname}
-  // Load opening checklist items
+  // Load opening checklist items (filtered server-side if this event isn't at the studio)
   try{
-    const r=await fetch('/api/opening-checklist-items')
+    const r=await fetch('/api/opening-checklist-items?event_id='+encodeURIComponent(evid))
     openingChecklistItems=await r.json()
   }catch(e){
     openingChecklistItems=[]
@@ -1418,7 +1418,7 @@ async function doOpenEvent(){
 async function startClose(evid,evname){
   closingEvent={id:evid,name:evname}
   try {
-    const r=await fetch('/api/checklist-items')
+    const r=await fetch('/api/checklist-items?event_id='+encodeURIComponent(evid))
     const data=await r.json()
     checklistItems=Array.isArray(data)?data:[]
     if(!Array.isArray(data)) console.error('checklist-items returned non-array:',data)

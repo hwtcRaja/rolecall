@@ -1827,10 +1827,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  <div style="display:flex;align-items:flex-end;gap:6px">
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-studio-only" checked style="accent-color:var(--teal-400)"/> Studio only</label>
  <button class="btn btn-primary btn-sm" onclick="addChecklistItem()">Add Item</button>
  </div>
  </div>
- <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it. Uncheck "Studio only" for items that should also show for events held elsewhere (like "Any incidents to report?").</div>
  </div>
 <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
@@ -1844,9 +1845,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  <div style="display:flex;align-items:flex-end;gap:6px">
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-studio-only" checked style="accent-color:var(--teal-400)"/> Studio only</label>
  <button class="btn btn-primary btn-sm" onclick="addOpeningChecklistItem()">Add Item</button>
  </div>
  </div>
+ <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Uncheck "Studio only" for items that should also show for events held elsewhere (like "Anything staff should know" or headcount).</div>
  </div>
    </div>
 
@@ -14427,6 +14430,7 @@ function renderChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -14462,8 +14466,9 @@ async function addChecklistItem(){
  const label=(document.getElementById('new-cl-label')||{}).value.trim()
  const item_type=(document.getElementById('new-cl-type')||{}).value||'checkbox'
  const required=(document.getElementById('new-cl-required')||{}).checked!==false
+ const studio_only=(document.getElementById('new-cl-studio-only')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
- const res=await api('/api/checklist-items','POST',{label,item_type,required})
+ const res=await api('/api/checklist-items','POST',{label,item_type,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
  if(res&&res.id){ allChecklistItems.push(res) }
  document.getElementById('new-cl-label').value=''
@@ -14498,6 +14503,8 @@ function openEditChecklistItem(cid){
   +'<input type="text" id="edit-cl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check behind the curtain too" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
   +'<input type="checkbox" id="edit-cl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-cl-studio-only"'+(item.studio_only!==false?' checked':'')+'/> Studio only (hide for events held elsewhere)</label></div>'
   +'<div style="display:flex;gap:8px;justify-content:flex-end">'
   +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
   +'<button class="btn btn-primary" onclick="submitEditChecklistItem(\''+cid+'\')">Save</button>'
@@ -14511,11 +14518,12 @@ async function submitEditChecklistItem(cid){
  const item_type=(document.getElementById('edit-cl-type')||{}).value||'checkbox'
  const hint=(document.getElementById('edit-cl-hint')||{}).value.trim()
  const required=(document.getElementById('edit-cl-required')||{}).checked
+ const studio_only=(document.getElementById('edit-cl-studio-only')||{}).checked
  if(!label){toast('Label is required','error');return}
  const item=allChecklistItems.find(function(i){ return i.id===cid })
- const res=await api('/api/checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ const res=await api('/api/checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
- allChecklistItems=allChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ allChecklistItems=allChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required,studio_only}):i })
  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderChecklistSettings()
  toast('Updated!','success')
@@ -16991,6 +16999,7 @@ function renderOpeningChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditOpeningChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -17004,8 +17013,9 @@ async function addOpeningChecklistItem(){
  const label=(document.getElementById('new-ocl-label')||{}).value.trim()
  const item_type=(document.getElementById('new-ocl-type')||{}).value||'checkbox'
  const required=(document.getElementById('new-ocl-required')||{}).checked!==false
+ const studio_only=(document.getElementById('new-ocl-studio-only')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
- const res=await api('/api/opening-checklist-items','POST',{label,item_type,required})
+ const res=await api('/api/opening-checklist-items','POST',{label,item_type,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
  if(res&&res.id){ allOpeningChecklistItems.push(res) }
  document.getElementById('new-ocl-label').value=''
@@ -17040,6 +17050,8 @@ function openEditOpeningChecklistItem(cid){
   +'<input type="text" id="edit-ocl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check all entrances" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
   +'<input type="checkbox" id="edit-ocl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-ocl-studio-only"'+(item.studio_only!==false?' checked':'')+'/> Studio only (hide for events held elsewhere)</label></div>'
   +'<div style="display:flex;gap:8px;justify-content:flex-end">'
   +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
   +'<button class="btn btn-primary" onclick="submitEditOpeningChecklistItem(\''+cid+'\')">Save</button>'
@@ -17053,11 +17065,12 @@ async function submitEditOpeningChecklistItem(cid){
  const item_type=(document.getElementById('edit-ocl-type')||{}).value||'checkbox'
  const hint=(document.getElementById('edit-ocl-hint')||{}).value.trim()
  const required=(document.getElementById('edit-ocl-required')||{}).checked
+ const studio_only=(document.getElementById('edit-ocl-studio-only')||{}).checked
  if(!label){toast('Label is required','error');return}
  const item=allOpeningChecklistItems.find(function(i){ return i.id===cid })
- const res=await api('/api/opening-checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ const res=await api('/api/opening-checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
- allOpeningChecklistItems=allOpeningChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ allOpeningChecklistItems=allOpeningChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required,studio_only}):i })
  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderOpeningChecklistSettings()
  toast('Updated!','success')

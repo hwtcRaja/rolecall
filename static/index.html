@@ -23167,9 +23167,23 @@ async function renderMarqueeTab(tab){
   else if(tab==='donations') await renderMarqueeDonations(el)
 }
 
+let _mqDashData = null
+let _mqDashProgFilter = 'active' // 'active' | 'past' | 'all'
+
+function setMqDashProgFilter(f){
+  _mqDashProgFilter = f
+  var el = document.getElementById('marquee-tab-dashboard')
+  if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData)
+}
+
 async function renderMarqueeDashboard(el){
   var data = await api('/api/marquee/overview')
+  _mqDashData = data
   if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
+  renderMarqueeDashboardBody(el, data)
+}
+
+function renderMarqueeDashboardBody(el, data){
   var rc = data.reg_counts || {}
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
   function toggleSessionRoster(id){
@@ -23209,9 +23223,27 @@ async function renderMarqueeDashboard(el){
     + '</div>'
 
   // ── Program breakdown ──
-  var programs = data.program_breakdown || []
+  var allPrograms = data.program_breakdown || []
   var sessions = data.session_breakdown || []
   var regsByProgram = data.regs_by_program || {}
+  var activeCount = allPrograms.filter(function(p){ return p.registration_status==='open' }).length
+  var pastCount = allPrograms.length - activeCount
+  var programs = allPrograms.filter(function(p){
+    if(_mqDashProgFilter==='active') return p.registration_status==='open'
+    if(_mqDashProgFilter==='past') return p.registration_status!=='open'
+    return true
+  })
+  if(allPrograms.length){
+    function pillStyle(f){
+      var active = _mqDashProgFilter===f
+      return 'padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(active?'var(--teal)':'var(--border)')+';background:'+(active?'var(--teal)':'transparent')+';color:'+(active?'#fff':'var(--text-muted)')
+    }
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px">'
+      + '<span onclick="setMqDashProgFilter(\'active\')" style="'+pillStyle('active')+'">Actively Enrolling ('+activeCount+')</span>'
+      + '<span onclick="setMqDashProgFilter(\'past\')" style="'+pillStyle('past')+'">Past &amp; Completed ('+pastCount+')</span>'
+      + '<span onclick="setMqDashProgFilter(\'all\')" style="'+pillStyle('all')+'">All ('+allPrograms.length+')</span>'
+      + '</div>'
+  }
   if(programs.length){
     // Group sessions by program_id for quick lookup
     var sessByProg = {}
@@ -23311,6 +23343,9 @@ async function renderMarqueeDashboard(el){
       html += '</div></div>' // end session detail + program row
     })
     html += '</div>' // end card
+  } else if(allPrograms.length){
+    var emptyMsg = _mqDashProgFilter==='active' ? 'No programs are actively enrolling right now.' : 'No past or completed programs yet.'
+    html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);margin-bottom:16px;font-size:13px">'+emptyMsg+'</div>'
   }
 
 

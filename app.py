@@ -18414,6 +18414,7 @@ def manual_finalize_registration(pid, rid):
 
 
 
+@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()
@@ -18424,9 +18425,16 @@ def send_registration_payment_link(pid, rid):
     if not reg or not prog:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    # Use existing link if still valid
-    existing = reg.get('square_checkout_id') or reg.get('waitlist_payment_link')
-    amount = prog.get('price') or 0
+    if reg['status'] != 'pending_payment':
+        conn.close()
+        return jsonify({'error': 'This registration is not awaiting payment'}), 400
+    # Look up the original order's actual total rather than the flat program price —
+    # this correctly reflects sessions, participant count, and any discounts applied
+    # at the time they registered, instead of risking an incorrect recalculation.
+    amount = square_get_order_amount(reg.get('square_order_id'))
+    if not amount:
+        amount = prog.get('price') or 0
+        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
     pay_url, link_id, order_id = square_create_payment_link(
         prog, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
         note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
@@ -18438,22 +18446,42 @@ def send_registration_payment_link(pid, rid):
     conn.commit()
     # Email the family
     try:
-        send_email([reg['guardian_email']], f'Complete your registration — {prog["name"]}',
+        child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
+        send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prog["name"]}',
             f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
-            f'<h2 style="color:#145466">Complete Your Registration</h2>'
+            f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
-            f'<p>Your registration for <strong>{prog["name"]}</strong> is not yet complete. '
-            f'Click below to complete your payment and secure your spot.</p>'
+            f'<p>We saw that you started registering {child_name or "your participant"} for '
+            f'<strong>{prog["name"]}</strong>, but the payment didn\'t go through — sometimes that happens if a browser tab '
+            f'closes early or a card gets declined.</p>'
+            f'<p>If you\'d still like to register, no problem — here\'s a fresh link to finish up. Nothing has been charged yet.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Complete Payment</a></p>'
+            f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
             f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'payment_url': pay_url})
 
+
+def square_get_order_amount(order_id):
+    """Look up the total amount (in cents) for a Square order — used to resend a payment
+    link at the exact original price (including whatever discounts applied at submission)
+    without having to re-derive the whole pricing engine."""
+    if not order_id or not SQUARE_ACCESS_TOKEN:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{order_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('order'):
+            return data['order'].get('total_money', {}).get('amount')
+        app.logger.warning(f'Square get order failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.error(f'Square get order exception: {e}')
+    return None
 
 @app.route('/api/programs/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])
 def send_balance_payment_link(pid, rid):

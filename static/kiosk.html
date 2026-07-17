@@ -1090,9 +1090,10 @@ async function submitPin(){
 
 
 function renderOpeningChecklist(){
-  const {evname} = pendingAction
+  const {evname,isOffSite} = pendingAction
   document.getElementById('opening-cl-event-name').textContent = evname
-  document.getElementById('opening-cl-sub').textContent = 'Complete before opening: ' + evname
+  document.getElementById('opening-cl-sub').innerHTML = 'Complete before opening: ' + evname
+    + (isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600">📍 This is an off-site event — studio-only items have been removed</div>' : '')
   const container = document.getElementById('opening-cl-items')
   container.innerHTML = openingChecklistItems.map(item=>`
     <div class="cl-item" id="ocl-item-${item.id}">
@@ -1361,7 +1362,9 @@ function fmtTime(t){
 }
 
 async function openEvent(evid,evname){
-  pendingAction={type:'open',evid,evname}
+  const evt = elicEventList.find(e=>e.id===evid)
+  const isOffSite = !!(evt && evt.location && evt.location !== 'HWTC')
+  pendingAction={type:'open',evid,evname,isOffSite}
   // Load opening checklist items (filtered server-side if this event isn't at the studio)
   try{
     const r=await fetch('/api/opening-checklist-items?event_id='+encodeURIComponent(evid))
@@ -1416,7 +1419,9 @@ async function doOpenEvent(){
 }
 
 async function startClose(evid,evname){
-  closingEvent={id:evid,name:evname}
+  const evt = elicEventList.find(e=>e.id===evid)
+  const isOffSite = !!(evt && evt.location && evt.location !== 'HWTC')
+  closingEvent={id:evid,name:evname,isOffSite}
   try {
     const r=await fetch('/api/checklist-items?event_id='+encodeURIComponent(evid))
     const data=await r.json()
@@ -1433,7 +1438,8 @@ async function startClose(evid,evname){
 
 function renderChecklist(){
   document.getElementById('cl-event-name').textContent=closingEvent.name
-  document.getElementById('cl-subtitle').textContent='Complete the closing checklist before locking up'
+  document.getElementById('cl-subtitle').innerHTML='Complete the closing checklist before locking up'
+    + (closingEvent.isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600">📍 This is an off-site event — studio-only items have been removed</div>' : '')
   const container=document.getElementById('cl-items')
   container.innerHTML=checklistItems.map(item=>`
     <div class="cl-item" id="cl-item-${item.id}">

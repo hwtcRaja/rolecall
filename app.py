@@ -12461,6 +12461,11 @@ def public_rsvp_open_page(event_id):
 
     font_import = '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>' if is_guest else ''
 
+    role_required_js = (
+        "if(!roleId){ document.getElementById('rsvp-alert').innerHTML = '<div style=\"background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "+slot_word.lower()+".</div>'; return }"
+        if roles else ""
+    )
+
     return f'''<html><head><title>RSVP — {evt["name"]}</title>
     <meta name="viewport" content="width=device-width,initial-scale=1"></head>
     {font_import}
@@ -12494,7 +12499,7 @@ def public_rsvp_open_page(event_id):
           document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
           return
         }}
-        {"if(!roleId){ document.getElementById('rsvp-alert').innerHTML = '<div style=\"background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "+slot_word.lower()+".</div>'; return }" if roles else ""}
+        {role_required_js}
         var btn = document.getElementById('pr-submit-btn')
         btn.disabled = true; btn.textContent = 'Submitting…'
         var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})

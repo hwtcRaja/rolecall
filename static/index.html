@@ -3082,8 +3082,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
  <input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
  <div>
- <div style="font-size:13px;font-weight:600"> Volunteer Sign-Ups</div>
- <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Send RSVP invites so volunteers can express interest in this event</div>
+ <div style="font-size:13px;font-weight:600"> RSVPs</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Send invites and track who's coming — for volunteer shifts or general community events</div>
  </div>
  </label>
 
@@ -3097,8 +3097,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  </div>
  <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:10px">
- <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for RSVP invites (optional)</label>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">What kind of RSVP is this?</label>
+ <select id="edit-event-rsvp-kind" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:10px">
+  <option value="volunteer">Volunteer Shift — asking people to help/work the event</option>
+  <option value="guest">Community / Guest Invite — asking people to attend (e.g. open house)</option>
+ </select>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for invites (optional)</label>
  <textarea id="edit-event-rsvp-msg" placeholder="e.g. 'We especially need help with setup and teardown this time!'" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">"Roles" become "Time Slots" throughout the invite flow when set to Community / Guest Invite — add them the same way (Manage Roles) if you're doing time slots.</div>
  </div>
  <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Kiosk Sign-In Mode</label>
@@ -15681,7 +15687,7 @@ function renderEventDetailPage(eid){
  </div>
  </div>
  <div style="font-size:15px;font-weight:700;margin-bottom:4px"> Send Invite</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${e.rsvp_kind==='guest'?'Invite people to RSVP for this event':'Invite volunteers to sign up for this event'}</div>
 
  <!-- Recipients -->
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Send to</div>
@@ -15692,6 +15698,7 @@ function renderEventDetailPage(eid){
  ['event', ' Volunteered at past event'],
  ['group', ' Volunteer group'],
   ['manual', ' Choose manually'],
+  ['adhoc', ' Community members (paste emails)'],
  ].map(([val,label])=>`
  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
@@ -15733,7 +15740,43 @@ function renderEventDetailPage(eid){
   ${(window._volunteerGroups||[]).map(g=>`<option value="${escHtml(g.id)}">${escHtml(g.name)} (${g.member_count} members)</option>`).join('')}
   </select>
   </div>
- <!-- Recipient preview -->
+  <div id="rsvp-sub-adhoc" style="display:none;margin-bottom:12px">
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Paste one person per line — "Name, email@example.com" or just the email address.</div>
+  <textarea id="rsvp-adhoc-text" oninput="updateRsvpPreview('${e.id}')" placeholder="Jane Smith, jane@example.com&#10;bob@example.com&#10;Maria Lopez, maria@example.com" style="width:100%;min-height:100px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+  </div>
+
+ ${e.rsvp_kind==='guest' ? `
+ <!-- Invite design -->
+ <div style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+ <div style="font-size:13px;font-weight:700;margin-bottom:4px"> Invite Design</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload an image and this becomes a designed invite page instead of a plain form.</div>
+ <div id="rsvp-invite-image-preview-${e.id}" style="${e.invite_image_url?'':'display:none'};margin-bottom:10px">
+ <img src="${e.invite_image_url||''}" style="width:100%;max-width:280px;border-radius:10px;display:block"/>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+ <label class="btn btn-secondary btn-sm" style="cursor:pointer">${e.invite_image_url?'Replace Image':'Upload Image'}
+ <input type="file" accept="image/*" style="display:none" onchange="uploadEventInviteImage('${e.id}',this)"/>
+ </label>
+ ${e.invite_image_url?`<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="clearEventInviteImage('${e.id}')">Remove</button>`:''}
+ <span id="rsvp-invite-image-status-${e.id}" style="font-size:12px;color:var(--teal-dark)"></span>
+ </div>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Invite Headline <span style="font-weight:400">(optional — defaults to event name)</span></label>
+ <input type="text" id="rsvp-invite-headline-${e.id}" value="${escHtml(e.invite_headline||'')}" placeholder="${escHtml(e.name)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:8px"/>
+ <button class="btn btn-secondary btn-sm" onclick="saveEventInviteHeadline('${e.id}')">Save Headline</button>
+ <a href="${window.location.origin}/rsvp-event/${e.id}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-left:6px"> Preview Invite Page</a>
+ </div>
+ ` : ''}
+
+ <!-- Public RSVP link (untracked, shareable) -->
+ <div style="background:var(--teal-50);border:1.5px solid var(--teal-200,#99f6e4);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+ <div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:4px"> Public RSVP Link</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Share this link anywhere (social media, newsletter, etc.) — anyone can RSVP themselves, no personalized invite needed.</div>
+ <div style="display:flex;gap:8px">
+ <input readonly id="rsvp-public-link-${e.id}" value="${window.location.origin}/rsvp-event/${e.id}" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)"/>
+ <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('rsvp-public-link-${e.id}').value);toast('Link copied!','success')">Copy</button>
+ </div>
+ </div>
+
  <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:6px;text-align:center">
  Calculating…
  </div>
@@ -15754,8 +15797,8 @@ function renderEventDetailPage(eid){
  </div>`
 :`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
  <div style="font-size:40px;margin-bottom:12px"></div>
- <div style="font-weight:600;font-size:16px;margin-bottom:8px">Sign-ups not enabled for this event</div>
- <div style="font-size:13px;margin-bottom:16px">Enable "Volunteer sign-ups" in the event settings to send invite emails and track who wants to help.</div>
+ <div style="font-weight:600;font-size:16px;margin-bottom:8px">RSVPs not enabled for this event</div>
+ <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites and track who's coming.</div>
  ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
  </div>`}
  </div>
@@ -16260,6 +16303,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-bgcheck').checked=false
  document.getElementById('edit-event-autolog').checked=false
  document.getElementById('edit-event-rsvp').checked=false
+ document.getElementById('edit-event-rsvp-kind').value='volunteer'
  document.getElementById('edit-event-rsvp-msg').value=''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=false
@@ -16308,6 +16352,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
  document.getElementById('edit-event-autolog').checked=!!e.auto_log_hours
  document.getElementById('edit-event-rsvp').checked=!!e.rsvp_enabled
+ document.getElementById('edit-event-rsvp-kind').value=e.rsvp_kind||'volunteer'
  document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=!!e.carpools_enabled
@@ -16368,6 +16413,7 @@ async function saveEditEvent(){
  requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
  auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
  rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
+ rsvp_kind:document.getElementById('edit-event-rsvp-kind')?.value||'volunteer',
  rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
  carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false,
  hours_store_bonus_type:document.getElementById('edit-event-hs-bonus-type')?.value||null,
@@ -16517,7 +16563,7 @@ function toggleHsBonusFields(){
 
 function setRsvpFilter(type, eid){
  // Style the selected option
- ;['all','interest','event','manual'].forEach(t=>{
+ ;['all','interest','event','manual','group','adhoc'].forEach(t=>{
  const el = document.getElementById('rsvp-opt-'+t)
  if(el){
  el.style.borderColor = t===type ? 'var(--teal)': 'var(--border)'
@@ -16529,6 +16575,7 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-sub-event').style.display = type==='event' ? '': 'none'
  document.getElementById('rsvp-sub-manual').style.display = type==='manual' ? '': 'none'
  document.getElementById('rsvp-sub-group')?.style && (document.getElementById('rsvp-sub-group').style.display = type==='group' ? '': 'none')
+ document.getElementById('rsvp-sub-adhoc')?.style && (document.getElementById('rsvp-sub-adhoc').style.display = type==='adhoc' ? '': 'none')
  updateRsvpPreview(eid)
 }
 
@@ -16542,9 +16589,23 @@ function filterRsvpManualList(query){
 
 function onRsvpFilterChange(){ /* legacy — no-op */ }
 
+function parseAdhocContacts(text){
+ const lines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean)
+ const out = []
+ lines.forEach(line=>{
+ const m = line.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+ if(!m) return
+ const email = m[0].trim().toLowerCase()
+ const name = line.replace(m[0],'').trim().replace(/^[,<]+|[,>]+$/g,'').trim()
+ out.push({name: name || email.split('@')[0], email})
+ })
+ return out
+}
+
 function getRsvpTargetVolunteers(){
  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
  const active = volunteers.filter(v=>v.status==='active' && v.email)
+ if(type==='adhoc') return [] // handled separately — see getRsvpAdhocContacts()
  if(type==='all') return active
  if(type==='group'){
    const gid = document.getElementById('rsvp-group-val')?.value
@@ -16580,6 +16641,25 @@ function updateRsvpPreview(eid){
  const namesEl = document.getElementById('rsvp-recipient-names')
  const warnEl = document.getElementById('rsvp-skip-warning')
  if(!preview) return
+ const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ if(type==='adhoc'){
+ const contacts = parseAdhocContacts(document.getElementById('rsvp-adhoc-text')?.value)
+ if(!contacts.length){
+ preview.innerHTML = ' Paste at least one email address above'
+ preview.style.background = 'var(--red-50)'; preview.style.color = 'var(--red-600)'
+ if(namesEl) namesEl.style.display='none'
+ if(warnEl) warnEl.style.display='none'
+ return
+ }
+ preview.style.background = 'var(--teal-50)'; preview.style.color = 'var(--teal-dark)'
+ preview.innerHTML = ` <strong>${contacts.length}</strong> ${contacts.length!==1?'people':'person'} will receive this invite`
+ if(namesEl){
+ namesEl.style.display=''
+ namesEl.innerHTML = '<strong style="color:var(--text)">Will receive:</strong> '+contacts.map(c=>`<span style="background:var(--teal-50);padding:1px 6px;border-radius:10px;margin:1px 2px;display:inline-block">${escHtml(c.name)} (${escHtml(c.email)})</span>`).join('')
+ }
+ if(warnEl) warnEl.style.display='none'
+ return
+ }
  const targets = getRsvpTargetVolunteers()
  if(!targets.length){
  preview.innerHTML = ' No volunteers match this filter'
@@ -16622,9 +16702,52 @@ function updateRsvpPreview(eid){
  }
 }
 
+async function uploadEventInviteImage(eid, input){
+ const file = input.files[0]
+ if(!file) return
+ const statusEl = document.getElementById('rsvp-invite-image-status-'+eid)
+ if(statusEl) statusEl.textContent = 'Uploading…'
+ const fd = new FormData()
+ fd.append('file', file)
+ try{
+ const res = await fetch(`/api/events/${eid}/invite-image/upload`, {method:'POST', body:fd}).then(r=>r.json())
+ if(res.error){ toast(res.error,'error'); if(statusEl) statusEl.textContent=''; return }
+ const ev = allEvents.find(x=>x.id===eid)
+ if(ev) ev.invite_image_url = res.url
+ const preview = document.getElementById('rsvp-invite-image-preview-'+eid)
+ if(preview){ preview.style.display=''; preview.querySelector('img').src = res.url }
+ if(statusEl) statusEl.textContent = 'Saved!'
+ toast('Invite image uploaded!','success')
+ setTimeout(()=>{ if(statusEl) statusEl.textContent='' },2000)
+ }catch(err){ toast('Upload failed','error'); if(statusEl) statusEl.textContent='' }
+}
+
+async function clearEventInviteImage(eid){
+ if(!confirm('Remove the invite image?')) return
+ const res = await api(`/api/events/${eid}/invite-image`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ const ev = allEvents.find(x=>x.id===eid)
+ if(ev) ev.invite_image_url = ''
+ toast('Image removed')
+ openEventDetail(eid)
+}
+
+async function saveEventInviteHeadline(eid){
+ const val = document.getElementById('rsvp-invite-headline-'+eid)?.value.trim() || ''
+ const ev = allEvents.find(x=>x.id===eid)
+ if(!ev) return
+ const res = await api(`/api/events/${eid}`,'PUT',{...ev, invite_headline: val})
+ if(res.error){ toast(res.error,'error'); return }
+ ev.invite_headline = val
+ toast('Headline saved!','success')
+}
+
 async function confirmSendRsvp(eid){
- const targets = getRsvpTargetVolunteers()
- if(!targets.length){ toast('No volunteers match this filter','error'); return }
+ const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ const isAdhoc = type==='adhoc'
+ const adhocText = isAdhoc ? (document.getElementById('rsvp-adhoc-text')?.value||'') : ''
+ const targets = isAdhoc ? parseAdhocContacts(adhocText) : getRsvpTargetVolunteers()
+ if(!targets.length){ toast(isAdhoc?'Paste at least one email address':'No volunteers match this filter','error'); return }
  const btn = document.getElementById('rsvp-send-btn')
  const resultEl = document.getElementById('rsvp-send-result')
  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
@@ -16632,7 +16755,9 @@ async function confirmSendRsvp(eid){
  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
- volunteer_ids: targets.map(v=>v.id),
+ volunteer_ids: isAdhoc ? [] : targets.map(v=>v.id),
+ adhoc_contacts: isAdhoc ? adhocText : '',
+ adhoc_only: isAdhoc,
  message
  })
  if(btn){ btn.disabled=false; btn.textContent=' Send Invites' }

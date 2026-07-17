@@ -206,7 +206,7 @@ def seed_system_email_templates(conn=None):
     <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
     <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>
   </div>
-</div>''')
+</div>'''),
 
         ('temp_password', 'Your RoleCall Temporary Password', 'temp_password',
          'Sent to users when an admin generates a temporary password for them.',
@@ -4416,7 +4416,7 @@ def submit_audition():
                 '<h2 style="color:#145466">New Audition: ' + ctx_name + '</h2>'
                 '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
                 '<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:140px">Name</td><td style="padding:8px 12px">' + name + '</td></tr>'
-                (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
+                + (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
                     (lambda r: r if r else ([d.get('role_requested')] if d.get('role_requested') else []))(
                         __import__('json').loads(d.get('roles_requested') or '[]') if isinstance(d.get('roles_requested'), str) else (d.get('roles_requested') or [])
                     )
@@ -11751,10 +11751,8 @@ try:
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-try:
-    _start_oncall_scheduler()
-except Exception as _sche:
-    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
+# Note: on-call scheduler is started at the very end of this file, after
+# _start_oncall_scheduler() is actually defined (it's defined much later below).
 
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
@@ -18801,3 +18799,10 @@ def send_balance_payment_link(pid, rid):
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'payment_url': pay_url})
+
+# Start the on-call scheduler now that it's actually defined (see note near init_db() above —
+# this used to be called too early, before this function existed, and silently never ran).
+try:
+    _start_oncall_scheduler()
+except Exception as _sche:
+    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")

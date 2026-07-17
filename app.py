@@ -441,22 +441,23 @@ def init_db():
         required BOOLEAN DEFAULT TRUE,
         sort_order INTEGER DEFAULT 0,
         hint TEXT,
+        studio_only BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default opening checklist items (only if none exist)
     c.execute("SELECT COUNT(*) as cnt FROM opening_checklist_items")
     if c.fetchone()[0] == 0:
         opening_items = [
-            (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
-            (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
-            (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, ''),
-            (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, ''),
-            (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, ''),
-            (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?'),
-            (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts'),
+            (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, '', True),
+            (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, '', True),
+            (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, '', True),
+            (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, '', True),
+            (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, '', True),
+            (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?', False),
+            (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts', False),
         ]
         for item in opening_items:
-            c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
+            c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)", item)
 
     # youth authorized pickups
     c.execute("""CREATE TABLE IF NOT EXISTS youth_authorized_pickups (
@@ -635,6 +636,7 @@ def init_db():
         required BOOLEAN DEFAULT TRUE,
         sort_order INTEGER DEFAULT 0,
         hint TEXT,
+        studio_only BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # event open/close log
@@ -660,17 +662,17 @@ def init_db():
     c.execute("SELECT COUNT(*) as cnt FROM checklist_items")
     if c.fetchone()[0] == 0:
         default_items = [
-            (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
-            (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),
-            (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, ''),
-            (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors'),
-            (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms'),
-            (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, ''),
-            (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred'),
-            (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know'),
+            (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, '', True),
+            (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating', True),
+            (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, '', True),
+            (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors', True),
+            (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms', True),
+            (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, '', True),
+            (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred', False),
+            (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know', False),
         ]
         for item in default_items:
-            c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
+            c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)", item)
 
     # pending profile updates (kiosk)
     c.execute("""CREATE TABLE IF NOT EXISTS pending_profile_updates (
@@ -1301,6 +1303,10 @@ def init_db():
         "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
+        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
+        "ALTER TABLE opening_checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
+        "UPDATE checklist_items SET studio_only=false WHERE LOWER(label) LIKE '%incident%' OR LOWER(label) LIKE '%additional note%' OR LOWER(label) LIKE '%anything else%'",
+        "UPDATE opening_checklist_items SET studio_only=false WHERE LOWER(label) LIKE '%headcount%' OR LOWER(label) LIKE '%attendance%' OR LOWER(label) LIKE '%opening note%' OR LOWER(label) LIKE '%anything%'",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -7283,7 +7289,17 @@ def kiosk_elic_auth():
 def get_checklist_items():
     # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
-    items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, label')
+    event_id = request.args.get('event_id', '')
+    is_studio = True
+    if event_id:
+        evt = fetchone(conn, 'SELECT location FROM events WHERE id=%s', (event_id,))
+        if evt and evt.get('location') and evt['location'] != 'HWTC':
+            is_studio = False
+    q = 'SELECT * FROM checklist_items'
+    if not is_studio:
+        q += ' WHERE studio_only=false'
+    q += ' ORDER BY sort_order, label'
+    items = fetchall(conn, q)
     conn.close()
     return jsonify(items)
 
@@ -7298,8 +7314,8 @@ def create_checklist_item():
     row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM checklist_items')
     if row_max and row_max.get('m') is not None:
         max_order = int(row_max['m']) + 1
-    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
+    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order, bool(d.get('studio_only', True))))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -7311,8 +7327,8 @@ def update_checklist_item(iid):
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s, studio_only=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), bool(d.get('studio_only', True)), iid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -7343,7 +7359,17 @@ def delete_checklist_item(iid):
 def get_opening_checklist_items():
     # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
-    items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, label')
+    event_id = request.args.get('event_id', '')
+    is_studio = True
+    if event_id:
+        evt = fetchone(conn, 'SELECT location FROM events WHERE id=%s', (event_id,))
+        if evt and evt.get('location') and evt['location'] != 'HWTC':
+            is_studio = False
+    q = 'SELECT * FROM opening_checklist_items'
+    if not is_studio:
+        q += ' WHERE studio_only=false'
+    q += ' ORDER BY sort_order, label'
+    items = fetchall(conn, q)
     conn.close()
     return jsonify(items)
 
@@ -7356,8 +7382,8 @@ def create_opening_checklist_item():
     conn = get_db()
     row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM opening_checklist_items')
     max_order = int((row_max or {}).get('m') or 0) + 1
-    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order, bool(d.get('studio_only', True))))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -7381,8 +7407,8 @@ def update_opening_checklist_item(iid):
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s, studio_only=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), bool(d.get('studio_only', True)), iid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()

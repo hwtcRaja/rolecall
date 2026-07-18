@@ -1345,6 +1345,8 @@ def init_db():
             description TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS block_time TEXT DEFAULT ''",
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS block_time_end TEXT DEFAULT ''",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_id TEXT",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
@@ -11873,10 +11875,11 @@ def create_event_role(eid):
         return jsonify({'error': 'Role name is required'}), 400
     rid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, eid, d['name'].strip(), int(d.get('slots') or 1),
-         (d.get('description') or '').strip(), int(d.get('sort_order') or 0)))
+         (d.get('description') or '').strip(), int(d.get('sort_order') or 0),
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip()))
     conn.commit()
     row = fetchone(conn, '''SELECT r.*, 0 as filled FROM event_roles r WHERE r.id=%s''', (rid,))
     conn.close()
@@ -11888,10 +11891,11 @@ def update_event_role(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s
+    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s
         WHERE id=%s''',
         ((d.get('name') or '').strip(), int(d.get('slots') or 1),
-         (d.get('description') or '').strip(), rid))
+         (d.get('description') or '').strip(),
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -12140,6 +12144,15 @@ def send_rsvp_invite(eid):
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 @app.route('/rsvp/<token>')
+def _fmt_time(t):
+    """Format a 'HH:MM' 24-hour string as '2:30 PM'. Returns '' if unparseable/empty."""
+    if not t:
+        return ''
+    try:
+        return datetime.strptime(t, '%H:%M').strftime('%I:%M %p').lstrip('0')
+    except Exception:
+        return t
+
 def _guest_invite_css():
     """Shared, more polished styling for guest/community event invite pages."""
     return '''<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -12254,6 +12267,12 @@ def rsvp_page(token):
     date_str = rsvp.get('event_date','')
     vol_name = rsvp.get('volunteer_name','')
 
+    display_time_str = ''
+    if locked_block and locked_block.get('block_time'):
+        bt = _fmt_time(locked_block['block_time'])
+        bte = _fmt_time(locked_block.get('block_time_end'))
+        display_time_str = f'{bt} – {bte}' if bte else bt
+
     if roles:
         # Show role/slot selection form (or, if pre-assigned, just that one block)
         roles_html = ''
@@ -12288,11 +12307,14 @@ def rsvp_page(token):
                     style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
                     badge_color = '#166534' if available > 0 else '#dc2626'
                     badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+                    r_bt = _fmt_time(r.get('block_time'))
+                    r_bte = _fmt_time(r.get('block_time_end'))
+                    time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
                     desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
                     roles_html += f'''<label class="gi-slot" style="{style}"
                         onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
                         <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                        <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
+                        <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
                     </label>'''
                 else:
                     style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
@@ -12368,7 +12390,7 @@ def rsvp_page(token):
             <p style="text-align:center;color:#6b6b64;margin:18px 0 -6px;font-size:14px">{subheading}</p>
             <div class="gi-details" style="margin-top:22px">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
             {locked_block_html}
@@ -12688,13 +12710,15 @@ def public_rsvp_open_page(event_id):
         roles = [locked_block]
 
     date_str = evt.get('event_date','')
-    time_str = evt.get('start_time','')
-    if time_str:
-        try:
-            t = datetime.strptime(time_str, '%H:%M')
-            time_str = t.strftime('%I:%M %p').lstrip('0')
-        except Exception:
-            pass
+    time_str = _fmt_time(evt.get('start_time',''))
+
+    # A locked block's own time (if set) takes over the top-of-page time display —
+    # blocks represent different time windows within the same event.
+    display_time_str = time_str
+    if locked_block and locked_block.get('block_time'):
+        bt = _fmt_time(locked_block['block_time'])
+        bte = _fmt_time(locked_block.get('block_time_end'))
+        display_time_str = f'{bt} – {bte}' if bte else bt
 
     roles_html = ''
     if roles and not locked_block:
@@ -12704,11 +12728,14 @@ def public_rsvp_open_page(event_id):
             style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
             badge_color = '#166534' if available > 0 else '#dc2626'
             badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+            r_bt = _fmt_time(r.get('block_time'))
+            r_bte = _fmt_time(r.get('block_time_end'))
+            time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
             desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
             roles_html += f'''<label class="gi-slot" style="{style}"
                 onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
                 <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
-                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
+                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
             </label>'''
     locked_block_html = ''
     if locked_block:
@@ -12809,7 +12836,7 @@ def public_rsvp_open_page(event_id):
 
     details_html = f'''<div class="gi-details">
         <div class="gi-event-name">{evt["name"]}</div>
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+time_str if time_str else ""}</div>' if date_str else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
         {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
       </div>
       {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''

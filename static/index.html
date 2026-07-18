@@ -15556,7 +15556,7 @@ function renderEventDetailPage(eid){
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto">
  ${[
  ['overview', ' Overview'],
- ['signups', ` Sign-ups${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
+ ['signups', ` ${e.rsvp_kind==='guest'?'RSVP':'Sign-ups'}${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
  ['hours', ` Hours${eventHours.length?' <span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700">'+eventHours.length+'</span>':''}`],
  ['staff', ` Staff & Waivers`],
  ].map(([tab,label])=>`
@@ -15623,7 +15623,7 @@ function renderEventDetailPage(eid){
  <div style="font-size:28px"></div>
  <div>
  <div style="font-size:15px;font-weight:800;color:#dc2626">This Event Has Been Cancelled</div>
- <div style="font-size:13px;color:#7f1d1d;margin-top:2px">Sign-ups are closed. Volunteers who signed up have not been automatically notified — use the Email Signed-Up button to let them know.</div>
+ <div style="font-size:13px;color:#7f1d1d;margin-top:2px">${e.rsvp_kind==='guest'?"RSVPs are closed. Guests who RSVP'd have not been automatically notified — use the Email RSVP'd button to let them know.":'Sign-ups are closed. Volunteers who signed up have not been automatically notified — use the Email Signed-Up button to let them know.'}</div>
  </div>
  </div>`:''}
  ${e.rsvp_enabled?`
@@ -15632,8 +15632,8 @@ function renderEventDetailPage(eid){
  <!-- Left: who's signed up -->
  <div>
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
- <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign-ups</div>
- ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">Email Signed-Up</button>`:''}
+ <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'RSVPs':'Sign-ups'}</div>
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">${e.rsvp_kind==='guest'?'Email RSVPs':'Email Signed-Up'}</button>`:''}
  </div>
  <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 

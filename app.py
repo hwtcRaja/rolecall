@@ -12007,9 +12007,21 @@ def send_rsvp_invite(eid):
     is_guest = evt.get('rsvp_kind') == 'guest'
     kind_label = 'Community Invite' if is_guest else 'Volunteer Opportunity'
     intro_line = "We're hosting an event and would love for you to join us!" if is_guest else "We're looking for volunteers for an upcoming event and would love to have you join us!"
-    cta_label = ("✋ Yes, I'll Be There!" if not roles else "✋ RSVP & Choose a Time") if is_guest else ("✋ Yes, I Can Help!" if not roles else "✋ Sign Up & Choose a Role")
     slot_word = 'Time Slot' if is_guest else 'Role'
     footer_note = "If you're unable to attend, no need to reply — we just wanted to make sure you had the invite." if is_guest else "If you're unable to attend, no action is needed — we only want to hear from those who can volunteer."
+
+    # Pre-assign everyone in this batch to a specific block, if requested — their
+    # personalized link will then show just that block instead of the full picker.
+    assign_role_id = (d.get('assign_role_id') or '').strip()
+    assign_role_name = ''
+    if assign_role_id:
+        assigned_role = next((r for r in roles if r['id'] == assign_role_id), None)
+        if assigned_role:
+            assign_role_name = assigned_role['name']
+        else:
+            assign_role_id = ''
+
+    cta_label = ("✋ Yes, I'll Be There!" if not roles or assign_role_id else "✋ RSVP & Choose a Time") if is_guest else ("✋ Yes, I Can Help!" if not roles else "✋ Sign Up & Choose a Role")
 
     sent = 0
     skipped = 0
@@ -12018,9 +12030,9 @@ def send_rsvp_invite(eid):
     force_resend = bool(d.get('force_resend', False))
     base_url = request.host_url.rstrip('/')
 
-    # Build roles/slots table HTML for email
+    # Build roles/slots table HTML for email (skipped if everyone's pre-assigned to one block)
     roles_html = ''
-    if roles:
+    if roles and not assign_role_id:
         roles_html = f'<h3 style="color:#145466;margin-top:24px;font-size:15px">Available {slot_word}s</h3>'
         roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;border:1px solid #e2e8f0">'
         roles_html += f'<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">{slot_word}</th><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Open Spots</th></tr></thead><tbody>'
@@ -12029,6 +12041,11 @@ def send_rsvp_invite(eid):
             roles_html += f'<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
             roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{available} of {r["slots"]} open</td></tr>'
         roles_html += f'</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred {slot_word.lower()} when you RSVP.</p>'
+    elif assign_role_id:
+        roles_html = f'''<div style="background:#f0f8fa;border:1.5px solid #c9e4ea;border-radius:10px;padding:14px 18px;margin:18px 0">
+            <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Your {slot_word}</div>
+            <div style="font-size:16px;font-weight:700;color:#0d3d4d">{assign_role_name}</div>
+        </div>'''
 
     for v in vols:
         if not v.get('email'): continue
@@ -12057,12 +12074,13 @@ def send_rsvp_invite(eid):
 
         if existing:
             token = existing['token']
-            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW() WHERE id=%s', (existing['id'],))
+            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s WHERE id=%s',
+                (assign_role_id or None, assign_role_name or None, existing['id']))
         else:
             token = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status,last_invited_at)
-                VALUES (%s,%s,%s,%s,%s,%s,'invited',NOW())''',
-                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token))
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW())''',
+                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, assign_role_id or None, assign_role_name or None))
 
         rsvp_url = f"{base_url}/rsvp/{token}"
         date_str = evt.get('event_date','')
@@ -12158,6 +12176,8 @@ def _guest_invite_css():
       .gi-btn{width:100%;background:linear-gradient(135deg,#145466,#0d3d4d);color:#fff;border:none;border-radius:14px;padding:17px;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:0.2px;box-shadow:0 8px 20px rgba(20,84,102,0.28);transition:transform 0.1s,box-shadow 0.15s}
       .gi-btn:hover{box-shadow:0 10px 26px rgba(20,84,102,0.35)}
       .gi-btn:active{transform:scale(0.99)}
+      .gi-btn-secondary{width:100%;background:transparent;color:#8a8477;border:1.5px solid #e4ddd0;border-radius:14px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;transition:border-color 0.15s,color 0.15s}
+      .gi-btn-secondary:hover{border-color:#c94f4f;color:#c94f4f}
       .gi-footer{text-align:center;font-size:12px;color:#a49f92;margin-top:26px;letter-spacing:0.3px}
       .gi-success{text-align:center;padding:64px 24px;max-width:480px;margin:0 auto}
       .gi-success-icon{width:64px;height:64px;border-radius:50%;background:#e8f5ef;color:#166534;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 20px}
@@ -12203,6 +12223,18 @@ def rsvp_page(token):
           <p style="color:#888">We'll be in touch with more details.</p>
         </body></html>'''
 
+    # Already declined
+    if rsvp.get('status') == 'declined':
+        conn.close()
+        return f'''<html><head><title>RSVP Recorded</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">💌</div>
+          <h2 style="color:#145466">We've noted you can't make it</h2>
+          <p>Thanks for letting us know, {rsvp.get("volunteer_name","")}. We'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
+          <p style="color:#888;font-size:13px">Changed your mind? <a href="/rsvp/{token}/undo">Click here</a> to RSVP instead.</p>
+        </body></html>'''
+
     # Load available roles/slots
     roles = fetchall(conn, '''
         SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
@@ -12211,40 +12243,69 @@ def rsvp_page(token):
         WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
     conn.close()
 
+    # If this invite was pre-assigned to a specific block by an admin, lock the page to
+    # just that block instead of showing the full picker — "RSVP to the block we assigned you."
+    preassigned_role_id = (rsvp.get('role_id') or '').strip()
+    locked_block = next((r for r in roles if r['id'] == preassigned_role_id), None) if preassigned_role_id else None
+    if locked_block:
+        roles = [locked_block]
+
     date_str = rsvp.get('event_date','')
     vol_name = rsvp.get('volunteer_name','')
 
     if roles:
-        # Show role/slot selection form
+        # Show role/slot selection form (or, if pre-assigned, just that one block)
         roles_html = ''
-        for r in roles:
+        locked_block_html = ''
+        if locked_block:
+            r = locked_block
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
-            disabled = 'disabled' if available <= 0 else ''
+            full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
             if is_guest:
-                style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
-                badge_color = '#166534' if available > 0 else '#dc2626'
-                badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
-                desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-                roles_html += f'''<label class="gi-slot" style="{style}"
-                    onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
-                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                    <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
-                </label>'''
+                locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
+                  <div style="font-size:17px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                  {full_note}
+                </div>
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
             else:
-                style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
-                badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
-                desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-                roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
-                    onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
-                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                    <div style="flex:1">
-                      <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
-                      {desc}
-                    </div>
-                </label>'''
+                locked_block_html = f'''<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:10px 0">
+                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase">Your Assigned Role</div>
+                  <div style="font-size:16px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                </div>
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
+        else:
+            for r in roles:
+                available = max(0, int(r['slots']) - int(r['filled'] or 0))
+                disabled = 'disabled' if available <= 0 else ''
+                if is_guest:
+                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+                    badge_color = '#166534' if available > 0 else '#dc2626'
+                    badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+                    desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                    roles_html += f'''<label class="gi-slot" style="{style}"
+                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
+                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                        <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
+                    </label>'''
+                else:
+                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
+                    badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
+                    desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                    roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
+                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
+                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                        <div style="flex:1">
+                          <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
+                          {desc}
+                        </div>
+                    </label>'''
 
-        heading = 'Choose a time to visit!' if is_guest else 'Sign up to volunteer!'
-        subheading = f'Hi {vol_name} — choose a {slot_word.lower()} for:' if is_guest else f'Hi {vol_name}  -  choose your role for:'
+        heading = 'You\'re invited!' if is_guest else 'Sign up to volunteer!'
+        if is_guest:
+            subheading = f'Hi {vol_name} — here\'s your block:' if locked_block else f'Hi {vol_name} — choose a {slot_word.lower()} for:'
+        else:
+            subheading = f'Hi {vol_name}  -  choose your role for:'
 
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
@@ -12265,13 +12326,14 @@ def rsvp_page(token):
               {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
           <form method="POST" action="/rsvp/{token}">
-            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>
-            {roles_html}
-            <button type="submit" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
+            {locked_block_html if locked_block else f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}'}
+            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
               ✅ Confirm RSVP
             </button>
+            <button type="submit" name="rsvp_action" value="decline" formnovalidate style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
+              Can't Make It
+            </button>
           </form>
-          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
         </body></html>'''
 
         # ── Polished guest invite with slot selection ──
@@ -12303,60 +12365,92 @@ def rsvp_page(token):
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
+            {locked_block_html}
             <div class="gi-divider"><span></span></div>
             <div class="gi-card">
               <form method="POST" action="/rsvp/{token}">
-                <span class="gi-slot-label">Choose a {slot_word.lower()}</span>
-                {roles_html}
-                <button type="submit" class="gi-btn" style="margin-top:8px">
+                {'' if locked_block else f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}'}
+                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn" style="margin-top:8px">
                   RSVP — Confirm My Spot
+                </button>
+                <button type="submit" name="rsvp_action" value="decline" formnovalidate class="gi-btn-secondary" style="margin-top:10px">
+                  Can't Make It
                 </button>
               </form>
             </div>
-            <div class="gi-footer">If you can't make it, no action needed.</div>
+            <div class="gi-footer">Horizon West Theater Company</div>
           </div>
         </body></html>'''
     else:
-        # No roles/slots  -  just confirm directly
-        conn2 = get_db()
-        execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
-        conn2.commit(); conn2.close()
-
-        if not is_guest:
-            confirm_line = f"we've recorded your interest in volunteering for <strong>{rsvp['event_name']}</strong>."
-            return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🎉</div>
-          <h2 style="color:#145466">You're in!</h2>
-          <p>Thanks {vol_name}  -  {confirm_line}</p>
-          <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
-        </body></html>'''
-
-        # ── Polished confirmation for guest events ──
+        # No roles/slots — show a simple confirm/decline landing page.
+        # (Previously this auto-confirmed on GET, which meant an email client's link-preview
+        # scanner visiting the link could silently mark someone as attending. Now nothing
+        # is recorded until they actually click a button.)
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
-        date_str = rsvp.get('event_date','')
+
+        if not is_guest:
+            return f'''<html><head><title>RSVP  -  {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:40px;margin-bottom:12px">✋</div>
+          <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
+          <p style="color:#555">Hi {vol_name} — can you make it to:</p>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+            <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+            {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
+            {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
+          </div>
+          <form method="POST" action="/rsvp/{token}">
+            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
+              ✅ Yes, I Can Help!
+            </button>
+            <button type="submit" name="rsvp_action" value="decline" style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
+              Can't Make It
+            </button>
+          </form>
+        </body></html>'''
+
+        # ── Polished confirm/decline landing for guest events ──
         if image_url:
-            hero_html = f'''<div class="gi-hero" style="height:220px">
+            hero_html = f'''<div class="gi-hero" style="height:280px">
               <img src="{image_url}"/>
               <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:30px">{headline}</div>
+              </div>
             </div>'''
         else:
-            hero_html = ''
-        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
+            hero_html = f'''<div class="gi-no-image-hero">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain">{headline}</div>
+            </div>'''
+
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
         <body class="gi-body">
           <div class="gi-wrap">
             {hero_html}
-            <div class="gi-success" style="padding-top:{'20px' if image_url else '60px'}">
-              <div class="gi-success-icon">✓</div>
-              <div class="gi-eyebrow">You're All Set</div>
-              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:28px;margin:6px 0 14px">{headline}</h2>
-              <p style="color:#4a4a45">Thanks {vol_name} — we've recorded your RSVP.{f' See you {date_str}!' if date_str else ''}</p>
-              <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
+            <div class="gi-details">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+            </div>
+            {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
+            <div class="gi-divider"><span></span></div>
+            <div class="gi-card">
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Hi {vol_name}, will you be joining us?</p>
+              <form method="POST" action="/rsvp/{token}">
+                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn">
+                  RSVP — I'll Be There!
+                </button>
+                <button type="submit" name="rsvp_action" value="decline" class="gi-btn-secondary" style="margin-top:10px">
+                  Can't Make It
+                </button>
+              </form>
             </div>
             <div class="gi-footer">Horizon West Theater Company</div>
           </div>
@@ -12365,15 +12459,18 @@ def rsvp_page(token):
 @app.route('/rsvp/<token>', methods=['POST'])
 def rsvp_submit(token):
     from flask import request as req
+    rsvp_action = req.form.get('rsvp_action', 'confirm').strip()
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id, e.status as event_status, e.rsvp_kind
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.description,
+        e.id as event_id, e.status as event_status, e.rsvp_kind, e.invite_image_url, e.invite_headline
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found.</h2></body></html>', 404
     is_guest = rsvp.get('rsvp_kind') == 'guest'
     slot_word = 'Time Slot' if is_guest else 'Role'
+    vol_name = rsvp.get('volunteer_name','')
     if rsvp.get('event_status') == 'cancelled':
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -12384,6 +12481,43 @@ def rsvp_submit(token):
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
         </body></html>'''
 
+    # ── Decline ──
+    if rsvp_action == 'decline':
+        execute(conn, "UPDATE event_rsvps SET status='declined' WHERE token=%s", (token,))
+        conn.commit()
+        try:
+            s = get_email_settings()
+            recipients = get_recipient_emails(s)
+            if recipients and s.get('alert_new_rsvp', True):
+                send_email(recipients, f'RSVP Decline: {rsvp["event_name"]}',
+                    f'<div style="font-family:sans-serif"><p>💌 <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
+        except Exception as e:
+            app.logger.warning(f'rsvp decline alert email error: {e}')
+        conn.close()
+        if not is_guest:
+            return f'''<html><head><title>RSVP Recorded</title>
+            <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+            <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+              <div style="font-size:48px;margin-bottom:16px">💌</div>
+              <h2 style="color:#145466">Thanks for letting us know</h2>
+              <p>We've noted you can't make it to <strong>{rsvp["event_name"]}</strong>. Thanks for responding!</p>
+            </body></html>'''
+        return f'''<html><head><title>RSVP Recorded</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div class="gi-success" style="padding-top:60px">
+              <div class="gi-eyebrow">RSVP Recorded</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">Thanks for letting us know</h2>
+              <p style="color:#4a4a45">Sorry you can't make it, {vol_name} — we'll miss you at <strong>{rsvp["event_name"]}</strong>.</p>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    # ── Confirm ──
     role_name = ''
     if role_id:
         role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, rsvp['event_id']))
@@ -12410,7 +12544,6 @@ def rsvp_submit(token):
         s = get_email_settings()
         recipients = get_recipient_emails(s)
         if recipients:
-            vol_name = rsvp.get('volunteer_name','Someone')
             evt_name = rsvp['event_name']
             role_line = f' for <strong>{role_name}</strong>' if role_name else ''
             action_word = 'RSVP\'d' if is_guest else 'signed up to volunteer'
@@ -12430,19 +12563,51 @@ def rsvp_submit(token):
         app.logger.warning(f'rsvp alert email error: {e}')
 
     conn.close()
-    return f'''<html><head><title>Signed Up!</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-      <div style="font-size:48px;margin-bottom:16px">🎉</div>
-      <h2 style="color:#145466">You're {"in" if is_guest else "signed up"}!</h2>
-      <p>Thanks {rsvp.get("volunteer_name","")}! We've got you down for:</p>
-      <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
-        <div style="font-size:20px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-        {f'<div style="color:#555;margin-top:6px">{date_str}</div>' if date_str else ''}
-        {f'<div style="color:#16a34a;font-weight:600;font-size:16px;margin-top:8px">{slot_word}: {role_name}</div>' if role_name else ''}
+
+    if not is_guest:
+        return f'''<html><head><title>Signed Up!</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🎉</div>
+          <h2 style="color:#145466">You're signed up!</h2>
+          <p>Thanks {vol_name}! We've got you down for:</p>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
+            <div style="font-size:20px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+            {f'<div style="color:#555;margin-top:6px">{date_str}</div>' if date_str else ''}
+            {f'<div style="color:#16a34a;font-weight:600;font-size:16px;margin-top:8px">{slot_word}: {role_name}</div>' if role_name else ''}
+          </div>
+          <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
+        </body></html>'''
+
+    headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+    return f'''<html><head><title>You're In!</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        <div class="gi-success" style="padding-top:60px">
+          <div class="gi-success-icon">✓</div>
+          <div class="gi-eyebrow">You're All Set</div>
+          <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:28px;margin:6px 0 14px">{headline}</h2>
+          <p style="color:#4a4a45">Thanks {vol_name}! We've got you down{f' for {date_str}' if date_str else ''}{f' — {role_name}' if role_name else ''}.</p>
+          <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
+        </div>
+        <div class="gi-footer">Horizon West Theater Company</div>
       </div>
-      <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
     </body></html>'''
+
+@app.route('/rsvp/<token>/undo')
+def rsvp_undo(token):
+    """Lets someone who declined change their mind and see the RSVP form again."""
+    conn = get_db()
+    rsvp = fetchone(conn, 'SELECT id FROM event_rsvps WHERE token=%s', (token,))
+    if rsvp:
+        execute(conn, "UPDATE event_rsvps SET status='invited' WHERE token=%s", (token,))
+        conn.commit()
+    conn.close()
+    from flask import redirect
+    return redirect(f'/rsvp/{token}')
 
 @app.route('/api/events/<eid>/rsvps/<rid>', methods=['DELETE'])
 def remove_rsvp(eid, rid):
@@ -12509,6 +12674,13 @@ def public_rsvp_open_page(event_id):
         WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (event_id,))
     conn.close()
 
+    # A direct block/session link (?block=<role_id>) scopes the whole page to just that
+    # one block instead of showing the full picker — for "RSVP to the block we assigned you."
+    requested_block_id = request.args.get('block', '').strip()
+    locked_block = next((r for r in roles if r['id'] == requested_block_id), None) if requested_block_id else None
+    if locked_block:
+        roles = [locked_block]
+
     date_str = evt.get('event_date','')
     time_str = evt.get('start_time','')
     if time_str:
@@ -12519,7 +12691,7 @@ def public_rsvp_open_page(event_id):
             pass
 
     roles_html = ''
-    if roles:
+    if roles and not locked_block:
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
             disabled = 'disabled' if available <= 0 else ''
@@ -12532,6 +12704,16 @@ def public_rsvp_open_page(event_id):
                 <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
                 <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
             </label>'''
+    locked_block_html = ''
+    if locked_block:
+        available = max(0, int(locked_block['slots']) - int(locked_block['filled'] or 0))
+        full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
+        locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+          <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
+          <div style="font-size:17px;font-weight:700;color:#0d3d4d">{locked_block["name"]}</div>
+          {full_note}
+        </div>
+        <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
 
     image_url = (evt.get('invite_image_url') or '').strip()
     headline = (evt.get('invite_headline') or '').strip() or evt['name']
@@ -12628,6 +12810,7 @@ def public_rsvp_open_page(event_id):
       <div class="gi-wrap">
         {hero_html}
         {details_html}
+        {locked_block_html}
         <div class="gi-divider"><span></span></div>
         <div id="rsvp-alert"></div>
         <div class="gi-card">
@@ -12636,32 +12819,43 @@ def public_rsvp_open_page(event_id):
             <input type="text" id="pr-name" required class="gi-input" placeholder="Full name"/>
             <label class="gi-label">Email *</label>
             <input type="email" id="pr-email" required class="gi-input" placeholder="you@example.com"/>
-            {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles else ''}
-            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" class="gi-btn" style="margin-top:8px">
+            {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles and not locked_block else ''}
+            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp('confirm')" class="gi-btn" style="margin-top:8px">
               RSVP — I'll Be There!
+            </button>
+            <button type="button" id="pr-decline-btn" onclick="submitPublicRsvp('decline')" class="gi-btn-secondary" style="margin-top:10px">
+              Can't Make It
             </button>
           </form>
         </div>
         <div class="gi-footer">Horizon West Theater Company</div>
       </div>
       <script>
-      async function submitPublicRsvp(){{
+      async function submitPublicRsvp(action){{
         var name = document.getElementById('pr-name').value.trim()
         var email = document.getElementById('pr-email').value.trim()
-        var roleInput = document.querySelector('input[name="role_id"]:checked')
+        var roleInput = document.querySelector('input[name="role_id"]:checked, input[name="role_id"][type=hidden]')
         var roleId = roleInput ? roleInput.value : ''
         if(!name || !email){{
           document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
           return
         }}
-        {role_check_js}
-        var btn = document.getElementById('pr-submit-btn')
-        btn.disabled = true; btn.textContent = 'Submitting…'
-        var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
+        if(action==='confirm'){{ {role_check_js} }}
+        var confirmBtn = document.getElementById('pr-submit-btn')
+        var declineBtn = document.getElementById('pr-decline-btn')
+        confirmBtn.disabled = true; declineBtn.disabled = true
+        var activeBtn = action==='decline' ? declineBtn : confirmBtn
+        var originalText = activeBtn.textContent
+        activeBtn.textContent = 'Submitting…'
+        var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId, action:action}})}})
         var data = await r.json()
         if(data.error){{
           document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
-          btn.disabled = false; btn.textContent = "RSVP — I'll Be There!"
+          confirmBtn.disabled = false; declineBtn.disabled = false; activeBtn.textContent = originalText
+          return
+        }}
+        if(action==='decline'){{
+          document.body.innerHTML = '<div class="gi-success"><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">Thanks for letting us know</h2><p style="color:#4a4a45">Sorry you can\\'t make it, '+name+' — we\\'ll miss you at <strong>{evt["name"]}</strong>.</p></div>'
           return
         }}
         document.body.innerHTML = '<div class="gi-success"><div class="gi-success-icon">✓</div><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">You\\'re in!</h2><p style="color:#4a4a45">Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p><p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p></div>'
@@ -12675,6 +12869,7 @@ def public_rsvp_open_submit(event_id):
     name = (d.get('name') or '').strip()
     email = (d.get('email') or '').strip()
     role_id = (d.get('role_id') or '').strip()
+    action = (d.get('action') or 'confirm').strip()
     if not name or not email:
         return jsonify({'error': 'Please provide your name and email.'}), 400
     conn = get_db()
@@ -12685,6 +12880,18 @@ def public_rsvp_open_submit(event_id):
     if evt.get('status') == 'cancelled':
         conn.close()
         return jsonify({'error': 'This event has been cancelled.'}), 400
+
+    if action == 'decline':
+        existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND LOWER(volunteer_email)=LOWER(%s)', (event_id, email))
+        if existing:
+            execute(conn, "UPDATE event_rsvps SET volunteer_name=%s, status='declined' WHERE id=%s", (name, existing['id']))
+        else:
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status)
+                VALUES (%s,%s,NULL,%s,%s,%s,'declined')''',
+                (str(uuid.uuid4()), event_id, name, email, str(uuid.uuid4())))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
 
     role_name = ''
     if role_id:

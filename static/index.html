@@ -15643,6 +15643,10 @@ function renderEventDetailPage(eid){
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
  </div>
+ ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
+ <input type="checkbox" id="hide-block-names-${e.id}" ${e.hide_block_names?'checked':''} onchange="toggleHideBlockNames('${e.id}',this.checked)" style="accent-color:var(--teal-400)"/>
+ Don't reveal block names to invitees — they'll just see a normal invite, with no mention that other blocks exist
+ </label>`:''}
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -16749,6 +16753,15 @@ async function saveEventInviteHeadline(eid){
  if(res.error){ toast(res.error,'error'); return }
  ev.invite_headline = val
  toast('Headline saved!','success')
+}
+
+async function toggleHideBlockNames(eid, checked){
+ const ev = allEvents.find(x=>x.id===eid)
+ if(!ev) return
+ const res = await api(`/api/events/${eid}`,'PUT',{...ev, hide_block_names: checked})
+ if(res.error){ toast(res.error,'error'); document.getElementById('hide-block-names-'+eid).checked = !checked; return }
+ ev.hide_block_names = checked
+ toast(checked?'Block names hidden from invitees':'Block names visible to invitees','success')
 }
 
 async function confirmSendRsvp(eid){

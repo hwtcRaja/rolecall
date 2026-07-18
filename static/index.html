@@ -15652,8 +15652,16 @@ function renderEventDetailPage(eid){
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div class="form-group" style="margin:0;flex:2;min-width:140px">
  <label style="font-size:11px">Name *</label>
- <input type="text" id="new-role-name-${e.id}" placeholder="${e.rsvp_kind==='guest'?'e.g. Block A — 10:00 AM, Block B — 11:00 AM…':'e.g. Usher, Concessions…'}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ <input type="text" id="new-role-name-${e.id}" placeholder="${e.rsvp_kind==='guest'?'e.g. Block A, Group 1…':'e.g. Usher, Concessions…'}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
+ ${e.rsvp_kind==='guest'?`<div class="form-group" style="margin:0;width:110px">
+ <label style="font-size:11px">Start Time</label>
+ <input type="time" id="new-role-time-${e.id}" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ </div>
+ <div class="form-group" style="margin:0;width:110px">
+ <label style="font-size:11px">End Time</label>
+ <input type="time" id="new-role-time-end-${e.id}" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ </div>`:''}
  <div class="form-group" style="margin:0;width:80px">
  <label style="font-size:11px">Slots *</label>
  <input type="number" id="new-role-slots-${e.id}" value="1" min="1" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
@@ -16967,6 +16975,14 @@ async function loadEventRsvps(eid){
  el.innerHTML = html
 }
 
+function fmtBlockTime(t){
+ if(!t) return ''
+ const [h,m] = t.split(':').map(Number)
+ const ampm = h>=12?'PM':'AM'
+ const h12 = h%12===0?12:h%12
+ return `${h12}:${String(m).padStart(2,'0')} ${ampm}`
+}
+
 function loadEventRoles(eid, roles){
  const el = document.getElementById('event-roles-list-'+eid)
  const assignWrap = document.getElementById('rsvp-assign-block-wrap-'+eid)
@@ -16978,7 +16994,10 @@ function loadEventRoles(eid, roles){
  assignWrap.style.display=''
  const currentVal = assignSel.value
  assignSel.innerHTML = `<option value="">Let them choose from all ${isGuest?'blocks':'roles'}</option>`
- + roles.map(r=>`<option value="${r.id}">${escHtml(r.name)}</option>`).join('')
+ + roles.map(r=>{
+ const timeLabel = r.block_time ? ` (${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''})` : ''
+ return `<option value="${r.id}">${escHtml(r.name)}${timeLabel}</option>`
+ }).join('')
  assignSel.value = currentVal
  } else {
  assignWrap.style.display='none'
@@ -16995,10 +17014,12 @@ function loadEventRoles(eid, roles){
  const pct = Math.round((filled/slots)*100)
  const color = filled>=slots ? 'var(--red-600)': filled>0 ? 'var(--amber-600)': 'var(--green-600)'
  const directLink = `${window.location.origin}/rsvp-event/${eid}?block=${r.id}`
+ const timeStr = r.block_time ? `${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''}` : ''
  return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="display:flex;align-items:center;gap:12px">
  <div style="flex:1;min-width:0">
  <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
+ ${timeStr?`<div style="font-size:11.5px;color:var(--teal-dark);font-weight:600">${timeStr}</div>`:''}
  ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
  </div>
  <div style="text-align:center;min-width:80px">
@@ -17030,17 +17051,21 @@ async function addEventRole(eid){
  const name = document.getElementById('new-role-name-'+eid)?.value.trim()
  const slots = document.getElementById('new-role-slots-'+eid)?.value
  const desc = document.getElementById('new-role-desc-'+eid)?.value.trim()
+ const blockTime = document.getElementById('new-role-time-'+eid)?.value || ''
+ const blockTimeEnd = document.getElementById('new-role-time-end-'+eid)?.value || ''
  if(!name){ toast('Role name is required','error'); return }
- const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||''})
+ const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||'', block_time:blockTime, block_time_end:blockTimeEnd})
  if(res.error){ toast(res.error,'error'); return }
  document.getElementById('new-role-name-'+eid).value=''
  document.getElementById('new-role-slots-'+eid).value='1'
  document.getElementById('new-role-desc-'+eid).value=''
+ if(document.getElementById('new-role-time-'+eid)) document.getElementById('new-role-time-'+eid).value=''
+ if(document.getElementById('new-role-time-end-'+eid)) document.getElementById('new-role-time-end-'+eid).value=''
  toggleRoleForm(eid)
  // Refresh roles
  const roles = await api(`/api/events/${eid}/roles`)
  loadEventRoles(eid, roles)
- toast('Role added!','success')
+ toast('Added!','success')
 }
 
 async function deleteEventRole(rid, eid){

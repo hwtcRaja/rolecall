@@ -15557,6 +15557,7 @@ function renderEventDetailPage(eid){
  ${[
  ['overview', ' Overview'],
  ['signups', ` ${e.rsvp_kind==='guest'?'RSVP':'Sign-ups'}${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
+ ['invite', ` Send Invites`],
  ['hours', ` Hours${eventHours.length?' <span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700">'+eventHours.length+'</span>':''}`],
  ['staff', ` Staff & Waivers`],
  ].map(([tab,label])=>`
@@ -15627,7 +15628,7 @@ function renderEventDetailPage(eid){
  </div>
  </div>`:''}
  ${e.rsvp_enabled?`
- <div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+ <div>
 
  <!-- Left: who's signed up -->
  <div>
@@ -15677,8 +15678,19 @@ function renderEventDetailPage(eid){
  </div>`:''}
  </div>
 
- <!-- Right: compose & send -->
- <div class="card" style="padding:20px;position:sticky;top:16px">
+ </div>`
+:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+ <div style="font-size:40px;margin-bottom:12px"></div>
+ <div style="font-weight:600;font-size:16px;margin-bottom:8px">RSVPs not enabled for this event</div>
+ <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites and track who's coming.</div>
+ ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
+ </div>`}
+ </div>
+
+ <!-- Send Invites tab -->
+ <div id="evt-panel-invite" style="display:${_eventDetailTab==='invite'?'':'none'}">
+ ${e.rsvp_enabled?`
+ <div class="card" style="padding:24px;max-width:640px;margin:0 auto">
  ${e.status==='cancelled'?`
  <div style="text-align:center;padding:20px 0;color:var(--text-muted)">
  <div style="font-size:28px;margin-bottom:8px"></div>
@@ -15847,11 +15859,10 @@ function renderEventDetailPage(eid){
  <div id="rsvp-send-result" style="margin-top:10px;font-size:13px;text-align:center"></div>
  `}
  </div>
- </div>`
-:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+ `:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
  <div style="font-size:40px;margin-bottom:12px"></div>
  <div style="font-weight:600;font-size:16px;margin-bottom:8px">RSVPs not enabled for this event</div>
- <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites and track who's coming.</div>
+ <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites.</div>
  ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
  </div>`}
  </div>
@@ -15976,7 +15987,7 @@ function renderEventDetailPage(eid){
 
 function switchEventTab(eid, tab){
  _eventDetailTab = tab
- const tabs = ['overview','signups','hours','staff']
+ const tabs = ['overview','signups','invite','hours','staff']
  tabs.forEach(t=>{
  const panel = document.getElementById('evt-panel-'+t)
  if(panel) panel.style.display = t===tab ? '': 'none'
@@ -15986,13 +15997,15 @@ function switchEventTab(eid, tab){
  btn.style.color = t===tab ? 'var(--teal)': 'var(--text-muted)'
  }
  })
- // Load RSVPs on first open of signups tab and init preview
+ // Load RSVPs on first open of signups tab
  if(tab==='signups'){
  const e = allEvents.find(e=>e.id===eid)
- if(e?.rsvp_enabled){
- loadEventRsvps(eid)
- setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
+ if(e?.rsvp_enabled) loadEventRsvps(eid)
  }
+ // Init the send-invite panel (recipient picker, block dropdown) on first open
+ if(tab==='invite'){
+ const e = allEvents.find(e=>e.id===eid)
+ if(e?.rsvp_enabled) setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
  }
 }
 

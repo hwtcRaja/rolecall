@@ -12121,6 +12121,49 @@ def send_rsvp_invite(eid):
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 @app.route('/rsvp/<token>')
+def _guest_invite_css():
+    """Shared, more polished styling for guest/community event invite pages."""
+    return '''<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <style>
+      *{box-sizing:border-box}
+      body.gi-body{font-family:'DM Sans',-apple-system,sans-serif;background:#faf7f2;background-image:radial-gradient(circle at 15% 0%,rgba(20,84,102,0.05),transparent 45%),radial-gradient(circle at 100% 30%,rgba(20,84,102,0.05),transparent 40%);margin:0;padding:0;color:#2b2b28}
+      .gi-wrap{max-width:560px;margin:0 auto;padding:28px 18px 56px}
+      .gi-eyebrow{color:#145466;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2.5px;text-align:center;margin-bottom:10px}
+      .gi-hero{position:relative;width:100%;height:320px;border-radius:22px;overflow:hidden;margin-bottom:22px;box-shadow:0 14px 40px rgba(20,84,102,0.18)}
+      .gi-hero img{width:100%;height:100%;object-fit:cover;display:block}
+      .gi-hero-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(13,61,77,0.85) 100%)}
+      .gi-hero-text{position:absolute;bottom:0;left:0;right:0;padding:26px 28px}
+      .gi-hero-text .gi-eyebrow{color:rgba(255,255,255,0.85);text-align:left;margin-bottom:6px}
+      .gi-headline{font-family:'Playfair Display',Georgia,serif;font-weight:700;line-height:1.15;color:#fff;font-size:32px}
+      .gi-headline-plain{font-family:'Playfair Display',Georgia,serif;font-weight:700;line-height:1.18;color:#fff;font-size:32px;text-align:center}
+      .gi-no-image-hero{text-align:center;padding:46px 26px;border-radius:22px;margin-bottom:22px;background:linear-gradient(135deg,#0d3d4d 0%,#145466 55%,#1e7a94 100%);box-shadow:0 14px 40px rgba(20,84,102,0.22);position:relative;overflow:hidden}
+      .gi-no-image-hero::before{content:'';position:absolute;top:-40%;right:-20%;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,0.06)}
+      .gi-no-image-hero::after{content:'';position:absolute;bottom:-30%;left:-10%;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,0.05)}
+      .gi-divider{display:flex;align-items:center;gap:10px;margin:0 0 22px}
+      .gi-divider::before,.gi-divider::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,#d8cfc0,transparent)}
+      .gi-divider span{width:6px;height:6px;border-radius:50%;background:#145466;opacity:0.5}
+      .gi-details{background:#fff;border:1px solid #ece5d8;border-radius:18px;padding:20px 24px;margin-bottom:22px;box-shadow:0 2px 14px rgba(20,84,102,0.06)}
+      .gi-event-name{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:700;color:#0d3d4d;text-align:center;margin-bottom:12px}
+      .gi-detail-row{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:#4a4a45;margin-bottom:4px}
+      .gi-detail-row:last-child{margin-bottom:0}
+      .gi-detail-icon{opacity:0.75}
+      .gi-desc{color:#6b6b64;font-size:14px;line-height:1.7;text-align:center;margin:0 4px 22px}
+      .gi-card{background:#fff;border-radius:20px;padding:26px 24px;box-shadow:0 6px 24px rgba(20,84,102,0.08);border:1px solid #f1ece2}
+      .gi-label{font-size:11px;font-weight:700;color:#8a8477;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px}
+      .gi-input{width:100%;padding:13px 15px;border:1.5px solid #e4ddd0;border-radius:12px;font-family:inherit;font-size:15px;margin-bottom:16px;box-sizing:border-box;background:#fdfcfa;transition:border-color 0.15s}
+      .gi-input:focus{outline:none;border-color:#145466}
+      .gi-slot-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a8477;margin-bottom:10px;display:block}
+      .gi-slot{display:flex;align-items:center;gap:12px;padding:13px 16px;border:2px solid #ece5d8;border-radius:14px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s,background 0.15s}
+      .gi-slot:hover{border-color:#8fbcc7}
+      .gi-btn{width:100%;background:linear-gradient(135deg,#145466,#0d3d4d);color:#fff;border:none;border-radius:14px;padding:17px;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:0.2px;box-shadow:0 8px 20px rgba(20,84,102,0.28);transition:transform 0.1s,box-shadow 0.15s}
+      .gi-btn:hover{box-shadow:0 10px 26px rgba(20,84,102,0.35)}
+      .gi-btn:active{transform:scale(0.99)}
+      .gi-footer{text-align:center;font-size:12px;color:#a49f92;margin-top:26px;letter-spacing:0.3px}
+      .gi-success{text-align:center;padding:64px 24px;max-width:480px;margin:0 auto}
+      .gi-success-icon{width:64px;height:64px;border-radius:50%;background:#e8f5ef;color:#166534;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 20px}
+    </style>'''
+
+
 def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
@@ -12177,60 +12220,51 @@ def rsvp_page(token):
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
             disabled = 'disabled' if available <= 0 else ''
-            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
-            badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
-            desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-            roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
-                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
-                <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                <div style="flex:1">
-                  <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
-                  {desc}
-                </div>
-            </label>'''
+            if is_guest:
+                style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+                badge_color = '#166534' if available > 0 else '#dc2626'
+                badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+                desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                roles_html += f'''<label class="gi-slot" style="{style}"
+                    onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
+                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                    <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
+                </label>'''
+            else:
+                style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
+                badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
+                desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
+                    onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
+                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                    <div style="flex:1">
+                      <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
+                      {desc}
+                    </div>
+                </label>'''
 
         heading = 'Choose a time to visit!' if is_guest else 'Sign up to volunteer!'
-        subheading = f'Hi {vol_name}  -  choose a {slot_word.lower()} for:' if is_guest else f'Hi {vol_name}  -  choose your role for:'
+        subheading = f'Hi {vol_name} — choose a {slot_word.lower()} for:' if is_guest else f'Hi {vol_name}  -  choose your role for:'
 
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
-        font_import = ''
-        if is_guest:
-            font_import = '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>'
-            if image_url:
-                top_html = f'''<div style="position:relative;width:100%;height:280px;border-radius:20px;overflow:hidden;margin-bottom:24px;box-shadow:0 8px 30px rgba(0,0,0,0.15)">
-                  <img src="{image_url}" style="width:100%;height:100%;object-fit:cover;display:block"/>
-                  <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,0.75) 100%)"></div>
-                  <div style="position:absolute;bottom:0;left:0;right:0;padding:20px 24px">
-                    <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px">You're Invited</div>
-                    <div style="color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:700;line-height:1.15">{headline}</div>
-                  </div>
-                </div>
-                <p style="text-align:center;color:#555;margin-bottom:20px">{subheading}</p>'''
-            else:
-                top_html = f'''<div style="text-align:center;padding:36px 24px;border-radius:20px;margin-bottom:24px;background:linear-gradient(135deg,#0d3d4d 0%,#145466 55%,#1b708d 100%);box-shadow:0 8px 30px rgba(0,0,0,0.15)">
-                  <div style="color:rgba(255,255,255,0.8);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">You're Invited</div>
-                  <div style="color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:30px;font-weight:700;line-height:1.15">{headline}</div>
-                  <p style="color:rgba(255,255,255,0.85);margin-top:10px;font-size:14px">{subheading}</p>
-                </div>'''
-        else:
+
+        if not is_guest:
             top_html = f'''<div style="text-align:center;margin-bottom:28px">
             <div style="font-size:40px;margin-bottom:12px">✋</div>
             <h2 style="color:#145466;margin-bottom:6px">{heading}</h2>
             <p style="color:#555">{subheading}</p>
           </div>'''
-
-        return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
+            return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        {font_import}
-        <body style="font-family:-apple-system,sans-serif;max-width:{"560px" if is_guest else "500px"};margin:0 auto;padding:{"20px 20px 40px" if is_guest else "40px 20px"};background:{"#f4f7f9" if is_guest else "#fff"}">
+        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
           {top_html}
-          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:{"14px" if is_guest else "10px"};padding:{"20px 22px" if is_guest else "14px"};margin:{"0 0 22px" if is_guest else "16px 0"}">
-              <div style="font-size:{"20px" if is_guest else "18px"};font-weight:700;color:#145466;font-family:{"'Playfair Display',Georgia,serif" if is_guest else "inherit"}">{rsvp["event_name"]}</div>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+              <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
               {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
               {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
-          <form method="POST" action="/rsvp/{token}" style="background:#fff;border-radius:16px;padding:{"24px" if is_guest else "0"};box-shadow:{"0 2px 16px rgba(0,0,0,0.06)" if is_guest else "none"}">
+          <form method="POST" action="/rsvp/{token}">
             <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>
             {roles_html}
             <button type="submit" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
@@ -12239,23 +12273,93 @@ def rsvp_page(token):
           </form>
           <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
         </body></html>'''
+
+        # ── Polished guest invite with slot selection ──
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:260px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:28px">{headline}</div>
+              </div>
+            </div>'''
+        else:
+            hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
+            </div>'''
+
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <p style="text-align:center;color:#6b6b64;margin:18px 0 -6px;font-size:14px">{subheading}</p>
+            <div class="gi-details" style="margin-top:22px">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+            </div>
+            <div class="gi-divider"><span></span></div>
+            <div class="gi-card">
+              <form method="POST" action="/rsvp/{token}">
+                <span class="gi-slot-label">Choose a {slot_word.lower()}</span>
+                {roles_html}
+                <button type="submit" class="gi-btn" style="margin-top:8px">
+                  RSVP — Confirm My Spot
+                </button>
+              </form>
+            </div>
+            <div class="gi-footer">If you can't make it, no action needed.</div>
+          </div>
+        </body></html>'''
     else:
         # No roles/slots  -  just confirm directly
         conn2 = get_db()
         execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
         conn2.commit(); conn2.close()
-        confirm_line = f"we've recorded your RSVP for <strong>{rsvp['event_name']}</strong>." if is_guest else f"we've recorded your interest in volunteering for <strong>{rsvp['event_name']}</strong>."
-        image_url = (rsvp.get('invite_image_url') or '').strip()
-        font_import = '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>' if (is_guest and image_url) else ''
-        hero_html = f'<div style="width:100%;max-width:340px;margin:0 auto 20px;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.12)"><img src="{image_url}" style="width:100%;display:block"/></div>' if (is_guest and image_url) else '<div style="font-size:48px;margin-bottom:16px">🎉</div>'
-        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
+
+        if not is_guest:
+            confirm_line = f"we've recorded your interest in volunteering for <strong>{rsvp['event_name']}</strong>."
+            return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        {font_import}
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          {hero_html}
+          <div style="font-size:48px;margin-bottom:16px">🎉</div>
           <h2 style="color:#145466">You're in!</h2>
           <p>Thanks {vol_name}  -  {confirm_line}</p>
           <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
+        </body></html>'''
+
+        # ── Polished confirmation for guest events ──
+        image_url = (rsvp.get('invite_image_url') or '').strip()
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        date_str = rsvp.get('event_date','')
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:220px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+            </div>'''
+        else:
+            hero_html = ''
+        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <div class="gi-success" style="padding-top:{'20px' if image_url else '60px'}">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">You're All Set</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:28px;margin:6px 0 14px">{headline}</h2>
+              <p style="color:#4a4a45">Thanks {vol_name} — we've recorded your RSVP.{f' See you {date_str}!' if date_str else ''}</p>
+              <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
         </body></html>'''
 
 @app.route('/rsvp/<token>', methods=['POST'])
@@ -12419,76 +12523,118 @@ def public_rsvp_open_page(event_id):
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
             disabled = 'disabled' if available <= 0 else ''
-            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
-            badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
-            desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-            roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}"
-                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
+            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+            badge_color = '#166534' if available > 0 else '#dc2626'
+            badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+            desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+            roles_html += f'''<label class="gi-slot" style="{style}"
+                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
                 <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
-                <div style="flex:1"><div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>{desc}</div>
+                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{desc}</div>
             </label>'''
 
-    # ── Designed invite header for community/guest events ──
     image_url = (evt.get('invite_image_url') or '').strip()
     headline = (evt.get('invite_headline') or '').strip() or evt['name']
-    if is_guest:
-        if image_url:
-            header_html = f'''
-            <div style="position:relative;width:100%;height:340px;border-radius:20px;overflow:hidden;margin-bottom:28px;box-shadow:0 8px 30px rgba(0,0,0,0.15)">
-              <img src="{image_url}" style="width:100%;height:100%;object-fit:cover;display:block"/>
-              <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,0.75) 100%)"></div>
-              <div style="position:absolute;bottom:0;left:0;right:0;padding:24px 28px">
-                <div style="color:rgba(255,255,255,0.85);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px">You're Invited</div>
-                <div style="color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:34px;font-weight:700;line-height:1.15">{headline}</div>
-              </div>
-            </div>'''
-        else:
-            header_html = f'''
-            <div style="text-align:center;padding:44px 24px;border-radius:20px;margin-bottom:28px;background:linear-gradient(135deg,#0d3d4d 0%,#145466 55%,#1b708d 100%);box-shadow:0 8px 30px rgba(0,0,0,0.15)">
-              <div style="color:rgba(255,255,255,0.8);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px">You're Invited</div>
-              <div style="color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:36px;font-weight:700;line-height:1.15">{headline}</div>
-            </div>'''
+
+    if not is_guest:
+        # Plain, functional styling for volunteer-shift sign-ups (unchanged tone)
+        return f'''<html><head><title>RSVP — {evt["name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <h2 style="color:#145466;margin-bottom:6px">Sign Up to Volunteer</h2>
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+              <div style="font-size:18px;font-weight:700;color:#145466">{evt["name"]}</div>
+              {f'<div style="color:#555;margin-top:4px">{date_str}{" · "+time_str if time_str else ""}</div>' if date_str else ''}
+              {f'<div style="color:#888;font-size:13px">{evt["location"]}</div>' if evt.get("location") else ''}
+            </div>
+            {f'<p style="color:#6b7280;font-size:14px">{evt["description"]}</p>' if evt.get('description') else ''}
+          </div>
+          <div id="rsvp-alert"></div>
+          <form id="public-rsvp-form" onsubmit="return false">
+            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Your Name <span style="color:#dc2626">*</span></label>
+            <input type="text" id="pr-name" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
+            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Email <span style="color:#dc2626">*</span></label>
+            <input type="email" id="pr-email" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
+            {f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}' if roles else ''}
+            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
+              ✅ I Can Help!
+            </button>
+          </form>
+          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">Horizon West Theater Company</p>
+          <script>
+          async function submitPublicRsvp(){{
+            var name = document.getElementById('pr-name').value.trim()
+            var email = document.getElementById('pr-email').value.trim()
+            var roleInput = document.querySelector('input[name="role_id"]:checked')
+            var roleId = roleInput ? roleInput.value : ''
+            if(!name || !email){{
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+              return
+            }}
+            {"if(!roleId){ document.getElementById('rsvp-alert').innerHTML = '<div style=\"background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "+slot_word.lower()+".</div>'; return }" if roles else ""}
+            var btn = document.getElementById('pr-submit-btn')
+            btn.disabled = true; btn.textContent = 'Submitting…'
+            var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
+            var data = await r.json()
+            if(data.error){{
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+              btn.disabled = false; btn.textContent = "✅ I Can Help!"
+              return
+            }}
+            document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px">🎉</div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
+          }}
+          </script>
+        </body></html>'''
+
+    # ── Polished, designed invite for community/guest events ──
+    if image_url:
+        hero_html = f'''<div class="gi-hero">
+          <img src="{image_url}"/>
+          <div class="gi-hero-overlay"></div>
+          <div class="gi-hero-text">
+            <div class="gi-eyebrow">You're Invited</div>
+            <div class="gi-headline">{headline}</div>
+          </div>
+        </div>'''
     else:
-        header_html = f'''<div style="text-align:center;margin-bottom:24px"><div style="font-size:40px;margin-bottom:12px">🎉</div><h2 style="color:#145466;margin-bottom:6px">You're Invited!</h2></div>'''
+        hero_html = f'''<div class="gi-no-image-hero">
+          <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+          <div class="gi-headline-plain">{headline}</div>
+        </div>'''
 
-    details_card = f'''
-        <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:14px;padding:20px 22px;margin-bottom:22px">
-          <div style="font-size:20px;font-weight:700;color:#145466;font-family:{"'Playfair Display',Georgia,serif" if is_guest else "inherit"}">{evt["name"]}</div>
-          {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}{" · "+time_str if time_str else ""}</div>' if date_str else ''}
-          {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {evt["location"]}</div>' if evt.get("location") else ''}
+    details_html = f'''<div class="gi-details">
+        <div class="gi-event-name">{evt["name"]}</div>
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+time_str if time_str else ""}</div>' if date_str else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
+      </div>
+      {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''
+
+    return f'''<html><head><title>You're Invited — {evt["name"]}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        {hero_html}
+        {details_html}
+        <div class="gi-divider"><span></span></div>
+        <div id="rsvp-alert"></div>
+        <div class="gi-card">
+          <form id="public-rsvp-form" onsubmit="return false">
+            <label class="gi-label">Your Name *</label>
+            <input type="text" id="pr-name" required class="gi-input" placeholder="Full name"/>
+            <label class="gi-label">Email *</label>
+            <input type="email" id="pr-email" required class="gi-input" placeholder="you@example.com"/>
+            {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles else ''}
+            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" class="gi-btn" style="margin-top:8px">
+              RSVP — I'll Be There!
+            </button>
+          </form>
         </div>
-        {f'<p style="color:#6b7280;font-size:14px;line-height:1.6;text-align:center;margin-bottom:22px">{evt["description"]}</p>' if evt.get('description') else ''}'''
-
-    font_import = '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>' if is_guest else ''
-
-    role_required_js = (
-        "if(!roleId){ document.getElementById('rsvp-alert').innerHTML = '<div style=\"background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "+slot_word.lower()+".</div>'; return }"
-        if roles else ""
-    )
-
-    return f'''<html><head><title>RSVP — {evt["name"]}</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-    {font_import}
-    <body style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:{"0 20px 40px" if is_guest else "40px 20px"};background:{"#f4f7f9" if is_guest else "#fff"}">
-      {'<div style="height:20px"></div>' if is_guest else ''}
-      {header_html}
-      {details_card}
-      <div id="rsvp-alert"></div>
-      <form id="public-rsvp-form" onsubmit="return false" style="background:#fff;border-radius:16px;padding:{"24px" if is_guest else "0"};box-shadow:{"0 2px 16px rgba(0,0,0,0.06)" if is_guest else "none"}">
-        <div class="form-row">
-          <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Your Name <span style="color:#dc2626">*</span></label>
-          <input type="text" id="pr-name" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
-        </div>
-        <div class="form-row">
-          <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Email <span style="color:#dc2626">*</span></label>
-          <input type="email" id="pr-email" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
-        </div>
-        {f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}' if roles else ''}
-        <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
-          ✅ RSVP — I'll Be There!
-        </button>
-      </form>
-      <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">Horizon West Theater Company</p>
+        <div class="gi-footer">Horizon West Theater Company</div>
+      </div>
       <script>
       async function submitPublicRsvp(){{
         var name = document.getElementById('pr-name').value.trim()
@@ -12496,20 +12642,20 @@ def public_rsvp_open_page(event_id):
         var roleInput = document.querySelector('input[name="role_id"]:checked')
         var roleId = roleInput ? roleInput.value : ''
         if(!name || !email){{
-          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
           return
         }}
-        {role_required_js}
+        {"if(!roleId){ document.getElementById('rsvp-alert').innerHTML = '<div style=\"background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "+slot_word.lower()+".</div>'; return }" if roles else ""}
         var btn = document.getElementById('pr-submit-btn')
         btn.disabled = true; btn.textContent = 'Submitting…'
         var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
         var data = await r.json()
         if(data.error){{
-          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
-          btn.disabled = false; btn.textContent = "✅ RSVP — I'll Be There!"
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          btn.disabled = false; btn.textContent = "RSVP — I'll Be There!"
           return
         }}
-        document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px">🎉</div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p><p style="color:#888;font-size:14px">We look forward to seeing you!</p></div>'
+        document.body.innerHTML = '<div class="gi-success"><div class="gi-success-icon">✓</div><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">You\\'re in!</h2><p style="color:#4a4a45">Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p><p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p></div>'
       }}
       </script>
     </body></html>'''

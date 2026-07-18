@@ -1305,6 +1305,7 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_kind TEXT DEFAULT 'volunteer'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hide_block_names BOOLEAN DEFAULT false",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_graphic_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_image_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_headline TEXT DEFAULT ''",
         "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
@@ -1349,6 +1350,7 @@ def init_db():
         "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS block_time_end TEXT DEFAULT ''",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_id TEXT",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS party_members TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
         # Board management
         """CREATE TABLE IF NOT EXISTS board_members (
@@ -11857,12 +11859,12 @@ def remove_event_staff(sid):
 def get_event_roles(eid):
     conn = get_db()
     roles = fetchall(conn, '''
-        SELECT r.*,
-            COUNT(rv.id) FILTER (WHERE rv.status='interested') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status='interested'
+        SELECT r.* FROM event_roles r
         WHERE r.event_id=%s
-        GROUP BY r.id ORDER BY r.sort_order ASC, r.name ASC''', (eid,))
+        ORDER BY r.sort_order ASC, r.name ASC''', (eid,))
+    headcounts = _role_headcounts_for_event(conn, eid)
+    for r in roles:
+        r['filled'] = headcounts.get(r['id'], 0)
     conn.close()
     return jsonify(roles)
 
@@ -11981,10 +11983,11 @@ def send_rsvp_invite(eid):
 
     # Get roles for this event
     roles = fetchall(conn, '''
-        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
-        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (eid,))
+        SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (eid,))
+    _rc = _role_headcounts_for_event(conn, eid)
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
 
     target_ids = d.get('volunteer_ids') or []
     if target_ids:
@@ -12008,6 +12011,35 @@ def send_rsvp_invite(eid):
             email_addr = m.group(0).strip().lower()
             name_part = raw_line.replace(m.group(0), '').strip(' ,<>-')
             vols.append({'id': None, 'name': name_part or email_addr.split('@')[0], 'email': email_addr})
+
+    # Household / party invites: each is one invite record covering multiple named
+    # guests (e.g. "The Smith Family: John, Jane, Tommy, Sally") who each get checked
+    # off individually on the RSVP page, rather than an open name/email form.
+    # Accepts either a single household (household_members/household_email/household_label)
+    # or a batch (households: [{members, email, label}, ...]) so a whole list can be
+    # built up and sent in one go.
+    party_names_by_email = {}
+    households_batch = d.get('households') or []
+    if not households_batch:
+        single_members = [n.strip() for n in (d.get('household_members') or []) if (n or '').strip()]
+        single_email = (d.get('household_email') or '').strip().lower()
+        single_label = (d.get('household_label') or '').strip()
+        if single_members and single_email:
+            households_batch = [{'members': single_members, 'email': single_email, 'label': single_label}]
+
+    if households_batch:
+        vols = []
+        seen_emails = set()
+        for h in households_batch:
+            h_email = (h.get('email') or '').strip().lower()
+            h_members = [n.strip() for n in (h.get('members') or []) if (n or '').strip()]
+            h_label = (h.get('label') or '').strip()
+            if not h_email or not h_members or h_email in seen_emails:
+                continue
+            seen_emails.add(h_email)
+            display_name = h_label or (h_members[0] if len(h_members) == 1 else f'{h_members[0]} + {len(h_members)-1} more')
+            vols.append({'id': None, 'name': display_name, 'email': h_email})
+            party_names_by_email[h_email] = h_members
 
     is_guest = evt.get('rsvp_kind') == 'guest'
     kind_label = 'Community Invite' if is_guest else 'Volunteer Opportunity'
@@ -12077,15 +12109,21 @@ def send_rsvp_invite(eid):
                 skipped_names.append(v['name'])
                 continue
 
+        party_json = json.dumps([{'name': n, 'attending': None} for n in party_names_by_email[v['email']]]) if v['email'] in party_names_by_email else None
+
         if existing:
             token = existing['token']
-            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s WHERE id=%s',
-                (assign_role_id or None, assign_role_name or None, existing['id']))
+            if party_json is not None:
+                execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s, party_members=%s WHERE id=%s',
+                    (assign_role_id or None, assign_role_name or None, party_json, existing['id']))
+            else:
+                execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s WHERE id=%s',
+                    (assign_role_id or None, assign_role_name or None, existing['id']))
         else:
             token = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW())''',
-                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, assign_role_id or None, assign_role_name or None))
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at,party_members)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW(),%s)''',
+                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, assign_role_id or None, assign_role_name or None, party_json or ''))
 
         rsvp_url = f"{base_url}/rsvp/{token}"
         date_str = evt.get('event_date','')
@@ -12144,6 +12182,41 @@ def send_rsvp_invite(eid):
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 @app.route('/rsvp/<token>')
+def _role_headcount(conn, role_id):
+    """Real attendee headcount for a block/role — counts each individual attending
+    guest in a household RSVP, not just one per invite."""
+    rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,)) or []
+    total = 0
+    for r in rows:
+        pm = r.get('party_members')
+        if pm:
+            try:
+                members = json.loads(pm)
+                total += sum(1 for m in members if m.get('attending') is True)
+            except Exception:
+                total += 1
+        else:
+            total += 1
+    return total
+
+def _role_headcounts_for_event(conn, event_id):
+    """Headcounts for every role/block on an event, keyed by role_id — one query pass
+    instead of N (used when rendering a role list)."""
+    rsvps = fetchall(conn, "SELECT role_id, party_members FROM event_rsvps WHERE event_id=%s AND status='interested' AND role_id IS NOT NULL", (event_id,)) or []
+    counts = {}
+    for r in rsvps:
+        rid = r['role_id']
+        pm = r.get('party_members')
+        if pm:
+            try:
+                members = json.loads(pm)
+                counts[rid] = counts.get(rid, 0) + sum(1 for m in members if m.get('attending') is True)
+                continue
+            except Exception:
+                pass
+        counts[rid] = counts.get(rid, 0) + 1
+    return counts
+
 def _fmt_time(t):
     """Format a 'HH:MM' 24-hour string as '2:30 PM'. Returns '' if unparseable/empty."""
     if not t:
@@ -12210,6 +12283,11 @@ def rsvp_page(token):
 
     is_guest = rsvp.get('rsvp_kind') == 'guest'
     slot_word = 'Time Slot' if is_guest else 'Role'
+    try:
+        party_members = json.loads(rsvp.get('party_members') or '[]')
+    except Exception:
+        party_members = []
+    is_party = bool(party_members)
 
     # Event cancelled
     if rsvp.get('event_status') == 'cancelled':
@@ -12223,7 +12301,37 @@ def rsvp_page(token):
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
         </body></html>'''
 
-    # Already signed up
+    # Already responded — party/household invite: show the per-person breakdown
+    if is_party and rsvp.get('status') in ('interested', 'declined'):
+        conn.close()
+        coming = [m for m in party_members if m.get('attending') is True]
+        not_coming = [m for m in party_members if m.get('attending') is False]
+        rows_html = ''.join(
+            f'<div class="history-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">'
+            f'<span style="font-weight:600;color:#2b2b28">{m["name"]}</span>'
+            f'<span class="status-badge" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:{"#dcfce7;color:#166534" if m.get("attending") else "#fee2e2;color:#991b1b"}">{"Coming" if m.get("attending") else "Not Coming"}</span></div>'
+            for m in party_members
+        )
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        return f'''<html><head><title>RSVP Confirmed</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:44px 0 20px">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">RSVP Received</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{headline}</h2>
+              <p style="color:#6b6b64;font-size:14px">{len(coming)} of {len(party_members)} in your party {"is" if len(coming)==1 else "are"} coming</p>
+            </div>
+            <div class="gi-card">{rows_html}</div>
+            <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    # Already signed up (non-party, legacy behavior)
     if rsvp.get('status') == 'interested':
         role_line = f'<p style="color:#16a34a;font-weight:600">Your {slot_word.lower()}: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
         conn.close()
@@ -12251,10 +12359,11 @@ def rsvp_page(token):
 
     # Load available roles/slots
     roles = fetchall(conn, '''
-        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
-        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
+        SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
+    _rc = _role_headcounts_for_event(conn, rsvp['event_id'])
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
     conn.close()
 
     # If this invite was pre-assigned to a specific block by an admin, lock the page to
@@ -12272,6 +12381,66 @@ def rsvp_page(token):
         bt = _fmt_time(locked_block['block_time'])
         bte = _fmt_time(locked_block.get('block_time_end'))
         display_time_str = f'{bt} – {bte}' if bte else bt
+
+    if is_party:
+        image_url = (rsvp.get('invite_image_url') or '').strip()
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:260px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:28px">{headline}</div>
+              </div>
+            </div>'''
+        else:
+            hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
+            </div>'''
+
+        guests_html = ''
+        for i, m in enumerate(party_members):
+            was_checked = m.get('attending') is True
+            check_attr = 'checked' if was_checked else ''
+            border = '#145466' if was_checked else '#ece5d8'
+            bg = '#f0f8fa' if was_checked else '#fff'
+            guests_html += f'''<label class="gi-slot" style="cursor:pointer;border-color:{border};background:{bg}"
+                onclick="var cb=this.querySelector('input'); this.style.borderColor=cb.checked?'#145466':'#ece5d8'; this.style.background=cb.checked?'#f0f8fa':'#fff';">
+                <input type="checkbox" name="guest_{i}" {check_attr} style="accent-color:#145466;flex-shrink:0;width:19px;height:19px"/>
+                <input type="hidden" name="guest_{i}_name" value="{m["name"]}"/>
+                <div style="flex:1;font-weight:600;font-size:15px;color:#2b2b28">{m["name"]}</div>
+            </label>'''
+
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <div class="gi-details">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+            </div>
+            {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
+            <div class="gi-divider"><span></span></div>
+            <div id="rsvp-alert"></div>
+            <div class="gi-card">
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Please check off everyone who will be joining:</p>
+              <form method="POST" action="/rsvp/{token}" onsubmit="return document.querySelectorAll('input[type=checkbox]:checked').length>=0">
+                {guests_html}
+                <input type="hidden" name="rsvp_action" value="party_confirm"/>
+                <button type="submit" class="gi-btn" style="margin-top:14px">
+                  Save My RSVP
+                </button>
+              </form>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
 
     if roles:
         # Show role/slot selection form (or, if pre-assigned, just that one block)
@@ -12545,14 +12714,104 @@ def rsvp_submit(token):
           </div>
         </body></html>'''
 
+    # ── Party/household checklist confirm ──
+    if rsvp_action == 'party_confirm':
+        responses = []
+        i = 0
+        while f'guest_{i}_name' in req.form:
+            name = req.form.get(f'guest_{i}_name', '').strip()
+            attending = req.form.get(f'guest_{i}') is not None
+            if name:
+                responses.append({'name': name, 'attending': attending})
+            i += 1
+        if not responses:
+            conn.close()
+            return f'<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Something went wrong — please <a href="/rsvp/{token}">go back</a> and try again.</h2></body></html>', 400
+
+        # If assigned to a block/role, make sure the real headcount (not just invite count)
+        # doesn't exceed its capacity — excluding this invite's own prior contribution so
+        # re-editing an existing response doesn't double-count against itself.
+        assigned_role_id = (rsvp.get('role_id') or '').strip()
+        new_attending_ct = sum(1 for r in responses if r['attending'])
+        if assigned_role_id and new_attending_ct > 0:
+            role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s', (assigned_role_id,))
+            if role:
+                other_rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested' AND id!=%s",
+                    (assigned_role_id, rsvp['id'])) or []
+                existing_ct = 0
+                for r in other_rows:
+                    pm = r.get('party_members')
+                    if pm:
+                        try:
+                            existing_ct += sum(1 for m in json.loads(pm) if m.get('attending') is True)
+                        except Exception:
+                            existing_ct += 1
+                    else:
+                        existing_ct += 1
+                available = max(0, int(role['slots']) - existing_ct)
+                if new_attending_ct > available:
+                    conn.close()
+                    word = 'spot' if available == 1 else 'spots'
+                    return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+                      <div style="font-size:48px;margin-bottom:16px">😔</div>
+                      <h2 style="color:#dc2626">Not quite enough room</h2>
+                      <p>Only {available} {word} left, but {new_attending_ct} of your party {"is" if new_attending_ct==1 else "are"} checked as coming. Please adjust and try again, or reach out to us directly.</p>
+                      <p><a href="/rsvp/{token}">Go back</a></p>
+                    </body></html>''', 409
+
+        any_coming = any(r['attending'] for r in responses)
+        new_status = 'interested' if any_coming else 'declined'
+        execute(conn, 'UPDATE event_rsvps SET status=%s, party_members=%s WHERE token=%s',
+            (new_status, json.dumps(responses), token))
+        conn.commit()
+        try:
+            s = get_email_settings()
+            recipients = get_recipient_emails(s)
+            if recipients and s.get('alert_new_rsvp', True):
+                coming_names = ', '.join(r['name'] for r in responses if r['attending']) or 'no one'
+                not_coming_names = ', '.join(r['name'] for r in responses if not r['attending']) or 'no one'
+                send_email(recipients, f'RSVP: {rsvp["event_name"]}',
+                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
+                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p></div>')
+        except Exception as e:
+            app.logger.warning(f'rsvp party alert email error: {e}')
+        conn.close()
+        coming_list = [r['name'] for r in responses if r['attending']]
+        not_coming_list = [r['name'] for r in responses if not r['attending']]
+        rows_html = ''.join(
+            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">'
+            f'<span style="font-weight:600;color:#2b2b28">{r["name"]}</span>'
+            f'<span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:{"#dcfce7;color:#166534" if r["attending"] else "#fee2e2;color:#991b1b"}">{"Coming" if r["attending"] else "Not Coming"}</span></div>'
+            for r in responses
+        )
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        return f'''<html><head><title>RSVP Saved</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:44px 0 20px">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">RSVP Saved</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{headline}</h2>
+              <p style="color:#6b6b64;font-size:14px">{len(coming_list)} of {len(responses)} in your party {"is" if len(coming_list)==1 else "are"} coming</p>
+            </div>
+            <div class="gi-card">{rows_html}</div>
+            <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
     # ── Confirm ──
     role_name = ''
     if role_id:
         role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, rsvp['event_id']))
         if role:
-            # Check slot availability
-            filled = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
-            if filled and int(filled['c']) >= int(role['slots']):
+            # Check slot availability (real headcount, not just invite count)
+            filled_ct = _role_headcount(conn, role_id)
+            if filled_ct >= int(role['slots']):
                 conn.close()
                 return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                 <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
@@ -12582,9 +12841,9 @@ def rsvp_submit(token):
                     f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
             # Slot filled alert
             if role_id and role_name and s.get('alert_role_filled', True):
-                filled_now = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
+                filled_now_ct = _role_headcount(conn, role_id)
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
-                if filled_now and role_row and int(filled_now['c']) >= int(role_row['slots']):
+                if role_row and filled_now_ct >= int(role_row['slots']):
                     send_email(recipients, f'{slot_word} Filled: {role_name}  -  {evt_name}',
                         f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
     except Exception as e:
@@ -12697,9 +12956,11 @@ def public_rsvp_open_page(event_id):
         </body></html>'''
     is_guest = evt.get('rsvp_kind') == 'guest'
     slot_word = 'Time Slot' if is_guest else 'Role'
-    roles = fetchall(conn, '''SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status='interested') as filled
-        FROM event_roles r LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status='interested'
-        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (event_id,))
+    roles = fetchall(conn, '''SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (event_id,))
+    _rc = _role_headcounts_for_event(conn, event_id)
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
     conn.close()
 
     # A direct block/session link (?block=<role_id>) scopes the whole page to just that
@@ -12936,8 +13197,8 @@ def public_rsvp_open_submit(event_id):
     if role_id:
         role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, event_id))
         if role:
-            filled = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
-            if filled and int(filled['c']) >= int(role['slots']):
+            filled_ct = _role_headcount(conn, role_id)
+            if filled_ct >= int(role['slots']):
                 conn.close()
                 return jsonify({'error': 'Sorry, that time slot just filled up — please go back and pick another.'}), 409
             role_name = role['name']

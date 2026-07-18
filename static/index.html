@@ -15640,15 +15640,15 @@ function renderEventDetailPage(eid){
  <!-- Role Slots Manager -->
  ${isAdmin?`<div style="margin-top:24px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
- <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Role Slots</div>
- <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add Role</button>
+ <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
+ <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
  </div>
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div class="form-group" style="margin:0;flex:2;min-width:140px">
- <label style="font-size:11px">Role name *</label>
- <input type="text" id="new-role-name-${e.id}" placeholder="e.g. Usher, Concessions…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ <label style="font-size:11px">Name *</label>
+ <input type="text" id="new-role-name-${e.id}" placeholder="${e.rsvp_kind==='guest'?'e.g. Block A — 10:00 AM, Block B — 11:00 AM…':'e.g. Usher, Concessions…'}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
  <div class="form-group" style="margin:0;width:80px">
  <label style="font-size:11px">Slots *</label>
@@ -15782,6 +15782,15 @@ function renderEventDetailPage(eid){
  </div>
  <div id="rsvp-recipient-names" style="display:none;max-height:120px;overflow-y:auto;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.8"></div>
  <div id="rsvp-skip-warning" style="display:none;background:#fef9c3;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:14px"></div>
+
+ <!-- Assign to block -->
+ <div id="rsvp-assign-block-wrap-${e.id}" style="display:none;margin-bottom:14px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Assign to ${e.rsvp_kind==='guest'?'Block':'Role'} <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+ <select id="rsvp-assign-block-${e.id}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <option value="">Let them choose from all ${e.rsvp_kind==='guest'?'blocks':'roles'}</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Everyone in this batch will get a link pre-assigned to this ${e.rsvp_kind==='guest'?'block':'role'} instead of a picker.</div>
+ </div>
 
  <!-- Message -->
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
@@ -16753,11 +16762,13 @@ async function confirmSendRsvp(eid){
  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
  if(resultEl) resultEl.innerHTML = ''
  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
+ const assignRoleId = document.getElementById('rsvp-assign-block-'+eid)?.value || ''
  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
  volunteer_ids: isAdhoc ? [] : targets.map(v=>v.id),
  adhoc_contacts: isAdhoc ? adhocText : '',
  adhoc_only: isAdhoc,
+ assign_role_id: assignRoleId,
  message
  })
  if(btn){ btn.disabled=false; btn.textContent=' Send Invites' }
@@ -16859,13 +16870,14 @@ async function loadEventRsvps(eid){
  const allRsvps = Array.isArray(rsvps) ? rsvps: []
  window._currentEventRsvps = allRsvps // cache for preview duplicate detection
  const signedUp = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed').length
+ const declined = allRsvps.filter(r=>r.status==='declined').length
  const invited = allRsvps.length
  const totalSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0): 0
  const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0): 0
  const pctFilled = totalSlots > 0 ? Math.round(filledSlots/totalSlots*100): null
  const statColor = pctFilled===null?'var(--text-muted)':pctFilled>=100?'var(--red-600)':pctFilled>=50?'var(--amber-600)':'var(--green-600)'
 
- const statsHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+ const statsHtml = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${invited}</div>
  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Invited</div>
@@ -16873,6 +16885,10 @@ async function loadEventRsvps(eid){
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:var(--green-600)">${signedUp}</div>
  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Confirmed</div>
+ </div>
+ <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
+ <div style="font-size:26px;font-weight:800;color:#991b1b">${declined}</div>
+ <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Can't Make It</div>
  </div>
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:${statColor}">${pctFilled!==null?filledSlots+'/'+totalSlots:'—'}</div>
@@ -16888,16 +16904,19 @@ async function loadEventRsvps(eid){
  const isAdmin = canEdit('events')
  const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
  const invitedList = allRsvps.filter(r=>r.status==='invited')
+ const declinedList = allRsvps.filter(r=>r.status==='declined')
 
  const statusStyle = {
  interested: 'background:var(--green-50);color:var(--green-600)',
  confirmed: 'background:#dcfce7;color:#166534',
- invited: 'background:var(--bg);color:var(--text-muted)'
+ invited: 'background:var(--bg);color:var(--text-muted)',
+ declined: 'background:#fee2e2;color:#991b1b'
  }
  const statusLabel = {
  interested: ' Via Email',
  confirmed: ' Confirmed',
- invited: ' Invited'
+ invited: ' Invited',
+ declined: ' Declined'
  }
 
  const rsvpRow = (r) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
@@ -16915,6 +16934,7 @@ async function loadEventRsvps(eid){
  </span>
  ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Mark Coming</button>`:''}
  ${isAdmin&&(r.status==='confirmed')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
+ ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
  </div>`
 
@@ -16927,14 +16947,33 @@ async function loadEventRsvps(eid){
  html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedList.length})</div>`
  html += invitedList.map(r=>rsvpRow(r)).join('')
  }
+ if(declinedList.length){
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;margin-top:${(confirmedList.length||invitedList.length)?'14':'4'}px;margin-bottom:4px"> Can't Make It (${declinedList.length})</div>`
+ html += declinedList.map(r=>rsvpRow(r)).join('')
+ }
  el.innerHTML = html
 }
 
 function loadEventRoles(eid, roles){
  const el = document.getElementById('event-roles-list-'+eid)
+ const assignWrap = document.getElementById('rsvp-assign-block-wrap-'+eid)
+ const assignSel = document.getElementById('rsvp-assign-block-'+eid)
+ const ev = allEvents.find(x=>x.id===eid) || {}
+ const isGuest = ev.rsvp_kind==='guest'
+ if(assignWrap && assignSel){
+ if(roles && roles.length){
+ assignWrap.style.display=''
+ const currentVal = assignSel.value
+ assignSel.innerHTML = `<option value="">Let them choose from all ${isGuest?'blocks':'roles'}</option>`
+ + roles.map(r=>`<option value="${r.id}">${escHtml(r.name)}</option>`).join('')
+ assignSel.value = currentVal
+ } else {
+ assignWrap.style.display='none'
+ }
+ }
  if(!el) return
  if(!roles||!roles.length){
- el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No roles defined yet — add roles to let volunteers choose what they\'d like to help with.</div>'
+ el.innerHTML=`<div style="font-size:13px;color:var(--text-muted)">No ${isGuest?'blocks':'roles'} defined yet — add ${isGuest?'blocks so people can RSVP to the one you assign them':'roles to let volunteers choose what they\'d like to help with'}.</div>`
  return
  }
  el.innerHTML = roles.map(r=>{
@@ -16942,7 +16981,9 @@ function loadEventRoles(eid, roles){
  const slots = parseInt(r.slots||1)
  const pct = Math.round((filled/slots)*100)
  const color = filled>=slots ? 'var(--red-600)': filled>0 ? 'var(--amber-600)': 'var(--green-600)'
- return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ const directLink = `${window.location.origin}/rsvp-event/${eid}?block=${r.id}`
+ return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="display:flex;align-items:center;gap:12px">
  <div style="flex:1;min-width:0">
  <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
  ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
@@ -16954,7 +16995,12 @@ function loadEventRoles(eid, roles){
  <div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
  <div style="height:100%;width:${Math.min(100,pct)}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
  </div>
- <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete role">×</button>
+ <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete ${isGuest?'block':'role'}">×</button>
+ </div>
+ ${isGuest?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+ <input readonly value="${directLink}" onclick="this.select()" style="flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:11px;color:var(--text-muted);background:var(--bg)"/>
+ <button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px" onclick="navigator.clipboard.writeText('${directLink}');toast('Block link copied!','success')">Copy Link</button>
+ </div>`:''}
  </div>`
  }).join('')
 }

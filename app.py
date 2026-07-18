@@ -1304,6 +1304,7 @@ def init_db():
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_kind TEXT DEFAULT 'volunteer'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hide_block_names BOOLEAN DEFAULT false",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_image_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_headline TEXT DEFAULT ''",
         "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
@@ -2379,7 +2380,7 @@ def update_event(eid):
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,status=%s,carpools_enabled=%s,
+        rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
         kiosk_signin_mode=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
@@ -2389,7 +2390,7 @@ def update_event(eid):
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), d.get('rsvp_kind') or 'volunteer', (d.get('invite_headline') or '').strip(), new_status,
+         d.get('rsvp_message',''), d.get('rsvp_kind') or 'volunteer', (d.get('invite_headline') or '').strip(), bool(d.get('hide_block_names', False)), new_status,
          d.get('carpools_enabled', False),
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
@@ -12041,7 +12042,7 @@ def send_rsvp_invite(eid):
             roles_html += f'<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
             roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{available} of {r["slots"]} open</td></tr>'
         roles_html += f'</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred {slot_word.lower()} when you RSVP.</p>'
-    elif assign_role_id:
+    elif assign_role_id and not evt.get('hide_block_names'):
         roles_html = f'''<div style="background:#f0f8fa;border:1.5px solid #c9e4ea;border-radius:10px;padding:14px 18px;margin:18px 0">
             <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Your {slot_word}</div>
             <div style="font-size:16px;font-weight:700;color:#0d3d4d">{assign_role_name}</div>
@@ -12188,7 +12189,7 @@ def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
         e.location, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
-        e.invite_image_url, e.invite_headline
+        e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
@@ -12260,8 +12261,13 @@ def rsvp_page(token):
         if locked_block:
             r = locked_block
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
-            full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
-            if is_guest:
+            hide_blocks = bool(rsvp.get('hide_block_names'))
+            if hide_blocks:
+                full_note = '<div class="gi-details" style="margin-top:0;background:#fff8e7;border-color:#fde68a"><div style="color:#92400e;font-size:13px">We\'re currently full for this — let us know anyway and we\'ll follow up.</div></div>' if available <= 0 else ''
+                locked_block_html = f'''{full_note}
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
+            elif is_guest:
+                full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
                 locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
                   <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
                   <div style="font-size:17px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
@@ -12303,7 +12309,7 @@ def rsvp_page(token):
 
         heading = 'You\'re invited!' if is_guest else 'Sign up to volunteer!'
         if is_guest:
-            subheading = f'Hi {vol_name} — here\'s your block:' if locked_block else f'Hi {vol_name} — choose a {slot_word.lower()} for:'
+            subheading = (f'Hi {vol_name} — will you be joining us?' if bool(rsvp.get('hide_block_names')) else f'Hi {vol_name} — here\'s your block:') if locked_block else f'Hi {vol_name} — choose a {slot_word.lower()} for:'
         else:
             subheading = f'Hi {vol_name}  -  choose your role for:'
 
@@ -12463,7 +12469,7 @@ def rsvp_submit(token):
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.description,
-        e.id as event_id, e.status as event_status, e.rsvp_kind, e.invite_image_url, e.invite_headline
+        e.id as event_id, e.status as event_status, e.rsvp_kind, e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
@@ -12707,8 +12713,14 @@ def public_rsvp_open_page(event_id):
     locked_block_html = ''
     if locked_block:
         available = max(0, int(locked_block['slots']) - int(locked_block['filled'] or 0))
-        full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
-        locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+        hide_blocks = bool(evt.get('hide_block_names'))
+        if hide_blocks:
+            full_note = '<div class="gi-details" style="margin-top:0;background:#fff8e7;border-color:#fde68a"><div style="color:#92400e;font-size:13px">We\'re currently full for this — you can still let us know you\'d like to come and we\'ll follow up.</div></div>' if available <= 0 else ''
+            locked_block_html = f'''{full_note}
+        <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
+        else:
+            full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
+            locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
           <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
           <div style="font-size:17px;font-weight:700;color:#0d3d4d">{locked_block["name"]}</div>
           {full_note}

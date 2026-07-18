@@ -15715,6 +15715,9 @@ function renderEventDetailPage(eid){
  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
  </label>`).join('')}
+ ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-household" onclick="setRsvpFilter('household','${e.id}')">
+ <input type="radio" name="rsvp-filter" value="household" style="accent-color:var(--teal);flex-shrink:0"/> Household / Party (name checklist, like a wedding RSVP)
+ </label>`:''}
  </div>
 
  <!-- Sub-filters -->
@@ -15755,6 +15758,35 @@ function renderEventDetailPage(eid){
   <div id="rsvp-sub-adhoc" style="display:none;margin-bottom:12px">
   <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Paste one person per line — "Name, email@example.com" or just the email address.</div>
   <textarea id="rsvp-adhoc-text" oninput="updateRsvpPreview('${e.id}')" placeholder="Jane Smith, jane@example.com&#10;bob@example.com&#10;Maria Lopez, maria@example.com" style="width:100%;min-height:100px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+  </div>
+
+  <div id="rsvp-sub-household" style="display:none;margin-bottom:14px;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:14px">
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Build your list below, then send every invite at once. Each household gets its own link — everyone on it gets checked off together when they RSVP.</div>
+  <div class="form-group" style="margin-bottom:8px">
+   <label style="font-size:11px">Household / Invite Name <span style="font-weight:400">(optional — e.g. "The Smith Family")</span></label>
+   <input type="text" id="household-label-${e.id}" placeholder="Leave blank to auto-generate" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+  </div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label style="font-size:11px">Email *</label>
+   <input type="email" id="household-email-${e.id}" placeholder="family@example.com" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+  </div>
+  <label style="font-size:11px">Guests *</label>
+  <div id="household-guests-${e.id}" style="margin-top:4px">
+   <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+   <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px">
+   <button class="btn btn-secondary btn-sm" onclick="addHouseholdGuestField('${e.id}')">+ Add Another Guest</button>
+   <button class="btn btn-primary btn-sm" onclick="addHouseholdToList('${e.id}')">+ Add to List</button>
+  </div>
+
+  <div id="household-list-wrap-${e.id}" style="display:none;margin-bottom:12px">
+   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Ready to Send (<span id="household-list-count-${e.id}">0</span>)</div>
+   <div id="household-list-${e.id}" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:220px;overflow-y:auto;background:var(--surface)"></div>
+  </div>
+
+  <button class="btn btn-primary" style="width:100%" id="household-send-all-btn-${e.id}" onclick="sendAllHouseholds('${e.id}')" disabled>Send All Invites (0)</button>
+  <div id="household-result-${e.id}" style="margin-top:8px;font-size:13px;text-align:center"></div>
   </div>
 
  ${e.rsvp_kind==='guest' ? `
@@ -16584,7 +16616,7 @@ function toggleHsBonusFields(){
 
 function setRsvpFilter(type, eid){
  // Style the selected option
- ;['all','interest','event','manual','group','adhoc'].forEach(t=>{
+ ;['all','interest','event','manual','group','adhoc','household'].forEach(t=>{
  const el = document.getElementById('rsvp-opt-'+t)
  if(el){
  el.style.borderColor = t===type ? 'var(--teal)': 'var(--border)'
@@ -16597,7 +16629,13 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-sub-manual').style.display = type==='manual' ? '': 'none'
  document.getElementById('rsvp-sub-group')?.style && (document.getElementById('rsvp-sub-group').style.display = type==='group' ? '': 'none')
  document.getElementById('rsvp-sub-adhoc')?.style && (document.getElementById('rsvp-sub-adhoc').style.display = type==='adhoc' ? '': 'none')
- updateRsvpPreview(eid)
+ document.getElementById('rsvp-sub-household')?.style && (document.getElementById('rsvp-sub-household').style.display = type==='household' ? '': 'none')
+ const isHousehold = type==='household'
+ document.getElementById('rsvp-send-btn')?.style && (document.getElementById('rsvp-send-btn').style.display = isHousehold ? 'none': '')
+ if(isHousehold) document.getElementById('rsvp-assign-block-wrap-'+eid)?.style && (document.getElementById('rsvp-assign-block-wrap-'+eid).style.display = 'none')
+ else loadEventRoles(eid, window._currentEventRoles||[])
+ document.getElementById('rsvp-recipient-preview')?.style && (document.getElementById('rsvp-recipient-preview').style.display = isHousehold ? 'none': '')
+ if(!isHousehold) updateRsvpPreview(eid)
 }
 
 function filterRsvpManualList(query){
@@ -16772,6 +16810,92 @@ async function toggleHideBlockNames(eid, checked){
  toast(checked?'Block names hidden from invitees':'Block names visible to invitees','success')
 }
 
+function addHouseholdGuestField(eid){
+ const wrap = document.getElementById('household-guests-'+eid)
+ const n = wrap.querySelectorAll('.household-guest-input').length + 1
+ const input = document.createElement('input')
+ input.type = 'text'
+ input.className = 'household-guest-input'
+ input.placeholder = `Guest ${n} name`
+ input.style.cssText = 'width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px'
+ wrap.appendChild(input)
+ input.focus()
+}
+
+var _householdStaging = {} // eid -> [{label, email, members}]
+
+function renderHouseholdList(eid){
+ const list = _householdStaging[eid] || []
+ const wrap = document.getElementById('household-list-wrap-'+eid)
+ const listEl = document.getElementById('household-list-'+eid)
+ const countEl = document.getElementById('household-list-count-'+eid)
+ const sendBtn = document.getElementById('household-send-all-btn-'+eid)
+ if(countEl) countEl.textContent = list.length
+ if(sendBtn){ sendBtn.textContent = `Send All Invites (${list.length})`; sendBtn.disabled = list.length===0 }
+ if(wrap) wrap.style.display = list.length ? '' : 'none'
+ if(listEl){
+ listEl.innerHTML = list.map((h,i)=>`
+ <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px">
+ <div style="flex:1;min-width:0">
+ <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(h.label || h.members[0])}</div>
+ <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}</div>
+ </div>
+ <button onclick="removeHouseholdFromList('${eid}',${i})" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>
+ </div>`).join('')
+ }
+}
+
+function removeHouseholdFromList(eid, idx){
+ (_householdStaging[eid]||[]).splice(idx,1)
+ renderHouseholdList(eid)
+}
+
+function addHouseholdToList(eid){
+ const label = document.getElementById('household-label-'+eid)?.value.trim() || ''
+ const email = document.getElementById('household-email-'+eid)?.value.trim() || ''
+ const guestInputs = document.querySelectorAll(`#household-guests-${eid} .household-guest-input`)
+ const guests = Array.from(guestInputs).map(i=>i.value.trim()).filter(Boolean)
+ if(!email){ toast('Email is required','error'); return }
+ if(!guests.length){ toast('Add at least one guest name','error'); return }
+ if(!_householdStaging[eid]) _householdStaging[eid] = []
+ if(_householdStaging[eid].some(h=>h.email.toLowerCase()===email.toLowerCase())){
+ toast('That email is already in your list','error'); return
+ }
+ _householdStaging[eid].push({label, email, members: guests})
+ renderHouseholdList(eid)
+ document.getElementById('household-label-'+eid).value = ''
+ document.getElementById('household-email-'+eid).value = ''
+ document.getElementById('household-guests-'+eid).innerHTML = `
+ <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+ <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>`
+ document.getElementById('household-label-'+eid).focus()
+}
+
+async function sendAllHouseholds(eid){
+ const list = _householdStaging[eid] || []
+ if(!list.length) return
+ const resultEl = document.getElementById('household-result-'+eid)
+ const sendBtn = document.getElementById('household-send-all-btn-'+eid)
+ const assignRoleId = document.getElementById('rsvp-assign-block-'+eid)?.value || ''
+ const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
+ const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+ if(sendBtn){ sendBtn.disabled = true; sendBtn.textContent = 'Sending…' }
+ if(resultEl) resultEl.innerHTML = ''
+ const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
+ households: list.map(h=>({label:h.label, email:h.email, members:h.members})),
+ assign_role_id: assignRoleId, message
+ })
+ if(res.error){
+ if(resultEl) resultEl.innerHTML = `<span style="color:var(--red-600)">${res.error}</span>`
+ if(sendBtn){ sendBtn.disabled = false; sendBtn.textContent = `Send All Invites (${list.length})` }
+ return
+ }
+ if(resultEl) resultEl.innerHTML = `<span style="color:var(--green-600)"> Sent ${res.sent||list.length} invite${(res.sent||list.length)!==1?'s':''}!${res.skipped?` (${res.skipped} skipped — already responded or recently invited)`:''}</span>`
+ _householdStaging[eid] = []
+ renderHouseholdList(eid)
+ loadEventRsvps(eid)
+}
+
 async function confirmSendRsvp(eid){
  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
  const isAdhoc = type==='adhoc'
@@ -16940,15 +17064,22 @@ async function loadEventRsvps(eid){
  declined: ' Declined'
  }
 
- const rsvpRow = (r) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+ const rsvpRow = (r) => {
+ let party = []
+ try { party = r.party_members ? JSON.parse(r.party_members) : [] } catch(e) { party = [] }
+ const partyHtml = party.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px">
+ ${party.map(m=>`<span style="font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600;background:${m.attending===true?'#dcfce7;color:#166534':m.attending===false?'#fee2e2;color:#991b1b':'var(--bg);color:var(--text-hint)'}">${escHtml(m.name)}</span>`).join('')}
+ </div>` : ''
+ return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
  ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
  <div style="flex:1">
- <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
+ <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}${party.length?` <span style="font-weight:400;color:var(--text-muted);font-size:11px">(party of ${party.length})</span>`:''}</div>
  ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
  ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.status==='confirmed'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Confirmed ${formatDateTimeShort(r.created_at)}</div>`:''}
  ${r.status==='interested'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Responded ${formatDateTimeShort(r.created_at)}</div>`:''}
+ ${partyHtml}
  </div>
  <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${statusStyle[r.status]||statusStyle.invited}">
  ${statusLabel[r.status]||r.status}
@@ -16958,6 +17089,7 @@ async function loadEventRsvps(eid){
  ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
  </div>`
+ }
 
  let html = statsHtml
  if(confirmedList.length){
@@ -16984,6 +17116,7 @@ function fmtBlockTime(t){
 }
 
 function loadEventRoles(eid, roles){
+ window._currentEventRoles = roles||[]
  const el = document.getElementById('event-roles-list-'+eid)
  const assignWrap = document.getElementById('rsvp-assign-block-wrap-'+eid)
  const assignSel = document.getElementById('rsvp-assign-block-'+eid)

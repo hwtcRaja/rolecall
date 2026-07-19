@@ -12154,6 +12154,10 @@ def send_rsvp_invite(eid):
         if is_household_send:
             guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
             block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
+            guest_list_block = f'''<div style="margin-top:28px">
+              <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
+              <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
+            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
             body = f'''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
           <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
             <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>
@@ -12172,10 +12176,7 @@ def send_rsvp_invite(eid):
             </table>
             {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''}
             {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''}
-            {f'''<div style="margin-top:28px">
-              <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
-              <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
-            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else "}
+            {guest_list_block}
             <div style="text-align:center;margin:36px 0 8px">
               <a href="{rsvp_url}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
                 RESPOND TO THIS INVITATION

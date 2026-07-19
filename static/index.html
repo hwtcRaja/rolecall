@@ -3036,6 +3036,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="edit-event-room" placeholder="Custom room name" style="display:none;width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
  </div>
  </div>
+ <div class="form-row">
+ <div class="form-group" style="flex:1"><label>Address</label>
+ <input type="text" id="edit-event-address" placeholder="e.g. 123 Main St, Winter Garden, FL 34787" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+ </div>
+ </div>
  <div style="padding:10px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Link to (choose one)</div>
  <div class="form-row" style="margin-bottom:0">
  <div class="form-group"><label>Production</label>
@@ -16369,6 +16374,7 @@ function openEventModal(eid=null){
  })
  setEventLocationUI('HWTC','')
  document.getElementById('edit-event-location-sel').value='HWTC'
+ document.getElementById('edit-event-address').value=''
  document.getElementById('edit-event-type').value=''
  document.getElementById('edit-event-production').value=''
  document.getElementById('edit-event-volunteers').value=''
@@ -16412,6 +16418,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-end').value=e.end_time||''
  document.getElementById('edit-event-type').value=e.event_type_id||''
  setEventLocationUI(e.location||'HWTC', e.room||'')
+ document.getElementById('edit-event-address').value=e.address||''
  document.getElementById('edit-event-production').value=e.production_id||''
  const pgSelEdit=document.getElementById('edit-event-program')
  if(pgSelEdit) pgSelEdit.value=e.program_id||''
@@ -16477,6 +16484,7 @@ async function saveEditEvent(){
  end_time:document.getElementById('edit-event-end').value||null,
  event_type_id:document.getElementById('edit-event-type').value||null,
  location, room,
+ address:document.getElementById('edit-event-address')?.value.trim()||'',
  production_id:document.getElementById('edit-event-production')?.value||null,
  program_id:document.getElementById('edit-event-program')?.value||null,
  expected_volunteers:parseInt(document.getElementById('edit-event-volunteers')?.value)||null,

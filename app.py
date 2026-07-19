@@ -12323,6 +12323,9 @@ def send_rsvp_invite(eid):
             execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at,party_members)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW(),%s)''',
                 (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, this_role_id or None, this_role_name or None, party_json or ''))
+        # Commit immediately — the RSVP link is only useful if this row survives even
+        # when something later in this same iteration (template render, SMTP) blows up.
+        conn.commit()
 
         rsvp_url = f"{base_url}/rsvp/{token}"
         date_str = evt.get('event_date','')
@@ -12335,59 +12338,63 @@ def send_rsvp_invite(eid):
             except Exception:
                 pass
 
-        if is_household_send:
-            guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
-            guest_list_block = f'''<div style="margin-top:28px">
+        try:
+            if is_household_send:
+                guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
+                guest_list_block = f'''<div style="margin-top:28px">
               <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
             </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
-            date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
-            time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''
-            block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
-            location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
-            custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
-            description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
-            tmpl_vars = {
-                'recipient_name': v['name'], 'event_name': evt['name'],
-                'details_table': date_row + time_row + block_line + location_row,
-                'custom_message_block': custom_message_block, 'description_block': description_block,
-                'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
-            }
-            tmpl_body = household_tmpl['body'] if household_tmpl else RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT
-            tmpl_subject = household_tmpl['subject'] if household_tmpl else RSVP_INVITE_TEMPLATE_DEFS[0][2]
-            body = render_template_vars(tmpl_body, tmpl_vars)
-            email_subject = render_template_vars(tmpl_subject, tmpl_vars)
-        else:
-            date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
-            time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''
-            location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
-            custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
-            description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
-            tmpl_vars = {
-                'recipient_name': v['name'], 'recipient_email': v['email'],
-                'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
-                'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
-                'custom_message_block': custom_message_block, 'description_block': description_block,
-                'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
-            }
-            tmpl_body = general_tmpl['body'] if general_tmpl else RSVP_INVITE_GENERAL_BODY_DEFAULT
-            tmpl_subject = general_tmpl['subject'] if general_tmpl else RSVP_INVITE_TEMPLATE_DEFS[1][2]
-            body = render_template_vars(tmpl_body, tmpl_vars)
-            email_subject = render_template_vars(tmpl_subject, tmpl_vars)
+                date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
+                time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''
+                block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
+                location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
+                description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
+                tmpl_vars = {
+                    'recipient_name': v['name'], 'event_name': evt['name'],
+                    'details_table': date_row + time_row + block_line + location_row,
+                    'custom_message_block': custom_message_block, 'description_block': description_block,
+                    'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
+                }
+                tmpl_body = household_tmpl['body'] if household_tmpl else RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT
+                tmpl_subject = household_tmpl['subject'] if household_tmpl else RSVP_INVITE_TEMPLATE_DEFS[0][2]
+                body = render_template_vars(tmpl_body, tmpl_vars)
+                email_subject = render_template_vars(tmpl_subject, tmpl_vars)
+            else:
+                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
+                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''
+                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
+                description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
+                tmpl_vars = {
+                    'recipient_name': v['name'], 'recipient_email': v['email'],
+                    'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
+                    'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
+                    'custom_message_block': custom_message_block, 'description_block': description_block,
+                    'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
+                }
+                tmpl_body = general_tmpl['body'] if general_tmpl else RSVP_INVITE_GENERAL_BODY_DEFAULT
+                tmpl_subject = general_tmpl['subject'] if general_tmpl else RSVP_INVITE_TEMPLATE_DEFS[1][2]
+                body = render_template_vars(tmpl_body, tmpl_vars)
+                email_subject = render_template_vars(tmpl_subject, tmpl_vars)
 
-        fi = d.get('from_identity') or {}
-        try:
+            fi = d.get('from_identity') or {}
             send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
+            conn.commit()
             # Small delay between emails to avoid rate limiting
             import time as _time
             if sent % 10 == 0:
                 _time.sleep(1)
         except Exception as e:
-            app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
+            import traceback
+            app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}\n{traceback.format_exc()}')
+            try: conn.rollback()
+            except Exception: pass
 
-    conn.commit(); conn.close()
+    conn.close()
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
 def _role_headcount(conn, role_id):

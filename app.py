@@ -12019,27 +12019,33 @@ def send_rsvp_invite(eid):
     # or a batch (households: [{members, email, label}, ...]) so a whole list can be
     # built up and sent in one go.
     party_names_by_email = {}
+    role_by_email = {}
+    is_household_send = False
     households_batch = d.get('households') or []
     if not households_batch:
         single_members = [n.strip() for n in (d.get('household_members') or []) if (n or '').strip()]
         single_email = (d.get('household_email') or '').strip().lower()
         single_label = (d.get('household_label') or '').strip()
         if single_members and single_email:
-            households_batch = [{'members': single_members, 'email': single_email, 'label': single_label}]
+            households_batch = [{'members': single_members, 'email': single_email, 'label': single_label, 'role_id': d.get('assign_role_id') or ''}]
 
     if households_batch:
+        is_household_send = True
         vols = []
         seen_emails = set()
         for h in households_batch:
             h_email = (h.get('email') or '').strip().lower()
             h_members = [n.strip() for n in (h.get('members') or []) if (n or '').strip()]
             h_label = (h.get('label') or '').strip()
+            h_role_id = (h.get('role_id') or '').strip()
             if not h_email or not h_members or h_email in seen_emails:
                 continue
             seen_emails.add(h_email)
             display_name = h_label or (h_members[0] if len(h_members) == 1 else f'{h_members[0]} + {len(h_members)-1} more')
             vols.append({'id': None, 'name': display_name, 'email': h_email})
             party_names_by_email[h_email] = h_members
+            if h_role_id:
+                role_by_email[h_email] = h_role_id
 
     is_guest = evt.get('rsvp_kind') == 'guest'
     kind_label = 'Community Invite' if is_guest else 'Volunteer Opportunity'
@@ -12111,19 +12117,28 @@ def send_rsvp_invite(eid):
 
         party_json = json.dumps([{'name': n, 'attending': None} for n in party_names_by_email[v['email']]]) if v['email'] in party_names_by_email else None
 
+        # A household can carry its own block assignment (picked while it was being added
+        # to the list); otherwise fall back to the batch-wide "Assign to Block" choice.
+        this_role_id = role_by_email.get(v['email']) or assign_role_id
+        this_role_name = ''
+        if this_role_id:
+            this_role = next((r for r in roles if r['id'] == this_role_id), None)
+            this_role_name = this_role['name'] if this_role else ''
+            if not this_role: this_role_id = ''
+
         if existing:
             token = existing['token']
             if party_json is not None:
                 execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s, party_members=%s WHERE id=%s',
-                    (assign_role_id or None, assign_role_name or None, party_json, existing['id']))
+                    (this_role_id or None, this_role_name or None, party_json, existing['id']))
             else:
                 execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s WHERE id=%s',
-                    (assign_role_id or None, assign_role_name or None, existing['id']))
+                    (this_role_id or None, this_role_name or None, existing['id']))
         else:
             token = str(uuid.uuid4())
             execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at,party_members)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW(),%s)''',
-                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, assign_role_id or None, assign_role_name or None, party_json or ''))
+                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, this_role_id or None, this_role_name or None, party_json or ''))
 
         rsvp_url = f"{base_url}/rsvp/{token}"
         date_str = evt.get('event_date','')
@@ -12136,7 +12151,46 @@ def send_rsvp_invite(eid):
             except Exception:
                 pass
 
-        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
+        if is_household_send:
+            guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
+            block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
+            body = f'''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
+          <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
+            <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>
+            <div style="width:36px;height:1px;background:#145466;margin:16px auto"></div>
+            <h1 style="font-size:26px;font-weight:400;margin:0;color:#0d3d4d;letter-spacing:0.2px">You Are Cordially Invited</h1>
+          </div>
+          <div style="padding:36px 40px 8px">
+            <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 18px">Dear {v['name']},</p>
+            <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 24px">On behalf of Horizon West Theater Company, it is our pleasure to invite you to</p>
+            <h2 style="font-size:22px;font-weight:400;color:#0d3d4d;margin:0 0 24px;text-align:center;font-style:italic">{evt['name']}</h2>
+            <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;margin-bottom:8px">
+              <tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>
+              {f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''}
+              {block_line}
+              {f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''}
+            </table>
+            {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''}
+            {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''}
+            {f'''<div style="margin-top:28px">
+              <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
+              <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
+            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''}
+            <div style="text-align:center;margin:36px 0 8px">
+              <a href="{rsvp_url}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
+                RESPOND TO THIS INVITATION
+              </a>
+            </div>
+          </div>
+          <div style="padding:24px 40px 40px;text-align:center">
+            <p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.7;color:#9ca3af;margin:0">
+              We look forward to welcoming you.<br/>
+              Horizon West Theater Company
+            </p>
+          </div>
+        </div>'''
+        else:
+            body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
           <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
             <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
             <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">{"🎉" if is_guest else "🎭"} {kind_label}</h2>
@@ -12168,7 +12222,8 @@ def send_rsvp_invite(eid):
 
         fi = d.get('from_identity') or {}
         try:
-            send_email([v['email']], f'[HWTC] {kind_label}: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
+            email_subject = f'You Are Invited: {evt["name"]}' if is_household_send else f'[HWTC] {kind_label}: {evt["name"]}'
+            send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             # Small delay between emails to avoid rate limiting

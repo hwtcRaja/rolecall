@@ -17053,9 +17053,32 @@ async function loadEventRsvps(eid){
 
  const allRsvps = Array.isArray(rsvps) ? rsvps: []
  window._currentEventRsvps = allRsvps // cache for preview duplicate detection
- const signedUp = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed').length
- const declined = allRsvps.filter(r=>r.status==='declined').length
- const invited = allRsvps.length
+ // A household/party RSVP is stored as ONE row with a party_members JSON list
+ // (e.g. "me" + a guest), so counts must sum people within each row, not just rows.
+ const partyMembersOf = (r) => {
+ if(!r.party_members) return null
+ try{
+ const pm = JSON.parse(r.party_members)
+ return (Array.isArray(pm) && pm.length) ? pm: null
+ }catch(e){ return null }
+ }
+ const invitedCountOf = (r) => {
+ const pm = partyMembersOf(r)
+ return pm ? pm.length: 1
+ }
+ const confirmedCountOf = (r) => {
+ const pm = partyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===true).length
+ return (r.status==='interested'||r.status==='confirmed') ? 1: 0
+ }
+ const declinedCountOf = (r) => {
+ const pm = partyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===false).length
+ return r.status==='declined' ? 1: 0
+ }
+ const signedUp = allRsvps.reduce((s,r)=>s+confirmedCountOf(r),0)
+ const declined = allRsvps.reduce((s,r)=>s+declinedCountOf(r),0)
+ const invited = allRsvps.reduce((s,r)=>s+invitedCountOf(r),0)
  const totalSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0): 0
  const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0): 0
  const pctFilled = totalSlots > 0 ? Math.round(filledSlots/totalSlots*100): null
@@ -17132,15 +17155,18 @@ async function loadEventRsvps(eid){
 
  let html = statsHtml
  if(confirmedList.length){
- html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px"> Coming (${confirmedList.length})</div>`
+ const confirmedPeople = confirmedList.reduce((s,r)=>s+confirmedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px"> Coming (${confirmedPeople})</div>`
  html += confirmedList.map(r=>rsvpRow(r)).join('')
  }
  if(invitedList.length){
- html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedList.length})</div>`
+ const invitedPeople = invitedList.reduce((s,r)=>s+invitedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedPeople})</div>`
  html += invitedList.map(r=>rsvpRow(r)).join('')
  }
  if(declinedList.length){
- html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;margin-top:${(confirmedList.length||invitedList.length)?'14':'4'}px;margin-bottom:4px"> Can't Make It (${declinedList.length})</div>`
+ const declinedPeople = declinedList.reduce((s,r)=>s+declinedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;margin-top:${(confirmedList.length||invitedList.length)?'14':'4'}px;margin-bottom:4px"> Can't Make It (${declinedPeople})</div>`
  html += declinedList.map(r=>rsvpRow(r)).join('')
  }
  el.innerHTML = html

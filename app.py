@@ -335,9 +335,9 @@ RSVP_INVITE_GENERAL_BODY_DEFAULT = '''<div style="font-family:-apple-system,Blin
 
 RSVP_INVITE_TEMPLATE_DEFS = [
     ('rsvp_invite_household', 'RSVP Invite — Household / Party', 'You Are Invited: {{event_name}}', RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
-     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
+     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{address}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
     ('rsvp_invite_general', 'RSVP Invite — General', '[HWTC] {{kind_label}}: {{event_name}}', RSVP_INVITE_GENERAL_BODY_DEFAULT,
-     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
+     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{address}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
 ]
 
 def seed_rsvp_invite_templates(conn=None):
@@ -810,6 +810,7 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_type_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS location TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS address TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS room TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_volunteers INTEGER",
@@ -2411,11 +2412,11 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
-         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
@@ -2499,14 +2500,14 @@ def update_event(eid):
     prev_status = prev.get('status') if prev else None
     new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
+        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
         kiosk_signin_mode=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
-         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
@@ -12361,15 +12362,15 @@ def send_rsvp_invite(eid):
                 date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
                 display_time = this_block_time or time_str
                 time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{display_time}</td></tr>' if display_time else ''
-                block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Event</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
                 location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Address</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["address"]}</td></tr>' if evt.get('address') else ''
                 custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
                 description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
                 tmpl_vars = {
                     'recipient_name': v['name'], 'event_name': evt['name'],
-                    'details_table': date_row + time_row + block_line + location_row,
+                    'details_table': date_row + time_row + location_row + address_row,
                     'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
-                    'location': evt.get('location') or '',
+                    'location': evt.get('location') or '', 'address': evt.get('address') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
                 }
@@ -12382,14 +12383,15 @@ def send_rsvp_invite(eid):
                 display_time = this_block_time or time_str
                 time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
                 location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">🏠 Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
                 custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
                 description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
                 tmpl_vars = {
                     'recipient_name': v['name'], 'recipient_email': v['email'],
                     'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
-                    'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
+                    'intro_line': intro_line, 'details_table': date_row + time_row + location_row + address_row,
                     'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
-                    'location': evt.get('location') or '',
+                    'location': evt.get('location') or '', 'address': evt.get('address') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
                 }
@@ -12509,7 +12511,7 @@ def _guest_invite_css():
 def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
-        e.location, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
+        e.location, e.address, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
         e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
@@ -12659,6 +12661,7 @@ def rsvp_page(token):
               <div class="gi-event-name">{rsvp["event_name"]}</div>
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
@@ -12796,6 +12799,7 @@ def rsvp_page(token):
               <div class="gi-event-name">{rsvp["event_name"]}</div>
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {locked_block_html}
             <div class="gi-divider"><span></span></div>
@@ -12870,6 +12874,7 @@ def rsvp_page(token):
               <div class="gi-event-name">{rsvp["event_name"]}</div>
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
               {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
@@ -12894,7 +12899,7 @@ def rsvp_submit(token):
     rsvp_action = req.form.get('rsvp_action', 'confirm').strip()
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.description,
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.address, e.description,
         e.id as event_id, e.status as event_status, e.rsvp_kind, e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
@@ -13334,6 +13339,7 @@ def public_rsvp_open_page(event_id):
         <div class="gi-event-name">{evt["name"]}</div>
         {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
         {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{evt["address"]}</div>' if evt.get("address") else ''}
       </div>
       {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''
 

@@ -16651,7 +16651,10 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-sub-household')?.style && (document.getElementById('rsvp-sub-household').style.display = type==='household' ? '': 'none')
  const isHousehold = type==='household'
  document.getElementById('rsvp-send-btn')?.style && (document.getElementById('rsvp-send-btn').style.display = isHousehold ? 'none': '')
- if(isHousehold) document.getElementById('rsvp-assign-block-wrap-'+eid)?.style && (document.getElementById('rsvp-assign-block-wrap-'+eid).style.display = 'none')
+ if(isHousehold){
+ document.getElementById('rsvp-assign-block-wrap-'+eid)?.style && (document.getElementById('rsvp-assign-block-wrap-'+eid).style.display = 'none')
+ renderHouseholdList(eid) // sync the "Ready to Send" panel with any entries already staged
+ }
  else loadEventRoles(eid, window._currentEventRoles||[])
  document.getElementById('rsvp-recipient-preview')?.style && (document.getElementById('rsvp-recipient-preview').style.display = isHousehold ? 'none': '')
  if(!isHousehold) updateRsvpPreview(eid)

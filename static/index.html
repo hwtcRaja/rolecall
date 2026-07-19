@@ -255,10 +255,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .settings-nav-btn i{font-size:15px;flex-shrink:0}
 .settings-panel>div[style*="font-size:15px"]{display:none}
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px}
-#page-settings{overflow:hidden;display:flex;flex-direction:column;height:100%}
+#page-settings.active{overflow:hidden;display:flex;flex-direction:column;height:100%}
 #page-settings .page-body{padding:0!important;display:flex!important;flex-direction:row!important;overflow:hidden!important;flex:1;min-height:0}
 #settings-sidebar{width:210px;min-width:210px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:12px 8px}
 #settings-panels{flex:1;min-width:0;overflow-y:auto;padding:24px 28px}
+.banner-fit-btn,.banner-pos-btn,.sched-bg-fit-btn,.sched-bg-pos-btn{padding:7px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text-muted);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.banner-fit-btn.active,.banner-pos-btn.active,.sched-bg-fit-btn.active,.sched-bg-pos-btn.active{background:var(--teal-light,#e0f4f0);border-color:var(--teal);color:var(--teal-dark)}
+.pos-grid-3x3{display:grid;grid-template-columns:repeat(3,32px);grid-template-rows:repeat(3,32px);gap:4px}
+.pos-grid-3x3 .banner-pos-btn,.pos-grid-3x3 .sched-bg-pos-btn{padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+.lobby-img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
 .inline-input-row{display:flex;gap:8px;margin-bottom:8px}
 .inline-input-row input{flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none}
 .inline-input-row input:focus{border-color:var(--teal-400)}
@@ -318,7 +323,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .settings-grid{grid-template-columns:1fr!important}
 
  /* Email page layout: stack */
- div[style*="grid-template-columns:1fr 340px"]{display:flex!important;flex-direction:column-reverse!important}
+ div[style*="grid-template-columns:1fr 380px"]{display:flex!important;flex-direction:column-reverse!important}
 
  /* Tables: horizontal scroll */
 .card{overflow-x:auto}
@@ -467,7 +472,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
-        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall">📞</span>On-Call Schedule</div>
+        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
+        <div class="nav-item" onclick="navTo('hours-store',this)"><span class="nav-icon" id="ni-hours-store"></span>Hours Store</div>
       </nav>
  <div class="sidebar-user">
  <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -491,6 +497,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-header">
     <div><div class="page-title">Venue Rentals</div><div class="page-subtitle" id="rentals-subtitle">Partners, spaces &amp; agreements</div></div>
     <div class="page-actions">
+      <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
+      <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
       <button class="btn btn-secondary" onclick="openRentalSpacesModal()">⚙️ Manage Spaces</button>
       <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
     </div>
@@ -837,6 +845,55 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
+ <!-- HOURS STORE -->
+ <section class="page" id="page-hours-store">
+ <div class="page-header" style="flex-shrink:0">
+ <div><div class="page-title"> Hours Store</div><div class="page-subtitle">Let volunteers redeem logged hours for classes and rewards</div></div>
+ </div>
+ <div class="page-body">
+  <div class="card" style="padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+   <div style="font-size:13px;font-weight:700">Exchange Rate</div>
+   <div style="display:flex;align-items:center;gap:6px">
+    <span style="font-size:13px;color:var(--text-muted)">1 hour =</span>
+    <span style="font-size:14px;color:var(--text-muted)">$</span>
+    <input type="number" id="hs-rate-dollars" min="0.01" step="0.01" style="width:80px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+   </div>
+   <button class="btn btn-primary btn-sm" onclick="saveHoursStoreRate()">Save Rate</button>
+   <span id="hs-rate-status" style="font-size:12px;color:var(--teal-dark)"></span>
+  </div>
+
+  <div class="card" style="padding:16px 20px;margin-bottom:16px">
+   <div style="font-size:13px;font-weight:700;margin-bottom:10px"> Active Event Bonuses</div>
+   <div id="hs-event-bonuses-list" style="font-size:12px;color:var(--text-muted)">Loading…</div>
+   <div style="font-size:11px;color:var(--text-hint);margin-top:8px">Set these from the Hours Store Bonus section on an event's edit form (Events &amp; Calendar).</div>
+  </div>
+
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+   <button onclick="switchHsTab('requests')" id="hstab-requests" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Redemption Requests</button>
+   <button onclick="switchHsTab('items')" id="hstab-items" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Store Items</button>
+  </div>
+
+  <div id="hs-pane-requests">
+   <div style="display:flex;gap:8px;margin-bottom:14px">
+    <select class="filter-select" id="hs-req-filter" onchange="renderHoursStoreRequests()">
+     <option value="pending">Pending</option>
+     <option value="awaiting_payment">Awaiting Payment</option>
+     <option value="approved">Approved</option>
+     <option value="fulfilled">Fulfilled</option>
+     <option value="denied">Denied</option>
+     <option value="">All</option>
+    </select>
+   </div>
+   <div id="hs-requests-list"></div>
+  </div>
+
+  <div id="hs-pane-items" style="display:none">
+   <div style="margin-bottom:14px"><button class="btn btn-primary btn-sm" onclick="openStoreItemModal()">+ New Store Item</button></div>
+   <div id="hs-items-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px"></div>
+  </div>
+ </div>
+ </section>
+
  <!-- WAIVERS -->
  <section class="page" id="page-waivers">
  <div class="page-header">
@@ -963,7 +1020,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <button class="btn btn-secondary btn-sm" onclick="loadEmailLog()">Refresh</button>
    </div>
   </div>
-  <div id="email-log-table" style="overflow-x:auto">
+  <div id="email-log-table" style="overflow:auto;max-height:420px">
    <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading delivery log…</div>
   </div>
  </div>
@@ -1100,7 +1157,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <select class="filter-select" id="yp-filter-status" onchange="renderYouthProgramsPage()">
    <option value="">All Statuses</option>
    <option value="upcoming">Upcoming</option>
-   <option value="active">Active</option>
+   <option value="active" selected>Active</option>
    <option value="completed">Completed</option>
    <option value="archived">Archived</option>
   </select>
@@ -1306,7 +1363,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     </div>
   </div>
 
-  <div class="page-body">
   <!-- View tabs -->
   <div style="display:flex;gap:2px;margin-bottom:16px;border-bottom:2px solid var(--border)">
     <button id="dir-tab-list" onclick="switchDirectorTab('list')"
@@ -1351,7 +1407,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div id="directors-pending" style="display:none"></div>
   <div id="directors-shows" style="display:none"></div>
   <div id="directors-refuses" style="display:none"></div>
-  </div>
 </section>
 
 <section class="page" id="page-marquee">
@@ -1609,7 +1664,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
  </div></div>
-   </div>
 
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Users & access</div>
@@ -1740,9 +1794,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  </div>
- </div>
- </section>
-   </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">ELIC management</div>
@@ -1776,10 +1827,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  <div style="display:flex;align-items:flex-end;gap:6px">
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-cl-studio-only" checked style="accent-color:var(--teal-400)"/> Studio only</label>
  <button class="btn btn-primary btn-sm" onclick="addChecklistItem()">Add Item</button>
  </div>
  </div>
- <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it.</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Add a hint/prompt by editing the item after creating it. Uncheck "Studio only" for items that should also show for events held elsewhere (like "Any incidents to report?").</div>
  </div>
 <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Opening Checklist Template</div>
@@ -1793,9 +1845,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  <div style="display:flex;align-items:flex-end;gap:6px">
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-required" checked style="accent-color:var(--teal-400)"/> Required</label>
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-ocl-studio-only" checked style="accent-color:var(--teal-400)"/> Studio only</label>
  <button class="btn btn-primary btn-sm" onclick="addOpeningChecklistItem()">Add Item</button>
  </div>
  </div>
+ <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Uncheck "Studio only" for items that should also show for events held elsewhere (like "Anything staff should know" or headcount).</div>
  </div>
    </div>
 
@@ -2007,29 +2061,129 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-lobby" class="settings-panel" style="display:none;">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
+
     <div class="settings-section">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
- <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
- </div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
- <div id="users-management-list"></div>
- </div>
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Active Layout</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Choose which lobby layout is currently live on the TV display.</div>
+     <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:8px"></div>
+     <div id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark)"></div>
+    </div>
 
- <!-- Family / Portal Management -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
- <div id="families-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
- </div>
- </div>
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Seasonal Color Theme</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Applies a seasonal color scheme and decorations on top of the Standard layout.</div>
+     <div class="form-group" style="max-width:280px">
+      <label>Theme</label>
+      <select id="lobby-theme-select">
+       <option value="none">None</option>
+       <option value="winter">Winter</option>
+       <option value="spring">Spring</option>
+       <option value="summer">Summer</option>
+       <option value="fall">Fall</option>
+       <option value="halloween">Halloween</option>
+       <option value="show">Show / Spotlight</option>
+       <option value="jungle">Jungle</option>
+       <option value="seuss">Seuss</option>
+      </select>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyTheme()">Apply Theme</button>
+      <span id="lobby-theme-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
 
- </div>
- </div>
- </section
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Banner</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload an image to display in the lobby banner, shown alongside a live clock.</div>
+     <div id="lobby-banner-preview" style="display:none;position:relative;width:100%;max-width:480px;aspect-ratio:16/5;border-radius:10px;border:1px solid var(--border);background-color:#000;margin-bottom:12px;overflow:hidden">
+      <div style="position:absolute;bottom:8px;right:12px;text-align:right;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.6)">
+       <div id="banner-preview-clock" style="font-size:20px;font-weight:700"></div>
+       <div id="banner-preview-date" style="font-size:11px"></div>
+      </div>
+     </div>
+     <div style="margin-bottom:12px">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Choose Image
+       <input type="file" id="lobby-banner-input" accept="image/*" style="display:none"/>
+      </label>
+      <button class="btn btn-secondary btn-sm" id="lobby-banner-clear-btn" style="display:none" onclick="clearLobbyBanner()">Remove Banner</button>
+     </div>
+     <div id="lobby-banner-controls" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Fit</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+       <button class="banner-fit-btn" data-fit="cover">Cover</button>
+       <button class="banner-fit-btn" data-fit="contain">Contain</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
+      <div class="pos-grid-3x3" style="margin-bottom:12px">
+       <button class="banner-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="banner-pos-btn" data-pos="50% 0%">↑</button>
+       <button class="banner-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="banner-pos-btn" data-pos="0% 50%">←</button>
+       <button class="banner-pos-btn" data-pos="50% 50%">•</button>
+       <button class="banner-pos-btn" data-pos="100% 50%">→</button>
+       <button class="banner-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="banner-pos-btn" data-pos="50% 100%">↓</button>
+       <button class="banner-pos-btn" data-pos="100% 100%">↘</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="banner-zoom-val">100%</span></div>
+      <input type="range" id="lobby-banner-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyBannerSettings()">Save Banner Settings</button>
+      <span id="lobby-banner-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Schedule Background</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload a background image to display behind the upcoming events schedule.</div>
+     <div id="sched-bg-preview" style="display:none;width:100%;max-width:480px;aspect-ratio:16/9;border-radius:10px;border:1px solid var(--border);background-color:#000;margin-bottom:12px"></div>
+     <div style="margin-bottom:12px">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Choose Image
+       <input type="file" id="sched-bg-input" accept="image/*" style="display:none"/>
+      </label>
+      <button class="btn btn-secondary btn-sm" id="sched-bg-clear-btn" style="display:none" onclick="clearSchedBg()">Remove Background</button>
+     </div>
+     <div id="sched-bg-controls" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Fit</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+       <button class="sched-bg-fit-btn" data-fit="cover">Cover</button>
+       <button class="sched-bg-fit-btn" data-fit="contain">Contain</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
+      <div class="pos-grid-3x3" style="margin-bottom:12px">
+       <button class="sched-bg-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 0%">↑</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 50%">←</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 50%">•</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 50%">→</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="sched-bg-pos-btn" data-pos="50% 100%">↓</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 100%">↘</button>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="sched-bg-zoom-val">100%</span></div>
+      <input type="range" id="sched-bg-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary btn-sm" onclick="saveSchedBgSettings()">Save Background Settings</button>
+      <span id="sched-bg-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Photo Slideshow</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload photos to rotate through on the lobby TV display. Add an optional caption to each.</div>
+     <div id="lobby-img-grid" class="lobby-img-grid" style="margin-bottom:12px"></div>
+     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">Add Photos
+       <input type="file" id="lobby-img-input" accept="image/*" multiple style="display:none"/>
+      </label>
+      <button class="btn btn-primary btn-sm" onclick="saveLobbyImages()">Save Changes</button>
+      <span id="lobby-img-status" style="font-size:13px;color:var(--teal-dark)"></span>
+     </div>
+    </div>
+
    </div>
 
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">
@@ -2322,6 +2476,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-rentals" placeholder="key" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('rentals',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-oncall">
+ <span style="font-size:16px">📞</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">On-Call Schedule</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-oncall" placeholder="phone" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('oncall',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-hours-store">
+ <span style="font-size:16px">🏪</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Hours Store</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-hours-store" placeholder="store" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('hours-store',this.value)"/>
  </div>
  </div>
  </div>
@@ -2860,6 +3036,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="edit-event-room" placeholder="Custom room name" style="display:none;width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
  </div>
  </div>
+ <div class="form-row">
+ <div class="form-group" style="flex:1"><label>Address</label>
+ <input type="text" id="edit-event-address" placeholder="e.g. 123 Main St, Winter Garden, FL 34787" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
+ </div>
+ </div>
  <div style="padding:10px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Link to (choose one)</div>
  <div class="form-row" style="margin-bottom:0">
  <div class="form-group"><label>Production</label>
@@ -2906,8 +3087,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
  <input type="checkbox" id="edit-event-rsvp" onchange="toggleRsvpMessage()" style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
  <div>
- <div style="font-size:13px;font-weight:600"> Volunteer Sign-Ups</div>
- <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Send RSVP invites so volunteers can express interest in this event</div>
+ <div style="font-size:13px;font-weight:600"> RSVPs</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Send invites and track who's coming — for volunteer shifts or general community events</div>
  </div>
  </label>
 
@@ -2921,8 +3102,41 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  </div>
  <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:10px">
- <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for RSVP invites (optional)</label>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">What kind of RSVP is this?</label>
+ <select id="edit-event-rsvp-kind" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:10px">
+  <option value="volunteer">Volunteer Shift — asking people to help/work the event</option>
+  <option value="guest">Community / Guest Invite — asking people to attend (e.g. open house)</option>
+ </select>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Personal message for invites (optional)</label>
  <textarea id="edit-event-rsvp-msg" placeholder="e.g. 'We especially need help with setup and teardown this time!'" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">"Roles" become "Time Slots" throughout the invite flow when set to Community / Guest Invite — add them the same way (Manage Roles) if you're doing time slots.</div>
+ </div>
+ <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Kiosk Sign-In Mode</label>
+ <select id="edit-event-kiosk-mode" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+  <option value="auto">Automatic (default — based on production/program setup)</option>
+  <option value="standard">Standard Sign-In only — quick self sign-in/out, no pickup verification</option>
+  <option value="pickup">Participant Pickup only — full drop-off/pick-up with authorized names</option>
+  <option value="both">Both — show both options, staff pick per person</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Controls what shows on the kiosk once this event is open. "Automatic" keeps the current behavior based on whether it's a production or program event.</div>
+ </div>
+ <div style="margin-top:14px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px"> Hours Store Bonus (optional)</label>
+ <select id="edit-event-hs-bonus-type" onchange="toggleHsBonusFields()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+  <option value="">None</option>
+  <option value="multiplier">Multiplier — e.g. double dollars per hour</option>
+  <option value="flat">Flat bonus credit — e.g. extra $10 for attending</option>
+ </select>
+ <div id="edit-event-hs-multiplier-wrap" style="display:none;margin-top:8px">
+  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Multiplier (2 = double, 1.5 = time-and-a-half)</label>
+  <input type="number" id="edit-event-hs-multiplier" min="1" step="0.1" placeholder="2" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ </div>
+ <div id="edit-event-hs-flat-wrap" style="display:none;margin-top:8px">
+  <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Flat bonus, per volunteer who logs any hours here ($)</label>
+  <input type="number" id="edit-event-hs-flat" min="0" step="0.01" placeholder="10.00" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ </div>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Boosts Hours Store credit only — doesn't change anyone's actual logged hours total.</div>
  </div>
  </div>
  </div>
@@ -3529,6 +3743,8 @@ const NAV_PERM_MAP = {
  'donor-campaigns': 'donors',
  'donor-tiers': 'donors',
  'donor-templates': 'donors',
+ 'oncall': 'oncall',
+ 'hours-store': 'hours_store',
 }
 
 function canView(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
@@ -3603,6 +3819,7 @@ function navTo(page,el){
  if(page==='dashboard') renderDashboard()
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
  if(page==='hours') renderHours()
+ if(page==='hours-store') renderHoursStorePage()
  if(page==='waivers') renderWaivers()
  if(page==='email'){ renderEmailPage(); loadEmailLog() }
  if(page==='oncall') loadOncallPage()
@@ -4426,6 +4643,7 @@ async function openProfile(volId){
  <div class="tab" onclick="switchTab(this,'tab-notes')">Notes (${(v.notes||[]).length})</div>
  <div class="tab" onclick="switchTab(this,'tab-files')">Files (${(v.files||[]).length})</div>
  <div class="tab" onclick="switchTab(this,'tab-comms');loadVolComms('${v.id}')"> Emails</div>
+ <div class="tab" onclick="switchTab(this,'tab-store')"> Hours Store</div>
  </div>
  <div style="padding:0 0 20px">
  <div class="tab-pane active" id="tab-hours">
@@ -4458,6 +4676,32 @@ async function openProfile(volId){
  </div>
  <div class="tab-pane" id="tab-comms">
  <div id="vol-comms-list"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
+ </div>
+ <div class="tab-pane" id="tab-store">
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+ <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--teal-dark)">${v.total_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Total Logged</div></div>
+ <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
+ <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
+ </div>
+ ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${(v.total_hours-v.store_eligible_hours).toFixed(2)}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
+ ${v.store_eligible_hours > v.total_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#f0fdf4;border-color:#bbf7d0"><div style="font-size:12px;color:#166534">Includes ${(v.store_eligible_hours-v.total_hours).toFixed(2)}h in Hours Store bonus credit from promotional events (${v.store_eligible_hours}h store-eligible vs ${v.total_hours}h actually logged).</div></div>` : ''}
+ <div class="card" style="padding:16px;margin-bottom:16px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Their Personal Store Link</div>
+ <div style="display:flex;gap:8px">
+ <input readonly id="vol-store-link" value="${window.location.origin}/hours-store/${v.store_token}" style="flex:1;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--bg)"/>
+ <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('vol-store-link').value);toast('Link copied!','success')">Copy</button>
+ </div>
+ </div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Redemption History</div>
+ ${!(v.redemptions||[]).length ? '<div style="color:var(--text-muted);font-size:13px">No redemptions yet</div>' :
+ (v.redemptions||[]).map(function(r){
+  const stBg = {pending:'#fef3c7;color:#92400e',awaiting_payment:'#fce7f3;color:#9d174d',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+  return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+   + '<div><div style="font-weight:600;font-size:13px">'+escHtml(r.item_name_snapshot||r.current_item_name||'Item')+'</div>'
+   + '<div style="font-size:11px;color:var(--text-muted)">'+r.hours_spent+'h applied'+(r.balance_due_cents?' &middot; $'+(r.balance_due_cents/100).toFixed(2)+' balance':'')+' &middot; '+(r.requested_at?r.requested_at.slice(0,10):'')+'</div></div>'
+   + '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status.replace('_',' ')+'</span>'
+   + '</div>'
+ }).join('')}
  </div>
  </div>
  </div>
@@ -4654,6 +4898,206 @@ async function quickAddTime(){
  toast(' '+hoursVal+'h logged for '+volName,'success')
  await loadAllData()
  renderHours()
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HOURS STORE
+// ═══════════════════════════════════════════════════════════════
+var _hsRateCents = 1000
+var _hsItemsCache = []
+
+async function renderHoursStorePage(){
+ const res = await api('/api/admin/hours-store/settings')
+ _hsRateCents = (res && res.rate_cents) || 1000
+ const rateEl = document.getElementById('hs-rate-dollars')
+ if(rateEl) rateEl.value = (_hsRateCents/100).toFixed(2)
+ renderHsEventBonuses()
+ switchHsTab('requests')
+}
+
+async function renderHsEventBonuses(){
+ const el = document.getElementById('hs-event-bonuses-list')
+ if(!el) return
+ const res = await api('/api/admin/hours-store/event-bonuses')
+ const rows = (res && res.events) || []
+ if(!rows.length){ el.innerHTML = '<span style="color:var(--text-hint)">No events currently have a bonus set up.</span>'; return }
+ const today = new Date().toISOString().split('T')[0]
+ el.innerHTML = rows.map(function(e){
+  const isPast = e.event_date && e.event_date < today
+  const detail = e.hours_store_bonus_type==='multiplier'
+    ? (e.hours_store_bonus_multiplier+'\u00d7 hours toward store credit')
+    : ('+$'+(e.hours_store_bonus_flat_cents/100).toFixed(2)+' flat credit for attending')
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);'+(isPast?'opacity:0.55':'')+'">'
+    + '<div><span style="font-weight:600">'+escHtml(e.name)+'</span> <span style="color:var(--text-hint)">'+(e.event_date?formatDate(e.event_date):'')+'</span></div>'
+    + '<div style="color:var(--teal-dark);font-weight:600">'+detail+'</div>'
+    + '</div>'
+ }).join('')
+}
+
+async function saveHoursStoreRate(){
+ const val = parseFloat(document.getElementById('hs-rate-dollars').value)
+ if(!val || val<=0){ toast('Enter a valid dollar amount','error'); return }
+ const res = await api('/api/admin/hours-store/settings','PUT',{rate_dollars:val})
+ if(res.error){ toast(res.error,'error'); return }
+ _hsRateCents = res.rate_cents
+ document.getElementById('hs-rate-status').textContent = 'Saved!'
+ setTimeout(()=>{ const s=document.getElementById('hs-rate-status'); if(s) s.textContent='' },2000)
+ toast('Exchange rate updated','success')
+ renderHoursStoreItems()
+}
+
+function switchHsTab(tab){
+ ['requests','items'].forEach(function(t){
+  const btn = document.getElementById('hstab-'+t)
+  const pane = document.getElementById('hs-pane-'+t)
+  if(btn) btn.style.cssText = t===tab
+   ? 'padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer'
+   : 'padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer'
+  if(pane) pane.style.display = t===tab ? '' : 'none'
+ })
+ if(tab==='requests') renderHoursStoreRequests()
+ else renderHoursStoreItems()
+}
+
+async function renderHoursStoreRequests(){
+ const el = document.getElementById('hs-requests-list')
+ if(!el) return
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading…</div>'
+ const status = document.getElementById('hs-req-filter').value
+ const res = await api('/api/admin/hour-redemptions'+(status?'?status='+status:''))
+ const rows = (res && res.redemptions) || []
+ if(!rows.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No requests here.</div>'; return }
+ const stBg = {pending:'#fef3c7;color:#92400e',awaiting_payment:'#fce7f3;color:#9d174d',approved:'#dbeafe;color:#1e40af',fulfilled:'#dcfce7;color:#166534',denied:'#fee2e2;color:#991b1b'}
+ el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+  + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Volunteer</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Item</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Hours + Balance</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:8px 12px;color:var(--text-muted)">Requested</th><th></th></tr></thead><tbody>'
+  + rows.map(function(r){
+    var actions = ''
+    if(r.status==='pending'){
+     actions += '<button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px" onclick="approveHsRequest(\''+r.id+'\')">Approve</button> '
+     actions += '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer" onclick="denyHsRequest(\''+r.id+'\')">Deny</button>'
+    } else if(r.status==='awaiting_payment'){
+     actions += '<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="resendHsPaymentLink(\''+r.id+'\')">Resend Link</button> '
+     actions += '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer" onclick="denyHsRequest(\''+r.id+'\')">Cancel</button>'
+    } else if(r.status==='approved'){
+     actions += '<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="fulfillHsRequest(\''+r.id+'\')">Mark Fulfilled</button>'
+    }
+    return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:8px 12px"><div style="font-weight:600">'+escHtml(r.volunteer_name||'')+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.volunteer_email||'')+'</div></td>'
+      + '<td style="padding:8px 12px">'+escHtml(r.item_name_snapshot||r.current_item_name||'—')+'</td>'
+      + '<td style="padding:8px 12px;font-weight:600">'+r.hours_spent+'h'+(r.balance_due_cents?' <span style="color:#9d174d">+ $'+(r.balance_due_cents/100).toFixed(2)+'</span>':'')+'</td>'
+      + '<td style="padding:8px 12px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+(stBg[r.status]||'#f3f4f6;color:#6b7280')+'">'+r.status.replace('_',' ')+'</span>'+(r.admin_notes?'<div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+escHtml(r.admin_notes)+'</div>':'')+'</td>'
+      + '<td style="padding:8px 12px;color:var(--text-muted)">'+(r.requested_at?r.requested_at.slice(0,10):'')+'</td>'
+      + '<td style="padding:8px 12px;white-space:nowrap">'+actions+'</td>'
+      + '</tr>'
+  }).join('')
+  + '</tbody></table></div>'
+}
+
+async function approveHsRequest(rid){
+ if(!confirm('Approve this redemption? If there\'s a balance due, a Square payment link will be emailed to the volunteer, and enrollment (if linked to a program) will happen once it\'s paid. If fully covered by hours, they\'ll be enrolled right away.')) return
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/approve','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(res.status==='awaiting_payment' ? 'Approved — payment link sent to volunteer' : 'Request approved','success')
+ renderHoursStoreRequests()
+}
+
+async function resendHsPaymentLink(rid){
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/resend-payment-link','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Payment link resent','success')
+}
+
+async function denyHsRequest(rid){
+ const reason = prompt('Reason (optional, will be emailed to the volunteer):')||''
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/deny','POST',{reason:reason})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Request denied/canceled — hours returned to their balance','success')
+ renderHoursStoreRequests()
+}
+
+async function fulfillHsRequest(rid){
+ const res = await api('/api/admin/hour-redemptions/'+rid+'/fulfill','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Marked fulfilled','success')
+ renderHoursStoreRequests()
+}
+
+async function renderHoursStoreItems(){
+ const el = document.getElementById('hs-items-list')
+ if(!el) return
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);grid-column:1/-1">Loading…</div>'
+ const res = await api('/api/admin/store-items')
+ _hsItemsCache = (res && res.items) || []
+ _hsRateCents = (res && res.rate_cents) || _hsRateCents
+ if(!_hsItemsCache.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);grid-column:1/-1">No store items yet.</div>'; return }
+ el.innerHTML = _hsItemsCache.map(function(it){
+  return '<div class="card" style="padding:16px;'+(it.active?'':'opacity:0.55')+'">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">'
+   + '<div style="font-weight:700;font-size:14px">'+escHtml(it.name)+'</div>'
+   + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:'+(it.active?'#dcfce7;color:#166534':'#f3f4f6;color:#6b7280')+'">'+(it.active?'Active':'Inactive')+'</span>'
+   + '</div>'
+   + (it.description?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">'+escHtml(it.description)+'</div>':'')
+   + (it.program_name?'<div style="font-size:11px;color:var(--teal-dark);margin-bottom:8px"> Enrolls in: '+escHtml(it.program_name)+(it.session_name?' — '+escHtml(it.session_name):(it.is_bundle_item?' (full bundle)':''))+'</div>':'')
+   + (it.auto_synced?'<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;font-style:italic">↻ Synced from program pricing</div>':'')
+   + '<div style="font-size:20px;font-weight:800;color:var(--teal-dark)">'+it.hours_cost+'h<span style="font-size:12px;font-weight:500;color:var(--text-muted)"> ($'+(it.price_cents/100).toFixed(2)+')</span></div>'
+   + (it.auto_synced
+     ? '<div style="font-size:11px;color:var(--text-muted);margin-top:10px">Managed from the program\'s Registration Settings</div>'
+     : '<div style="display:flex;gap:6px;margin-top:10px">'
+       + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="openStoreItemModal(\''+it.id+'\')">Edit</button>'
+       + '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="deleteStoreItem(\''+it.id+'\')">Delete</button>'
+       + '</div>')
+   + '</div>'
+ }).join('')
+}
+
+function openStoreItemModal(iid){
+ const existing = document.getElementById('store-item-overlay')
+ if(existing) existing.remove()
+ const it = iid ? _hsItemsCache.find(function(i){ return i.id===iid }) : null
+ const progOpts = (allPrograms||[]).filter(function(p){ return (p.program_type||'class')!=='production' })
+  .map(function(p){ return '<option value="'+p.id+'"'+(it&&it.linked_program_id===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')
+ const overlay = document.createElement('div')
+ overlay.id = 'store-item-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:460px;padding:22px;max-height:90vh;overflow-y:auto">'
+  + '<div style="font-size:16px;font-weight:700;margin-bottom:16px">'+(it?'Edit':'New')+' Store Item</div>'
+  + '<div class="form-group"><label>Name</label><input id="si-name" value="'+(it?escHtml(it.name):'')+'" placeholder="e.g. Fall Tap Class"/></div>'
+  + '<div class="form-group"><label>Description</label><textarea id="si-desc" rows="2" placeholder="Optional details shown to volunteers">'+(it?escHtml(it.description||''):'')+'</textarea></div>'
+  + '<div class="form-group"><label>Price ($)</label><input id="si-price" type="number" min="0" step="0.01" value="'+(it?(it.price_cents/100).toFixed(2):'')+'" placeholder="e.g. 50.00"/></div>'
+  + '<div class="form-group"><label>Linked Program (optional)</label><select id="si-program"><option value="">— None (manual fulfillment) —</option>'+progOpts+'</select>'
+  + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">If set, approving a request auto-enrolls the volunteer in this program.</div></div>'
+  + '<label style="display:flex;align-items:center;gap:8px;margin:10px 0;cursor:pointer"><input type="checkbox" id="si-active" '+(!it||it.active?'checked':'')+'/> Active (visible in the store)</label>'
+  + '<div style="display:flex;gap:8px;margin-top:16px">'
+  + '<button class="btn btn-primary" style="flex:1" onclick="saveStoreItem('+(it?"'"+it.id+"'":'null')+')">'+(it?'Save Changes':'Create Item')+'</button>'
+  + '<button class="btn btn-secondary" onclick="document.getElementById(\'store-item-overlay\').remove()">Cancel</button>'
+  + '</div></div>'
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+async function saveStoreItem(iid){
+ const name = document.getElementById('si-name').value.trim()
+ if(!name){ toast('Name is required','error'); return }
+ const data = {
+  name: name,
+  description: document.getElementById('si-desc').value.trim(),
+  price_dollars: parseFloat(document.getElementById('si-price').value)||0,
+  linked_program_id: document.getElementById('si-program').value||null,
+  active: document.getElementById('si-active').checked
+ }
+ const res = iid ? await api('/api/admin/store-items/'+iid,'PUT',data) : await api('/api/admin/store-items','POST',data)
+ if(res.error){ toast(res.error,'error'); return }
+ document.getElementById('store-item-overlay').remove()
+ toast(iid?'Item updated!':'Item added!','success')
+ renderHoursStoreItems()
+}
+
+async function deleteStoreItem(iid){
+ if(!confirm('Delete this store item? If it has redemption history, deletion will be blocked — deactivate it instead.')) return
+ const res = await api('/api/admin/store-items/'+iid,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Item deleted')
+ renderHoursStoreItems()
 }
 
 function renderHours(){
@@ -5354,7 +5798,7 @@ async function loadEmailLog(){
  const failedCount = rows.filter(function(r){ return r.status==='failed' }).length
  el.innerHTML = (failedCount>0?'<div style="padding:10px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:13px;color:#991b1b;font-weight:600">&#x26a0; '+failedCount+' failed email'+(failedCount!==1?'s':'')+' — click Retry to resend</div>':'')
   + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
-  + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg)">'
+  + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:1">'
   + '<th style="text-align:left;padding:8px 14px;color:var(--text-muted);font-size:11px;text-transform:uppercase">To</th>'
   + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Subject</th>'
   + '<th style="text-align:left;padding:8px 8px;color:var(--text-muted);font-size:11px;text-transform:uppercase">Source</th>'
@@ -7135,7 +7579,8 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
- board:'', directors:'', 'my-time':'', rentals:''
+ board:'', directors:'', 'my-time':'', rentals:'',
+ oncall:'📞', 'hours-store':'🏪'
 }
 
 let _currentNavIcons = {}
@@ -13435,6 +13880,8 @@ const PERM_SECTIONS = [
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
  {key:'rentals', label:'Venue Rentals', desc:'Create and manage rental requests & agreements'},
+ {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
+ {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
 ]
 
 
@@ -13994,6 +14441,7 @@ function renderChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -14029,8 +14477,9 @@ async function addChecklistItem(){
  const label=(document.getElementById('new-cl-label')||{}).value.trim()
  const item_type=(document.getElementById('new-cl-type')||{}).value||'checkbox'
  const required=(document.getElementById('new-cl-required')||{}).checked!==false
+ const studio_only=(document.getElementById('new-cl-studio-only')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
- const res=await api('/api/checklist-items','POST',{label,item_type,required})
+ const res=await api('/api/checklist-items','POST',{label,item_type,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
  if(res&&res.id){ allChecklistItems.push(res) }
  document.getElementById('new-cl-label').value=''
@@ -14065,6 +14514,8 @@ function openEditChecklistItem(cid){
   +'<input type="text" id="edit-cl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check behind the curtain too" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
   +'<input type="checkbox" id="edit-cl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-cl-studio-only"'+(item.studio_only!==false?' checked':'')+'/> Studio only (hide for events held elsewhere)</label></div>'
   +'<div style="display:flex;gap:8px;justify-content:flex-end">'
   +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
   +'<button class="btn btn-primary" onclick="submitEditChecklistItem(\''+cid+'\')">Save</button>'
@@ -14078,11 +14529,12 @@ async function submitEditChecklistItem(cid){
  const item_type=(document.getElementById('edit-cl-type')||{}).value||'checkbox'
  const hint=(document.getElementById('edit-cl-hint')||{}).value.trim()
  const required=(document.getElementById('edit-cl-required')||{}).checked
+ const studio_only=(document.getElementById('edit-cl-studio-only')||{}).checked
  if(!label){toast('Label is required','error');return}
  const item=allChecklistItems.find(function(i){ return i.id===cid })
- const res=await api('/api/checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ const res=await api('/api/checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
- allChecklistItems=allChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ allChecklistItems=allChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required,studio_only}):i })
  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderChecklistSettings()
  toast('Updated!','success')
@@ -15109,7 +15561,8 @@ function renderEventDetailPage(eid){
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto">
  ${[
  ['overview', ' Overview'],
- ['signups', ` Sign-ups${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
+ ['signups', ` ${e.rsvp_kind==='guest'?'RSVP':'Sign-ups'}${e.rsvp_enabled?'':' <span style="font-size:10px;color:var(--text-hint)">(disabled)</span>'}`],
+ ['invite', ` Send Invites`],
  ['hours', ` Hours${eventHours.length?' <span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:10px;font-weight:700">'+eventHours.length+'</span>':''}`],
  ['staff', ` Staff & Waivers`],
  ].map(([tab,label])=>`
@@ -15176,33 +15629,45 @@ function renderEventDetailPage(eid){
  <div style="font-size:28px"></div>
  <div>
  <div style="font-size:15px;font-weight:800;color:#dc2626">This Event Has Been Cancelled</div>
- <div style="font-size:13px;color:#7f1d1d;margin-top:2px">Sign-ups are closed. Volunteers who signed up have not been automatically notified — use the Email Signed-Up button to let them know.</div>
+ <div style="font-size:13px;color:#7f1d1d;margin-top:2px">${e.rsvp_kind==='guest'?"RSVPs are closed. Guests who RSVP'd have not been automatically notified — use the Email RSVP'd button to let them know.":'Sign-ups are closed. Volunteers who signed up have not been automatically notified — use the Email Signed-Up button to let them know.'}</div>
  </div>
  </div>`:''}
  ${e.rsvp_enabled?`
- <div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+ <div>
 
  <!-- Left: who's signed up -->
  <div>
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
- <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Sign-ups</div>
- ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">Email Signed-Up</button>`:''}
+ <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'RSVPs':'Sign-ups'}</div>
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">${e.rsvp_kind==='guest'?'Email RSVPs':'Email Signed-Up'}</button>`:''}
  </div>
  <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 
  <!-- Role Slots Manager -->
  ${isAdmin?`<div style="margin-top:24px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
- <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Role Slots</div>
- <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add Role</button>
+ <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
+ <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
  </div>
+ ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
+ <input type="checkbox" id="hide-block-names-${e.id}" ${e.hide_block_names?'checked':''} onchange="toggleHideBlockNames('${e.id}',this.checked)" style="accent-color:var(--teal-400)"/>
+ Don't reveal block names to invitees — they'll just see a normal invite, with no mention that other blocks exist
+ </label>`:''}
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div class="form-group" style="margin:0;flex:2;min-width:140px">
- <label style="font-size:11px">Role name *</label>
- <input type="text" id="new-role-name-${e.id}" placeholder="e.g. Usher, Concessions…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ <label style="font-size:11px">Name *</label>
+ <input type="text" id="new-role-name-${e.id}" placeholder="${e.rsvp_kind==='guest'?'e.g. Block A, Group 1…':'e.g. Usher, Concessions…'}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
+ ${e.rsvp_kind==='guest'?`<div class="form-group" style="margin:0;width:110px">
+ <label style="font-size:11px">Start Time</label>
+ <input type="time" id="new-role-time-${e.id}" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ </div>
+ <div class="form-group" style="margin:0;width:110px">
+ <label style="font-size:11px">End Time</label>
+ <input type="time" id="new-role-time-end-${e.id}" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
+ </div>`:''}
  <div class="form-group" style="margin:0;width:80px">
  <label style="font-size:11px">Slots *</label>
  <input type="number" id="new-role-slots-${e.id}" value="1" min="1" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
@@ -15218,8 +15683,19 @@ function renderEventDetailPage(eid){
  </div>`:''}
  </div>
 
- <!-- Right: compose & send -->
- <div class="card" style="padding:20px;position:sticky;top:16px">
+ </div>`
+:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+ <div style="font-size:40px;margin-bottom:12px"></div>
+ <div style="font-weight:600;font-size:16px;margin-bottom:8px">RSVPs not enabled for this event</div>
+ <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites and track who's coming.</div>
+ ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
+ </div>`}
+ </div>
+
+ <!-- Send Invites tab -->
+ <div id="evt-panel-invite" style="display:${_eventDetailTab==='invite'?'':'none'}">
+ ${e.rsvp_enabled?`
+ <div class="card" style="padding:24px;max-width:640px;margin:0 auto">
  ${e.status==='cancelled'?`
  <div style="text-align:center;padding:20px 0;color:var(--text-muted)">
  <div style="font-size:28px;margin-bottom:8px"></div>
@@ -15240,7 +15716,7 @@ function renderEventDetailPage(eid){
  </div>
  </div>
  <div style="font-size:15px;font-weight:700;margin-bottom:4px"> Send Invite</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Invite volunteers to sign up for this event</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${e.rsvp_kind==='guest'?'Invite people to RSVP for this event':'Invite volunteers to sign up for this event'}</div>
 
  <!-- Recipients -->
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Send to</div>
@@ -15251,10 +15727,14 @@ function renderEventDetailPage(eid){
  ['event', ' Volunteered at past event'],
  ['group', ' Volunteer group'],
   ['manual', ' Choose manually'],
+  ['adhoc', ' Community members (paste emails)'],
  ].map(([val,label])=>`
  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
  <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
  </label>`).join('')}
+ ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-household" onclick="setRsvpFilter('household','${e.id}')">
+ <input type="radio" name="rsvp-filter" value="household" style="accent-color:var(--teal);flex-shrink:0"/> Household / Party (name checklist, like a wedding RSVP)
+ </label>`:''}
  </div>
 
  <!-- Sub-filters -->
@@ -15292,12 +15772,92 @@ function renderEventDetailPage(eid){
   ${(window._volunteerGroups||[]).map(g=>`<option value="${escHtml(g.id)}">${escHtml(g.name)} (${g.member_count} members)</option>`).join('')}
   </select>
   </div>
- <!-- Recipient preview -->
+  <div id="rsvp-sub-adhoc" style="display:none;margin-bottom:12px">
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Paste one person per line — "Name, email@example.com" or just the email address.</div>
+  <textarea id="rsvp-adhoc-text" oninput="updateRsvpPreview('${e.id}')" placeholder="Jane Smith, jane@example.com&#10;bob@example.com&#10;Maria Lopez, maria@example.com" style="width:100%;min-height:100px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+  </div>
+
+  <div id="rsvp-sub-household" style="display:none;margin-bottom:14px;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:14px">
+  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Build your list below, then send every invite at once. Each household gets its own link — everyone on it gets checked off together when they RSVP.</div>
+  <div class="form-group" style="margin-bottom:8px">
+   <label style="font-size:11px">Household / Invite Name <span style="font-weight:400">(optional — e.g. "The Smith Family")</span></label>
+   <input type="text" id="household-label-${e.id}" placeholder="Leave blank to auto-generate" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+  </div>
+  <div class="form-group" style="margin-bottom:10px">
+   <label style="font-size:11px">Email *</label>
+   <input type="email" id="household-email-${e.id}" placeholder="family@example.com" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+  </div>
+  <label style="font-size:11px">Guests *</label>
+  <div id="household-guests-${e.id}" style="margin-top:4px">
+   <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+   <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+  </div>
+  <div class="form-group" style="margin-bottom:10px" id="household-block-wrap-${e.id}">
+   <label style="font-size:11px">Block <span style="font-weight:400">(optional)</span></label>
+   <select id="household-block-${e.id}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    <option value="">— No specific block —</option>
+   </select>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px">
+   <button class="btn btn-secondary btn-sm" onclick="addHouseholdGuestField('${e.id}')">+ Add Another Guest</button>
+   <button class="btn btn-primary btn-sm" onclick="addHouseholdToList('${e.id}')">+ Add to List</button>
+  </div>
+
+  <div id="household-list-wrap-${e.id}" style="display:none;margin-bottom:12px">
+   <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Ready to Send (<span id="household-list-count-${e.id}">0</span>)</div>
+   <div id="household-list-${e.id}" style="border:1.5px solid var(--border-md);border-radius:var(--radius);max-height:220px;overflow-y:auto;background:var(--surface)"></div>
+  </div>
+
+  <button class="btn btn-primary" style="width:100%" id="household-send-all-btn-${e.id}" onclick="sendAllHouseholds('${e.id}')" disabled>Send All Invites (0)</button>
+  <div id="household-result-${e.id}" style="margin-top:8px;font-size:13px;text-align:center"></div>
+  </div>
+
+ ${e.rsvp_kind==='guest' ? `
+ <!-- Invite design -->
+ <div style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+ <div style="font-size:13px;font-weight:700;margin-bottom:4px"> Invite Design</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload an image and this becomes a designed invite page instead of a plain form.</div>
+ <div id="rsvp-invite-image-preview-${e.id}" style="${e.invite_image_url?'':'display:none'};margin-bottom:10px">
+ <img src="${e.invite_image_url||''}" style="width:100%;max-width:280px;border-radius:10px;display:block"/>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+ <label class="btn btn-secondary btn-sm" style="cursor:pointer">${e.invite_image_url?'Replace Image':'Upload Image'}
+ <input type="file" accept="image/*" style="display:none" onchange="uploadEventInviteImage('${e.id}',this)"/>
+ </label>
+ ${e.invite_image_url?`<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer;padding:6px 10px" onclick="clearEventInviteImage('${e.id}')">Remove</button>`:''}
+ <span id="rsvp-invite-image-status-${e.id}" style="font-size:12px;color:var(--teal-dark)"></span>
+ </div>
+ <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Invite Headline <span style="font-weight:400">(optional — defaults to event name)</span></label>
+ <input type="text" id="rsvp-invite-headline-${e.id}" value="${escHtml(e.invite_headline||'')}" placeholder="${escHtml(e.name)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:8px"/>
+ <button class="btn btn-secondary btn-sm" onclick="saveEventInviteHeadline('${e.id}')">Save Headline</button>
+ <a href="${window.location.origin}/rsvp-event/${e.id}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-left:6px"> Preview Invite Page</a>
+ </div>
+ ` : ''}
+
+ <!-- Public RSVP link (untracked, shareable) -->
+ <div style="background:var(--teal-50);border:1.5px solid var(--teal-200,#99f6e4);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+ <div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:4px"> Public RSVP Link</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Share this link anywhere (social media, newsletter, etc.) — anyone can RSVP themselves, no personalized invite needed.</div>
+ <div style="display:flex;gap:8px">
+ <input readonly id="rsvp-public-link-${e.id}" value="${window.location.origin}/rsvp-event/${e.id}" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)"/>
+ <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('rsvp-public-link-${e.id}').value);toast('Link copied!','success')">Copy</button>
+ </div>
+ </div>
+
  <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:6px;text-align:center">
  Calculating…
  </div>
  <div id="rsvp-recipient-names" style="display:none;max-height:120px;overflow-y:auto;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.8"></div>
  <div id="rsvp-skip-warning" style="display:none;background:#fef9c3;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:14px"></div>
+
+ <!-- Assign to block -->
+ <div id="rsvp-assign-block-wrap-${e.id}" style="display:none;margin-bottom:14px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Assign to ${e.rsvp_kind==='guest'?'Block':'Role'} <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+ <select id="rsvp-assign-block-${e.id}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <option value="">Let them choose from all ${e.rsvp_kind==='guest'?'blocks':'roles'}</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Everyone in this batch will get a link pre-assigned to this ${e.rsvp_kind==='guest'?'block':'role'} instead of a picker.</div>
+ </div>
 
  <!-- Message -->
  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
@@ -15310,11 +15870,10 @@ function renderEventDetailPage(eid){
  <div id="rsvp-send-result" style="margin-top:10px;font-size:13px;text-align:center"></div>
  `}
  </div>
- </div>`
-:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
+ `:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
  <div style="font-size:40px;margin-bottom:12px"></div>
- <div style="font-weight:600;font-size:16px;margin-bottom:8px">Sign-ups not enabled for this event</div>
- <div style="font-size:13px;margin-bottom:16px">Enable "Volunteer sign-ups" in the event settings to send invite emails and track who wants to help.</div>
+ <div style="font-weight:600;font-size:16px;margin-bottom:8px">RSVPs not enabled for this event</div>
+ <div style="font-size:13px;margin-bottom:16px">Enable "RSVPs" in the event settings to send invites.</div>
  ${isAdmin?`<button class="btn btn-primary" onclick="openEventModal('${e.id}')">Edit Event to Enable</button>`:''}
  </div>`}
  </div>
@@ -15439,7 +15998,7 @@ function renderEventDetailPage(eid){
 
 function switchEventTab(eid, tab){
  _eventDetailTab = tab
- const tabs = ['overview','signups','hours','staff']
+ const tabs = ['overview','signups','invite','hours','staff']
  tabs.forEach(t=>{
  const panel = document.getElementById('evt-panel-'+t)
  if(panel) panel.style.display = t===tab ? '': 'none'
@@ -15449,13 +16008,15 @@ function switchEventTab(eid, tab){
  btn.style.color = t===tab ? 'var(--teal)': 'var(--text-muted)'
  }
  })
- // Load RSVPs on first open of signups tab and init preview
+ // Load RSVPs on first open of signups tab
  if(tab==='signups'){
  const e = allEvents.find(e=>e.id===eid)
- if(e?.rsvp_enabled){
- loadEventRsvps(eid)
- setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
+ if(e?.rsvp_enabled) loadEventRsvps(eid)
  }
+ // Init the send-invite panel (recipient picker, block dropdown) on first open
+ if(tab==='invite'){
+ const e = allEvents.find(e=>e.id===eid)
+ if(e?.rsvp_enabled) setTimeout(()=>{ setRsvpFilter('all', eid) }, 50)
  }
 }
 
@@ -15813,15 +16374,22 @@ function openEventModal(eid=null){
  })
  setEventLocationUI('HWTC','')
  document.getElementById('edit-event-location-sel').value='HWTC'
+ document.getElementById('edit-event-address').value=''
  document.getElementById('edit-event-type').value=''
  document.getElementById('edit-event-production').value=''
  document.getElementById('edit-event-volunteers').value=''
  document.getElementById('edit-event-bgcheck').checked=false
  document.getElementById('edit-event-autolog').checked=false
  document.getElementById('edit-event-rsvp').checked=false
+ document.getElementById('edit-event-rsvp-kind').value='volunteer'
  document.getElementById('edit-event-rsvp-msg').value=''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=false
+ document.getElementById('edit-event-hs-bonus-type').value=''
+ document.getElementById('edit-event-hs-multiplier').value=''
+ document.getElementById('edit-event-hs-flat').value=''
+ toggleHsBonusFields()
+ document.getElementById('edit-event-kiosk-mode').value='auto'
  setEventElicUI(null, null) // reset ELIC
  // If opened from a program or production context, pre-fill parent and default ELIC
  if(eid===null && window._openEventParent){
@@ -15850,6 +16418,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-end').value=e.end_time||''
  document.getElementById('edit-event-type').value=e.event_type_id||''
  setEventLocationUI(e.location||'HWTC', e.room||'')
+ document.getElementById('edit-event-address').value=e.address||''
  document.getElementById('edit-event-production').value=e.production_id||''
  const pgSelEdit=document.getElementById('edit-event-program')
  if(pgSelEdit) pgSelEdit.value=e.program_id||''
@@ -15862,9 +16431,15 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-bgcheck').checked=!!e.requires_background_check
  document.getElementById('edit-event-autolog').checked=!!e.auto_log_hours
  document.getElementById('edit-event-rsvp').checked=!!e.rsvp_enabled
+ document.getElementById('edit-event-rsvp-kind').value=e.rsvp_kind||'volunteer'
  document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=!!e.carpools_enabled
+ document.getElementById('edit-event-hs-bonus-type').value=e.hours_store_bonus_type||''
+ document.getElementById('edit-event-hs-multiplier').value=e.hours_store_bonus_multiplier||''
+ document.getElementById('edit-event-hs-flat').value=e.hours_store_bonus_flat_cents?(e.hours_store_bonus_flat_cents/100).toFixed(2):''
+ toggleHsBonusFields()
+ document.getElementById('edit-event-kiosk-mode').value=e.kiosk_signin_mode||'auto'
  setTimeout(updateEventBgcLock, 50) // after selects are populated
  }
  // Reset repeat section
@@ -15888,6 +16463,13 @@ async function saveEditEvent(){
  if(!name){toast('Event name is required','error');return}
  const event_date=document.getElementById('edit-event-date').value
  if(!event_date){toast('Event date is required','error');return}
+ const hsBonusType=document.getElementById('edit-event-hs-bonus-type')?.value||''
+ if(hsBonusType==='multiplier' && !(parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)>1)){
+ toast('Enter a multiplier greater than 1 (e.g. 2 for double)','error');return
+ }
+ if(hsBonusType==='flat' && !(parseFloat(document.getElementById('edit-event-hs-flat')?.value)>0)){
+ toast('Enter a flat bonus amount greater than $0','error');return
+ }
 
  // Read location/room safely
  let location='HWTC', room=''
@@ -15902,6 +16484,7 @@ async function saveEditEvent(){
  end_time:document.getElementById('edit-event-end').value||null,
  event_type_id:document.getElementById('edit-event-type').value||null,
  location, room,
+ address:document.getElementById('edit-event-address')?.value.trim()||'',
  production_id:document.getElementById('edit-event-production')?.value||null,
  program_id:document.getElementById('edit-event-program')?.value||null,
  expected_volunteers:parseInt(document.getElementById('edit-event-volunteers')?.value)||null,
@@ -15910,8 +16493,15 @@ async function saveEditEvent(){
  requires_background_check:document.getElementById('edit-event-bgcheck')?.checked||false,
  auto_log_hours:document.getElementById('edit-event-autolog')?.checked||false,
  rsvp_enabled:document.getElementById('edit-event-rsvp')?.checked||false,
+ rsvp_kind:document.getElementById('edit-event-rsvp-kind')?.value||'volunteer',
  rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
  carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false,
+ hours_store_bonus_type:document.getElementById('edit-event-hs-bonus-type')?.value||null,
+ hours_store_bonus_multiplier:document.getElementById('edit-event-hs-bonus-type')?.value==='multiplier'
+   ? (parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)||null): null,
+ hours_store_bonus_flat_cents:document.getElementById('edit-event-hs-bonus-type')?.value==='flat'
+   ? Math.round((parseFloat(document.getElementById('edit-event-hs-flat')?.value)||0)*100): null,
+ kiosk_signin_mode:document.getElementById('edit-event-kiosk-mode')?.value||'auto',
  // Preserve existing status — never reset it via the edit modal
  status: eid ? (allEvents.find(e=>e.id===eid)?.status||'draft'): 'draft'
  }
@@ -16043,9 +16633,17 @@ function toggleRsvpMessage(){
  if(wrap) wrap.style.display = enabled ? '': 'none'
 }
 
+function toggleHsBonusFields(){
+ const type = document.getElementById('edit-event-hs-bonus-type')?.value||''
+ const multWrap = document.getElementById('edit-event-hs-multiplier-wrap')
+ const flatWrap = document.getElementById('edit-event-hs-flat-wrap')
+ if(multWrap) multWrap.style.display = type==='multiplier' ? '': 'none'
+ if(flatWrap) flatWrap.style.display = type==='flat' ? '': 'none'
+}
+
 function setRsvpFilter(type, eid){
  // Style the selected option
- ;['all','interest','event','manual'].forEach(t=>{
+ ;['all','interest','event','manual','group','adhoc','household'].forEach(t=>{
  const el = document.getElementById('rsvp-opt-'+t)
  if(el){
  el.style.borderColor = t===type ? 'var(--teal)': 'var(--border)'
@@ -16057,7 +16655,17 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-sub-event').style.display = type==='event' ? '': 'none'
  document.getElementById('rsvp-sub-manual').style.display = type==='manual' ? '': 'none'
  document.getElementById('rsvp-sub-group')?.style && (document.getElementById('rsvp-sub-group').style.display = type==='group' ? '': 'none')
- updateRsvpPreview(eid)
+ document.getElementById('rsvp-sub-adhoc')?.style && (document.getElementById('rsvp-sub-adhoc').style.display = type==='adhoc' ? '': 'none')
+ document.getElementById('rsvp-sub-household')?.style && (document.getElementById('rsvp-sub-household').style.display = type==='household' ? '': 'none')
+ const isHousehold = type==='household'
+ document.getElementById('rsvp-send-btn')?.style && (document.getElementById('rsvp-send-btn').style.display = isHousehold ? 'none': '')
+ if(isHousehold){
+ document.getElementById('rsvp-assign-block-wrap-'+eid)?.style && (document.getElementById('rsvp-assign-block-wrap-'+eid).style.display = 'none')
+ loadHouseholdStaging(eid) // fetch the shared draft list from the server and render it
+ }
+ else loadEventRoles(eid, window._currentEventRoles||[])
+ document.getElementById('rsvp-recipient-preview')?.style && (document.getElementById('rsvp-recipient-preview').style.display = isHousehold ? 'none': '')
+ if(!isHousehold) updateRsvpPreview(eid)
 }
 
 function filterRsvpManualList(query){
@@ -16070,9 +16678,23 @@ function filterRsvpManualList(query){
 
 function onRsvpFilterChange(){ /* legacy — no-op */ }
 
+function parseAdhocContacts(text){
+ const lines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean)
+ const out = []
+ lines.forEach(line=>{
+ const m = line.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+ if(!m) return
+ const email = m[0].trim().toLowerCase()
+ const name = line.replace(m[0],'').trim().replace(/^[,<]+|[,>]+$/g,'').trim()
+ out.push({name: name || email.split('@')[0], email})
+ })
+ return out
+}
+
 function getRsvpTargetVolunteers(){
  const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
  const active = volunteers.filter(v=>v.status==='active' && v.email)
+ if(type==='adhoc') return [] // handled separately — see getRsvpAdhocContacts()
  if(type==='all') return active
  if(type==='group'){
    const gid = document.getElementById('rsvp-group-val')?.value
@@ -16108,6 +16730,25 @@ function updateRsvpPreview(eid){
  const namesEl = document.getElementById('rsvp-recipient-names')
  const warnEl = document.getElementById('rsvp-skip-warning')
  if(!preview) return
+ const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ if(type==='adhoc'){
+ const contacts = parseAdhocContacts(document.getElementById('rsvp-adhoc-text')?.value)
+ if(!contacts.length){
+ preview.innerHTML = ' Paste at least one email address above'
+ preview.style.background = 'var(--red-50)'; preview.style.color = 'var(--red-600)'
+ if(namesEl) namesEl.style.display='none'
+ if(warnEl) warnEl.style.display='none'
+ return
+ }
+ preview.style.background = 'var(--teal-50)'; preview.style.color = 'var(--teal-dark)'
+ preview.innerHTML = ` <strong>${contacts.length}</strong> ${contacts.length!==1?'people':'person'} will receive this invite`
+ if(namesEl){
+ namesEl.style.display=''
+ namesEl.innerHTML = '<strong style="color:var(--text)">Will receive:</strong> '+contacts.map(c=>`<span style="background:var(--teal-50);padding:1px 6px;border-radius:10px;margin:1px 2px;display:inline-block">${escHtml(c.name)} (${escHtml(c.email)})</span>`).join('')
+ }
+ if(warnEl) warnEl.style.display='none'
+ return
+ }
  const targets = getRsvpTargetVolunteers()
  if(!targets.length){
  preview.innerHTML = ' No volunteers match this filter'
@@ -16150,17 +16791,176 @@ function updateRsvpPreview(eid){
  }
 }
 
+async function uploadEventInviteImage(eid, input){
+ const file = input.files[0]
+ if(!file) return
+ const statusEl = document.getElementById('rsvp-invite-image-status-'+eid)
+ if(statusEl) statusEl.textContent = 'Uploading…'
+ const fd = new FormData()
+ fd.append('file', file)
+ try{
+ const res = await fetch(`/api/events/${eid}/invite-image/upload`, {method:'POST', body:fd}).then(r=>r.json())
+ if(res.error){ toast(res.error,'error'); if(statusEl) statusEl.textContent=''; return }
+ const ev = allEvents.find(x=>x.id===eid)
+ if(ev) ev.invite_image_url = res.url
+ const preview = document.getElementById('rsvp-invite-image-preview-'+eid)
+ if(preview){ preview.style.display=''; preview.querySelector('img').src = res.url }
+ if(statusEl) statusEl.textContent = 'Saved!'
+ toast('Invite image uploaded!','success')
+ setTimeout(()=>{ if(statusEl) statusEl.textContent='' },2000)
+ }catch(err){ toast('Upload failed','error'); if(statusEl) statusEl.textContent='' }
+}
+
+async function clearEventInviteImage(eid){
+ if(!confirm('Remove the invite image?')) return
+ const res = await api(`/api/events/${eid}/invite-image`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ const ev = allEvents.find(x=>x.id===eid)
+ if(ev) ev.invite_image_url = ''
+ toast('Image removed')
+ openEventDetail(eid)
+}
+
+async function saveEventInviteHeadline(eid){
+ const val = document.getElementById('rsvp-invite-headline-'+eid)?.value.trim() || ''
+ const ev = allEvents.find(x=>x.id===eid)
+ if(!ev) return
+ const res = await api(`/api/events/${eid}`,'PUT',{...ev, invite_headline: val})
+ if(res.error){ toast(res.error,'error'); return }
+ ev.invite_headline = val
+ toast('Headline saved!','success')
+}
+
+async function toggleHideBlockNames(eid, checked){
+ const ev = allEvents.find(x=>x.id===eid)
+ if(!ev) return
+ const res = await api(`/api/events/${eid}`,'PUT',{...ev, hide_block_names: checked})
+ if(res.error){ toast(res.error,'error'); document.getElementById('hide-block-names-'+eid).checked = !checked; return }
+ ev.hide_block_names = checked
+ toast(checked?'Block names hidden from invitees':'Block names visible to invitees','success')
+}
+
+function addHouseholdGuestField(eid){
+ const wrap = document.getElementById('household-guests-'+eid)
+ const n = wrap.querySelectorAll('.household-guest-input').length + 1
+ const input = document.createElement('input')
+ input.type = 'text'
+ input.className = 'household-guest-input'
+ input.placeholder = `Guest ${n} name`
+ input.style.cssText = 'width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px'
+ wrap.appendChild(input)
+ input.focus()
+}
+
+var _householdStaging = {} // eid -> [{id, label, email, members, roleId, roleName}], loaded from the server
+
+async function loadHouseholdStaging(eid){
+ const rows = await api(`/api/events/${eid}/household-drafts`)
+ _householdStaging[eid] = Array.isArray(rows) ? rows.map(r=>({
+ id: r.id, label: r.label||'', email: r.email, members: r.members||[],
+ roleId: r.role_id||'', roleName: r.role_name||'', addedBy: r.created_by_name||''
+ })) : []
+ renderHouseholdList(eid)
+}
+
+function renderHouseholdList(eid){
+ const list = _householdStaging[eid] || []
+ const wrap = document.getElementById('household-list-wrap-'+eid)
+ const listEl = document.getElementById('household-list-'+eid)
+ const countEl = document.getElementById('household-list-count-'+eid)
+ const sendBtn = document.getElementById('household-send-all-btn-'+eid)
+ if(countEl) countEl.textContent = list.length
+ if(sendBtn){ sendBtn.textContent = `Send All Invites (${list.length})`; sendBtn.disabled = list.length===0 }
+ if(wrap) wrap.style.display = list.length ? '' : 'none'
+ if(listEl){
+ listEl.innerHTML = list.map((h)=>`
+ <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px">
+ <div style="flex:1;min-width:0">
+ <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(h.label || h.members[0])}</div>
+ <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}${h.roleName?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(h.roleName)}</span>`:''}${h.addedBy?` · added by ${escHtml(h.addedBy)}`:''}</div>
+ </div>
+ <button onclick="removeHouseholdFromList('${eid}','${h.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>
+ </div>`).join('')
+ }
+}
+
+async function removeHouseholdFromList(eid, did){
+ await api(`/api/events/${eid}/household-drafts/${did}`, 'DELETE')
+ _householdStaging[eid] = (_householdStaging[eid]||[]).filter(h=>h.id!==did)
+ renderHouseholdList(eid)
+}
+
+async function addHouseholdToList(eid){
+ const label = document.getElementById('household-label-'+eid)?.value.trim() || ''
+ const email = document.getElementById('household-email-'+eid)?.value.trim() || ''
+ const guestInputs = document.querySelectorAll(`#household-guests-${eid} .household-guest-input`)
+ const guests = Array.from(guestInputs).map(i=>i.value.trim()).filter(Boolean)
+ const blockSel = document.getElementById('household-block-'+eid)
+ const roleId = blockSel?.value || ''
+ const roleName = roleId ? (blockSel.options[blockSel.selectedIndex]?.text || '') : ''
+ if(!email){ toast('Email is required','error'); return }
+ if(!guests.length){ toast('Add at least one guest name','error'); return }
+ const addBtn = document.querySelector(`button[onclick="addHouseholdToList('${eid}')"]`)
+ if(addBtn) addBtn.disabled = true
+ const res = await api(`/api/events/${eid}/household-drafts`, 'POST', {label, email, members: guests, role_id: roleId, role_name: roleName})
+ if(addBtn) addBtn.disabled = false
+ if(res.error){ toast(res.error,'error'); return }
+ if(!_householdStaging[eid]) _householdStaging[eid] = []
+ _householdStaging[eid].push({id: res.id, label: res.label||'', email: res.email, members: res.members||guests, roleId: res.role_id||'', roleName: res.role_name||'', addedBy: res.created_by_name||''})
+ renderHouseholdList(eid)
+ document.getElementById('household-label-'+eid).value = ''
+ document.getElementById('household-email-'+eid).value = ''
+ document.getElementById('household-guests-'+eid).innerHTML = `
+ <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
+ <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>`
+ // Note: the block dropdown is intentionally left as-is (not reset) since consecutive
+ // households are often assigned to the same block.
+ document.getElementById('household-label-'+eid).focus()
+}
+
+async function sendAllHouseholds(eid){
+ const list = _householdStaging[eid] || []
+ if(!list.length) return
+ const resultEl = document.getElementById('household-result-'+eid)
+ const sendBtn = document.getElementById('household-send-all-btn-'+eid)
+ const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
+ const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
+ if(sendBtn){ sendBtn.disabled = true; sendBtn.textContent = 'Sending…' }
+ if(resultEl) resultEl.innerHTML = ''
+ const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
+ households: list.map(h=>({label:h.label, email:h.email, members:h.members, role_id:h.roleId||''})),
+ message
+ })
+ if(res.error){
+ if(resultEl) resultEl.innerHTML = `<span style="color:var(--red-600)">${res.error}</span>`
+ if(sendBtn){ sendBtn.disabled = false; sendBtn.textContent = `Send All Invites (${list.length})` }
+ return
+ }
+ if(resultEl) resultEl.innerHTML = `<span style="color:var(--green-600)"> Sent ${res.sent||list.length} invite${(res.sent||list.length)!==1?'s':''}!${res.skipped?` (${res.skipped} skipped — already responded or recently invited)`:''}</span>`
+ await api(`/api/events/${eid}/household-drafts/clear`, 'POST')
+ _householdStaging[eid] = []
+ renderHouseholdList(eid)
+ loadEventRsvps(eid)
+}
+
 async function confirmSendRsvp(eid){
- const targets = getRsvpTargetVolunteers()
- if(!targets.length){ toast('No volunteers match this filter','error'); return }
+ const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ const isAdhoc = type==='adhoc'
+ const adhocText = isAdhoc ? (document.getElementById('rsvp-adhoc-text')?.value||'') : ''
+ const targets = isAdhoc ? parseAdhocContacts(adhocText) : getRsvpTargetVolunteers()
+ if(!targets.length){ toast(isAdhoc?'Paste at least one email address':'No volunteers match this filter','error'); return }
  const btn = document.getElementById('rsvp-send-btn')
  const resultEl = document.getElementById('rsvp-send-result')
  if(btn){ btn.disabled=true; btn.textContent='Sending…' }
  if(resultEl) resultEl.innerHTML = ''
  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
+ const assignRoleId = document.getElementById('rsvp-assign-block-'+eid)?.value || ''
  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
- volunteer_ids: targets.map(v=>v.id),
+ volunteer_ids: isAdhoc ? [] : targets.map(v=>v.id),
+ adhoc_contacts: isAdhoc ? adhocText : '',
+ adhoc_only: isAdhoc,
+ assign_role_id: assignRoleId,
  message
  })
  if(btn){ btn.disabled=false; btn.textContent=' Send Invites' }
@@ -16249,6 +17049,39 @@ async function removeRsvp(eid, rid){
  openEventChip(eid)
 }
 
+// A household/party RSVP is stored as ONE row with a party_members JSON list
+// (e.g. "me" + a guest), so counts must sum people within each row, not just rows.
+function _rsvpPartyMembersOf(r){
+ if(!r.party_members) return null
+ try{
+ const pm = JSON.parse(r.party_members)
+ return (Array.isArray(pm) && pm.length) ? pm: null
+ }catch(e){ return null }
+}
+function _rsvpInvitedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ return pm ? pm.length: 1
+}
+function _rsvpConfirmedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===true).length
+ return (r.status==='interested'||r.status==='confirmed') ? 1: 0
+}
+function _rsvpDeclinedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===false).length
+ return r.status==='declined' ? 1: 0
+}
+
+window._rsvpPanelCache = window._rsvpPanelCache || {}
+window._rsvpViewMode = window._rsvpViewMode || 'status'
+
+function setRsvpViewMode(eid, mode){
+ window._rsvpViewMode = mode
+ const cached = window._rsvpPanelCache[eid]
+ if(cached) renderEventRsvps(eid, cached.allRsvps, cached.roles)
+}
+
 async function loadEventRsvps(eid){
  const el = document.getElementById('event-rsvps-list')
  if(!el) return
@@ -16261,14 +17094,22 @@ async function loadEventRsvps(eid){
 
  const allRsvps = Array.isArray(rsvps) ? rsvps: []
  window._currentEventRsvps = allRsvps // cache for preview duplicate detection
- const signedUp = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed').length
- const invited = allRsvps.length
+ window._rsvpPanelCache[eid] = {allRsvps, roles}
+ renderEventRsvps(eid, allRsvps, roles)
+}
+
+function renderEventRsvps(eid, allRsvps, roles){
+ const el = document.getElementById('event-rsvps-list')
+ if(!el) return
+ const signedUp = allRsvps.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
+ const declined = allRsvps.reduce((s,r)=>s+_rsvpDeclinedCountOf(r),0)
+ const invited = allRsvps.reduce((s,r)=>s+_rsvpInvitedCountOf(r),0)
  const totalSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0): 0
  const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0): 0
  const pctFilled = totalSlots > 0 ? Math.round(filledSlots/totalSlots*100): null
  const statColor = pctFilled===null?'var(--text-muted)':pctFilled>=100?'var(--red-600)':pctFilled>=50?'var(--amber-600)':'var(--green-600)'
 
- const statsHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+ const statsHtml = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${invited}</div>
  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Invited</div>
@@ -16276,6 +17117,10 @@ async function loadEventRsvps(eid){
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:var(--green-600)">${signedUp}</div>
  <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Confirmed</div>
+ </div>
+ <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
+ <div style="font-size:26px;font-weight:800;color:#991b1b">${declined}</div>
+ <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:2px">Can't Make It</div>
  </div>
  <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:${statColor}">${pctFilled!==null?filledSlots+'/'+totalSlots:'—'}</div>
@@ -16289,55 +17134,171 @@ async function loadEventRsvps(eid){
  }
 
  const isAdmin = canEdit('events')
- const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
- const invitedList = allRsvps.filter(r=>r.status==='invited')
+ const viewMode = window._rsvpViewMode || 'status'
 
  const statusStyle = {
  interested: 'background:var(--green-50);color:var(--green-600)',
  confirmed: 'background:#dcfce7;color:#166534',
- invited: 'background:var(--bg);color:var(--text-muted)'
+ invited: 'background:var(--bg);color:var(--text-muted)',
+ declined: 'background:#fee2e2;color:#991b1b'
  }
  const statusLabel = {
  interested: ' Via Email',
  confirmed: ' Confirmed',
- invited: ' Invited'
+ invited: ' Invited',
+ declined: ' Declined'
  }
 
- const rsvpRow = (r) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+ const rsvpRow = (r) => {
+ let party = []
+ try { party = r.party_members ? JSON.parse(r.party_members) : [] } catch(e) { party = [] }
+ const partyHtml = party.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px">
+ ${party.map(m=>`<span style="font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600;background:${m.attending===true?'#dcfce7;color:#166534':m.attending===false?'#fee2e2;color:#991b1b':'var(--bg);color:var(--text-hint)'}">${escHtml(m.name)}</span>`).join('')}
+ </div>` : ''
+ return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
  ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
  <div style="flex:1">
- <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}</div>
- ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
+ <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}${party.length?` <span style="font-weight:400;color:var(--text-muted);font-size:11px">(party of ${party.length})</span>`:''}</div>
+ ${(viewMode!=='block'&&r.role_name)?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
  ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.status==='confirmed'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Confirmed ${formatDateTimeShort(r.created_at)}</div>`:''}
  ${r.status==='interested'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Responded ${formatDateTimeShort(r.created_at)}</div>`:''}
+ ${partyHtml}
  </div>
  <span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;${statusStyle[r.status]||statusStyle.invited}">
  ${statusLabel[r.status]||r.status}
  </span>
  ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Mark Coming</button>`:''}
  ${isAdmin&&(r.status==='confirmed')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
+ ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
  </div>`
+ }
 
- let html = statsHtml
+ const toggleHtml = `<div style="display:flex;gap:6px;margin-bottom:14px">
+ <button onclick="setRsvpViewMode('${eid}','status')" style="flex:1;padding:6px 10px;border-radius:8px;border:1.5px solid var(--border-md);font-size:12px;font-weight:600;cursor:pointer;background:${viewMode==='status'?'var(--teal-dark)':'var(--bg)'};color:${viewMode==='status'?'#fff':'var(--text-muted)'}">By Status</button>
+ <button onclick="setRsvpViewMode('${eid}','block')" style="flex:1;padding:6px 10px;border-radius:8px;border:1.5px solid var(--border-md);font-size:12px;font-weight:600;cursor:pointer;background:${viewMode==='block'?'var(--teal-dark)':'var(--bg)'};color:${viewMode==='block'?'#fff':'var(--text-muted)'}">By Block</button>
+ </div>`
+
+ let html = statsHtml + toggleHtml
+
+ if(viewMode==='block'){
+ // Group RSVPs by their assigned block/role, in the same order as the roles list,
+ // then any RSVPs tied to a block that's since been deleted, then unassigned last.
+ const roleList = Array.isArray(roles) ? roles: []
+ const roleById = {}
+ roleList.forEach(r=>{ roleById[r.id] = r })
+ const groups = {}
+ const unassigned = []
+ allRsvps.forEach(r=>{
+ if(r.role_id && roleById[r.role_id]){
+ if(!groups[r.role_id]) groups[r.role_id] = {role: roleById[r.role_id], rows: []}
+ groups[r.role_id].rows.push(r)
+ } else if(r.role_id || r.role_name){
+ const key = 'deleted:'+(r.role_id||r.role_name)
+ if(!groups[key]) groups[key] = {role: {name: r.role_name||'Removed Block', slots: null}, rows: []}
+ groups[key].rows.push(r)
+ } else {
+ unassigned.push(r)
+ }
+ })
+ const statusOrder = {interested:0, confirmed:0, invited:1, declined:2}
+ const sortRows = (rows) => [...rows].sort((a,b)=>(statusOrder[a.status]??1)-(statusOrder[b.status]??1))
+ const blockHeader = (role, rows, isFirst) => {
+ const confirmedInBlock = rows.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
+ const fillText = (role.slots!=null) ? `${confirmedInBlock} / ${role.slots} filled`: `${confirmedInBlock} confirmed`
+ return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:${isFirst?'4':'16'}px;margin-bottom:6px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">${escHtml(role.name||'Block')}</div>
+ <div style="font-size:11px;color:var(--text-muted)">${fillText}</div>
+ </div>`
+ }
+ let first = true
+ roleList.forEach(role=>{
+ const g = groups[role.id]
+ if(!g || !g.rows.length) return
+ html += blockHeader(role, g.rows, first)
+ first = false
+ html += sortRows(g.rows).map(r=>rsvpRow(r)).join('')
+ })
+ Object.keys(groups).forEach(key=>{
+ if(!key.startsWith('deleted:')) return
+ const g = groups[key]
+ html += blockHeader(g.role, g.rows, first)
+ first = false
+ html += sortRows(g.rows).map(r=>rsvpRow(r)).join('')
+ })
+ if(unassigned.length){
+ html += blockHeader({name:'No Block Assigned', slots:null}, unassigned, first)
+ html += sortRows(unassigned).map(r=>rsvpRow(r)).join('')
+ }
+ } else {
+ const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
+ const invitedList = allRsvps.filter(r=>r.status==='invited')
+ const declinedList = allRsvps.filter(r=>r.status==='declined')
  if(confirmedList.length){
- html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px"> Coming (${confirmedList.length})</div>`
+ const confirmedPeople = confirmedList.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px"> Coming (${confirmedPeople})</div>`
  html += confirmedList.map(r=>rsvpRow(r)).join('')
  }
  if(invitedList.length){
- html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedList.length})</div>`
+ const invitedPeople = invitedList.reduce((s,r)=>s+_rsvpInvitedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedPeople})</div>`
  html += invitedList.map(r=>rsvpRow(r)).join('')
+ }
+ if(declinedList.length){
+ const declinedPeople = declinedList.reduce((s,r)=>s+_rsvpDeclinedCountOf(r),0)
+ html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;margin-top:${(confirmedList.length||invitedList.length)?'14':'4'}px;margin-bottom:4px"> Can't Make It (${declinedPeople})</div>`
+ html += declinedList.map(r=>rsvpRow(r)).join('')
+ }
  }
  el.innerHTML = html
 }
 
+function fmtBlockTime(t){
+ if(!t) return ''
+ const [h,m] = t.split(':').map(Number)
+ const ampm = h>=12?'PM':'AM'
+ const h12 = h%12===0?12:h%12
+ return `${h12}:${String(m).padStart(2,'0')} ${ampm}`
+}
+
 function loadEventRoles(eid, roles){
+ window._currentEventRoles = roles||[]
  const el = document.getElementById('event-roles-list-'+eid)
+ const assignWrap = document.getElementById('rsvp-assign-block-wrap-'+eid)
+ const assignSel = document.getElementById('rsvp-assign-block-'+eid)
+ const householdBlockWrap = document.getElementById('household-block-wrap-'+eid)
+ const householdBlockSel = document.getElementById('household-block-'+eid)
+ const ev = allEvents.find(x=>x.id===eid) || {}
+ const isGuest = ev.rsvp_kind==='guest'
+ const blockOptionsHtml = roles && roles.length ? roles.map(r=>{
+ const timeLabel = r.block_time ? ` (${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''})` : ''
+ return `<option value="${r.id}">${escHtml(r.name)}${timeLabel}</option>`
+ }).join('') : ''
+ if(assignWrap && assignSel){
+ if(roles && roles.length){
+ assignWrap.style.display=''
+ const currentVal = assignSel.value
+ assignSel.innerHTML = `<option value="">Let them choose from all ${isGuest?'blocks':'roles'}</option>` + blockOptionsHtml
+ assignSel.value = currentVal
+ } else {
+ assignWrap.style.display='none'
+ }
+ }
+ if(householdBlockWrap && householdBlockSel){
+ if(roles && roles.length){
+ householdBlockWrap.style.display=''
+ const currentVal = householdBlockSel.value
+ householdBlockSel.innerHTML = `<option value="">— No specific block —</option>` + blockOptionsHtml
+ householdBlockSel.value = currentVal
+ } else {
+ householdBlockWrap.style.display='none'
+ }
+ }
  if(!el) return
  if(!roles||!roles.length){
- el.innerHTML='<div style="font-size:13px;color:var(--text-muted)">No roles defined yet — add roles to let volunteers choose what they\'d like to help with.</div>'
+ el.innerHTML=`<div style="font-size:13px;color:var(--text-muted)">No ${isGuest?'blocks':'roles'} defined yet — add ${isGuest?'blocks so people can RSVP to the one you assign them':'roles to let volunteers choose what they\'d like to help with'}.</div>`
  return
  }
  el.innerHTML = roles.map(r=>{
@@ -16345,9 +17306,13 @@ function loadEventRoles(eid, roles){
  const slots = parseInt(r.slots||1)
  const pct = Math.round((filled/slots)*100)
  const color = filled>=slots ? 'var(--red-600)': filled>0 ? 'var(--amber-600)': 'var(--green-600)'
- return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ const directLink = `${window.location.origin}/rsvp-event/${eid}?block=${r.id}`
+ const timeStr = r.block_time ? `${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''}` : ''
+ return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="display:flex;align-items:center;gap:12px">
  <div style="flex:1;min-width:0">
  <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
+ ${timeStr?`<div style="font-size:11.5px;color:var(--teal-dark);font-weight:600">${timeStr}</div>`:''}
  ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
  </div>
  <div style="text-align:center;min-width:80px">
@@ -16357,7 +17322,12 @@ function loadEventRoles(eid, roles){
  <div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
  <div style="height:100%;width:${Math.min(100,pct)}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
  </div>
- <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete role">×</button>
+ <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete ${isGuest?'block':'role'}">×</button>
+ </div>
+ ${isGuest?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+ <input readonly value="${directLink}" onclick="this.select()" style="flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:11px;color:var(--text-muted);background:var(--bg)"/>
+ <button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px" onclick="navigator.clipboard.writeText('${directLink}');toast('Block link copied!','success')">Copy Link</button>
+ </div>`:''}
  </div>`
  }).join('')
 }
@@ -16374,17 +17344,21 @@ async function addEventRole(eid){
  const name = document.getElementById('new-role-name-'+eid)?.value.trim()
  const slots = document.getElementById('new-role-slots-'+eid)?.value
  const desc = document.getElementById('new-role-desc-'+eid)?.value.trim()
+ const blockTime = document.getElementById('new-role-time-'+eid)?.value || ''
+ const blockTimeEnd = document.getElementById('new-role-time-end-'+eid)?.value || ''
  if(!name){ toast('Role name is required','error'); return }
- const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||''})
+ const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||'', block_time:blockTime, block_time_end:blockTimeEnd})
  if(res.error){ toast(res.error,'error'); return }
  document.getElementById('new-role-name-'+eid).value=''
  document.getElementById('new-role-slots-'+eid).value='1'
  document.getElementById('new-role-desc-'+eid).value=''
+ if(document.getElementById('new-role-time-'+eid)) document.getElementById('new-role-time-'+eid).value=''
+ if(document.getElementById('new-role-time-end-'+eid)) document.getElementById('new-role-time-end-'+eid).value=''
  toggleRoleForm(eid)
  // Refresh roles
  const roles = await api(`/api/events/${eid}/roles`)
  loadEventRoles(eid, roles)
- toast('Role added!','success')
+ toast('Added!','success')
 }
 
 async function deleteEventRole(rid, eid){
@@ -16527,6 +17501,7 @@ function renderOpeningChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditOpeningChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -16540,8 +17515,9 @@ async function addOpeningChecklistItem(){
  const label=(document.getElementById('new-ocl-label')||{}).value.trim()
  const item_type=(document.getElementById('new-ocl-type')||{}).value||'checkbox'
  const required=(document.getElementById('new-ocl-required')||{}).checked!==false
+ const studio_only=(document.getElementById('new-ocl-studio-only')||{}).checked!==false
  if(!label){toast('Label is required','error');return}
- const res=await api('/api/opening-checklist-items','POST',{label,item_type,required})
+ const res=await api('/api/opening-checklist-items','POST',{label,item_type,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
  if(res&&res.id){ allOpeningChecklistItems.push(res) }
  document.getElementById('new-ocl-label').value=''
@@ -16576,6 +17552,8 @@ function openEditOpeningChecklistItem(cid){
   +'<input type="text" id="edit-ocl-hint" value="'+escHtml(item.hint||'')+'" placeholder="e.g. Check all entrances" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
   +'<input type="checkbox" id="edit-ocl-required"'+(item.required?' checked':'')+'/> Required</label></div>'
+  +'<div class="form-group" style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+  +'<input type="checkbox" id="edit-ocl-studio-only"'+(item.studio_only!==false?' checked':'')+'/> Studio only (hide for events held elsewhere)</label></div>'
   +'<div style="display:flex;gap:8px;justify-content:flex-end">'
   +'<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
   +'<button class="btn btn-primary" onclick="submitEditOpeningChecklistItem(\''+cid+'\')">Save</button>'
@@ -16589,11 +17567,12 @@ async function submitEditOpeningChecklistItem(cid){
  const item_type=(document.getElementById('edit-ocl-type')||{}).value||'checkbox'
  const hint=(document.getElementById('edit-ocl-hint')||{}).value.trim()
  const required=(document.getElementById('edit-ocl-required')||{}).checked
+ const studio_only=(document.getElementById('edit-ocl-studio-only')||{}).checked
  if(!label){toast('Label is required','error');return}
  const item=allOpeningChecklistItems.find(function(i){ return i.id===cid })
- const res=await api('/api/opening-checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required})
+ const res=await api('/api/opening-checklist-items/'+cid,'PUT',{...item,label,item_type,hint,required,studio_only})
  if(res&&res.error){toast(res.error,'error');return}
- allOpeningChecklistItems=allOpeningChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required}):i })
+ allOpeningChecklistItems=allOpeningChecklistItems.map(function(i){ return i.id===cid?(res.id?res:{...i,label,item_type,hint,required,studio_only}):i })
  document.querySelector('[style*=fixed][style*=z-index]')?.remove()
  renderOpeningChecklistSettings()
  toast('Updated!','success')
@@ -17754,6 +18733,53 @@ async function saveYouthProgram(){
  toast(eid?'Program updated!':'Program added!','success')
 }
 
+async function closeProgramRegistrations(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Close registrations for "${p.name}"?\n\nThe public registration page will show "This program has ended" and no new sign-ups (or waitlist joins) will be accepted. You can reopen it later if needed.`)) return
+ const res = await api(`/api/youth-programs/${pid}/registration-status`,'PUT',{registration_status:'closed'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Registrations closed','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
+async function reopenProgramRegistrations(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Reopen registrations for "${p.name}"?`)) return
+ const res = await api(`/api/youth-programs/${pid}/registration-status`,'PUT',{registration_status:'open'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Registrations reopened','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
+async function archiveProgram(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ if(!confirm(`Archive "${p.name}"?\n\nIt will be hidden from the default Programs & Classes list, but you can still find it by filtering for Archived. This does not delete any data.`)) return
+ const res = await api(`/api/youth-programs/${pid}/archive-status`,'PUT',{status:'archived'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Program archived','success')
+ navTo('youth-programs-page')
+ renderYouthProgramsPage()
+}
+
+async function unarchiveProgram(pid){
+ const p = allPrograms.find(p=>p.id===pid)
+ if(!p) return
+ const res = await api(`/api/youth-programs/${pid}/archive-status`,'PUT',{status:'active'})
+ if(res.error){toast(res.error,'error');return}
+ allPrograms = allPrograms.map(p=>p.id===pid?res:p)
+ toast('Program unarchived','success')
+ openProgramDetail(pid)
+ renderYouthProgramsPage()
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // PROFILE BANNER HELPER
@@ -17889,8 +18915,14 @@ async function openProgramDetail(programId){
  actions: isAdmin ? [
  {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"},
  {label:' Email Roster', onclick:"openProgramEmailModal('"+programId+"')"},
- {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"}
- ]: []
+ {label:'+ New Event', onclick:"openEventModalForParent(null,'"+programId+"')"},
+ (p.registration_status==='open'
+ ? {label:'Close Registrations', onclick:"closeProgramRegistrations('"+programId+"')"}
+ : (p.registration_status==='closed' ? {label:'Reopen Registrations', onclick:"reopenProgramRegistrations('"+programId+"')"} : null)),
+ (p.status==='archived'
+ ? {label:'Unarchive', onclick:"unarchiveProgram('"+programId+"')"}
+ : {label:'Archive', onclick:"archiveProgram('"+programId+"')", danger:true})
+ ].filter(Boolean): []
  })
 
  // Load enrolled youth
@@ -19369,7 +20401,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -19739,6 +20771,14 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">If set, families can pay a deposit now and the balance later.</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Deposit Amount (USD)</label>'
     + '<input type="number" id="rs-deposit" value="'+(prog.deposit_amount?(prog.deposit_amount/100).toFixed(2):'')+'" placeholder="Leave blank — no deposit option" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+
+    // Hours Store
+    + (_saveEndpoint.indexOf('/productions/')===-1 ?
+      '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px"> Hours Store</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Let volunteers redeem logged hours toward enrollment in this program. If sessions are enabled, each session is listed separately (priced from its own price override, or the base price above if none is set) — plus a bundle item if bundle pricing is enabled below.</div>'
+      + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+      + '<input type="checkbox" id="rs-hours-store-enabled" '+(prog.hours_store_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Add this program to the Hours Store</label>'
+      : '')
 
     // Automatic sibling discount
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Automatic Sibling Discount</div>'
@@ -20357,6 +21397,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     // Use the appropriate date fields based on schedule type
     start_date: (document.getElementById('rs-start-date-field')||document.getElementById('rs-recurring-start')||{}).value || null,
     end_date: (document.getElementById('rs-end-date-field')||document.getElementById('rs-recurring-end')||{}).value || null,
+    hours_store_enabled: (document.getElementById('rs-hours-store-enabled')||{}).checked||false,
   }
   const res = await api(saveEndpoint, 'PUT', payload)
   if(res && res.ok){
@@ -22072,6 +23113,7 @@ function renderRentalsPage(){
          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
           <div style="font-size:15px;font-weight:700">${escHtml(r.title||'')}</div>
           <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${stLabel}</span>
+          ${r.source==='interest_form'?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9"> Interest Form</span>':''}
          </div>
          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
           ${escHtml(r.partner_name||'Unknown partner')}
@@ -22083,6 +23125,7 @@ function renderRentalsPage(){
           <span>${rate}</span>
           ${r.total_amount?`<span style="font-weight:700;color:#145466">Total: ${total}</span>`:''}
           ${r.recurring?`<span style="background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:10px;font-weight:600">Recurring · ${r.recurrence_pattern||''}</span>`:''}
+          ${r.desired_frequency?`<span style="background:#e0f2fe;color:#075985;padding:1px 6px;border-radius:10px;font-weight:600">Wants: ${escHtml(r.desired_frequency)}</span>`:''}
          </div>
          ${approvalHtml}
          ${r.purpose?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(r.purpose)}</div>`:''}
@@ -22367,6 +23410,7 @@ function openNewRentalModal(rid){
   const rateTypes = [{v:'hourly',l:'Hourly'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Rental Request</div>
+   ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title / Event Name</label>
     <input id="rm-title" value="${escHtml((req||{}).title||'')}" placeholder="e.g. Saturday Dance Classes" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
@@ -22449,6 +23493,50 @@ async function saveRentalRequest(rid){
     document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
     loadRentalsPage()
   } else toast((res&&res.error)||'Error','error')
+}
+
+function openPartnershipInterestLinkModal(){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  const link = window.location.origin + '/partnership-interest'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:10px"> Artistic Partnership Interest Form</div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Share this link with prospective partners. Submissions show up here as new pending rental requests, ready for you to review and follow up.</div>
+   <div style="display:flex;gap:8px">
+    <input readonly id="partnership-link-input" value="${link}" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--bg)"/>
+    <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('partnership-link-input').value);toast('Link copied!','success')">Copy</button>
+   </div>
+   <div style="display:flex;justify-content:flex-end;margin-top:18px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function openPartnershipPolicyModal(){
+  const res = await api('/api/rental/partnership-policy')
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Partnership Policy Text</div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Shown to prospective partners on the interest form before they submit. Explain what kinds of use are welcome, general expectations, insurance requirements, etc.</div>
+   <textarea id="partnership-policy-text" placeholder="e.g. HWTC welcomes partnerships with local schools, nonprofits, and community artists. Space is generally available on weekday evenings and weekends. All partners must carry general liability insurance and agree to our standard use agreement..." style="width:100%;min-height:220px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">${escHtml(res.policy_text||'')}</textarea>
+   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="savePartnershipPolicy()">Save</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function savePartnershipPolicy(){
+  const text = document.getElementById('partnership-policy-text').value.trim()
+  const res = await api('/api/rental/partnership-policy','PUT',{policy_text:text})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Policy saved!','success')
+  document.querySelectorAll('[style*=fixed]').forEach(function(o){ if(o.querySelector('#partnership-policy-text')) o.remove() })
 }
 
 function openRentalSpacesModal(){
@@ -22581,9 +23669,23 @@ async function renderMarqueeTab(tab){
   else if(tab==='donations') await renderMarqueeDonations(el)
 }
 
+let _mqDashData = null
+let _mqDashProgFilter = 'active' // 'active' | 'past' | 'all'
+
+function setMqDashProgFilter(f){
+  _mqDashProgFilter = f
+  var el = document.getElementById('marquee-tab-dashboard')
+  if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData)
+}
+
 async function renderMarqueeDashboard(el){
   var data = await api('/api/marquee/overview')
+  _mqDashData = data
   if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
+  renderMarqueeDashboardBody(el, data)
+}
+
+function renderMarqueeDashboardBody(el, data){
   var rc = data.reg_counts || {}
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
   function toggleSessionRoster(id){
@@ -22623,9 +23725,27 @@ async function renderMarqueeDashboard(el){
     + '</div>'
 
   // ── Program breakdown ──
-  var programs = data.program_breakdown || []
+  var allPrograms = data.program_breakdown || []
   var sessions = data.session_breakdown || []
   var regsByProgram = data.regs_by_program || {}
+  var activeCount = allPrograms.filter(function(p){ return p.registration_status==='open' }).length
+  var pastCount = allPrograms.length - activeCount
+  var programs = allPrograms.filter(function(p){
+    if(_mqDashProgFilter==='active') return p.registration_status==='open'
+    if(_mqDashProgFilter==='past') return p.registration_status!=='open'
+    return true
+  })
+  if(allPrograms.length){
+    function pillStyle(f){
+      var active = _mqDashProgFilter===f
+      return 'padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(active?'var(--teal)':'var(--border)')+';background:'+(active?'var(--teal)':'transparent')+';color:'+(active?'#fff':'var(--text-muted)')
+    }
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px">'
+      + '<span onclick="setMqDashProgFilter(\'active\')" style="'+pillStyle('active')+'">Actively Enrolling ('+activeCount+')</span>'
+      + '<span onclick="setMqDashProgFilter(\'past\')" style="'+pillStyle('past')+'">Past &amp; Completed ('+pastCount+')</span>'
+      + '<span onclick="setMqDashProgFilter(\'all\')" style="'+pillStyle('all')+'">All ('+allPrograms.length+')</span>'
+      + '</div>'
+  }
   if(programs.length){
     // Group sessions by program_id for quick lookup
     var sessByProg = {}
@@ -22725,6 +23845,9 @@ async function renderMarqueeDashboard(el){
       html += '</div></div>' // end session detail + program row
     })
     html += '</div>' // end card
+  } else if(allPrograms.length){
+    var emptyMsg = _mqDashProgFilter==='active' ? 'No programs are actively enrolling right now.' : 'No past or completed programs yet.'
+    html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);margin-bottom:16px;font-size:13px">'+emptyMsg+'</div>'
   }
 
 

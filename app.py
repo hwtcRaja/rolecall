@@ -12172,7 +12172,7 @@ def send_rsvp_invite(eid):
             </table>
             {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''}
             {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''}
-            {f'<div style="margin-top:28px"'>
+            {f'''<div style="margin-top:28px">
               <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
             </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else "

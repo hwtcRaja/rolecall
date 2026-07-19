@@ -12359,15 +12359,16 @@ def send_rsvp_invite(eid):
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
             </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
                 date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
-                time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''
-                block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
+                display_time = this_block_time or time_str
+                time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{display_time}</td></tr>' if display_time else ''
+                block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Block</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
                 location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
                 custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
                 description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
                 tmpl_vars = {
                     'recipient_name': v['name'], 'event_name': evt['name'],
                     'details_table': date_row + time_row + block_line + location_row,
-                    'time': time_str, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
                     'location': evt.get('location') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
@@ -12378,7 +12379,8 @@ def send_rsvp_invite(eid):
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
             else:
                 date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
-                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''
+                display_time = this_block_time or time_str
+                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
                 location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
                 custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
                 description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
@@ -12386,7 +12388,7 @@ def send_rsvp_invite(eid):
                     'recipient_name': v['name'], 'recipient_email': v['email'],
                     'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
                     'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
-                    'time': time_str, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
                     'location': evt.get('location') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,

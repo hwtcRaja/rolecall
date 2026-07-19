@@ -16653,7 +16653,7 @@ function setRsvpFilter(type, eid){
  document.getElementById('rsvp-send-btn')?.style && (document.getElementById('rsvp-send-btn').style.display = isHousehold ? 'none': '')
  if(isHousehold){
  document.getElementById('rsvp-assign-block-wrap-'+eid)?.style && (document.getElementById('rsvp-assign-block-wrap-'+eid).style.display = 'none')
- renderHouseholdList(eid) // sync the "Ready to Send" panel with any entries already staged
+ loadHouseholdStaging(eid) // fetch the shared draft list from the server and render it
  }
  else loadEventRoles(eid, window._currentEventRoles||[])
  document.getElementById('rsvp-recipient-preview')?.style && (document.getElementById('rsvp-recipient-preview').style.display = isHousehold ? 'none': '')
@@ -16844,7 +16844,16 @@ function addHouseholdGuestField(eid){
  input.focus()
 }
 
-var _householdStaging = {} // eid -> [{label, email, members}]
+var _householdStaging = {} // eid -> [{id, label, email, members, roleId, roleName}], loaded from the server
+
+async function loadHouseholdStaging(eid){
+ const rows = await api(`/api/events/${eid}/household-drafts`)
+ _householdStaging[eid] = Array.isArray(rows) ? rows.map(r=>({
+ id: r.id, label: r.label||'', email: r.email, members: r.members||[],
+ roleId: r.role_id||'', roleName: r.role_name||'', addedBy: r.created_by_name||''
+ })) : []
+ renderHouseholdList(eid)
+}
 
 function renderHouseholdList(eid){
  const list = _householdStaging[eid] || []
@@ -16856,23 +16865,24 @@ function renderHouseholdList(eid){
  if(sendBtn){ sendBtn.textContent = `Send All Invites (${list.length})`; sendBtn.disabled = list.length===0 }
  if(wrap) wrap.style.display = list.length ? '' : 'none'
  if(listEl){
- listEl.innerHTML = list.map((h,i)=>`
+ listEl.innerHTML = list.map((h)=>`
  <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px">
  <div style="flex:1;min-width:0">
  <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(h.label || h.members[0])}</div>
- <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}${h.roleName?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(h.roleName)}</span>`:''}</div>
+ <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}${h.roleName?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(h.roleName)}</span>`:''}${h.addedBy?` · added by ${escHtml(h.addedBy)}`:''}</div>
  </div>
- <button onclick="removeHouseholdFromList('${eid}',${i})" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>
+ <button onclick="removeHouseholdFromList('${eid}','${h.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>
  </div>`).join('')
  }
 }
 
-function removeHouseholdFromList(eid, idx){
- (_householdStaging[eid]||[]).splice(idx,1)
+async function removeHouseholdFromList(eid, did){
+ await api(`/api/events/${eid}/household-drafts/${did}`, 'DELETE')
+ _householdStaging[eid] = (_householdStaging[eid]||[]).filter(h=>h.id!==did)
  renderHouseholdList(eid)
 }
 
-function addHouseholdToList(eid){
+async function addHouseholdToList(eid){
  const label = document.getElementById('household-label-'+eid)?.value.trim() || ''
  const email = document.getElementById('household-email-'+eid)?.value.trim() || ''
  const guestInputs = document.querySelectorAll(`#household-guests-${eid} .household-guest-input`)
@@ -16882,11 +16892,13 @@ function addHouseholdToList(eid){
  const roleName = roleId ? (blockSel.options[blockSel.selectedIndex]?.text || '') : ''
  if(!email){ toast('Email is required','error'); return }
  if(!guests.length){ toast('Add at least one guest name','error'); return }
+ const addBtn = document.querySelector(`button[onclick="addHouseholdToList('${eid}')"]`)
+ if(addBtn) addBtn.disabled = true
+ const res = await api(`/api/events/${eid}/household-drafts`, 'POST', {label, email, members: guests, role_id: roleId, role_name: roleName})
+ if(addBtn) addBtn.disabled = false
+ if(res.error){ toast(res.error,'error'); return }
  if(!_householdStaging[eid]) _householdStaging[eid] = []
- if(_householdStaging[eid].some(h=>h.email.toLowerCase()===email.toLowerCase())){
- toast('That email is already in your list','error'); return
- }
- _householdStaging[eid].push({label, email, members: guests, roleId, roleName})
+ _householdStaging[eid].push({id: res.id, label: res.label||'', email: res.email, members: res.members||guests, roleId: res.role_id||'', roleName: res.role_name||'', addedBy: res.created_by_name||''})
  renderHouseholdList(eid)
  document.getElementById('household-label-'+eid).value = ''
  document.getElementById('household-email-'+eid).value = ''
@@ -16917,6 +16929,7 @@ async function sendAllHouseholds(eid){
  return
  }
  if(resultEl) resultEl.innerHTML = `<span style="color:var(--green-600)"> Sent ${res.sent||list.length} invite${(res.sent||list.length)!==1?'s':''}!${res.skipped?` (${res.skipped} skipped — already responded or recently invited)`:''}</span>`
+ await api(`/api/events/${eid}/household-drafts/clear`, 'POST')
  _householdStaging[eid] = []
  renderHouseholdList(eid)
  loadEventRsvps(eid)

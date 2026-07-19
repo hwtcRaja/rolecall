@@ -263,6 +263,102 @@ def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
     return fetchone(conn, 'SELECT * FROM email_templates WHERE template_key=%s', (key,))
 
+def render_template_vars(text, mapping):
+    """Substitute {{key}} placeholders with plain string replacement — no eval/Jinja —
+    so a template body someone edits in the UI can never execute code."""
+    if not text: return text
+    out = text
+    for k, val in mapping.items():
+        out = out.replace('{{' + k + '}}', '' if val is None else str(val))
+    return out
+
+# Default bodies for the two RSVP invite emails (household/party vs. general volunteer or
+# guest invite). These are plain strings (not f-strings) — the {{...}} tokens are literal
+# placeholder text substituted later via render_template_vars, not Python interpolation.
+RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT = '''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
+  <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
+    <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>
+    <div style="width:36px;height:1px;background:#145466;margin:16px auto"></div>
+    <h1 style="font-size:26px;font-weight:400;margin:0;color:#0d3d4d;letter-spacing:0.2px">You Are Cordially Invited</h1>
+  </div>
+  <div style="padding:36px 40px 8px">
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 18px">Dear {{recipient_name}},</p>
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 24px">On behalf of Horizon West Theater Company, it is our pleasure to invite you to</p>
+    <h2 style="font-size:22px;font-weight:400;color:#0d3d4d;margin:0 0 24px;text-align:center;font-style:italic">{{event_name}}</h2>
+    <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;margin-bottom:8px">
+      {{details_table}}
+    </table>
+    {{custom_message_block}}
+    {{description_block}}
+    {{guest_list_block}}
+    <div style="text-align:center;margin:36px 0 8px">
+      <a href="{{rsvp_url}}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
+        RESPOND TO THIS INVITATION
+      </a>
+    </div>
+  </div>
+  <div style="padding:24px 40px 40px;text-align:center">
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.7;color:#9ca3af;margin:0">
+      We look forward to welcoming you.<br/>
+      Horizon West Theater Company
+    </p>
+  </div>
+</div>'''
+
+RSVP_INVITE_GENERAL_BODY_DEFAULT = '''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
+    <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
+    <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">{{kind_emoji}} {{kind_label}}</h2>
+    <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{{event_name}}</div>
+  </div>
+  <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+    <p style="margin-top:0;color:#374151">Hi {{recipient_name}},</p>
+    <p style="color:#374151">{{intro_line}}</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      {{details_table}}
+    </table>
+    {{custom_message_block}}
+    {{description_block}}
+    {{roles_block}}
+    <div style="text-align:center;margin:28px 0">
+      <a href="{{rsvp_url}}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
+        {{cta_label}}
+      </a>
+    </div>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+    <p style="font-size:12px;color:#9ca3af;margin:0">
+      {{footer_note}}<br>
+      This invitation was sent to {{recipient_email}} by Horizon West Theater Company.
+    </p>
+  </div>
+</div>'''
+
+RSVP_INVITE_TEMPLATE_DEFS = [
+    ('rsvp_invite_household', 'RSVP Invite — Household / Party', 'You Are Invited: {{event_name}}', RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
+     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
+    ('rsvp_invite_general', 'RSVP Invite — General', '[HWTC] {{kind_label}}: {{event_name}}', RSVP_INVITE_GENERAL_BODY_DEFAULT,
+     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
+]
+
+def seed_rsvp_invite_templates(conn=None):
+    """Seed the two RSVP invite templates if they don't exist yet. Unlike
+    seed_system_email_templates, this NEVER overwrites an existing row — once someone
+    customizes the wording in Settings > Email Templates it survives future deploys
+    instead of getting reset back to these defaults."""
+    _own_conn = conn is None
+    if _own_conn: conn = get_db()
+    for key, name, subject, body, description in RSVP_INVITE_TEMPLATE_DEFS:
+        existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
+        if not existing:
+            try:
+                execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)
+                    VALUES (%s,%s,%s,%s,%s,TRUE,%s)''',
+                    (str(uuid.uuid4()), name, subject, body, key, description))
+                conn.commit()
+            except Exception as e:
+                app.logger.warning(f'Failed to seed template {key}: {e}')
+    if _own_conn: conn.close()
+
 def log_volunteer_comm(conn, volunteer_id, subject, email_type='', sent_by='system', recipient_email=''):
     """Log an email sent to a volunteer."""
     try:
@@ -5380,6 +5476,14 @@ def reset_system_template(key):
             'universal_reminder': (
                 'Reminder: Submit Your Volunteer Hours - Universal Giving',
                 '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>\n  </div>\n</div>\''
+            ),
+            'rsvp_invite_household': (
+                RSVP_INVITE_TEMPLATE_DEFS[0][2],  # subject
+                RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
+            ),
+            'rsvp_invite_general': (
+                RSVP_INVITE_TEMPLATE_DEFS[1][2],  # subject
+                RSVP_INVITE_GENERAL_BODY_DEFAULT,
             ),
         }
         if key not in DEFAULTS:
@@ -11764,6 +11868,7 @@ init_db()
 try:
     _seed_conn = get_db()
     seed_system_email_templates(_seed_conn)
+    seed_rsvp_invite_templates(_seed_conn)
     _seed_conn.commit()
     _seed_conn.close()
 except Exception as _e:
@@ -12164,6 +12269,11 @@ def send_rsvp_invite(eid):
             <div style="font-size:16px;font-weight:700;color:#0d3d4d">{assign_role_name}</div>
         </div>'''
 
+    # Load the editable email templates once (Settings > Email Templates); fall back to
+    # the hardcoded defaults below only if a row is somehow missing.
+    household_tmpl = get_system_template(conn, 'rsvp_invite_household')
+    general_tmpl = get_system_template(conn, 'rsvp_invite_general')
+
     for v in vols:
         if not v.get('email'): continue
         if v.get('id'):
@@ -12227,80 +12337,46 @@ def send_rsvp_invite(eid):
 
         if is_household_send:
             guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
-            # Built as its own variable (not inline inside the outer f-string) so we
-            # never nest a triple-quoted f-string inside another with the same ''' delimiter —
-            # that's a SyntaxError on Python <3.12 and has crashed us on Railway before.
             guest_list_block = f'''<div style="margin-top:28px">
               <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
             </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
+            date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
+            time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''
             block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
-            body = f'''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
-          <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
-            <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>
-            <div style="width:36px;height:1px;background:#145466;margin:16px auto"></div>
-            <h1 style="font-size:26px;font-weight:400;margin:0;color:#0d3d4d;letter-spacing:0.2px">You Are Cordially Invited</h1>
-          </div>
-          <div style="padding:36px 40px 8px">
-            <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 18px">Dear {v['name']},</p>
-            <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 24px">On behalf of Horizon West Theater Company, it is our pleasure to invite you to</p>
-            <h2 style="font-size:22px;font-weight:400;color:#0d3d4d;margin:0 0 24px;text-align:center;font-style:italic">{evt['name']}</h2>
-            <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;margin-bottom:8px">
-              <tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>
-              {f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{time_str}</td></tr>' if time_str and not this_role_name else ''}
-              {block_line}
-              {f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''}
-            </table>
-            {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''}
-            {f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''}
-            {guest_list_block}
-            <div style="text-align:center;margin:36px 0 8px">
-              <a href="{rsvp_url}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
-                RESPOND TO THIS INVITATION
-              </a>
-            </div>
-          </div>
-          <div style="padding:24px 40px 40px;text-align:center">
-            <p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.7;color:#9ca3af;margin:0">
-              We look forward to welcoming you.<br/>
-              Horizon West Theater Company
-            </p>
-          </div>
-        </div>'''
+            location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
+            custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
+            description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
+            tmpl_vars = {
+                'recipient_name': v['name'], 'event_name': evt['name'],
+                'details_table': date_row + time_row + block_line + location_row,
+                'custom_message_block': custom_message_block, 'description_block': description_block,
+                'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
+            }
+            tmpl_body = household_tmpl['body'] if household_tmpl else RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT
+            tmpl_subject = household_tmpl['subject'] if household_tmpl else RSVP_INVITE_TEMPLATE_DEFS[0][2]
+            body = render_template_vars(tmpl_body, tmpl_vars)
+            email_subject = render_template_vars(tmpl_subject, tmpl_vars)
         else:
-            body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
-          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
-            <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
-            <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">{"🎉" if is_guest else "🎭"} {kind_label}</h2>
-            <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{evt['name']}</div>
-          </div>
-          <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-            <p style="margin-top:0;color:#374151">Hi {v['name']},</p>
-            <p style="color:#374151">{intro_line}</p>
-            <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-              <tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>
-              {f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''}
-              {f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
-            </table>
-            {f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''}
-            {f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''}
-            {roles_html}
-            <div style="text-align:center;margin:28px 0">
-              <a href="{rsvp_url}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
-                {cta_label}
-              </a>
-            </div>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
-            <p style="font-size:12px;color:#9ca3af;margin:0">
-              {footer_note}<br>
-              This invitation was sent to {v['email']} by Horizon West Theater Company.
-            </p>
-          </div>
-        </div>'''
+            date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
+            time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''
+            location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+            custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
+            description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
+            tmpl_vars = {
+                'recipient_name': v['name'], 'recipient_email': v['email'],
+                'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
+                'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
+                'custom_message_block': custom_message_block, 'description_block': description_block,
+                'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
+            }
+            tmpl_body = general_tmpl['body'] if general_tmpl else RSVP_INVITE_GENERAL_BODY_DEFAULT
+            tmpl_subject = general_tmpl['subject'] if general_tmpl else RSVP_INVITE_TEMPLATE_DEFS[1][2]
+            body = render_template_vars(tmpl_body, tmpl_vars)
+            email_subject = render_template_vars(tmpl_subject, tmpl_vars)
 
         fi = d.get('from_identity') or {}
         try:
-            email_subject = f'You Are Invited: {evt["name"]}' if is_household_send else f'[HWTC] {kind_label}: {evt["name"]}'
             send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
@@ -12314,7 +12390,6 @@ def send_rsvp_invite(eid):
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
 
-@app.route('/rsvp/<token>')
 def _role_headcount(conn, role_id):
     """Real attendee headcount for a block/role — counts each individual attending
     guest in a household RSVP, not just one per invite."""
@@ -12404,6 +12479,7 @@ def _guest_invite_css():
     </style>'''
 
 
+@app.route('/rsvp/<token>')
 def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,

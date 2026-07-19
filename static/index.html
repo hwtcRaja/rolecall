@@ -17041,6 +17041,39 @@ async function removeRsvp(eid, rid){
  openEventChip(eid)
 }
 
+// A household/party RSVP is stored as ONE row with a party_members JSON list
+// (e.g. "me" + a guest), so counts must sum people within each row, not just rows.
+function _rsvpPartyMembersOf(r){
+ if(!r.party_members) return null
+ try{
+ const pm = JSON.parse(r.party_members)
+ return (Array.isArray(pm) && pm.length) ? pm: null
+ }catch(e){ return null }
+}
+function _rsvpInvitedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ return pm ? pm.length: 1
+}
+function _rsvpConfirmedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===true).length
+ return (r.status==='interested'||r.status==='confirmed') ? 1: 0
+}
+function _rsvpDeclinedCountOf(r){
+ const pm = _rsvpPartyMembersOf(r)
+ if(pm) return pm.filter(m=>m.attending===false).length
+ return r.status==='declined' ? 1: 0
+}
+
+window._rsvpPanelCache = window._rsvpPanelCache || {}
+window._rsvpViewMode = window._rsvpViewMode || 'status'
+
+function setRsvpViewMode(eid, mode){
+ window._rsvpViewMode = mode
+ const cached = window._rsvpPanelCache[eid]
+ if(cached) renderEventRsvps(eid, cached.allRsvps, cached.roles)
+}
+
 async function loadEventRsvps(eid){
  const el = document.getElementById('event-rsvps-list')
  if(!el) return
@@ -17053,32 +17086,16 @@ async function loadEventRsvps(eid){
 
  const allRsvps = Array.isArray(rsvps) ? rsvps: []
  window._currentEventRsvps = allRsvps // cache for preview duplicate detection
- // A household/party RSVP is stored as ONE row with a party_members JSON list
- // (e.g. "me" + a guest), so counts must sum people within each row, not just rows.
- const partyMembersOf = (r) => {
- if(!r.party_members) return null
- try{
- const pm = JSON.parse(r.party_members)
- return (Array.isArray(pm) && pm.length) ? pm: null
- }catch(e){ return null }
- }
- const invitedCountOf = (r) => {
- const pm = partyMembersOf(r)
- return pm ? pm.length: 1
- }
- const confirmedCountOf = (r) => {
- const pm = partyMembersOf(r)
- if(pm) return pm.filter(m=>m.attending===true).length
- return (r.status==='interested'||r.status==='confirmed') ? 1: 0
- }
- const declinedCountOf = (r) => {
- const pm = partyMembersOf(r)
- if(pm) return pm.filter(m=>m.attending===false).length
- return r.status==='declined' ? 1: 0
- }
- const signedUp = allRsvps.reduce((s,r)=>s+confirmedCountOf(r),0)
- const declined = allRsvps.reduce((s,r)=>s+declinedCountOf(r),0)
- const invited = allRsvps.reduce((s,r)=>s+invitedCountOf(r),0)
+ window._rsvpPanelCache[eid] = {allRsvps, roles}
+ renderEventRsvps(eid, allRsvps, roles)
+}
+
+function renderEventRsvps(eid, allRsvps, roles){
+ const el = document.getElementById('event-rsvps-list')
+ if(!el) return
+ const signedUp = allRsvps.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
+ const declined = allRsvps.reduce((s,r)=>s+_rsvpDeclinedCountOf(r),0)
+ const invited = allRsvps.reduce((s,r)=>s+_rsvpInvitedCountOf(r),0)
  const totalSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.slots||1),0): 0
  const filledSlots = Array.isArray(roles) ? roles.reduce((s,r)=>s+parseInt(r.filled||0),0): 0
  const pctFilled = totalSlots > 0 ? Math.round(filledSlots/totalSlots*100): null
@@ -17109,9 +17126,7 @@ async function loadEventRsvps(eid){
  }
 
  const isAdmin = canEdit('events')
- const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
- const invitedList = allRsvps.filter(r=>r.status==='invited')
- const declinedList = allRsvps.filter(r=>r.status==='declined')
+ const viewMode = window._rsvpViewMode || 'status'
 
  const statusStyle = {
  interested: 'background:var(--green-50);color:var(--green-600)',
@@ -17136,7 +17151,7 @@ async function loadEventRsvps(eid){
  ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
  <div style="flex:1">
  <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}${party.length?` <span style="font-weight:400;color:var(--text-muted);font-size:11px">(party of ${party.length})</span>`:''}</div>
- ${r.role_name?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
+ ${(viewMode!=='block'&&r.role_name)?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
  ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.status==='confirmed'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Confirmed ${formatDateTimeShort(r.created_at)}</div>`:''}
@@ -17153,21 +17168,81 @@ async function loadEventRsvps(eid){
  </div>`
  }
 
- let html = statsHtml
+ const toggleHtml = `<div style="display:flex;gap:6px;margin-bottom:14px">
+ <button onclick="setRsvpViewMode('${eid}','status')" style="flex:1;padding:6px 10px;border-radius:8px;border:1.5px solid var(--border-md);font-size:12px;font-weight:600;cursor:pointer;background:${viewMode==='status'?'var(--teal-dark)':'var(--bg)'};color:${viewMode==='status'?'#fff':'var(--text-muted)'}">By Status</button>
+ <button onclick="setRsvpViewMode('${eid}','block')" style="flex:1;padding:6px 10px;border-radius:8px;border:1.5px solid var(--border-md);font-size:12px;font-weight:600;cursor:pointer;background:${viewMode==='block'?'var(--teal-dark)':'var(--bg)'};color:${viewMode==='block'?'#fff':'var(--text-muted)'}">By Block</button>
+ </div>`
+
+ let html = statsHtml + toggleHtml
+
+ if(viewMode==='block'){
+ // Group RSVPs by their assigned block/role, in the same order as the roles list,
+ // then any RSVPs tied to a block that's since been deleted, then unassigned last.
+ const roleList = Array.isArray(roles) ? roles: []
+ const roleById = {}
+ roleList.forEach(r=>{ roleById[r.id] = r })
+ const groups = {}
+ const unassigned = []
+ allRsvps.forEach(r=>{
+ if(r.role_id && roleById[r.role_id]){
+ if(!groups[r.role_id]) groups[r.role_id] = {role: roleById[r.role_id], rows: []}
+ groups[r.role_id].rows.push(r)
+ } else if(r.role_id || r.role_name){
+ const key = 'deleted:'+(r.role_id||r.role_name)
+ if(!groups[key]) groups[key] = {role: {name: r.role_name||'Removed Block', slots: null}, rows: []}
+ groups[key].rows.push(r)
+ } else {
+ unassigned.push(r)
+ }
+ })
+ const statusOrder = {interested:0, confirmed:0, invited:1, declined:2}
+ const sortRows = (rows) => [...rows].sort((a,b)=>(statusOrder[a.status]??1)-(statusOrder[b.status]??1))
+ const blockHeader = (role, rows, isFirst) => {
+ const confirmedInBlock = rows.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
+ const fillText = (role.slots!=null) ? `${confirmedInBlock} / ${role.slots} filled`: `${confirmedInBlock} confirmed`
+ return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:${isFirst?'4':'16'}px;margin-bottom:6px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">${escHtml(role.name||'Block')}</div>
+ <div style="font-size:11px;color:var(--text-muted)">${fillText}</div>
+ </div>`
+ }
+ let first = true
+ roleList.forEach(role=>{
+ const g = groups[role.id]
+ if(!g || !g.rows.length) return
+ html += blockHeader(role, g.rows, first)
+ first = false
+ html += sortRows(g.rows).map(r=>rsvpRow(r)).join('')
+ })
+ Object.keys(groups).forEach(key=>{
+ if(!key.startsWith('deleted:')) return
+ const g = groups[key]
+ html += blockHeader(g.role, g.rows, first)
+ first = false
+ html += sortRows(g.rows).map(r=>rsvpRow(r)).join('')
+ })
+ if(unassigned.length){
+ html += blockHeader({name:'No Block Assigned', slots:null}, unassigned, first)
+ html += sortRows(unassigned).map(r=>rsvpRow(r)).join('')
+ }
+ } else {
+ const confirmedList = allRsvps.filter(r=>r.status==='interested'||r.status==='confirmed')
+ const invitedList = allRsvps.filter(r=>r.status==='invited')
+ const declinedList = allRsvps.filter(r=>r.status==='declined')
  if(confirmedList.length){
- const confirmedPeople = confirmedList.reduce((s,r)=>s+confirmedCountOf(r),0)
+ const confirmedPeople = confirmedList.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
  html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--green-600);margin-bottom:4px;margin-top:4px"> Coming (${confirmedPeople})</div>`
  html += confirmedList.map(r=>rsvpRow(r)).join('')
  }
  if(invitedList.length){
- const invitedPeople = invitedList.reduce((s,r)=>s+invitedCountOf(r),0)
+ const invitedPeople = invitedList.reduce((s,r)=>s+_rsvpInvitedCountOf(r),0)
  html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:${confirmedList.length?'14':'4'}px;margin-bottom:4px"> Invited — Pending (${invitedPeople})</div>`
  html += invitedList.map(r=>rsvpRow(r)).join('')
  }
  if(declinedList.length){
- const declinedPeople = declinedList.reduce((s,r)=>s+declinedCountOf(r),0)
+ const declinedPeople = declinedList.reduce((s,r)=>s+_rsvpDeclinedCountOf(r),0)
  html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;margin-top:${(confirmedList.length||invitedList.length)?'14':'4'}px;margin-bottom:4px"> Can't Make It (${declinedPeople})</div>`
  html += declinedList.map(r=>rsvpRow(r)).join('')
+ }
  }
  el.innerHTML = html
 }

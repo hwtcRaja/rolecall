@@ -12175,7 +12175,7 @@ def send_rsvp_invite(eid):
             {f'<div style="margin-top:28px"'>
               <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
-            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''}
+            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else "
             <div style="text-align:center;margin:36px 0 8px">
               <a href="{rsvp_url}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
                 RESPOND TO THIS INVITATION

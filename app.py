@@ -1689,6 +1689,19 @@ def init_db():
         # Interest list for productions
         "ALTER TABLE interest_list_entries ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
         "ALTER TABLE interest_list_entries ALTER COLUMN program_id DROP NOT NULL",
+
+        # Shared draft list for household/party RSVP invites  -  lets anyone logged in
+        # build up a batch of invites over time and see what's already been staged.
+        """CREATE TABLE IF NOT EXISTS household_invite_drafts (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            label TEXT DEFAULT '',
+            email TEXT NOT NULL,
+            members TEXT DEFAULT '[]',
+            role_id TEXT,
+            role_name TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
     ]:
         try:
             c.execute(col_sql)
@@ -11970,6 +11983,67 @@ def get_event_rsvps(eid):
     conn.close()
     return jsonify(rsvps)
 
+@app.route('/api/events/<eid>/household-drafts')
+def get_household_drafts(eid):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT hd.*, u.name as created_by_name
+        FROM household_invite_drafts hd LEFT JOIN users u ON hd.created_by=u.id
+        WHERE hd.event_id=%s ORDER BY hd.created_at ASC''', (eid,)) or []
+    conn.close()
+    for r in rows:
+        try: r['members'] = json.loads(r.get('members') or '[]')
+        except Exception: r['members'] = []
+    return jsonify(rows)
+
+@app.route('/api/events/<eid>/household-drafts', methods=['POST'])
+def add_household_draft(eid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower()
+    members = [n.strip() for n in (d.get('members') or []) if (n or '').strip()]
+    label = (d.get('label') or '').strip()
+    role_id = (d.get('role_id') or '').strip()
+    role_name = (d.get('role_name') or '').strip()
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+    if not members:
+        return jsonify({'error': 'Add at least one guest name'}), 400
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM household_invite_drafts WHERE event_id=%s AND LOWER(email)=%s', (eid, email))
+    if existing:
+        conn.close()
+        return jsonify({'error': 'That email is already in the list'}), 400
+    did = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO household_invite_drafts (id,event_id,label,email,members,role_id,role_name,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (did, eid, label, email, json.dumps(members), role_id or None, role_name, session.get('user_id','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM household_invite_drafts WHERE id=%s', (did,))
+    conn.close()
+    row['members'] = members
+    return jsonify(row)
+
+@app.route('/api/events/<eid>/household-drafts/<did>', methods=['DELETE'])
+def delete_household_draft(eid, did):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM household_invite_drafts WHERE id=%s AND event_id=%s', (did, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/<eid>/household-drafts/clear', methods=['POST'])
+def clear_household_drafts(eid):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM household_invite_drafts WHERE event_id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/events/<eid>/rsvp-invite', methods=['POST'])
 def send_rsvp_invite(eid):
     err = require_permission('events')
@@ -12153,11 +12227,14 @@ def send_rsvp_invite(eid):
 
         if is_household_send:
             guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
-            block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
+            # Built as its own variable (not inline inside the outer f-string) so we
+            # never nest a triple-quoted f-string inside another with the same ''' delimiter —
+            # that's a SyntaxError on Python <3.12 and has crashed us on Railway before.
             guest_list_block = f'''<div style="margin-top:28px">
               <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
               <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
             </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
+            block_line = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{this_role_name}</td></tr>' if this_role_name else ''
             body = f'''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
           <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
             <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>

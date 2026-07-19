@@ -15787,6 +15787,12 @@ function renderEventDetailPage(eid){
    <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
    <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
   </div>
+  <div class="form-group" style="margin-bottom:10px" id="household-block-wrap-${e.id}">
+   <label style="font-size:11px">Block <span style="font-weight:400">(optional)</span></label>
+   <select id="household-block-${e.id}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+    <option value="">— No specific block —</option>
+   </select>
+  </div>
   <div style="display:flex;gap:6px;margin-bottom:12px">
    <button class="btn btn-secondary btn-sm" onclick="addHouseholdGuestField('${e.id}')">+ Add Another Guest</button>
    <button class="btn btn-primary btn-sm" onclick="addHouseholdToList('${e.id}')">+ Add to List</button>
@@ -16851,7 +16857,7 @@ function renderHouseholdList(eid){
  <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px">
  <div style="flex:1;min-width:0">
  <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(h.label || h.members[0])}</div>
- <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}</div>
+ <div style="color:var(--text-muted);font-size:11px">${escHtml(h.email)} · ${h.members.length} guest${h.members.length!==1?'s':''}${h.roleName?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(h.roleName)}</span>`:''}</div>
  </div>
  <button onclick="removeHouseholdFromList('${eid}',${i})" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>
  </div>`).join('')
@@ -16868,19 +16874,24 @@ function addHouseholdToList(eid){
  const email = document.getElementById('household-email-'+eid)?.value.trim() || ''
  const guestInputs = document.querySelectorAll(`#household-guests-${eid} .household-guest-input`)
  const guests = Array.from(guestInputs).map(i=>i.value.trim()).filter(Boolean)
+ const blockSel = document.getElementById('household-block-'+eid)
+ const roleId = blockSel?.value || ''
+ const roleName = roleId ? (blockSel.options[blockSel.selectedIndex]?.text || '') : ''
  if(!email){ toast('Email is required','error'); return }
  if(!guests.length){ toast('Add at least one guest name','error'); return }
  if(!_householdStaging[eid]) _householdStaging[eid] = []
  if(_householdStaging[eid].some(h=>h.email.toLowerCase()===email.toLowerCase())){
  toast('That email is already in your list','error'); return
  }
- _householdStaging[eid].push({label, email, members: guests})
+ _householdStaging[eid].push({label, email, members: guests, roleId, roleName})
  renderHouseholdList(eid)
  document.getElementById('household-label-'+eid).value = ''
  document.getElementById('household-email-'+eid).value = ''
  document.getElementById('household-guests-'+eid).innerHTML = `
  <input type="text" class="household-guest-input" placeholder="Guest 1 name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>
  <input type="text" class="household-guest-input" placeholder="Guest 2 name (optional)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>`
+ // Note: the block dropdown is intentionally left as-is (not reset) since consecutive
+ // households are often assigned to the same block.
  document.getElementById('household-label-'+eid).focus()
 }
 
@@ -16889,14 +16900,13 @@ async function sendAllHouseholds(eid){
  if(!list.length) return
  const resultEl = document.getElementById('household-result-'+eid)
  const sendBtn = document.getElementById('household-send-all-btn-'+eid)
- const assignRoleId = document.getElementById('rsvp-assign-block-'+eid)?.value || ''
  const message = document.getElementById('rsvp-message-text')?.value.trim() || ''
  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
  if(sendBtn){ sendBtn.disabled = true; sendBtn.textContent = 'Sending…' }
  if(resultEl) resultEl.innerHTML = ''
  const res = await api(`/api/events/${eid}/rsvp-invite`, 'POST', {from_identity:_fi,
- households: list.map(h=>({label:h.label, email:h.email, members:h.members})),
- assign_role_id: assignRoleId, message
+ households: list.map(h=>({label:h.label, email:h.email, members:h.members, role_id:h.roleId||''})),
+ message
  })
  if(res.error){
  if(resultEl) resultEl.innerHTML = `<span style="color:var(--red-600)">${res.error}</span>`
@@ -17133,20 +17143,32 @@ function loadEventRoles(eid, roles){
  const el = document.getElementById('event-roles-list-'+eid)
  const assignWrap = document.getElementById('rsvp-assign-block-wrap-'+eid)
  const assignSel = document.getElementById('rsvp-assign-block-'+eid)
+ const householdBlockWrap = document.getElementById('household-block-wrap-'+eid)
+ const householdBlockSel = document.getElementById('household-block-'+eid)
  const ev = allEvents.find(x=>x.id===eid) || {}
  const isGuest = ev.rsvp_kind==='guest'
+ const blockOptionsHtml = roles && roles.length ? roles.map(r=>{
+ const timeLabel = r.block_time ? ` (${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''})` : ''
+ return `<option value="${r.id}">${escHtml(r.name)}${timeLabel}</option>`
+ }).join('') : ''
  if(assignWrap && assignSel){
  if(roles && roles.length){
  assignWrap.style.display=''
  const currentVal = assignSel.value
- assignSel.innerHTML = `<option value="">Let them choose from all ${isGuest?'blocks':'roles'}</option>`
- + roles.map(r=>{
- const timeLabel = r.block_time ? ` (${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''})` : ''
- return `<option value="${r.id}">${escHtml(r.name)}${timeLabel}</option>`
- }).join('')
+ assignSel.innerHTML = `<option value="">Let them choose from all ${isGuest?'blocks':'roles'}</option>` + blockOptionsHtml
  assignSel.value = currentVal
  } else {
  assignWrap.style.display='none'
+ }
+ }
+ if(householdBlockWrap && householdBlockSel){
+ if(roles && roles.length){
+ householdBlockWrap.style.display=''
+ const currentVal = householdBlockSel.value
+ householdBlockSel.innerHTML = `<option value="">— No specific block —</option>` + blockOptionsHtml
+ householdBlockSel.value = currentVal
+ } else {
+ householdBlockWrap.style.display='none'
  }
  }
  if(!el) return

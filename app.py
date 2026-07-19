@@ -335,9 +335,9 @@ RSVP_INVITE_GENERAL_BODY_DEFAULT = '''<div style="font-family:-apple-system,Blin
 
 RSVP_INVITE_TEMPLATE_DEFS = [
     ('rsvp_invite_household', 'RSVP Invite — Household / Party', 'You Are Invited: {{event_name}}', RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
-     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
+     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
     ('rsvp_invite_general', 'RSVP Invite — General', '[HWTC] {{kind_label}}: {{event_name}}', RSVP_INVITE_GENERAL_BODY_DEFAULT,
-     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
+     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
 ]
 
 def seed_rsvp_invite_templates(conn=None):
@@ -357,6 +357,14 @@ def seed_rsvp_invite_templates(conn=None):
                 conn.commit()
             except Exception as e:
                 app.logger.warning(f'Failed to seed template {key}: {e}')
+        else:
+            # Description is reference documentation, not user-edited content — keep it current
+            # (e.g. when new placeholders are added) without touching their subject/body.
+            try:
+                execute(conn, 'UPDATE email_templates SET description=%s WHERE template_key=%s', (description, key))
+                conn.commit()
+            except Exception as e:
+                app.logger.warning(f'Failed to refresh description for {key}: {e}')
     if _own_conn: conn.close()
 
 def log_volunteer_comm(conn, volunteer_id, subject, email_type='', sent_by='system', recipient_email=''):
@@ -12305,9 +12313,14 @@ def send_rsvp_invite(eid):
         # to the list); otherwise fall back to the batch-wide "Assign to Block" choice.
         this_role_id = role_by_email.get(v['email']) or assign_role_id
         this_role_name = ''
+        this_block_time = ''
         if this_role_id:
             this_role = next((r for r in roles if r['id'] == this_role_id), None)
             this_role_name = this_role['name'] if this_role else ''
+            if this_role:
+                bt = _fmt_time(this_role.get('block_time'))
+                bte = _fmt_time(this_role.get('block_time_end'))
+                this_block_time = f'{bt} – {bte}' if bt and bte else (bt or '')
             if not this_role: this_role_id = ''
 
         if existing:
@@ -12354,6 +12367,8 @@ def send_rsvp_invite(eid):
                 tmpl_vars = {
                     'recipient_name': v['name'], 'event_name': evt['name'],
                     'details_table': date_row + time_row + block_line + location_row,
+                    'time': time_str, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'location': evt.get('location') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
                 }
@@ -12371,6 +12386,8 @@ def send_rsvp_invite(eid):
                     'recipient_name': v['name'], 'recipient_email': v['email'],
                     'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
                     'intro_line': intro_line, 'details_table': date_row + time_row + location_row,
+                    'time': time_str, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'location': evt.get('location') or '',
                     'custom_message_block': custom_message_block, 'description_block': description_block,
                     'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
                 }

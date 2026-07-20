@@ -99,6 +99,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
           </select>
         </div>
       </div>
+      <div class="form-group" id="sms-consent-wrap">
+        <label class="check-wrap">
+          <input type="checkbox" id="f-sms-consent"/>
+          <div>
+            <div class="check-label">I agree to receive SMS text messages</div>
+            <div class="check-sub">By providing my phone number and checking this box, I consent to receive SMS text messages from Horizon West Theater Company related to volunteering, event reminders, schedule updates, and urgent notices. Message frequency varies. Message and data rates may apply. Reply <strong>STOP</strong> to opt out at any time, or <strong>HELP</strong> for help. See our <a href="/terms" target="_blank" rel="noopener">Terms &amp; Conditions</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</div>
+          </div>
+        </label>
+        <div class="err" id="err-sms-consent">Please check the box to confirm SMS consent, or leave the phone number field blank.</div>
+      </div>
       <div class="form-group" id="pronouns-other-wrap" style="display:none">
         <label>Your Pronouns</label>
         <input type="text" id="f-pronouns-other" placeholder="e.g. Xe/Xem"/>
@@ -255,6 +265,7 @@ async function submitForm(e){
   const name   = document.getElementById('f-name').value.trim()
   const email  = document.getElementById('f-email').value.trim()
   const phone  = document.getElementById('f-phone').value.trim()
+  const smsConsent = document.getElementById('f-sms-consent').checked
   const heard  = document.getElementById('f-heard').value
   const notes  = document.getElementById('f-notes').value.trim()
   const adult = document.querySelector('input[name="age_range"]:checked')?.value ?? null
@@ -274,6 +285,7 @@ async function submitForm(e){
   if(!name)                 fail('err-name','f-name')
   if(!email||!email.includes('@')) fail('err-email','f-email')
   if(!heard)                fail('err-heard','f-heard')
+  if(phone && !smsConsent)  fail('err-sms-consent', null)
   if(!valid){ document.querySelector('.field-err')?.scrollIntoView({behavior:'smooth',block:'center'}); return }
 
   const btn = document.getElementById('submit-btn')
@@ -282,7 +294,7 @@ async function submitForm(e){
   try {
     const res = await fetch('/api/join/submit',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name,email,phone,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes,employer_program:document.getElementById('f-employer-program')?.value||''})
+      body: JSON.stringify({name,email,phone,sms_consent:phone?smsConsent:false,pronouns:pronouns||'',is_adult:adult,interests:selectedInterests,sub_selections:selectedSubSelections,how_heard:heard,notes,employer_program:document.getElementById('f-employer-program')?.value||''})
     })
     const data = await res.json()
     if(data.ok){

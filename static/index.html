@@ -500,6 +500,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
       <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
       <button class="btn btn-secondary" onclick="openRentalSpacesModal()">⚙️ Manage Spaces</button>
+      <button class="btn btn-secondary" onclick="openComplianceCheckModal()">🤖 Compliance Check</button>
       <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
     </div>
   </div>
@@ -23159,6 +23160,7 @@ function renderRentalsPage(){
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
+         <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">🤖 Compliance Check</button>
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
          <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
@@ -23631,6 +23633,186 @@ async function deleteRentalRequest(rid){
   const res = await api('/api/rental/requests/'+rid,'DELETE')
   if(res&&res.ok){ toast('Request deleted','success'); loadRentalsPage() }
   else toast((res&&res.error)||'Error','error')
+}
+
+// ── Rental Compliance AI Check ────────────────────────────────────────────
+const COMPLIANCE_VERDICT_META = {
+  likely_compliant:        {label:'Likely Compliant',       color:'#166534', bg:'#dcfce7'},
+  needs_modification:      {label:'Needs Modification',     color:'#92400e', bg:'#fef3c7'},
+  likely_not_compliant:    {label:'Likely Not Compliant',   color:'#991b1b', bg:'#fee2e2'},
+  unclear_needs_more_info: {label:'Unclear — Needs More Info', color:'#374151', bg:'#f3f4f6'}
+}
+
+function openComplianceCheckModal(rid){
+  const req = rid ? (_rentalData.requests||[]).find(r=>r.id===rid) : null
+  const prefill = req ? `Title: ${req.title||''}\nPurpose: ${req.purpose||''}\nDates: ${req.start_date||''}${req.end_date?' to '+req.end_date:''}\nNotes: ${req.notes||''}`.trim() : ''
+  const overlay = document.createElement('div')
+  overlay.id = 'compliance-check-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:640px;padding:24px;max-height:92vh;overflow-y:auto">
+   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+    <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">🤖 Compliance Check${req?': '+escHtml(req.title||''):''}</div>
+    <button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>
+   </div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Checks a proposal/contract against your uploaded lease and city use documents. This is an AI first pass to help you prepare — not legal advice, and every result should be reviewed by a person before you respond to the requester.</div>
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Proposal / Contract Text</label>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cc-file-input').click()">📄 Upload PDF instead</button>
+    <input type="file" id="cc-file-input" accept=".pdf" style="display:none" onchange="handleComplianceFileUpload(this,'${rid||''}')"/>
+   </div>
+   <textarea id="cc-proposal-text" rows="8" placeholder="Paste the proposal or contract text to check..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:10px">${escHtml(prefill)}</textarea>
+   <div style="margin-bottom:14px">
+    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Label (optional)</label>
+    <input type="text" id="cc-title" placeholder="e.g. Community Dance Co. rental proposal" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn btn-primary" id="cc-run-btn" onclick="runComplianceCheck('${rid||''}')">Run Compliance Check</button>
+    <button class="btn btn-secondary" onclick="openComplianceDocsModal()">📎 Manage Lease/City Documents</button>
+   </div>
+   <div id="cc-result-area"></div>
+   <div id="cc-history-area" style="margin-top:18px"></div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  loadComplianceHistory(rid)
+}
+
+async function handleComplianceFileUpload(input, rid){
+  const file = input.files[0]
+  if(!file) return
+  const area = document.getElementById('cc-result-area')
+  area.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:10px 0">Extracting text from PDF and running check…</div>'
+  try{
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('title', (document.getElementById('cc-title')||{}).value || file.name)
+    if(rid) fd.append('request_id', rid)
+    const r = await fetch('/api/rental/compliance/checks/upload', {method:'POST', body:fd, credentials:'include'})
+    const d = await r.json()
+    if(d.ok){ renderComplianceResult(d.result); loadComplianceHistory(rid) }
+    else area.innerHTML = `<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">${escHtml(d.error||'Upload failed')}</div>`
+  } catch(err){
+    area.innerHTML = `<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">Error: ${escHtml(err.message)}</div>`
+  }
+  input.value = ''
+}
+
+async function runComplianceCheck(rid){
+  const proposalText = (document.getElementById('cc-proposal-text')||{}).value.trim()
+  const title = (document.getElementById('cc-title')||{}).value.trim()
+  const area = document.getElementById('cc-result-area')
+  if(!proposalText){ area.innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">Paste or upload the proposal text first.</div>'; return }
+  const btn = document.getElementById('cc-run-btn')
+  btn.disabled = true; btn.textContent = 'Checking…'
+  area.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:10px 0">Checking against your lease and city use documents…</div>'
+  const res = await api('/api/rental/compliance/checks','POST',{proposal_text:proposalText, title, request_id: rid||null})
+  btn.disabled = false; btn.textContent = 'Run Compliance Check'
+  if(res&&res.ok){ renderComplianceResult(res.result); loadComplianceHistory(rid) }
+  else area.innerHTML = `<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">${escHtml((res&&res.error)||'Error running check')}</div>`
+}
+
+function renderComplianceResult(result){
+  const area = document.getElementById('cc-result-area')
+  if(!area || !result) return
+  const meta = COMPLIANCE_VERDICT_META[result.verdict] || {label:result.verdict||'Unknown', color:'#374151', bg:'#f3f4f6'}
+  area.innerHTML = `<div style="border:1.5px solid var(--border);border-radius:10px;padding:16px;margin-top:4px">
+   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:${meta.bg};color:${meta.color}">${escHtml(meta.label)}</span>
+    ${result.requires_legal_review?'<span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:#ede9fe;color:#5b21b6">⚖️ Recommend legal/board review</span>':''}
+   </div>
+   <div style="font-size:13px;line-height:1.6;margin-bottom:12px">${escHtml(result.summary||'')}</div>
+   ${(result.concerns||[]).length?`<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Concerns</div>
+    <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${result.concerns.map(c=>`<li>${escHtml(c)}</li>`).join('')}</ul></div>`:''}
+   ${(result.suggested_modifications||[]).length?`<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Suggested Modifications</div>
+    <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6">${result.suggested_modifications.map(c=>`<li>${escHtml(c)}</li>`).join('')}</ul></div>`:''}
+   ${result.suggested_framing?`<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Suggested Framing for Your Response</div>
+    <div style="font-size:13px;line-height:1.6;background:var(--bg);border-radius:8px;padding:10px 12px">${escHtml(result.suggested_framing)}</div></div>`:''}
+   <div style="font-size:11px;color:var(--text-muted);margin-top:12px;font-style:italic">AI-assisted first pass, not legal advice. A person should review before responding to the requester.</div>
+  </div>`
+}
+
+async function loadComplianceHistory(rid){
+  const area = document.getElementById('cc-history-area')
+  if(!area) return
+  const url = rid ? '/api/rental/compliance/checks?request_id='+encodeURIComponent(rid) : '/api/rental/compliance/checks'
+  const checks = await api(url)
+  if(!Array.isArray(checks) || !checks.length){ area.innerHTML=''; return }
+  area.innerHTML = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Past Checks</div>` +
+    checks.slice(0,10).map(c=>{
+      const meta = COMPLIANCE_VERDICT_META[c.verdict] || {label:c.verdict||'Unknown', color:'#374151', bg:'#f3f4f6'}
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick='renderComplianceResult(${c.analysis.replace(/'/g,"&#39;")})'>
+       <span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${meta.bg};color:${meta.color}">${escHtml(meta.label)}</span>
+       <div style="flex:1;font-size:12px">${escHtml(c.title||'Untitled')}</div>
+       <div style="font-size:11px;color:var(--text-muted)">${(c.created_at||'').slice(0,10)}</div>
+       <button onclick="event.stopPropagation();deleteComplianceCheck('${c.id}','${rid||''}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px;padding:0;line-height:1">×</button>
+      </div>`
+    }).join('')
+}
+
+async function deleteComplianceCheck(cid, rid){
+  const res = await api('/api/rental/compliance/checks/'+cid,'DELETE')
+  if(res&&res.ok) loadComplianceHistory(rid)
+}
+
+function openComplianceDocsModal(){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Lease &amp; City Use Documents</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Upload your lease and any city-issued use documentation (permits, zoning approvals). These are used as reference material for every compliance check — PDF only.</div>
+   <div id="cd-list" style="margin-bottom:16px">Loading…</div>
+   <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:14px">
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-lease-input').click()">📄 Upload Lease PDF</button>
+    <input type="file" id="cd-lease-input" accept=".pdf" style="display:none" onchange="uploadComplianceDoc(this,'lease')"/>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-city-input').click()">🏛️ Upload City Use PDF</button>
+    <input type="file" id="cd-city-input" accept=".pdf" style="display:none" onchange="uploadComplianceDoc(this,'city_use')"/>
+   </div>
+   <div id="cd-status" style="font-size:12px;color:var(--teal-dark);margin-top:8px"></div>
+   <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Done</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  loadComplianceDocsList()
+}
+
+async function loadComplianceDocsList(){
+  const el = document.getElementById('cd-list')
+  if(!el) return
+  const docs = await api('/api/rental/compliance/docs')
+  if(!Array.isArray(docs) || !docs.length){ el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No documents uploaded yet.</div>'; return }
+  const typeLabel = {lease:'📄 Lease', city_use:'🏛️ City Use'}
+  el.innerHTML = docs.map(d=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+   <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--bg)">${typeLabel[d.doc_type]||d.doc_type}</span>
+   <div style="flex:1;font-size:12px">${escHtml(d.filename)}<div style="font-size:10px;color:var(--text-muted)">${(d.char_count||0).toLocaleString()} characters extracted · ${(d.uploaded_at||'').slice(0,10)}</div></div>
+   <button onclick="deleteComplianceDoc('${d.id}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0;line-height:1">×</button>
+  </div>`).join('')
+}
+
+async function uploadComplianceDoc(input, docType){
+  const file = input.files[0]
+  if(!file) return
+  const status = document.getElementById('cd-status')
+  if(status) status.textContent = 'Uploading and extracting text…'
+  try{
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('doc_type', docType)
+    const r = await fetch('/api/rental/compliance/docs/upload', {method:'POST', body:fd, credentials:'include'})
+    const d = await r.json()
+    if(d.ok){ if(status) status.textContent = `✓ ${d.filename} uploaded (${d.char_count.toLocaleString()} characters)`; loadComplianceDocsList() }
+    else if(status) status.textContent = 'Error: '+(d.error||'Upload failed')
+  } catch(err){
+    if(status) status.textContent = 'Error: '+err.message
+  }
+  input.value = ''
+}
+
+async function deleteComplianceDoc(did){
+  if(!confirm('Remove this document from compliance checks?')) return
+  const res = await api('/api/rental/compliance/docs/'+did,'DELETE')
+  if(res&&res.ok) loadComplianceDocsList()
 }
 
 // ── End Venue Rentals ────────────────────────────────────────────────────────

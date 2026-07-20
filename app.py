@@ -18875,15 +18875,17 @@ Respond with ONLY valid JSON, no markdown code fences, no preamble, in exactly t
   "requires_legal_review": true or false
 }
 
+Keep it focused and complete rather than exhaustive: list at most the 6 most important items in "concerns" and at most 6 in "suggested_modifications", each one sentence. Keep "summary" to 2-3 sentences and "suggested_framing" to a short paragraph. A shorter, finished response is far more useful than a longer one that gets cut off.
+
 Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines or line breaks within a string value must be written as the two characters backslash-n (\\n), never as an actual line break. Do not include any text before the opening { or after the closing }.'''
 
-        user_content = f'''LEASE DOCUMENTATION:
+        reference_docs_block = f'''LEASE DOCUMENTATION:
 {lease_blob}
 
 CITY USE DOCUMENTATION:
-{city_blob}
+{city_blob}'''
 
-SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
+        user_content = f'''SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
 {proposal_text}'''
 
         resp = _rq.post(
@@ -18895,8 +18897,23 @@ SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}
             },
             json={
                 'model': 'claude-sonnet-5',
-                'max_tokens': 4096,
-                'system': system_prompt,
+                'max_tokens': 8000,
+                # Claude Sonnet 5 runs with adaptive thinking on by default, and max_tokens
+                # is a combined cap on thinking + visible output. This task just needs a
+                # direct structured answer, not extended reasoning, so disable thinking —
+                # otherwise the model can spend most of the budget on invisible reasoning
+                # and truncate before finishing the actual JSON.
+                'thinking': {'type': 'disabled'},
+                # Split into two system blocks so the large, slow-changing reference
+                # documents (lease + city use) can be cached separately from the fixed
+                # instructions. cache_control on the reference-docs block caches
+                # everything up through it — instructions included — so as long as
+                # the uploaded documents haven't changed, repeat checks within the
+                # cache window reuse this instead of reprocessing it from scratch.
+                'system': [
+                    {'type': 'text', 'text': system_prompt},
+                    {'type': 'text', 'text': reference_docs_block, 'cache_control': {'type': 'ephemeral'}}
+                ],
                 'messages': [{'role': 'user', 'content': user_content}]
             },
             timeout=90
@@ -18905,6 +18922,10 @@ SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}
             app.logger.error(f'Claude compliance check API error: {resp.status_code} {resp.text[:300]}')
             return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
         data = resp.json()
+        usage = data.get('usage', {})
+        app.logger.info(f'Compliance check token usage — cache_read: {usage.get("cache_read_input_tokens", 0)}, '
+                         f'cache_write: {usage.get("cache_creation_input_tokens", 0)}, '
+                         f'fresh_input: {usage.get("input_tokens", 0)}, output: {usage.get("output_tokens", 0)}')
         if data.get('stop_reason') == 'max_tokens':
             app.logger.error('Compliance check response was truncated at max_tokens')
             return None, 'The response was cut off before finishing (the proposal or reference documents may be very long). Try again — this has more headroom now, but a very long proposal may need to be shortened.'

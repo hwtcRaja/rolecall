@@ -1967,6 +1967,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 
   <div style="margin-bottom:12px">
+   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Hold Music (plays while ringing the on-call person)</label>
+   <div style="display:flex;gap:8px;align-items:center">
+    <div style="flex:1;font-size:12px;color:var(--text-hint)">No text option here — audio only. Leave empty for silence.</div>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'hold_music')" style="display:none"/></label>
+   </div>
+   <div id="twilio-audio-hold_music-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
+  </div>
+
+  <div style="margin-bottom:12px">
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">No Answer Message (if on-call doesn't pick up)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-no-answer" placeholder="We were unable to reach our team right now. Please try again later or send us a text message." style="flex:1"/>
@@ -8278,7 +8287,8 @@ async function saveTwilioSettings(){
   twilio_audio_no_answer: window._twilioAudio?.no_answer||'',
   twilio_audio_unavailable: window._twilioAudio?.unavailable||'',
   twilio_audio_after_hours: window._twilioAudio?.after_hours||'',
-  twilio_audio_voicemail: window._twilioAudio?.voicemail||''
+  twilio_audio_voicemail: window._twilioAudio?.voicemail||'',
+  twilio_audio_hold_music: window._twilioAudio?.hold_music||''
  }
  const res = await api('/api/email-settings','PUT',data)
  if(res&&res.ok){
@@ -8314,7 +8324,8 @@ function loadTwilioSettings(s){
   no_answer: s.twilio_audio_no_answer||'',
   unavailable: s.twilio_audio_unavailable||'',
   after_hours: s.twilio_audio_after_hours||'',
-  voicemail: s.twilio_audio_voicemail||''
+  voicemail: s.twilio_audio_voicemail||'',
+  hold_music: s.twilio_audio_hold_music||s.twilio_hold_music_url||''
  }
  // Show existing audio status
  Object.keys(window._twilioAudio).forEach(function(key){

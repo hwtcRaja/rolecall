@@ -1227,6 +1227,21 @@ def init_db():
             status TEXT DEFAULT 'scheduled',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_compliance_docs (
+            id TEXT PRIMARY KEY,
+            doc_type TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            extracted_text TEXT DEFAULT '',
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_compliance_checks (
+            id TEXT PRIMARY KEY,
+            request_id TEXT REFERENCES rental_requests(id) ON DELETE SET NULL,
+            title TEXT DEFAULT '',
+            proposal_text TEXT DEFAULT '',
+            verdict TEXT DEFAULT '',
+            analysis TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
@@ -18791,6 +18806,235 @@ def update_rental_occurrence(oid):
     conn = get_db()
     execute(conn, 'UPDATE rental_occurrences SET status=%s, notes=%s WHERE id=%s',
         (d.get('status','scheduled'), (d.get('notes') or '').strip(), oid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Rental Compliance AI Check ────────────────────────────────────────────────
+# Lets staff run a submitted contract/proposal of use through Claude, checked
+# against HWTC's uploaded lease + city use documentation, to get a first-pass
+# read on legal/compliance fit and how to frame a response. This is advisory
+# only — every result is labeled as needing human (and, where relevant, legal)
+# review before any binding decision is communicated back to a requester.
+
+def extract_pdf_text(file_bytes):
+    """Extract text from a PDF's bytes. Returns '' on failure rather than raising,
+    so a bad/scanned PDF doesn't take down the whole upload."""
+    try:
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(file_bytes))
+        return '\n\n'.join((page.extract_text() or '') for page in reader.pages).strip()
+    except Exception as e:
+        app.logger.error(f'PDF text extraction error: {e}')
+        return ''
+
+def run_compliance_check(proposal_text, title=''):
+    """Calls Claude with the stored lease + city use docs as context, plus the
+    submitted proposal, and returns a structured compliance assessment.
+    Returns (result_dict, error_message). error_message is None on success."""
+    import os as _os, requests as _rq, json as _json
+
+    api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not api_key:
+        return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+
+    conn = get_db()
+    docs = fetchall(conn, 'SELECT doc_type, filename, extracted_text FROM rental_compliance_docs ORDER BY uploaded_at') or []
+    conn.close()
+
+    lease_texts = [d['extracted_text'] for d in docs if d['doc_type'] == 'lease' and (d['extracted_text'] or '').strip()]
+    city_texts = [d['extracted_text'] for d in docs if d['doc_type'] == 'city_use' and (d['extracted_text'] or '').strip()]
+
+    if not lease_texts and not city_texts:
+        return None, 'No lease or city use documents have been uploaded yet. Upload at least one under Compliance Documents before running a check.'
+
+    lease_blob = '\n\n---\n\n'.join(lease_texts) or '(no lease document uploaded)'
+    city_blob = '\n\n---\n\n'.join(city_texts) or '(no city use document uploaded)'
+
+    system_prompt = '''You are assisting Horizon West Theater Company (HWTC), a nonprofit community theater in Winter Garden, Florida, in reviewing a submitted contract or proposal of use for their rented venue space.
+
+You are given HWTC's lease documentation, HWTC's city-issued use documentation (permits, zoning/use restrictions), and a submitted proposal or contract from an outside party wanting to use or rent the space.
+
+Your job:
+- Identify anything in the proposal that could conflict with the lease terms or the city's permitted use of the space (occupancy limits, permitted use types, hours, noise/alcohol restrictions, insurance/liability requirements, subletting/assignment restrictions, exclusivity clauses, etc.), citing the specific lease or city clause where possible.
+- Assess whether HWTC could accept this proposal as written while remaining compliant, whether it needs modification, or whether it cannot be accepted.
+- If modification is needed, suggest specific counter-terms or language HWTC could propose.
+- Suggest how HWTC staff should frame their response to the requester (tone and key points), whether accepting, countering, or declining.
+
+You are not a lawyer and this is not legal advice — it is a first-pass compliance screen to prepare HWTC staff before any final decision. Always flag when something has real legal or financial exposure and should go to HWTC's board or actual legal counsel before being finalized.
+
+Respond with ONLY valid JSON, no markdown code fences, no preamble, in exactly this shape:
+{
+  "verdict": "likely_compliant" | "needs_modification" | "likely_not_compliant" | "unclear_needs_more_info",
+  "summary": "2-3 sentence plain-English summary of the assessment",
+  "concerns": ["specific concern tied to a specific lease/city clause where possible", "..."],
+  "suggested_modifications": ["specific suggested change or counter-term", "..."],
+  "suggested_framing": "how staff should frame the response to the requester - tone and key points to include",
+  "requires_legal_review": true or false
+}'''
+
+    user_content = f'''LEASE DOCUMENTATION:
+{lease_blob}
+
+CITY USE DOCUMENTATION:
+{city_blob}
+
+SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
+{proposal_text}'''
+
+    try:
+        resp = _rq.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': 'claude-sonnet-5',
+                'max_tokens': 2000,
+                'system': system_prompt,
+                'messages': [{'role': 'user', 'content': user_content}]
+            },
+            timeout=60
+        )
+        if resp.status_code != 200:
+            app.logger.error(f'Claude compliance check API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        text_blocks = [b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text']
+        raw = ''.join(text_blocks).strip()
+        # Strip stray markdown fences if the model added them anyway
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[1] if '\n' in raw else raw
+            if raw.endswith('```'):
+                raw = raw.rsplit('```', 1)[0]
+        result = _json.loads(raw.strip())
+        return result, None
+    except _json.JSONDecodeError as e:
+        app.logger.error(f'Compliance check JSON parse error: {e}')
+        return None, 'Claude returned a response that could not be parsed. Try running the check again.'
+    except Exception as e:
+        app.logger.error(f'Compliance check error: {e}')
+        return None, f'Error running compliance check: {e}'
+
+@app.route('/api/rental/compliance/docs', methods=['GET'])
+def get_compliance_docs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    docs = fetchall(conn, '''SELECT id, doc_type, filename, uploaded_at, LENGTH(extracted_text) AS char_count
+        FROM rental_compliance_docs ORDER BY uploaded_at DESC''') or []
+    conn.close()
+    return jsonify(docs)
+
+@app.route('/api/rental/compliance/docs/upload', methods=['POST'])
+def upload_compliance_doc():
+    err = require_admin()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    doc_type = (request.form.get('doc_type') or '').strip()
+    if doc_type not in ('lease', 'city_use'):
+        return jsonify({'error': "doc_type must be 'lease' or 'city_use'"}), 400
+    filename = secure_filename(f.filename or 'document.pdf')
+    ext = os.path.splitext(filename)[1].lower()
+    if ext != '.pdf':
+        return jsonify({'error': 'Only PDF files are supported for compliance documents'}), 400
+    file_bytes = f.read()
+    text = extract_pdf_text(file_bytes)
+    if not text:
+        return jsonify({'error': 'Could not extract text from this PDF. If it is a scanned/image PDF, it needs OCR first.'}), 400
+    doc_id = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO rental_compliance_docs (id, doc_type, filename, extracted_text)
+        VALUES (%s,%s,%s,%s)''', (doc_id, doc_type, filename, text))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': doc_id, 'filename': filename, 'char_count': len(text)})
+
+@app.route('/api/rental/compliance/docs/<did>', methods=['DELETE'])
+def delete_compliance_doc(did):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_compliance_docs WHERE id=%s', (did,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/compliance/checks', methods=['GET'])
+def get_compliance_checks():
+    err = require_auth()
+    if err: return err
+    request_id = request.args.get('request_id')
+    conn = get_db()
+    if request_id:
+        checks = fetchall(conn, '''SELECT * FROM rental_compliance_checks WHERE request_id=%s ORDER BY created_at DESC''', (request_id,)) or []
+    else:
+        checks = fetchall(conn, '''SELECT * FROM rental_compliance_checks ORDER BY created_at DESC LIMIT 100''') or []
+    conn.close()
+    return jsonify(checks)
+
+@app.route('/api/rental/compliance/checks', methods=['POST'])
+def create_compliance_check():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    proposal_text = (d.get('proposal_text') or '').strip()
+    title = (d.get('title') or '').strip()
+    request_id = (d.get('request_id') or '').strip() or None
+    if not proposal_text:
+        return jsonify({'error': 'Paste or upload the proposal/contract text to check'}), 400
+
+    result, error = run_compliance_check(proposal_text, title)
+    if error:
+        return jsonify({'error': error}), 400
+
+    check_id = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO rental_compliance_checks
+        (id, request_id, title, proposal_text, verdict, analysis, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (check_id, request_id, title, proposal_text, result.get('verdict',''),
+         json.dumps(result), session.get('user_name','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': check_id, 'result': result})
+
+@app.route('/api/rental/compliance/checks/upload', methods=['POST'])
+def create_compliance_check_upload():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    title = (request.form.get('title') or '').strip() or secure_filename(f.filename or 'Uploaded proposal')
+    request_id = (request.form.get('request_id') or '').strip() or None
+    filename = secure_filename(f.filename or 'proposal.pdf')
+    ext = os.path.splitext(filename)[1].lower()
+    if ext != '.pdf':
+        return jsonify({'error': 'Only PDF files are supported here — paste text instead for other formats'}), 400
+    proposal_text = extract_pdf_text(f.read())
+    if not proposal_text:
+        return jsonify({'error': 'Could not extract text from this PDF. If it is scanned/image-based, it needs OCR first.'}), 400
+
+    result, error = run_compliance_check(proposal_text, title)
+    if error:
+        return jsonify({'error': error}), 400
+
+    check_id = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO rental_compliance_checks
+        (id, request_id, title, proposal_text, verdict, analysis, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (check_id, request_id, title, proposal_text, result.get('verdict',''),
+         json.dumps(result), session.get('user_name','')))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': check_id, 'result': result})
+
+@app.route('/api/rental/compliance/checks/<cid>', methods=['DELETE'])
+def delete_compliance_check(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_compliance_checks WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

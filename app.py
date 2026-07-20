@@ -1069,6 +1069,8 @@ def init_db():
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS context_id TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent_at TIMESTAMP",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
@@ -9116,14 +9118,16 @@ def join_submit():
     conn = get_db()
     try:
         sub_selections = json.dumps(d.get('sub_selections') or {})
+        sms_consent = bool(d.get('sms_consent')) and bool((d.get('phone') or '').strip())
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program, sms_consent, sms_consent_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
-             sub_selections, (d.get('employer_program') or '').strip()))
+             sub_selections, (d.get('employer_program') or '').strip(),
+             sms_consent, datetime.now() if sms_consent else None))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()

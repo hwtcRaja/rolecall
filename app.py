@@ -18871,7 +18871,9 @@ Respond with ONLY valid JSON, no markdown code fences, no preamble, in exactly t
   "suggested_modifications": ["specific suggested change or counter-term", "..."],
   "suggested_framing": "how staff should frame the response to the requester - tone and key points to include",
   "requires_legal_review": true or false
-}'''
+}
+
+Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines or line breaks within a string value must be written as the two characters backslash-n (\\n), never as an actual line break. Do not include any text before the opening { or after the closing }.'''
 
     user_content = f'''LEASE DOCUMENTATION:
 {lease_blob}
@@ -18892,28 +18894,50 @@ SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}
             },
             json={
                 'model': 'claude-sonnet-5',
-                'max_tokens': 2000,
+                'max_tokens': 4096,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_content}]
             },
-            timeout=60
+            timeout=90
         )
         if resp.status_code != 200:
             app.logger.error(f'Claude compliance check API error: {resp.status_code} {resp.text[:300]}')
             return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
         data = resp.json()
+        if data.get('stop_reason') == 'max_tokens':
+            app.logger.error('Compliance check response was truncated at max_tokens')
+            return None, 'The response was cut off before finishing (the proposal or reference documents may be very long). Try again — this has more headroom now, but a very long proposal may need to be shortened.'
         text_blocks = [b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text']
         raw = ''.join(text_blocks).strip()
-        # Strip stray markdown fences if the model added them anyway
-        if raw.startswith('```'):
-            raw = raw.split('\n', 1)[1] if '\n' in raw else raw
-            if raw.endswith('```'):
-                raw = raw.rsplit('```', 1)[0]
-        result = _json.loads(raw.strip())
+
+        def try_parse(candidate):
+            # strict=False allows literal control characters (e.g. raw newlines)
+            # inside string values, which models sometimes emit despite instructions.
+            return _json.loads(candidate, strict=False)
+
+        # Strip stray markdown fences (```json ... ``` or ``` ... ```) if the model added them anyway
+        cleaned = raw
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[1] if '\n' in cleaned else cleaned
+            cleaned = cleaned.strip()
+            if cleaned.endswith('```'):
+                cleaned = cleaned.rsplit('```', 1)[0]
+        cleaned = cleaned.strip()
+
+        try:
+            result = try_parse(cleaned)
+        except _json.JSONDecodeError:
+            # Fallback: pull out the outermost {...} block in case of stray preamble/postamble text
+            start, end = cleaned.find('{'), cleaned.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                result = try_parse(cleaned[start:end+1])
+            else:
+                raise
         return result, None
     except _json.JSONDecodeError as e:
-        app.logger.error(f'Compliance check JSON parse error: {e}')
-        return None, 'Claude returned a response that could not be parsed. Try running the check again.'
+        snippet = raw[:400].replace('\n', ' ') if 'raw' in dir() else ''
+        app.logger.error(f'Compliance check JSON parse error: {e} | raw start: {snippet}')
+        return None, f'Claude returned a response that could not be parsed ({e}). Try running the check again — if it keeps happening, this usually clears up by rephrasing the proposal text slightly.'
     except Exception as e:
         app.logger.error(f'Compliance check error: {e}')
         return None, f'Error running compliance check: {e}'

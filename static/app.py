@@ -206,7 +206,7 @@ def seed_system_email_templates(conn=None):
     <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>
     <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>
   </div>
-</div>''')
+</div>'''),
 
         ('temp_password', 'Your RoleCall Temporary Password', 'temp_password',
          'Sent to users when an admin generates a temporary password for them.',
@@ -262,6 +262,110 @@ def seed_system_email_templates(conn=None):
 def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
     return fetchone(conn, 'SELECT * FROM email_templates WHERE template_key=%s', (key,))
+
+def render_template_vars(text, mapping):
+    """Substitute {{key}} placeholders with plain string replacement — no eval/Jinja —
+    so a template body someone edits in the UI can never execute code."""
+    if not text: return text
+    out = text
+    for k, val in mapping.items():
+        out = out.replace('{{' + k + '}}', '' if val is None else str(val))
+    return out
+
+# Default bodies for the two RSVP invite emails (household/party vs. general volunteer or
+# guest invite). These are plain strings (not f-strings) — the {{...}} tokens are literal
+# placeholder text substituted later via render_template_vars, not Python interpolation.
+RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT = '''<div style="font-family:Georgia,'Times New Roman',serif;max-width:580px;margin:0 auto;background:#ffffff;color:#1f2937">
+  <div style="text-align:center;padding:40px 32px 28px;border-bottom:1px solid #e5e7eb">
+    <div style="font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#6b7280">Horizon West Theater Company</div>
+    <div style="width:36px;height:1px;background:#145466;margin:16px auto"></div>
+    <h1 style="font-size:26px;font-weight:400;margin:0;color:#0d3d4d;letter-spacing:0.2px">You Are Cordially Invited</h1>
+  </div>
+  <div style="padding:36px 40px 8px">
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 18px">Dear {{recipient_name}},</p>
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#374151;margin:0 0 24px">On behalf of Horizon West Theater Company, it is our pleasure to invite you to</p>
+    <h2 style="font-size:22px;font-weight:400;color:#0d3d4d;margin:0 0 24px;text-align:center;font-style:italic">{{event_name}}</h2>
+    <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;margin-bottom:8px">
+      {{details_table}}
+    </table>
+    {{custom_message_block}}
+    {{description_block}}
+    {{guest_list_block}}
+    <div style="text-align:center;margin:36px 0 8px">
+      <a href="{{rsvp_url}}" style="font-family:Helvetica,Arial,sans-serif;background:#0d3d4d;color:#ffffff;text-decoration:none;padding:14px 40px;font-size:14px;font-weight:600;letter-spacing:0.5px;display:inline-block;border-radius:2px">
+        RESPOND TO THIS INVITATION
+      </a>
+    </div>
+  </div>
+  <div style="padding:24px 40px 40px;text-align:center">
+    <p style="font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.7;color:#9ca3af;margin:0">
+      We look forward to welcoming you.<br/>
+      Horizon West Theater Company
+    </p>
+  </div>
+</div>'''
+
+RSVP_INVITE_GENERAL_BODY_DEFAULT = '''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
+    <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
+    <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">{{kind_emoji}} {{kind_label}}</h2>
+    <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{{event_name}}</div>
+  </div>
+  <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+    <p style="margin-top:0;color:#374151">Hi {{recipient_name}},</p>
+    <p style="color:#374151">{{intro_line}}</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      {{details_table}}
+    </table>
+    {{custom_message_block}}
+    {{description_block}}
+    {{roles_block}}
+    <div style="text-align:center;margin:28px 0">
+      <a href="{{rsvp_url}}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
+        {{cta_label}}
+      </a>
+    </div>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+    <p style="font-size:12px;color:#9ca3af;margin:0">
+      {{footer_note}}<br>
+      This invitation was sent to {{recipient_email}} by Horizon West Theater Company.
+    </p>
+  </div>
+</div>'''
+
+RSVP_INVITE_TEMPLATE_DEFS = [
+    ('rsvp_invite_household', 'RSVP Invite — Household / Party', 'You Are Invited: {{event_name}}', RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
+     'Sent for "Household / Party" RSVP invites. Variables: {{recipient_name}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{address}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{guest_list_block}}, {{rsvp_url}}'),
+    ('rsvp_invite_general', 'RSVP Invite — General', '[HWTC] {{kind_label}}: {{event_name}}', RSVP_INVITE_GENERAL_BODY_DEFAULT,
+     'Sent for volunteer-opportunity and standard guest RSVP invites. Variables: {{recipient_name}}, {{recipient_email}}, {{kind_emoji}}, {{kind_label}}, {{event_name}}, {{time}}, {{block_time}}, {{block_name}}, {{location}}, {{address}}, {{intro_line}}, {{details_table}}, {{custom_message_block}}, {{description_block}}, {{roles_block}}, {{rsvp_url}}, {{cta_label}}, {{footer_note}}'),
+]
+
+def seed_rsvp_invite_templates(conn=None):
+    """Seed the two RSVP invite templates if they don't exist yet. Unlike
+    seed_system_email_templates, this NEVER overwrites an existing row — once someone
+    customizes the wording in Settings > Email Templates it survives future deploys
+    instead of getting reset back to these defaults."""
+    _own_conn = conn is None
+    if _own_conn: conn = get_db()
+    for key, name, subject, body, description in RSVP_INVITE_TEMPLATE_DEFS:
+        existing = fetchone(conn, 'SELECT id FROM email_templates WHERE template_key=%s', (key,))
+        if not existing:
+            try:
+                execute(conn, '''INSERT INTO email_templates (id, name, subject, body, template_key, is_system, description)
+                    VALUES (%s,%s,%s,%s,%s,TRUE,%s)''',
+                    (str(uuid.uuid4()), name, subject, body, key, description))
+                conn.commit()
+            except Exception as e:
+                app.logger.warning(f'Failed to seed template {key}: {e}')
+        else:
+            # Description is reference documentation, not user-edited content — keep it current
+            # (e.g. when new placeholders are added) without touching their subject/body.
+            try:
+                execute(conn, 'UPDATE email_templates SET description=%s WHERE template_key=%s', (description, key))
+                conn.commit()
+            except Exception as e:
+                app.logger.warning(f'Failed to refresh description for {key}: {e}')
+    if _own_conn: conn.close()
 
 def log_volunteer_comm(conn, volunteer_id, subject, email_type='', sent_by='system', recipient_email=''):
     """Log an email sent to a volunteer."""
@@ -441,22 +545,23 @@ def init_db():
         required BOOLEAN DEFAULT TRUE,
         sort_order INTEGER DEFAULT 0,
         hint TEXT,
+        studio_only BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # seed default opening checklist items (only if none exist)
     c.execute("SELECT COUNT(*) as cnt FROM opening_checklist_items")
     if c.fetchone()[0] == 0:
         opening_items = [
-            (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, ''),
-            (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, ''),
-            (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, ''),
-            (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, ''),
-            (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, ''),
-            (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?'),
-            (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts'),
+            (str(__import__('uuid').uuid4()), 'Space is clean and ready', 'checkbox', True, 1, '', True),
+            (str(__import__('uuid').uuid4()), 'All equipment/props in place', 'checkbox', True, 2, '', True),
+            (str(__import__('uuid').uuid4()), 'Lights and sound checked', 'checkbox', True, 3, '', True),
+            (str(__import__('uuid').uuid4()), 'Bathrooms stocked and clean', 'checkbox', True, 4, '', True),
+            (str(__import__('uuid').uuid4()), 'Emergency exits clear', 'checkbox', True, 5, '', True),
+            (str(__import__('uuid').uuid4()), 'Headcount / expected attendance', 'text', False, 6, 'How many people are expected tonight?', False),
+            (str(__import__('uuid').uuid4()), 'Opening notes', 'text', False, 7, 'Anything staff should know before the event starts', False),
         ]
         for item in opening_items:
-            c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
+            c.execute("INSERT INTO opening_checklist_items (id,label,item_type,required,sort_order,hint,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)", item)
 
     # youth authorized pickups
     c.execute("""CREATE TABLE IF NOT EXISTS youth_authorized_pickups (
@@ -635,6 +740,7 @@ def init_db():
         required BOOLEAN DEFAULT TRUE,
         sort_order INTEGER DEFAULT 0,
         hint TEXT,
+        studio_only BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW())""")
 
     # event open/close log
@@ -660,17 +766,17 @@ def init_db():
     c.execute("SELECT COUNT(*) as cnt FROM checklist_items")
     if c.fetchone()[0] == 0:
         default_items = [
-            (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, ''),
-            (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating'),
-            (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, ''),
-            (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors'),
-            (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms'),
-            (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, ''),
-            (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred'),
-            (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know'),
+            (str(__import__('uuid').uuid4()), 'Bathrooms cleaned and stocked', 'checkbox', True, 1, '', True),
+            (str(__import__('uuid').uuid4()), 'Thermostat set to away temperature', 'checkbox', True, 2, 'Set to 78°F cooling / 65°F heating', True),
+            (str(__import__('uuid').uuid4()), 'All trash emptied and taken out', 'checkbox', True, 3, '', True),
+            (str(__import__('uuid').uuid4()), 'Garage door and back door locked', 'checkbox', True, 4, 'Check both doors', True),
+            (str(__import__('uuid').uuid4()), 'All lights turned off', 'checkbox', True, 5, 'Include stage lights, lobby, bathrooms', True),
+            (str(__import__('uuid').uuid4()), 'Space swept and items put away', 'checkbox', True, 6, '', True),
+            (str(__import__('uuid').uuid4()), 'Any incidents to report?', 'text', False, 7, 'Describe any incidents, injuries, or issues that occurred', False),
+            (str(__import__('uuid').uuid4()), 'Additional notes', 'text', False, 8, 'Anything else the admin should know', False),
         ]
         for item in default_items:
-            c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint) VALUES (%s,%s,%s,%s,%s,%s)", item)
+            c.execute("INSERT INTO checklist_items (id,label,item_type,required,sort_order,hint,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)", item)
 
     # pending profile updates (kiosk)
     c.execute("""CREATE TABLE IF NOT EXISTS pending_profile_updates (
@@ -704,6 +810,7 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_type_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS location TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS address TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS room TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS production_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS expected_volunteers INTEGER",
@@ -962,6 +1069,8 @@ def init_db():
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS context_id TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS pronouns TEXT",
         "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS is_adult BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE volunteer_applications ADD COLUMN IF NOT EXISTS sms_consent_at TIMESTAMP",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
@@ -1118,6 +1227,21 @@ def init_db():
             status TEXT DEFAULT 'scheduled',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_compliance_docs (
+            id TEXT PRIMARY KEY,
+            doc_type TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            extracted_text TEXT DEFAULT '',
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rental_compliance_checks (
+            id TEXT PRIMARY KEY,
+            request_id TEXT REFERENCES rental_requests(id) ON DELETE SET NULL,
+            title TEXT DEFAULT '',
+            proposal_text TEXT DEFAULT '',
+            verdict TEXT DEFAULT '',
+            analysis TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
@@ -1258,6 +1382,58 @@ def init_db():
             UNIQUE(program_id, email))""",
         # missing columns found in audit
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS general_content TEXT DEFAULT ''",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_failed_at TIMESTAMP",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS hours_store_enabled BOOLEAN DEFAULT false",
+        """CREATE TABLE IF NOT EXISTS store_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            image_url TEXT,
+            price_cents INTEGER NOT NULL DEFAULT 0,
+            linked_program_id TEXT REFERENCES youth_programs(id) ON DELETE SET NULL,
+            active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS hour_redemptions (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            store_item_id TEXT REFERENCES store_items(id) ON DELETE SET NULL,
+            item_name_snapshot TEXT,
+            hours_spent REAL NOT NULL,
+            dollar_value_cents INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            registration_id TEXT REFERENCES program_registrations(id) ON DELETE SET NULL,
+            admin_notes TEXT DEFAULT '',
+            requested_at TIMESTAMP DEFAULT NOW(),
+            reviewed_at TIMESTAMP,
+            reviewed_by TEXT)""",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS linked_session_id TEXT REFERENCES program_sessions(id) ON DELETE CASCADE",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS is_bundle_item BOOLEAN DEFAULT false",
+        "ALTER TABLE store_items ADD COLUMN IF NOT EXISTS auto_synced BOOLEAN DEFAULT false",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS balance_due_cents INTEGER DEFAULT 0",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_checkout_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_order_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS square_payment_id TEXT",
+        "ALTER TABLE hour_redemptions ADD COLUMN IF NOT EXISTS payment_url TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_type TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_multiplier REAL",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_flat_cents INTEGER",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'admin'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS desired_frequency TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
+        "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_kind TEXT DEFAULT 'volunteer'",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS hide_block_names BOOLEAN DEFAULT false",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_graphic_url TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_image_url TEXT DEFAULT ''",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS invite_headline TEXT DEFAULT ''",
+        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
+        "ALTER TABLE opening_checklist_items ADD COLUMN IF NOT EXISTS studio_only BOOLEAN DEFAULT true",
+        "UPDATE checklist_items SET studio_only=false WHERE LOWER(label) LIKE '%incident%' OR LOWER(label) LIKE '%additional note%' OR LOWER(label) LIKE '%anything else%'",
+        "UPDATE opening_checklist_items SET studio_only=false WHERE LOWER(label) LIKE '%headcount%' OR LOWER(label) LIKE '%attendance%' OR LOWER(label) LIKE '%opening note%' OR LOWER(label) LIKE '%anything%'",
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS assigned_events TEXT DEFAULT '[]'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS linked_youth_id TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''",
@@ -1292,8 +1468,11 @@ def init_db():
             description TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS block_time TEXT DEFAULT ''",
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS block_time_end TEXT DEFAULT ''",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_id TEXT",
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS role_name TEXT DEFAULT ''",
+        "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS party_members TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_enabled BOOLEAN DEFAULT FALSE",
         # Board management
         """CREATE TABLE IF NOT EXISTS board_members (
@@ -1632,6 +1811,19 @@ def init_db():
         # Interest list for productions
         "ALTER TABLE interest_list_entries ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
         "ALTER TABLE interest_list_entries ALTER COLUMN program_id DROP NOT NULL",
+
+        # Shared draft list for household/party RSVP invites  -  lets anyone logged in
+        # build up a batch of invites over time and see what's already been staged.
+        """CREATE TABLE IF NOT EXISTS household_invite_drafts (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            label TEXT DEFAULT '',
+            email TEXT NOT NULL,
+            members TEXT DEFAULT '[]',
+            role_id TEXT,
+            role_name TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
     ]:
         try:
             c.execute(col_sql)
@@ -2237,15 +2429,19 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
-         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
-         d.get('auto_log_hours', False)))
+         d.get('auto_log_hours', False),
+         d.get('hours_store_bonus_type') or None,
+         d.get('hours_store_bonus_multiplier') or None,
+         d.get('hours_store_bonus_flat_cents') or None,
+         d.get('kiosk_signin_mode') or 'auto'))
     conn.commit()
     # Auto-assign program instructor/default ELIC when event belongs to a program
     program_id = d.get('program_id') or None
@@ -2288,6 +2484,24 @@ def set_event_status(eid):
         return jsonify({'error': f'Invalid status: {status}'}), 400
     conn = get_db()
     execute(conn, 'UPDATE events SET status=%s WHERE id=%s', (status, eid))
+    # The kiosk determines open/closed state purely from the latest event_logs
+    # row (not events.status), so admin-side status changes need a matching
+    # log entry or they won't be reflected on the kiosk.
+    if status in ('open', 'closed'):
+        try:
+            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+            if system_elic_id:
+                action = 'open' if status == 'open' else 'close'
+                notes = f'Status set to {status} via admin'
+                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                    VALUES (%s,%s,%s,%s,%s,'')''',
+                    (str(uuid.uuid4()), eid, system_elic_id, action, notes))
+            else:
+                app.logger.warning('set_event_status: no elic found, skipping event_logs entry')
+        except Exception as e:
+            app.logger.warning(f'set_event_status log entry failed (non-fatal): {e}')
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (eid,))
     conn.close()
@@ -2299,19 +2513,44 @@ def update_event(eid):
     if err: return err
     d = request.json or {}
     conn = get_db()
+    prev = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (eid,))
+    prev_status = prev.get('status') if prev else None
+    new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
+        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
-        rsvp_enabled=%s,rsvp_message=%s,status=%s,carpools_enabled=%s WHERE id=%s''',
+        rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
+        hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
+        kiosk_signin_mode=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
-         d.get('event_type_id') or None, d.get('location',''), d.get('room',''),
+         d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
          d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
-         d.get('rsvp_message',''), d.get('status','draft'),
-         d.get('carpools_enabled', False), eid))
+         d.get('rsvp_message',''), d.get('rsvp_kind') or 'volunteer', (d.get('invite_headline') or '').strip(), bool(d.get('hide_block_names', False)), new_status,
+         d.get('carpools_enabled', False),
+         d.get('hours_store_bonus_type') or None,
+         d.get('hours_store_bonus_multiplier') or None,
+         d.get('hours_store_bonus_flat_cents') or None,
+         d.get('kiosk_signin_mode') or 'auto', eid))
+    # Kiosk state is driven by event_logs, not events.status — if the status
+    # actually changed to open/closed here, mirror it into event_logs too.
+    if new_status != prev_status and new_status in ('open', 'closed'):
+        try:
+            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
+                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
+            system_elic_id = system_elic.get('id')
+            if system_elic_id:
+                action = 'open' if new_status == 'open' else 'close'
+                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+                    VALUES (%s,%s,%s,%s,%s,'')''',
+                    (str(uuid.uuid4()), eid, system_elic_id, action, f'Status set to {new_status} via admin edit'))
+            else:
+                app.logger.warning('update_event: no elic found, skipping event_logs entry')
+        except Exception as e:
+            app.logger.warning(f'update_event log entry failed (non-fatal): {e}')
     conn.commit()
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -2431,6 +2670,18 @@ def get_volunteer(vol_id):
         WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC NULLS LAST''', (vol_id,))
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    vol['store_eligible_hours'] = _get_store_eligible_hours(conn, vol_id)
+    vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol_id,))['t']
+    vol['available_hours'] = max(0, (vol['store_eligible_hours'] or 0) - (vol['redeemed_hours'] or 0))
+    if not vol.get('store_token'):
+        import secrets as _secrets
+        token = _secrets.token_urlsafe(16)
+        execute(conn, 'UPDATE volunteers SET store_token=%s WHERE id=%s', (token, vol_id))
+        vol['store_token'] = token
+        conn.commit()
+    vol['redemptions'] = fetchall(conn, '''SELECT hr.*, si.name as current_item_name FROM hour_redemptions hr
+        LEFT JOIN store_items si ON si.id=hr.store_item_id
+        WHERE hr.volunteer_id=%s ORDER BY hr.requested_at DESC''', (vol_id,))
     # Board membership
     vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
@@ -2438,6 +2689,519 @@ def get_volunteer(vol_id):
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
     return jsonify(vol)
+
+# ─────────────────────────────────────────────
+#  HOURS STORE
+# ─────────────────────────────────────────────
+
+def _get_hours_store_rate_cents(conn):
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='hours_store_rate_cents'")
+    try:
+        return int(row['value']) if row and row.get('value') else 1000
+    except Exception:
+        return 1000
+
+def _get_store_eligible_hours(conn, volunteer_id):
+    """Store-credit-eligible hours: total logged hours, minus anything tied to a Board
+    Meeting event (excluded — see _get_store_eligible_hours docs elsewhere), plus any
+    per-event Hours Store bonuses (a 'multiplier' event counts its hours at e.g. 2x for
+    store credit only; a 'flat' event grants a one-time bonus, converted to hours at the
+    current rate, to anyone who logged any hours there). None of this touches the
+    volunteer's real total_hours — only what's available to spend in the store."""
+    base_row = fetchone(conn, '''SELECT COALESCE(SUM(
+            CASE WHEN e.hours_store_bonus_type='multiplier' AND e.hours_store_bonus_multiplier IS NOT NULL
+                 THEN h.hours * e.hours_store_bonus_multiplier
+                 ELSE h.hours END
+        ),0) as t
+        FROM hours h
+        LEFT JOIN events e ON e.id = h.event_id
+        LEFT JOIN event_types et ON et.id = e.event_type_id
+        WHERE h.volunteer_id=%s
+        AND (et.name IS NULL OR LOWER(et.name) != 'board meeting')''', (volunteer_id,))
+    base = base_row['t'] if base_row else 0
+    flat_rows = fetchall(conn, '''SELECT DISTINCT e.id, e.hours_store_bonus_flat_cents
+        FROM hours h JOIN events e ON e.id = h.event_id
+        WHERE h.volunteer_id=%s AND e.hours_store_bonus_type='flat'
+        AND e.hours_store_bonus_flat_cents IS NOT NULL''', (volunteer_id,)) or []
+    flat_bonus_cents = sum((r.get('hours_store_bonus_flat_cents') or 0) for r in flat_rows)
+    rate = _get_hours_store_rate_cents(conn)
+    flat_bonus_hours = (flat_bonus_cents / rate) if rate else 0
+    return (base or 0) + flat_bonus_hours
+
+def sync_hours_store_for_program(conn, program_id):
+    """Create/update/retire auto-synced store_items to match a program's current
+    hours_store_enabled flag, price, sessions, and bundle settings. Only ever touches
+    rows with auto_synced=true so manually-created store items are never disturbed."""
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (program_id,))
+    if not prog:
+        return
+    if not prog.get('hours_store_enabled'):
+        execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true', (program_id,))
+        return
+
+    if prog.get('sessions_enabled'):
+        sessions = fetchall(conn, 'SELECT * FROM program_sessions WHERE program_id=%s ORDER BY sort_order', (program_id,)) or []
+        seen_session_ids = set()
+        for s in sessions:
+            price = s['price_override'] if s.get('price_override') is not None else (prog.get('price') or 0)
+            seen_session_ids.add(s['id'])
+            existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_session_id=%s AND auto_synced=true', (s['id'],))
+            item_name = f"{prog['name']} — {s['name']}"
+            if existing:
+                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                    (item_name, price, existing['id']))
+            else:
+                iid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO store_items
+                    (id, name, price_cents, linked_program_id, linked_session_id, auto_synced, active)
+                    VALUES (%s,%s,%s,%s,%s,true,true)''', (iid, item_name, price, program_id, s['id']))
+        # retire synced items for sessions that no longer exist
+        stale = fetchall(conn, '''SELECT id FROM store_items
+            WHERE linked_program_id=%s AND auto_synced=true AND linked_session_id IS NOT NULL
+            AND linked_session_id NOT IN %s''',
+            (program_id, tuple(seen_session_ids) if seen_session_ids else ('',))) or []
+        for st in stale:
+            execute(conn, 'UPDATE store_items SET active=false WHERE id=%s', (st['id'],))
+        # bundle item, if enabled
+        if prog.get('bundle_enabled') and prog.get('bundle_price'):
+            existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_program_id=%s AND is_bundle_item=true AND auto_synced=true', (program_id,))
+            bundle_name = f"{prog['name']} — {prog.get('bundle_label') or 'Full Bundle'}"
+            if existing:
+                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                    (bundle_name, prog['bundle_price'], existing['id']))
+            else:
+                iid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO store_items
+                    (id, name, price_cents, linked_program_id, is_bundle_item, auto_synced, active)
+                    VALUES (%s,%s,%s,%s,true,true,true)''', (iid, bundle_name, prog['bundle_price'], program_id))
+        else:
+            execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND is_bundle_item=true AND auto_synced=true', (program_id,))
+    else:
+        price = prog.get('price') or 0
+        existing = fetchone(conn, '''SELECT id FROM store_items WHERE linked_program_id=%s AND auto_synced=true
+            AND linked_session_id IS NULL AND is_bundle_item=false''', (program_id,))
+        if existing:
+            execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
+                (prog['name'], price, existing['id']))
+        else:
+            iid = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO store_items (id, name, price_cents, linked_program_id, auto_synced, active)
+                VALUES (%s,%s,%s,%s,true,true)''', (iid, prog['name'], price, program_id))
+    conn.commit()
+
+@app.route('/api/admin/hours-store/settings', methods=['GET'])
+def get_hours_store_settings():
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    rate = _get_hours_store_rate_cents(conn)
+    conn.close()
+    return jsonify({'rate_cents': rate})
+
+@app.route('/api/admin/hours-store/event-bonuses', methods=['GET'])
+def list_hours_store_event_bonuses():
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT id, name, event_date, hours_store_bonus_type,
+        hours_store_bonus_multiplier, hours_store_bonus_flat_cents
+        FROM events WHERE hours_store_bonus_type IS NOT NULL
+        ORDER BY event_date DESC NULLS LAST''') or []
+    conn.close()
+    return jsonify({'events': rows})
+
+@app.route('/api/admin/hours-store/settings', methods=['PUT'])
+def save_hours_store_settings():
+    err = require_permission('hours_store')
+    if err: return err
+    d = request.json or {}
+    try:
+        rate_cents = max(1, int(round(float(d.get('rate_dollars') or 10) * 100)))
+    except Exception:
+        return jsonify({'error': 'Invalid rate'}), 400
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('hours_store_rate_cents', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (str(rate_cents),))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'rate_cents': rate_cents})
+
+@app.route('/api/admin/store-items', methods=['GET'])
+def list_store_items():
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    items = fetchall(conn, '''SELECT si.*, yp.name as program_name, ps.name as session_name FROM store_items si
+        LEFT JOIN youth_programs yp ON yp.id=si.linked_program_id
+        LEFT JOIN program_sessions ps ON ps.id=si.linked_session_id
+        ORDER BY si.active DESC, si.name''') or []
+    rate = _get_hours_store_rate_cents(conn)
+    conn.close()
+    for it in items:
+        it['hours_cost'] = round(it['price_cents'] / rate, 2) if rate else 0
+    return jsonify({'items': items, 'rate_cents': rate})
+
+@app.route('/api/admin/store-items', methods=['POST'])
+def create_store_item():
+    err = require_permission('hours_store')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    iid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO store_items (id, name, description, image_url, price_cents, linked_program_id, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (iid, name, (d.get('description') or '').strip(), d.get('image_url') or None,
+         int(round(float(d.get('price_dollars') or 0) * 100)),
+         d.get('linked_program_id') or None, bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/admin/store-items/<iid>', methods=['PUT'])
+def update_store_item(iid):
+    err = require_permission('hours_store')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT auto_synced FROM store_items WHERE id=%s', (iid,))
+    if existing and existing.get('auto_synced'):
+        conn.close()
+        return jsonify({'error': "This item is synced from a program's pricing. Edit it from the program's Registration Settings instead."}), 400
+    execute(conn, '''UPDATE store_items SET name=%s, description=%s, image_url=%s, price_cents=%s,
+        linked_program_id=%s, active=%s WHERE id=%s''',
+        (name, (d.get('description') or '').strip(), d.get('image_url') or None,
+         int(round(float(d.get('price_dollars') or 0) * 100)),
+         d.get('linked_program_id') or None, bool(d.get('active', True)), iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/admin/store-items/<iid>', methods=['DELETE'])
+def delete_store_item(iid):
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT auto_synced FROM store_items WHERE id=%s', (iid,))
+    if existing and existing.get('auto_synced'):
+        conn.close()
+        return jsonify({'error': "This item is synced from a program's pricing. Turn off \"Add to Hours Store\" in the program's Registration Settings to remove it."}), 400
+    used = fetchone(conn, 'SELECT COUNT(*) as c FROM hour_redemptions WHERE store_item_id=%s', (iid,))
+    if used and used['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This item has redemption history and cannot be deleted. Mark it inactive instead.'}), 400
+    execute(conn, 'DELETE FROM store_items WHERE id=%s', (iid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/hour-redemptions', methods=['GET'])
+def list_hour_redemptions():
+    err = require_permission('hours_store')
+    if err: return err
+    status = request.args.get('status') or ''
+    conn = get_db()
+    q = '''SELECT hr.*, v.name as volunteer_name, v.email as volunteer_email,
+        si.name as current_item_name FROM hour_redemptions hr
+        JOIN volunteers v ON v.id=hr.volunteer_id
+        LEFT JOIN store_items si ON si.id=hr.store_item_id'''
+    params = ()
+    if status:
+        q += ' WHERE hr.status=%s'
+        params = (status,)
+    q += ' ORDER BY hr.requested_at DESC'
+    rows = fetchall(conn, q, params) or []
+    conn.close()
+    return jsonify({'redemptions': rows})
+
+def _enroll_from_hours_redemption(conn, red, item):
+    """Create + finalize a program registration for a redemption whose cost is fully
+    covered (by hours alone, or hours + a paid balance). Returns the new registration id, or None
+    if the item isn't linked to a program (manual-fulfillment reward)."""
+    if not item or not item.get('linked_program_id'):
+        return None
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+    vol_name_parts = (vol['name'] if vol else '').strip().split(' ', 1)
+    vol_first = vol_name_parts[0] if vol_name_parts else ''
+    vol_last = vol_name_parts[1] if len(vol_name_parts) > 1 else ''
+    import json as _jhs
+    if item.get('linked_session_id'):
+        session_ids = [item['linked_session_id']]
+    elif item.get('is_bundle_item'):
+        all_sessions = fetchall(conn, 'SELECT id FROM program_sessions WHERE program_id=%s', (item['linked_program_id'],)) or []
+        session_ids = [s['id'] for s in all_sessions]
+    else:
+        session_ids = []
+    balance = red.get('balance_due_cents') or 0
+    note = f'Paid via Hours Store redemption ({red["hours_spent"]}h applied'
+    note += f' + ${balance/100:.2f} balance)' if balance else ')'
+    new_reg_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO program_registrations
+        (id, program_id, registration_type, status, registration_form_type,
+         child_first_name, child_last_name,
+         guardian_name, guardian_email, guardian_phone, notes, payment_type, session_ids)
+        VALUES (%s,%s,'registration','confirmed','adult',%s,%s,%s,%s,%s,%s,'hours',%s)''',
+        (new_reg_id, item['linked_program_id'], vol_first, vol_last,
+         vol['name'] if vol else '',
+         vol['email'] if vol else '', vol.get('phone') if vol else None,
+         note, _jhs.dumps(session_ids)))
+    finalize_registration(conn, new_reg_id)
+    execute(conn, 'UPDATE hour_redemptions SET registration_id=%s WHERE id=%s', (new_reg_id, red['id']))
+    return new_reg_id
+
+@app.route('/api/admin/hour-redemptions/<rid>/approve', methods=['POST'])
+def approve_hour_redemption(rid):
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'This request has already been reviewed'}), 400
+    reviewer = session.get('name') or session.get('email') or 'Admin'
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (red['store_item_id'],)) if red['store_item_id'] else None
+    balance = red.get('balance_due_cents') or 0
+
+    if balance > 0:
+        # Partial redemption — hours are approved, but a cash balance remains. Send a Square
+        # payment link for just that balance; enrollment happens once it's paid (see webhook).
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        pseudo_program = {'id': (item['linked_program_id'] if item else None) or 'hours-store',
+                           'slug': None, 'name': (item['name'] if item else red.get('item_name_snapshot')) or 'Hours Store Balance',
+                           'square_catalog_item_id': None}
+        redirect_url = f"{APP_BASE_URL}/hours-store/{vol['store_token']}" if vol else None
+        pay_url, link_id, order_id = square_create_payment_link(
+            pseudo_program, rid, vol['email'] if vol else '', vol['name'] if vol else '', balance,
+            note=f'Hours Store balance — {pseudo_program["name"]} ({red["hours_spent"]}h applied)',
+            redirect_url=redirect_url)
+        if not pay_url:
+            conn.close()
+            return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+        execute(conn, '''UPDATE hour_redemptions SET status='awaiting_payment', reviewed_at=NOW(), reviewed_by=%s,
+            square_checkout_id=%s, square_order_id=%s, payment_url=%s WHERE id=%s''', (reviewer, link_id, order_id, pay_url, rid))
+        conn.commit()
+        try:
+            if vol and vol.get('email'):
+                send_email([vol['email']], 'Your Hours Store request was approved — balance due',
+                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                    f'<h2 style="color:#145466">Approved — almost there!</h2>'
+                    f'<p>Hi {vol.get("name","there")},</p>'
+                    f'<p>Your redemption of <strong>{pseudo_program["name"]}</strong> has been approved. '
+                    f'You applied <strong>{red["hours_spent"]} hours</strong> toward it, leaving a balance of '
+                    f'<strong>${balance/100:.2f}</strong> to complete it.</p>'
+                    f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+                    f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+                    f'Pay Remaining Balance</a></p>'
+                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+                    f'<p>Horizon West Theater Company</p></div>')
+        except Exception as e:
+            app.logger.warning(f'Hours store partial-approval email failed: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'status': 'awaiting_payment', 'payment_url': pay_url})
+
+    # Fully covered by hours — enroll immediately
+    new_reg_id = _enroll_from_hours_redemption(conn, red, item)
+    execute(conn, '''UPDATE hour_redemptions SET status='approved', reviewed_at=NOW(), reviewed_by=%s WHERE id=%s''',
+        (reviewer, rid))
+    conn.commit()
+    try:
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Your Hours Store request has been approved!',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Approved!</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>Your redemption of <strong>{red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong> '
+                f'for {red["hours_spent"]} volunteer hours has been approved'
+                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store approval email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'registration_id': new_reg_id})
+
+@app.route('/api/admin/hour-redemptions/<rid>/deny', methods=['POST'])
+def deny_hour_redemption(rid):
+    err = require_permission('hours_store')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] not in ('pending', 'awaiting_payment'):
+        conn.close()
+        return jsonify({'error': 'This request has already been reviewed'}), 400
+    reviewer = session.get('name') or session.get('email') or 'Admin'
+    execute(conn, '''UPDATE hour_redemptions SET status='denied', reviewed_at=NOW(), reviewed_by=%s, admin_notes=%s WHERE id=%s''',
+        (reviewer, (d.get('reason') or '').strip(), rid))
+    conn.commit()
+    try:
+        vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Update on your Hours Store request',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Hours Store Update</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>We were not able to approve your redemption of <strong>{red.get("item_name_snapshot") or "your item"}</strong> '
+                f'({red["hours_spent"]} hours).{" Note: " + d.get("reason","") if d.get("reason") else ""}</p>'
+                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store denial email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/hour-redemptions/<rid>/fulfill', methods=['POST'])
+def fulfill_hour_redemption(rid):
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] not in ('approved',):
+        conn.close()
+        return jsonify({'error': 'Only approved requests can be marked fulfilled'}), 400
+    execute(conn, "UPDATE hour_redemptions SET status='fulfilled' WHERE id=%s", (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/hour-redemptions/<rid>/resend-payment-link', methods=['POST'])
+def resend_hour_redemption_payment_link(rid):
+    err = require_permission('hours_store')
+    if err: return err
+    conn = get_db()
+    red = fetchone(conn, 'SELECT * FROM hour_redemptions WHERE id=%s', (rid,))
+    if not red:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if red['status'] != 'awaiting_payment':
+        conn.close()
+        return jsonify({'error': 'This request is not awaiting payment'}), 400
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (red['store_item_id'],)) if red['store_item_id'] else None
+    item_name = (item['name'] if item else red.get('item_name_snapshot')) or 'Hours Store Balance'
+    pseudo_program = {'id': (item['linked_program_id'] if item else None) or 'hours-store',
+                       'slug': None, 'name': item_name, 'square_catalog_item_id': None}
+    redirect_url = f"{APP_BASE_URL}/hours-store/{vol['store_token']}" if vol else None
+    pay_url, link_id, order_id = square_create_payment_link(
+        pseudo_program, rid, vol['email'] if vol else '', vol['name'] if vol else '', red['balance_due_cents'],
+        note=f'Hours Store balance — {item_name} ({red["hours_spent"]}h applied)',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    execute(conn, 'UPDATE hour_redemptions SET square_checkout_id=%s, square_order_id=%s, payment_url=%s WHERE id=%s',
+        (link_id, order_id, pay_url, rid))
+    conn.commit()
+    try:
+        if vol and vol.get('email'):
+            send_email([vol['email']], 'Reminder — balance due for your Hours Store request',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">Balance Due</h2>'
+                f'<p>Hi {vol.get("name","there")},</p>'
+                f'<p>Just a reminder — there\'s a balance of <strong>${red["balance_due_cents"]/100:.2f}</strong> remaining on your '
+                f'<strong>{item_name}</strong> redemption.</p>'
+                f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+                f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+                f'Pay Remaining Balance</a></p>'
+                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+                f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store resend-link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
+@app.route('/hours-store/<token>')
+def public_hours_store_page(token):
+    """Public-facing per-volunteer Hours Store page."""
+    return send_from_directory('static', 'hours-store.html')
+
+@app.route('/api/public/hours-store/<token>')
+def public_hours_store_data(token):
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE store_token=%s', (token,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired link'}), 404
+    total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol['id'],))['t'] or 0
+    store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol['id'],))['t'] or 0
+    available = max(0, store_eligible_hours - redeemed)
+    rate = _get_hours_store_rate_cents(conn)
+    items = fetchall(conn, 'SELECT * FROM store_items WHERE active=true ORDER BY price_cents') or []
+    for it in items:
+        it['hours_cost'] = round(it['price_cents'] / rate, 2) if rate else 0
+    my_redemptions = fetchall(conn, '''SELECT hr.*, si.name as current_item_name FROM hour_redemptions hr
+        LEFT JOIN store_items si ON si.id=hr.store_item_id
+        WHERE hr.volunteer_id=%s ORDER BY hr.requested_at DESC''', (vol['id'],)) or []
+    conn.close()
+    return jsonify({
+        'volunteer_name': vol['name'],
+        'total_hours': total_hours,
+        'store_eligible_hours': store_eligible_hours,
+        'redeemed_hours': redeemed,
+        'available_hours': available,
+        'available_dollars_cents': int(round(available * rate)),
+        'rate_cents': rate,
+        'items': items,
+        'redemptions': my_redemptions,
+    })
+
+@app.route('/api/public/hours-store/<token>/redeem', methods=['POST'])
+def public_hours_store_redeem(token):
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT * FROM volunteers WHERE store_token=%s', (token,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired link'}), 404
+    d = request.json or {}
+    item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s AND active=true', (d.get('store_item_id'),))
+    if not item:
+        conn.close()
+        return jsonify({'error': 'Item not found or no longer available'}), 404
+    rate = _get_hours_store_rate_cents(conn)
+    hours_cost_needed = round(item['price_cents'] / rate, 2) if rate else 0
+    store_eligible_hours = _get_store_eligible_hours(conn, vol['id']) or 0
+    redeemed = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol['id'],))['t'] or 0
+    available = max(0, store_eligible_hours - redeemed)
+    hours_to_apply = min(available, hours_cost_needed)
+    dollar_value_cents = int(round(hours_to_apply * rate)) if rate else 0
+    balance_due_cents = max(0, item['price_cents'] - dollar_value_cents)
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO hour_redemptions
+        (id, volunteer_id, store_item_id, item_name_snapshot, hours_spent, dollar_value_cents, balance_due_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (rid, vol['id'], item['id'], item['name'], hours_to_apply, dollar_value_cents, balance_due_cents))
+    conn.commit()
+    conn.close()
+    try:
+        recipients = get_recipient_emails()
+        if recipients:
+            balance_note = f' plus a ${balance_due_cents/100:.2f} balance to be invoiced' if balance_due_cents else ''
+            send_email(recipients, f'New Hours Store request — {vol["name"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">New Hours Store Request</h2>'
+                f'<p><strong>{vol["name"]}</strong> ({vol.get("email","")}) has requested to redeem '
+                f'<strong>{hours_to_apply} hours</strong> for <strong>{item["name"]}</strong>{balance_note}.</p>'
+                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Hours store admin notify failed: {e}')
+    return jsonify({'ok': True, 'status': 'pending', 'hours_applied': hours_to_apply, 'balance_due_cents': balance_due_cents})
 
 @app.route('/api/volunteers', methods=['POST'])
 def create_volunteer():
@@ -2915,6 +3679,46 @@ def update_youth_program(pid):
              int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
              d.get('bundle_label') or 'Book All Sessions',
              pid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-programs/<pid>/registration-status', methods=['PUT'])
+def set_program_registration_status(pid):
+    """Quick action to open/close registrations without touching any other program settings."""
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    reg_status = d.get('registration_status')
+    if reg_status not in ('draft', 'interest_list', 'open', 'closed', 'cancelled'):
+        return jsonify({'error': 'Invalid registration status'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    execute(conn, 'UPDATE youth_programs SET registration_status=%s WHERE id=%s', (reg_status, pid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/youth-programs/<pid>/archive-status', methods=['PUT'])
+def set_program_archive_status(pid):
+    """Quick action to archive/unarchive a program without touching any other program settings."""
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    status = d.get('status')
+    if status not in ('upcoming', 'active', 'completed', 'archived'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    execute(conn, 'UPDATE youth_programs SET status=%s WHERE id=%s', (status, pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
@@ -3752,7 +4556,7 @@ def submit_audition():
                 '<h2 style="color:#145466">New Audition: ' + ctx_name + '</h2>'
                 '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
                 '<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:140px">Name</td><td style="padding:8px 12px">' + name + '</td></tr>'
-                (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
+                + (lambda roles: '<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Role(s)</td><td style="padding:8px 12px">' + (', '.join(roles) if roles else 'Not specified') + '</td></tr>')(
                     (lambda r: r if r else ([d.get('role_requested')] if d.get('role_requested') else []))(
                         __import__('json').loads(d.get('roles_requested') or '[]') if isinstance(d.get('roles_requested'), str) else (d.get('roles_requested') or [])
                     )
@@ -4446,7 +5250,7 @@ def save_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, form_fields=%s
+        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -4480,8 +5284,11 @@ def save_registration_settings(pid):
          d.get('start_date') or None,
          d.get('end_date') or None,
          _json.dumps(d.get('form_fields') or {}),
+         bool(d.get('hours_store_enabled', False)),
          pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 
@@ -4695,6 +5502,14 @@ def reset_system_template(key):
             'universal_reminder': (
                 'Reminder: Submit Your Volunteer Hours - Universal Giving',
                 '<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto">\n  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">\n    <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>\n    <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px">Universal Team Member Giving Guide</p>\n  </div>\n  <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">\n    <p>Hi {{name}},</p>\n    <p>Thank you so much for volunteering with <strong>Horizon West Theater Company</strong>! As a Universal Team Member, you can submit your hours through <strong>Universal Giving</strong> and potentially qualify for grant funding on our behalf.</p>\n    <p style="font-size:14px;color:#6b7280">Here is a step-by-step guide to logging your hours:</p>\n\n    <div style="margin:20px 0">\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">1</div>\n          <strong>Go to the Team Universal site</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step1.png" alt="Team Universal home page" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">2</div>\n          <strong>Scroll down and click &ldquo;Access myImpact&rdquo; on the home page</strong>\n        </div>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">3</div>\n          <strong>Select the company you work for &amp; log in with your SSO</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step2.png" alt="Select company and login" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">4</div>\n          <strong>Go to the &ldquo;Log Your Hours&rdquo; page</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step3.png" alt="myImpact home - Log Your Hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">5</div>\n          <strong>Click the &ldquo;Log Individual Hours&rdquo; button</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step4.png" alt="Log Individual Hours button" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">6</div>\n          <strong>Search for &ldquo;Horizon West Theater Company&rdquo;</strong>\n        </div>\n        <span style="color:#6b7280;font-size:13px">Enter the organization name and search, or select it if it already appears from a previous entry.</span>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step5.png" alt="Search for organization" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">7</div>\n          <strong>Enter your date range and hours, then click &ldquo;Save and Proceed&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step6.png" alt="Enter hours" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">8</div>\n          <strong>Review your submission and click &ldquo;Submit&rdquo;</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step7.png" alt="Review and submit" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n      <div style="margin-bottom:20px">\n        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">\n          <div style="background:#145466;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;line-height:28px;text-align:center;font-size:13px;font-weight:700;flex-shrink:0">9</div>\n          <strong>A confirmation page will appear &mdash; you&#x2019;re all set!</strong>\n        </div>\n        <img src="https://rolecall.hwtco.org/static/images/universal_step8.png" alt="Confirmation" style="width:100%;border-radius:8px;border:1px solid #e5e7eb;margin:10px 0 18px;display:block"/>\n      </div>\n\n    </div>\n\n    <div style="background:#f0f8fa;border-radius:10px;padding:20px 24px;margin:24px 0;border-left:4px solid #145466">\n      <strong style="color:#145466">Did you know?</strong>\n      <p style="margin:8px 0 0;font-size:14px;color:#374151">Once you complete <strong>52 hours</strong> of volunteering you qualify for <strong>Club 52</strong>. After <strong>104 hours</strong> you reach <strong>Club 52 Elite</strong> status. Both levels qualify for the Universal Orlando Foundation grant &mdash; where you can choose a non-profit to receive grant money. <strong>Horizon West Theater Company qualifies</strong> and hopes you will consider donating your grant to our cause!</p>\n    </div>\n\n    {{hours_section}}\n\n    <p>If you have any questions or need help logging your hours, please reach out to us at <a href="mailto:info@hwtco.org" style="color:#145466">info@hwtco.org</a>.</p>\n    <p>With gratitude,<br/><strong>Horizon West Theater Company</strong></p>\n  </div>\n</div>\''
+            ),
+            'rsvp_invite_household': (
+                RSVP_INVITE_TEMPLATE_DEFS[0][2],  # subject
+                RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT,
+            ),
+            'rsvp_invite_general': (
+                RSVP_INVITE_TEMPLATE_DEFS[1][2],  # subject
+                RSVP_INVITE_GENERAL_BODY_DEFAULT,
             ),
         }
         if key not in DEFAULTS:
@@ -6625,7 +7440,17 @@ def kiosk_elic_auth():
 def get_checklist_items():
     # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
-    items = fetchall(conn, 'SELECT * FROM checklist_items ORDER BY sort_order, label')
+    event_id = request.args.get('event_id', '')
+    is_studio = True
+    if event_id:
+        evt = fetchone(conn, 'SELECT location FROM events WHERE id=%s', (event_id,))
+        if evt and evt.get('location') and evt['location'] != 'HWTC':
+            is_studio = False
+    q = 'SELECT * FROM checklist_items'
+    if not is_studio:
+        q += ' WHERE studio_only=false'
+    q += ' ORDER BY sort_order, label'
+    items = fetchall(conn, q)
     conn.close()
     return jsonify(items)
 
@@ -6640,8 +7465,8 @@ def create_checklist_item():
     row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM checklist_items')
     if row_max and row_max.get('m') is not None:
         max_order = int(row_max['m']) + 1
-    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
+    execute(conn, 'INSERT INTO checklist_items (id,label,item_type,required,hint,sort_order,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order, bool(d.get('studio_only', True))))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -6653,8 +7478,8 @@ def update_checklist_item(iid):
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    execute(conn, 'UPDATE checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s, studio_only=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), bool(d.get('studio_only', True)), iid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -6685,7 +7510,17 @@ def delete_checklist_item(iid):
 def get_opening_checklist_items():
     # No auth required  -  kiosk needs this without an admin session
     conn = get_db()
-    items = fetchall(conn, 'SELECT * FROM opening_checklist_items ORDER BY sort_order, label')
+    event_id = request.args.get('event_id', '')
+    is_studio = True
+    if event_id:
+        evt = fetchone(conn, 'SELECT location FROM events WHERE id=%s', (event_id,))
+        if evt and evt.get('location') and evt['location'] != 'HWTC':
+            is_studio = False
+    q = 'SELECT * FROM opening_checklist_items'
+    if not is_studio:
+        q += ' WHERE studio_only=false'
+    q += ' ORDER BY sort_order, label'
+    items = fetchall(conn, q)
     conn.close()
     return jsonify(items)
 
@@ -6698,8 +7533,8 @@ def create_opening_checklist_item():
     conn = get_db()
     row_max = fetchone(conn, 'SELECT MAX(sort_order) as m FROM opening_checklist_items')
     max_order = int((row_max or {}).get('m') or 0) + 1
-    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order) VALUES (%s,%s,%s,%s,%s,%s)',
-        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order))
+    execute(conn, 'INSERT INTO opening_checklist_items (id,label,item_type,required,hint,sort_order,studio_only) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+        (iid, d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', max_order, bool(d.get('studio_only', True))))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -6723,8 +7558,8 @@ def update_opening_checklist_item(iid):
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
-    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s WHERE id=%s',
-        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), iid))
+    execute(conn, 'UPDATE opening_checklist_items SET label=%s, item_type=%s, required=%s, hint=%s, sort_order=%s, studio_only=%s WHERE id=%s',
+        (d.get('label',''), d.get('item_type','checkbox'), bool(d.get('required',True)), d.get('hint','') or '', int(d.get('sort_order',0)), bool(d.get('studio_only', True)), iid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM opening_checklist_items WHERE id=%s', (iid,))
     conn.close()
@@ -8298,14 +9133,16 @@ def join_submit():
     conn = get_db()
     try:
         sub_selections = json.dumps(d.get('sub_selections') or {})
+        sms_consent = bool(d.get('sms_consent')) and bool((d.get('phone') or '').strip())
         execute(conn, '''INSERT INTO volunteer_applications
-            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)''',
+            (id, name, email, phone, pronouns, is_adult, interests, how_heard, notes, status, sub_selections, employer_program, sms_consent, sms_consent_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s)''',
             (aid, (d.get('name') or '').strip(), (d.get('email') or '').strip().lower(),
              (d.get('phone') or '').strip(), (d.get('pronouns') or '').strip(),
              d.get('is_adult', True), json.dumps(d.get('interests', [])),
              (d.get('how_heard') or '').strip(), (d.get('notes') or '').strip(),
-             sub_selections, (d.get('employer_program') or '').strip()))
+             sub_selections, (d.get('employer_program') or '').strip(),
+             sms_consent, datetime.now() if sms_consent else None))
         conn.commit()
     except Exception as e:
         conn.rollback(); conn.close()
@@ -9482,6 +10319,7 @@ def kiosk_close_event():
         # Auto-log ELIC hours based on time from open to close
         # Wrapped in a SAVEPOINT so a failure here can never poison/roll back
         # the rest of this transaction (status update, checklist, hours approval).
+        elic_auto_hours = None  # populated below if ELIC auto-hours are logged, used in the close-report email
         try:
             execute(conn, 'SAVEPOINT elic_hours_sp')
             open_log = fetchone(conn, '''SELECT el.timestamp FROM event_logs el
@@ -9510,6 +10348,7 @@ def kiosk_close_event():
                     (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
                      today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
                 app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
+                elic_auto_hours = {'name': elic_vol['name'], 'hours': duration_hrs}
             execute(conn, 'RELEASE SAVEPOINT elic_hours_sp')
         except Exception as e:
             app.logger.warning(f'ELIC auto-hours error (non-fatal): {e}')
@@ -9533,7 +10372,7 @@ def kiosk_close_event():
                 open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
                     LEFT JOIN elics eli ON el.elic_id=eli.id
                     LEFT JOIN volunteers v ON eli.volunteer_id=v.id
-                    WHERE el.event_id=%s AND el.action='open' ORDER BY el.id LIMIT 1''', (event_id,))
+                    WHERE el.event_id=%s AND el.action='open' ORDER BY el.timestamp DESC LIMIT 1''', (event_id,))
                 open_responses = []
                 open_elic_name = ''
                 if open_log:
@@ -9560,6 +10399,9 @@ def kiosk_close_event():
                         vol = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (ph['volunteer_id'],))
                         vname = vol['name'] if vol else 'Unknown'
                         hrs_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{vname}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{ph["hours"]}h</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#16a34a">Auto-approved</td></tr>'
+                if elic_auto_hours:
+                    hrs_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{elic_auto_hours["name"]} (ELIC)</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{elic_auto_hours["hours"]}h</td><td style="padding:6px 12px;border-bottom:1px solid #eee;color:#16a34a">Auto-logged (open→close)</td></tr>'
+                hrs_count = len(pending) + (1 if elic_auto_hours else 0)
                 body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
                     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:8px 8px 0 0">
                       <div style="color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Event Closed</div>
@@ -9567,18 +10409,18 @@ def kiosk_close_event():
                       <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
                     </div>
                     <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-                    {f"""<h3 style="color:#145466;margin-top:0">Opening Checklist</h3>
-                    <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
+                    <h3 style="color:#145466;margin-top:0">Opening Checklist</h3>
+                    {f"""<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
-                    <tbody>{ol_rows}</tbody></table>""" if ol_rows else ""}
+                    <tbody>{ol_rows}</tbody></table>""" if ol_rows else '<p style="margin-bottom:20px"><em>No opening checklist items recorded.</em></p>'}
                     {f"""<h3 style="color:#145466">Closing Checklist</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Item</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Response</th></tr></thead>
                     <tbody>{cl_rows}</tbody></table>""" if cl_rows else "<p><em>No closing checklist items recorded.</em></p>"}
-                    {f"""<h3 style="color:#145466">Hours Auto-Approved ({len(pending)} volunteer{"s" if len(pending)!=1 else ""})</h3>
+                    {f"""<h3 style="color:#145466">Hours Auto-Approved ({hrs_count} volunteer{"s" if hrs_count!=1 else ""})</h3>
                     <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;margin-bottom:20px">
                     <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
-                    <tbody>{hrs_rows}</tbody></table>""" if pending else "<p><em>No hours recorded for this event.</em></p>"}
+                    <tbody>{hrs_rows}</tbody></table>""" if hrs_count else "<p><em>No hours recorded for this event.</em></p>"}
                     </div></div>'''
                 send_email(recipients, f'Event Closed: {evt_name}', body)
         except Exception as e:
@@ -11054,15 +11896,14 @@ init_db()
 try:
     _seed_conn = get_db()
     seed_system_email_templates(_seed_conn)
+    seed_rsvp_invite_templates(_seed_conn)
     _seed_conn.commit()
     _seed_conn.close()
 except Exception as _e:
     app.logger.warning(f'Email template seed failed: {_e}')
 
-try:
-    _start_oncall_scheduler()
-except Exception as _sche:
-    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
+# Note: on-call scheduler is started at the very end of this file, after
+# _start_oncall_scheduler() is actually defined (it's defined much later below).
 
 # ── Global error handlers  -  return JSON for all API errors ──
 @app.errorhandler(500)
@@ -11164,12 +12005,12 @@ def remove_event_staff(sid):
 def get_event_roles(eid):
     conn = get_db()
     roles = fetchall(conn, '''
-        SELECT r.*,
-            COUNT(rv.id) FILTER (WHERE rv.status='interested') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status='interested'
+        SELECT r.* FROM event_roles r
         WHERE r.event_id=%s
-        GROUP BY r.id ORDER BY r.sort_order ASC, r.name ASC''', (eid,))
+        ORDER BY r.sort_order ASC, r.name ASC''', (eid,))
+    headcounts = _role_headcounts_for_event(conn, eid)
+    for r in roles:
+        r['filled'] = headcounts.get(r['id'], 0)
     conn.close()
     return jsonify(roles)
 
@@ -11182,10 +12023,11 @@ def create_event_role(eid):
         return jsonify({'error': 'Role name is required'}), 400
     rid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, eid, d['name'].strip(), int(d.get('slots') or 1),
-         (d.get('description') or '').strip(), int(d.get('sort_order') or 0)))
+         (d.get('description') or '').strip(), int(d.get('sort_order') or 0),
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip()))
     conn.commit()
     row = fetchone(conn, '''SELECT r.*, 0 as filled FROM event_roles r WHERE r.id=%s''', (rid,))
     conn.close()
@@ -11197,10 +12039,11 @@ def update_event_role(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s
+    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s
         WHERE id=%s''',
         ((d.get('name') or '').strip(), int(d.get('slots') or 1),
-         (d.get('description') or '').strip(), rid))
+         (d.get('description') or '').strip(),
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -11273,6 +12116,67 @@ def get_event_rsvps(eid):
     conn.close()
     return jsonify(rsvps)
 
+@app.route('/api/events/<eid>/household-drafts')
+def get_household_drafts(eid):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT hd.*, u.name as created_by_name
+        FROM household_invite_drafts hd LEFT JOIN users u ON hd.created_by=u.id
+        WHERE hd.event_id=%s ORDER BY hd.created_at ASC''', (eid,)) or []
+    conn.close()
+    for r in rows:
+        try: r['members'] = json.loads(r.get('members') or '[]')
+        except Exception: r['members'] = []
+    return jsonify(rows)
+
+@app.route('/api/events/<eid>/household-drafts', methods=['POST'])
+def add_household_draft(eid):
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower()
+    members = [n.strip() for n in (d.get('members') or []) if (n or '').strip()]
+    label = (d.get('label') or '').strip()
+    role_id = (d.get('role_id') or '').strip()
+    role_name = (d.get('role_name') or '').strip()
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+    if not members:
+        return jsonify({'error': 'Add at least one guest name'}), 400
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM household_invite_drafts WHERE event_id=%s AND LOWER(email)=%s', (eid, email))
+    if existing:
+        conn.close()
+        return jsonify({'error': 'That email is already in the list'}), 400
+    did = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO household_invite_drafts (id,event_id,label,email,members,role_id,role_name,created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (did, eid, label, email, json.dumps(members), role_id or None, role_name, session.get('user_id','')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM household_invite_drafts WHERE id=%s', (did,))
+    conn.close()
+    row['members'] = members
+    return jsonify(row)
+
+@app.route('/api/events/<eid>/household-drafts/<did>', methods=['DELETE'])
+def delete_household_draft(eid, did):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM household_invite_drafts WHERE id=%s AND event_id=%s', (did, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/events/<eid>/household-drafts/clear', methods=['POST'])
+def clear_household_drafts(eid):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM household_invite_drafts WHERE event_id=%s', (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/events/<eid>/rsvp-invite', methods=['POST'])
 def send_rsvp_invite(eid):
     err = require_permission('events')
@@ -11286,16 +12190,88 @@ def send_rsvp_invite(eid):
 
     # Get roles for this event
     roles = fetchall(conn, '''
-        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
-        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (eid,))
+        SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (eid,))
+    _rc = _role_headcounts_for_event(conn, eid)
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
 
     target_ids = d.get('volunteer_ids') or []
-    if not target_ids:
-        vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL")
-    else:
+    if target_ids:
         vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE id=ANY(%s) AND email IS NOT NULL", (target_ids,))
+    elif d.get('adhoc_only'):
+        vols = []
+    else:
+        vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL")
+
+    # Ad hoc contacts: people not in the Volunteers list at all (e.g. community members
+    # for an open house). Pasted as free text, one per line: "Name, email" or just "email".
+    adhoc_raw = (d.get('adhoc_contacts') or '').strip()
+    if adhoc_raw:
+        vols = list(vols)
+        for raw_line in adhoc_raw.splitlines():
+            raw_line = raw_line.strip()
+            if not raw_line: continue
+            # Accept "Name, email@x.com" / "Name <email@x.com>" / just "email@x.com"
+            m = re.search(r'[\w\.\+\-]+@[\w\-]+\.[\w\.\-]+', raw_line)
+            if not m: continue
+            email_addr = m.group(0).strip().lower()
+            name_part = raw_line.replace(m.group(0), '').strip(' ,<>-')
+            vols.append({'id': None, 'name': name_part or email_addr.split('@')[0], 'email': email_addr})
+
+    # Household / party invites: each is one invite record covering multiple named
+    # guests (e.g. "The Smith Family: John, Jane, Tommy, Sally") who each get checked
+    # off individually on the RSVP page, rather than an open name/email form.
+    # Accepts either a single household (household_members/household_email/household_label)
+    # or a batch (households: [{members, email, label}, ...]) so a whole list can be
+    # built up and sent in one go.
+    party_names_by_email = {}
+    role_by_email = {}
+    is_household_send = False
+    households_batch = d.get('households') or []
+    if not households_batch:
+        single_members = [n.strip() for n in (d.get('household_members') or []) if (n or '').strip()]
+        single_email = (d.get('household_email') or '').strip().lower()
+        single_label = (d.get('household_label') or '').strip()
+        if single_members and single_email:
+            households_batch = [{'members': single_members, 'email': single_email, 'label': single_label, 'role_id': d.get('assign_role_id') or ''}]
+
+    if households_batch:
+        is_household_send = True
+        vols = []
+        seen_emails = set()
+        for h in households_batch:
+            h_email = (h.get('email') or '').strip().lower()
+            h_members = [n.strip() for n in (h.get('members') or []) if (n or '').strip()]
+            h_label = (h.get('label') or '').strip()
+            h_role_id = (h.get('role_id') or '').strip()
+            if not h_email or not h_members or h_email in seen_emails:
+                continue
+            seen_emails.add(h_email)
+            display_name = h_label or (h_members[0] if len(h_members) == 1 else f'{h_members[0]} + {len(h_members)-1} more')
+            vols.append({'id': None, 'name': display_name, 'email': h_email})
+            party_names_by_email[h_email] = h_members
+            if h_role_id:
+                role_by_email[h_email] = h_role_id
+
+    is_guest = evt.get('rsvp_kind') == 'guest'
+    kind_label = 'Community Invite' if is_guest else 'Volunteer Opportunity'
+    intro_line = "We're hosting an event and would love for you to join us!" if is_guest else "We're looking for volunteers for an upcoming event and would love to have you join us!"
+    slot_word = 'Time Slot' if is_guest else 'Role'
+    footer_note = "If you're unable to attend, no need to reply — we just wanted to make sure you had the invite." if is_guest else "If you're unable to attend, no action is needed — we only want to hear from those who can volunteer."
+
+    # Pre-assign everyone in this batch to a specific block, if requested — their
+    # personalized link will then show just that block instead of the full picker.
+    assign_role_id = (d.get('assign_role_id') or '').strip()
+    assign_role_name = ''
+    if assign_role_id:
+        assigned_role = next((r for r in roles if r['id'] == assign_role_id), None)
+        if assigned_role:
+            assign_role_name = assigned_role['name']
+        else:
+            assign_role_id = ''
+
+    cta_label = ("✋ Yes, I'll Be There!" if not roles or assign_role_id else "✋ RSVP & Choose a Time") if is_guest else ("✋ Yes, I Can Help!" if not roles else "✋ Sign Up & Choose a Role")
 
     sent = 0
     skipped = 0
@@ -11304,21 +12280,34 @@ def send_rsvp_invite(eid):
     force_resend = bool(d.get('force_resend', False))
     base_url = request.host_url.rstrip('/')
 
-    # Build roles table HTML for email
+    # Build roles/slots table HTML for email (skipped if everyone's pre-assigned to one block)
     roles_html = ''
-    if roles:
-        roles_html = '<h3 style="color:#145466;margin-top:24px;font-size:15px">Available Roles</h3>'
+    if roles and not assign_role_id:
+        roles_html = f'<h3 style="color:#145466;margin-top:24px;font-size:15px">Available {slot_word}s</h3>'
         roles_html += '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;border:1px solid #e2e8f0">'
-        roles_html += '<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Role</th><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Open Slots</th></tr></thead><tbody>'
+        roles_html += f'<thead><tr style="background:#f0fdf4"><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">{slot_word}</th><th style="padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0">Open Spots</th></tr></thead><tbody>'
         for r in roles:
             available = max(0, int(r['slots']) - int(r['filled'] or 0))
             roles_html += f'<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:8px 12px;font-weight:600">{r["name"]}</td>'
             roles_html += f'<td style="padding:8px 12px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{available} of {r["slots"]} open</td></tr>'
-        roles_html += '</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred role when you sign up.</p>'
+        roles_html += f'</tbody></table><p style="font-size:13px;color:#888">You can choose your preferred {slot_word.lower()} when you RSVP.</p>'
+    elif assign_role_id and not evt.get('hide_block_names'):
+        roles_html = f'''<div style="background:#f0f8fa;border:1.5px solid #c9e4ea;border-radius:10px;padding:14px 18px;margin:18px 0">
+            <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Your {slot_word}</div>
+            <div style="font-size:16px;font-weight:700;color:#0d3d4d">{assign_role_name}</div>
+        </div>'''
+
+    # Load the editable email templates once (Settings > Email Templates); fall back to
+    # the hardcoded defaults below only if a row is somehow missing.
+    household_tmpl = get_system_template(conn, 'rsvp_invite_household')
+    general_tmpl = get_system_template(conn, 'rsvp_invite_general')
 
     for v in vols:
         if not v.get('email'): continue
-        existing = fetchone(conn, 'SELECT id, token, status, last_invited_at FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+        if v.get('id'):
+            existing = fetchone(conn, 'SELECT id, token, status, last_invited_at FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, v['id']))
+        else:
+            existing = fetchone(conn, 'SELECT id, token, status, last_invited_at FROM event_rsvps WHERE event_id=%s AND volunteer_id IS NULL AND LOWER(volunteer_email)=LOWER(%s)', (eid, v['email']))
 
         # Skip if already signed up (interested/confirmed)
         if existing and existing.get('status') in ('interested', 'confirmed'):
@@ -11338,14 +12327,38 @@ def send_rsvp_invite(eid):
                 skipped_names.append(v['name'])
                 continue
 
+        party_json = json.dumps([{'name': n, 'attending': None} for n in party_names_by_email[v['email']]]) if v['email'] in party_names_by_email else None
+
+        # A household can carry its own block assignment (picked while it was being added
+        # to the list); otherwise fall back to the batch-wide "Assign to Block" choice.
+        this_role_id = role_by_email.get(v['email']) or assign_role_id
+        this_role_name = ''
+        this_block_time = ''
+        if this_role_id:
+            this_role = next((r for r in roles if r['id'] == this_role_id), None)
+            this_role_name = this_role['name'] if this_role else ''
+            if this_role:
+                bt = _fmt_time(this_role.get('block_time'))
+                bte = _fmt_time(this_role.get('block_time_end'))
+                this_block_time = f'{bt} – {bte}' if bt and bte else (bt or '')
+            if not this_role: this_role_id = ''
+
         if existing:
             token = existing['token']
-            execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW() WHERE id=%s', (existing['id'],))
+            if party_json is not None:
+                execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s, party_members=%s WHERE id=%s',
+                    (this_role_id or None, this_role_name or None, party_json, existing['id']))
+            else:
+                execute(conn, 'UPDATE event_rsvps SET last_invited_at=NOW(), role_id=%s, role_name=%s WHERE id=%s',
+                    (this_role_id or None, this_role_name or None, existing['id']))
         else:
             token = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status,last_invited_at)
-                VALUES (%s,%s,%s,%s,%s,%s,'invited',NOW())''',
-                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token))
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status,last_invited_at,party_members)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'invited',NOW(),%s)''',
+                (str(uuid.uuid4()), eid, v['id'], v['name'], v['email'], token, this_role_id or None, this_role_name or None, party_json or ''))
+        # Commit immediately — the RSVP link is only useful if this row survives even
+        # when something later in this same iteration (template render, SMTP) blows up.
+        conn.commit()
 
         rsvp_url = f"{base_url}/rsvp/{token}"
         date_str = evt.get('event_date','')
@@ -11358,60 +12371,179 @@ def send_rsvp_invite(eid):
             except Exception:
                 pass
 
-        body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff">
-          <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:8px 8px 0 0">
-            <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Horizon West Theater Company</div>
-            <h2 style="color:#ffffff;margin:0;font-size:22px;font-weight:800">🎭 Volunteer Opportunity</h2>
-            <div style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin-top:6px">{evt['name']}</div>
-          </div>
-          <div style="background:#f8fafc;padding:28px 32px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-            <p style="margin-top:0;color:#374151">Hi {v['name']},</p>
-            <p style="color:#374151">We're looking for volunteers for an upcoming event and would love to have you join us!</p>
-            <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-              <tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>
-              {f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{time_str}</td></tr>' if time_str else ''}
-              {f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''}
-            </table>
-            {f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''}
-            {f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''}
-            {roles_html}
-            <div style="text-align:center;margin:28px 0">
-              <a href="{rsvp_url}" style="background:#145466;color:#ffffff;text-decoration:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block;letter-spacing:0.3px">
-                {"✋ Sign Up & Choose a Role" if roles else "✋ Yes, I Can Help!"}
-              </a>
-            </div>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
-            <p style="font-size:12px;color:#9ca3af;margin:0">
-              If you're unable to attend, no action is needed  -  we only want to hear from those who can volunteer.<br>
-              This invitation was sent to {v['email']} by Horizon West Theater Company.
-            </p>
-          </div>
-        </div>'''
-
-        fi = d.get('from_identity') or {}
         try:
-            send_email([v['email']], f'[HWTC] Volunteer Opportunity: {evt["name"]}', body, fi.get('email') or None, fi.get('name') or None)
+            if is_household_send:
+                guest_list_html = ''.join(f'<li style="padding:3px 0;color:#374151">{n}</li>' for n in party_names_by_email.get(v['email'], []))
+                guest_list_block = f'''<div style="margin-top:28px">
+              <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#6b7280;margin-bottom:8px">This Invitation Includes</div>
+              <ul style="font-family:Helvetica,Arial,sans-serif;font-size:14px;margin:0;padding-left:18px;line-height:1.6">{guest_list_html}</ul>
+            </div>''' if len(party_names_by_email.get(v['email'], [])) > 1 else ''
+                date_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;border-bottom:1px solid #e5e7eb">Date</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{date_str}</td></tr>'
+                display_time = this_block_time or time_str
+                time_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Time</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{display_time}</td></tr>' if display_time else ''
+                location_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Location</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:11px 0;color:#6b7280;font-size:13px;vertical-align:top;border-bottom:1px solid #e5e7eb">Address</td><td style="padding:11px 0;color:#1f2937;font-size:14px;font-weight:500;border-bottom:1px solid #e5e7eb">{evt["address"]}</td></tr>' if evt.get('address') else ''
+                custom_message_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{custom_msg}</p>' if custom_msg else ''
+                description_block = f'<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.7;color:#4b5563;margin:20px 0 0">{evt["description"]}</p>' if evt.get('description') else ''
+                tmpl_vars = {
+                    'recipient_name': v['name'], 'event_name': evt['name'],
+                    'details_table': date_row + time_row + location_row + address_row,
+                    'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'location': evt.get('location') or '', 'address': evt.get('address') or '',
+                    'custom_message_block': custom_message_block, 'description_block': description_block,
+                    'guest_list_block': guest_list_block, 'rsvp_url': rsvp_url,
+                }
+                tmpl_body = household_tmpl['body'] if household_tmpl else RSVP_INVITE_HOUSEHOLD_BODY_DEFAULT
+                tmpl_subject = household_tmpl['subject'] if household_tmpl else RSVP_INVITE_TEMPLATE_DEFS[0][2]
+                body = render_template_vars(tmpl_body, tmpl_vars)
+                email_subject = render_template_vars(tmpl_subject, tmpl_vars)
+            else:
+                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
+                display_time = this_block_time or time_str
+                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
+                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">🏠 Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
+                custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
+                description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
+                tmpl_vars = {
+                    'recipient_name': v['name'], 'recipient_email': v['email'],
+                    'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
+                    'intro_line': intro_line, 'details_table': date_row + time_row + location_row + address_row,
+                    'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
+                    'location': evt.get('location') or '', 'address': evt.get('address') or '',
+                    'custom_message_block': custom_message_block, 'description_block': description_block,
+                    'roles_block': roles_html, 'rsvp_url': rsvp_url, 'cta_label': cta_label, 'footer_note': footer_note,
+                }
+                tmpl_body = general_tmpl['body'] if general_tmpl else RSVP_INVITE_GENERAL_BODY_DEFAULT
+                tmpl_subject = general_tmpl['subject'] if general_tmpl else RSVP_INVITE_TEMPLATE_DEFS[1][2]
+                body = render_template_vars(tmpl_body, tmpl_vars)
+                email_subject = render_template_vars(tmpl_subject, tmpl_vars)
+
+            fi = d.get('from_identity') or {}
+            send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
+            conn.commit()
             # Small delay between emails to avoid rate limiting
             import time as _time
             if sent % 10 == 0:
                 _time.sleep(1)
         except Exception as e:
-            app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}')
+            import traceback
+            app.logger.warning(f'RSVP invite email failed for {v["email"]}: {e}\n{traceback.format_exc()}')
+            try: conn.rollback()
+            except Exception: pass
 
-    conn.commit(); conn.close()
+    conn.close()
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped, 'skipped_names': skipped_names})
+
+def _role_headcount(conn, role_id):
+    """Real attendee headcount for a block/role — counts each individual attending
+    guest in a household RSVP, not just one per invite."""
+    rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,)) or []
+    total = 0
+    for r in rows:
+        pm = r.get('party_members')
+        if pm:
+            try:
+                members = json.loads(pm)
+                total += sum(1 for m in members if m.get('attending') is True)
+            except Exception:
+                total += 1
+        else:
+            total += 1
+    return total
+
+def _role_headcounts_for_event(conn, event_id):
+    """Headcounts for every role/block on an event, keyed by role_id — one query pass
+    instead of N (used when rendering a role list)."""
+    rsvps = fetchall(conn, "SELECT role_id, party_members FROM event_rsvps WHERE event_id=%s AND status='interested' AND role_id IS NOT NULL", (event_id,)) or []
+    counts = {}
+    for r in rsvps:
+        rid = r['role_id']
+        pm = r.get('party_members')
+        if pm:
+            try:
+                members = json.loads(pm)
+                counts[rid] = counts.get(rid, 0) + sum(1 for m in members if m.get('attending') is True)
+                continue
+            except Exception:
+                pass
+        counts[rid] = counts.get(rid, 0) + 1
+    return counts
+
+def _fmt_time(t):
+    """Format a 'HH:MM' 24-hour string as '2:30 PM'. Returns '' if unparseable/empty."""
+    if not t:
+        return ''
+    try:
+        return datetime.strptime(t, '%H:%M').strftime('%I:%M %p').lstrip('0')
+    except Exception:
+        return t
+
+def _guest_invite_css():
+    """Shared, more polished styling for guest/community event invite pages."""
+    return '''<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <style>
+      *{box-sizing:border-box}
+      body.gi-body{font-family:'DM Sans',-apple-system,sans-serif;background:#faf7f2;background-image:radial-gradient(circle at 15% 0%,rgba(20,84,102,0.05),transparent 45%),radial-gradient(circle at 100% 30%,rgba(20,84,102,0.05),transparent 40%);margin:0;padding:0;color:#2b2b28}
+      .gi-wrap{max-width:560px;margin:0 auto;padding:28px 18px 56px}
+      .gi-eyebrow{color:#145466;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2.5px;text-align:center;margin-bottom:10px}
+      .gi-hero{position:relative;width:100%;height:320px;border-radius:22px;overflow:hidden;margin-bottom:22px;box-shadow:0 14px 40px rgba(20,84,102,0.18)}
+      .gi-hero img{width:100%;height:100%;object-fit:cover;display:block}
+      .gi-hero-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(13,61,77,0.85) 100%)}
+      .gi-hero-text{position:absolute;bottom:0;left:0;right:0;padding:26px 28px}
+      .gi-hero-text .gi-eyebrow{color:rgba(255,255,255,0.85);text-align:left;margin-bottom:6px}
+      .gi-headline{font-family:'Playfair Display',Georgia,serif;font-weight:700;line-height:1.15;color:#fff;font-size:32px}
+      .gi-headline-plain{font-family:'Playfair Display',Georgia,serif;font-weight:700;line-height:1.18;color:#fff;font-size:32px;text-align:center}
+      .gi-no-image-hero{text-align:center;padding:46px 26px;border-radius:22px;margin-bottom:22px;background:linear-gradient(135deg,#0d3d4d 0%,#145466 55%,#1e7a94 100%);box-shadow:0 14px 40px rgba(20,84,102,0.22);position:relative;overflow:hidden}
+      .gi-no-image-hero::before{content:'';position:absolute;top:-40%;right:-20%;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,0.06)}
+      .gi-no-image-hero::after{content:'';position:absolute;bottom:-30%;left:-10%;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,0.05)}
+      .gi-divider{display:flex;align-items:center;gap:10px;margin:0 0 22px}
+      .gi-divider::before,.gi-divider::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,#d8cfc0,transparent)}
+      .gi-divider span{width:6px;height:6px;border-radius:50%;background:#145466;opacity:0.5}
+      .gi-details{background:#fff;border:1px solid #ece5d8;border-radius:18px;padding:20px 24px;margin-bottom:22px;box-shadow:0 2px 14px rgba(20,84,102,0.06)}
+      .gi-event-name{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:700;color:#0d3d4d;text-align:center;margin-bottom:12px}
+      .gi-detail-row{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:#4a4a45;margin-bottom:4px}
+      .gi-detail-row:last-child{margin-bottom:0}
+      .gi-detail-icon{opacity:0.75}
+      .gi-desc{color:#6b6b64;font-size:14px;line-height:1.7;text-align:center;margin:0 4px 22px}
+      .gi-card{background:#fff;border-radius:20px;padding:26px 24px;box-shadow:0 6px 24px rgba(20,84,102,0.08);border:1px solid #f1ece2}
+      .gi-label{font-size:11px;font-weight:700;color:#8a8477;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px}
+      .gi-input{width:100%;padding:13px 15px;border:1.5px solid #e4ddd0;border-radius:12px;font-family:inherit;font-size:15px;margin-bottom:16px;box-sizing:border-box;background:#fdfcfa;transition:border-color 0.15s}
+      .gi-input:focus{outline:none;border-color:#145466}
+      .gi-slot-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8a8477;margin-bottom:10px;display:block}
+      .gi-slot{display:flex;align-items:center;gap:12px;padding:13px 16px;border:2px solid #ece5d8;border-radius:14px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s,background 0.15s}
+      .gi-slot:hover{border-color:#8fbcc7}
+      .gi-btn{width:100%;background:linear-gradient(135deg,#145466,#0d3d4d);color:#fff;border:none;border-radius:14px;padding:17px;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:0.2px;box-shadow:0 8px 20px rgba(20,84,102,0.28);transition:transform 0.1s,box-shadow 0.15s}
+      .gi-btn:hover{box-shadow:0 10px 26px rgba(20,84,102,0.35)}
+      .gi-btn:active{transform:scale(0.99)}
+      .gi-btn-secondary{width:100%;background:transparent;color:#8a8477;border:1.5px solid #e4ddd0;border-radius:14px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;transition:border-color 0.15s,color 0.15s}
+      .gi-btn-secondary:hover{border-color:#c94f4f;color:#c94f4f}
+      .gi-footer{text-align:center;font-size:12px;color:#a49f92;margin-top:26px;letter-spacing:0.3px}
+      .gi-success{text-align:center;padding:64px 24px;max-width:480px;margin:0 auto}
+      .gi-success-icon{width:64px;height:64px;border-radius:50%;background:#e8f5ef;color:#166534;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 20px}
+    </style>'''
+
 
 @app.route('/rsvp/<token>')
 def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
-        e.location, e.description, e.id as event_id, e.status as event_status
+        e.location, e.address, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
+        e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found or expired.</h2></body></html>', 404
+
+    is_guest = rsvp.get('rsvp_kind') == 'guest'
+    slot_word = 'Time Slot' if is_guest else 'Role'
+    try:
+        party_members = json.loads(rsvp.get('party_members') or '[]')
+    except Exception:
+        party_members = []
+    is_party = bool(party_members)
 
     # Event cancelled
     if rsvp.get('event_status') == 'cancelled':
@@ -11425,9 +12557,39 @@ def rsvp_page(token):
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
         </body></html>'''
 
-    # Already signed up
+    # Already responded — party/household invite: show the per-person breakdown
+    if is_party and rsvp.get('status') in ('interested', 'declined'):
+        conn.close()
+        coming = [m for m in party_members if m.get('attending') is True]
+        not_coming = [m for m in party_members if m.get('attending') is False]
+        rows_html = ''.join(
+            f'<div class="history-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">'
+            f'<span style="font-weight:600;color:#2b2b28">{m["name"]}</span>'
+            f'<span class="status-badge" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:{"#dcfce7;color:#166534" if m.get("attending") else "#fee2e2;color:#991b1b"}">{"Coming" if m.get("attending") else "Not Coming"}</span></div>'
+            for m in party_members
+        )
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        return f'''<html><head><title>RSVP Confirmed</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:44px 0 20px">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">RSVP Received</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{headline}</h2>
+              <p style="color:#6b6b64;font-size:14px">{len(coming)} of {len(party_members)} in your party {"is" if len(coming)==1 else "are"} coming</p>
+            </div>
+            <div class="gi-card">{rows_html}</div>
+            <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    # Already signed up (non-party, legacy behavior)
     if rsvp.get('status') == 'interested':
-        role_line = f'<p style="color:#16a34a;font-weight:600">Your role: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
+        role_line = f'<p style="color:#16a34a;font-weight:600">Your {slot_word.lower()}: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
         conn.close()
         return f'''<html><head><title>RSVP Confirmed</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -11439,81 +12601,332 @@ def rsvp_page(token):
           <p style="color:#888">We'll be in touch with more details.</p>
         </body></html>'''
 
-    # Load available roles
+    # Already declined
+    if rsvp.get('status') == 'declined':
+        conn.close()
+        return f'''<html><head><title>RSVP Recorded</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">💌</div>
+          <h2 style="color:#145466">We've noted you can't make it</h2>
+          <p>Thanks for letting us know, {rsvp.get("volunteer_name","")}. We'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
+          <p style="color:#888;font-size:13px">Changed your mind? <a href="/rsvp/{token}/undo">Click here</a> to RSVP instead.</p>
+        </body></html>'''
+
+    # Load available roles/slots
     roles = fetchall(conn, '''
-        SELECT r.*, COUNT(rv.id) FILTER (WHERE rv.status=\'interested\') as filled
-        FROM event_roles r
-        LEFT JOIN event_rsvps rv ON rv.role_id=r.id AND rv.status=\'interested\'
-        WHERE r.event_id=%s GROUP BY r.id ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
+        SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (rsvp['event_id'],))
+    _rc = _role_headcounts_for_event(conn, rsvp['event_id'])
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
     conn.close()
+
+    # If this invite was pre-assigned to a specific block by an admin, lock the page to
+    # just that block instead of showing the full picker — "RSVP to the block we assigned you."
+    preassigned_role_id = (rsvp.get('role_id') or '').strip()
+    locked_block = next((r for r in roles if r['id'] == preassigned_role_id), None) if preassigned_role_id else None
+    if locked_block:
+        roles = [locked_block]
 
     date_str = rsvp.get('event_date','')
     vol_name = rsvp.get('volunteer_name','')
 
-    if roles:
-        # Show role selection form
-        roles_html = ''
-        for r in roles:
-            available = max(0, int(r['slots']) - int(r['filled'] or 0))
-            disabled = 'disabled' if available <= 0 else ''
-            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
-            badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
-            desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-            roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
-                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
-                <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                <div style="flex:1">
-                  <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
-                  {desc}
-                </div>
+    display_time_str = ''
+    if locked_block and locked_block.get('block_time'):
+        bt = _fmt_time(locked_block['block_time'])
+        bte = _fmt_time(locked_block.get('block_time_end'))
+        display_time_str = f'{bt} – {bte}' if bte else bt
+
+    if is_party:
+        image_url = (rsvp.get('invite_image_url') or '').strip()
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:260px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:28px">{headline}</div>
+              </div>
+            </div>'''
+        else:
+            hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
+            </div>'''
+
+        guests_html = ''
+        for i, m in enumerate(party_members):
+            was_checked = m.get('attending') is True
+            check_attr = 'checked' if was_checked else ''
+            border = '#145466' if was_checked else '#ece5d8'
+            bg = '#f0f8fa' if was_checked else '#fff'
+            guests_html += f'''<label class="gi-slot" style="cursor:pointer;border-color:{border};background:{bg}"
+                onclick="var cb=this.querySelector('input'); this.style.borderColor=cb.checked?'#145466':'#ece5d8'; this.style.background=cb.checked?'#f0f8fa':'#fff';">
+                <input type="checkbox" name="guest_{i}" {check_attr} style="accent-color:#145466;flex-shrink:0;width:19px;height:19px"/>
+                <input type="hidden" name="guest_{i}_name" value="{m["name"]}"/>
+                <div style="flex:1;font-weight:600;font-size:15px;color:#2b2b28">{m["name"]}</div>
             </label>'''
 
-        return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <div class="gi-details">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+            </div>
+            {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
+            <div class="gi-divider"><span></span></div>
+            <div id="rsvp-alert"></div>
+            <div class="gi-card">
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Please check off everyone who will be joining:</p>
+              <form method="POST" action="/rsvp/{token}" onsubmit="return document.querySelectorAll('input[type=checkbox]:checked').length>=0">
+                {guests_html}
+                <input type="hidden" name="rsvp_action" value="party_confirm"/>
+                <button type="submit" class="gi-btn" style="margin-top:14px">
+                  Save My RSVP
+                </button>
+              </form>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    if roles:
+        # Show role/slot selection form (or, if pre-assigned, just that one block)
+        roles_html = ''
+        locked_block_html = ''
+        if locked_block:
+            r = locked_block
+            available = max(0, int(r['slots']) - int(r['filled'] or 0))
+            hide_blocks = bool(rsvp.get('hide_block_names'))
+            if hide_blocks:
+                full_note = '<div class="gi-details" style="margin-top:0;background:#fff8e7;border-color:#fde68a"><div style="color:#92400e;font-size:13px">We\'re currently full for this — let us know anyway and we\'ll follow up.</div></div>' if available <= 0 else ''
+                locked_block_html = f'''{full_note}
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
+            elif is_guest:
+                full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
+                locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
+                  <div style="font-size:17px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                  {full_note}
+                </div>
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
+            else:
+                locked_block_html = f'''<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:10px 0">
+                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase">Your Assigned Role</div>
+                  <div style="font-size:16px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                </div>
+                <input type="hidden" name="role_id" value="{r["id"]}"/>'''
+        else:
+            for r in roles:
+                available = max(0, int(r['slots']) - int(r['filled'] or 0))
+                disabled = 'disabled' if available <= 0 else ''
+                if is_guest:
+                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+                    badge_color = '#166534' if available > 0 else '#dc2626'
+                    badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+                    r_bt = _fmt_time(r.get('block_time'))
+                    r_bte = _fmt_time(r.get('block_time_end'))
+                    time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
+                    desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                    roles_html += f'''<label class="gi-slot" style="{style}"
+                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
+                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                        <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
+                    </label>'''
+                else:
+                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
+                    badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
+                    desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                    roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
+                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
+                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
+                        <div style="flex:1">
+                          <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
+                          {desc}
+                        </div>
+                    </label>'''
+
+        heading = 'You\'re invited!' if is_guest else 'Sign up to volunteer!'
+        if is_guest:
+            subheading = (f'Hi {vol_name} — will you be joining us?' if bool(rsvp.get('hide_block_names')) else f'Hi {vol_name} — here\'s your block:') if locked_block else f'Hi {vol_name} — choose a {slot_word.lower()} for:'
+        else:
+            subheading = f'Hi {vol_name}  -  choose your role for:'
+
+        image_url = (rsvp.get('invite_image_url') or '').strip()
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+
+        if not is_guest:
+            top_html = f'''<div style="text-align:center;margin-bottom:28px">
+            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <h2 style="color:#145466;margin-bottom:6px">{heading}</h2>
+            <p style="color:#555">{subheading}</p>
+          </div>'''
+            return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
-          <div style="text-align:center;margin-bottom:28px">
-            <div style="font-size:40px;margin-bottom:12px">✋</div>
-            <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
-            <p style="color:#555">Hi {vol_name}  -  choose your role for:</p>
-            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+          {top_html}
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
               <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-              {f'<div style="color:#555;margin-top:4px">{date_str}</div>' if date_str else ''}
-              {f'<div style="color:#888;font-size:13px">{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
+              {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
-          </div>
           <form method="POST" action="/rsvp/{token}">
-            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a role</div>
-            {roles_html}
-            <button type="submit" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
-              ✅ Confirm Sign-up
+            {locked_block_html if locked_block else f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}'}
+            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
+              ✅ Confirm RSVP
+            </button>
+            <button type="submit" name="rsvp_action" value="decline" formnovalidate style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
+              Can't Make It
             </button>
           </form>
-          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">If you can't make it, no action needed.</p>
+        </body></html>'''
+
+        # ── Polished guest invite with slot selection ──
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:260px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:28px">{headline}</div>
+              </div>
+            </div>'''
+        else:
+            hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
+            </div>'''
+
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <p style="text-align:center;color:#6b6b64;margin:18px 0 -6px;font-size:14px">{subheading}</p>
+            <div class="gi-details" style="margin-top:22px">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+            </div>
+            {locked_block_html}
+            <div class="gi-divider"><span></span></div>
+            <div class="gi-card">
+              <form method="POST" action="/rsvp/{token}">
+                {'' if locked_block else f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}'}
+                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn" style="margin-top:8px">
+                  RSVP — Confirm My Spot
+                </button>
+                <button type="submit" name="rsvp_action" value="decline" formnovalidate class="gi-btn-secondary" style="margin-top:10px">
+                  Can't Make It
+                </button>
+              </form>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
         </body></html>'''
     else:
-        # No roles  -  just confirm directly
-        conn2 = get_db()
-        execute(conn2, "UPDATE event_rsvps SET status='interested' WHERE token=%s", (token,))
-        conn2.commit(); conn2.close()
-        return f'''<html><head><title>RSVP Confirmed  -  {rsvp["event_name"]}</title>
+        # No roles/slots — show a simple confirm/decline landing page.
+        # (Previously this auto-confirmed on GET, which meant an email client's link-preview
+        # scanner visiting the link could silently mark someone as attending. Now nothing
+        # is recorded until they actually click a button.)
+        image_url = (rsvp.get('invite_image_url') or '').strip()
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+
+        if not is_guest:
+            return f'''<html><head><title>RSVP  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🎉</div>
-          <h2 style="color:#145466">You're in!</h2>
-          <p>Thanks {vol_name}  -  we've recorded your interest in volunteering for <strong>{rsvp["event_name"]}</strong>.</p>
-          <p style="color:#888;font-size:14px">We'll follow up with more details. Thank you!</p>
+          <div style="font-size:40px;margin-bottom:12px">✋</div>
+          <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
+          <p style="color:#555">Hi {vol_name} — can you make it to:</p>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+            <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+            {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
+            {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
+          </div>
+          <form method="POST" action="/rsvp/{token}">
+            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
+              ✅ Yes, I Can Help!
+            </button>
+            <button type="submit" name="rsvp_action" value="decline" style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
+              Can't Make It
+            </button>
+          </form>
+        </body></html>'''
+
+        # ── Polished confirm/decline landing for guest events ──
+        if image_url:
+            hero_html = f'''<div class="gi-hero" style="height:280px">
+              <img src="{image_url}"/>
+              <div class="gi-hero-overlay"></div>
+              <div class="gi-hero-text">
+                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-headline" style="font-size:30px">{headline}</div>
+              </div>
+            </div>'''
+        else:
+            hero_html = f'''<div class="gi-no-image-hero">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-headline-plain">{headline}</div>
+            </div>'''
+
+        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            {hero_html}
+            <div class="gi-details">
+              <div class="gi-event-name">{rsvp["event_name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+            </div>
+            {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
+            <div class="gi-divider"><span></span></div>
+            <div class="gi-card">
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Hi {vol_name}, will you be joining us?</p>
+              <form method="POST" action="/rsvp/{token}">
+                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn">
+                  RSVP — I'll Be There!
+                </button>
+                <button type="submit" name="rsvp_action" value="decline" class="gi-btn-secondary" style="margin-top:10px">
+                  Can't Make It
+                </button>
+              </form>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
         </body></html>'''
 
 @app.route('/rsvp/<token>', methods=['POST'])
 def rsvp_submit(token):
     from flask import request as req
+    rsvp_action = req.form.get('rsvp_action', 'confirm').strip()
     role_id = req.form.get('role_id','').strip()
     conn = get_db()
-    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.id as event_id, e.status as event_status
+    rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.location, e.address, e.description,
+        e.id as event_id, e.status as event_status, e.rsvp_kind, e.invite_image_url, e.invite_headline, e.hide_block_names
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
         return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Link not found.</h2></body></html>', 404
+    is_guest = rsvp.get('rsvp_kind') == 'guest'
+    slot_word = 'Time Slot' if is_guest else 'Role'
+    vol_name = rsvp.get('volunteer_name','')
     if rsvp.get('event_status') == 'cancelled':
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -11524,19 +12937,146 @@ def rsvp_submit(token):
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
         </body></html>'''
 
+    # ── Decline ──
+    if rsvp_action == 'decline':
+        execute(conn, "UPDATE event_rsvps SET status='declined' WHERE token=%s", (token,))
+        conn.commit()
+        try:
+            s = get_email_settings()
+            recipients = get_recipient_emails(s)
+            if recipients and s.get('alert_new_rsvp', True):
+                send_email(recipients, f'RSVP Decline: {rsvp["event_name"]}',
+                    f'<div style="font-family:sans-serif"><p>💌 <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
+        except Exception as e:
+            app.logger.warning(f'rsvp decline alert email error: {e}')
+        conn.close()
+        if not is_guest:
+            return f'''<html><head><title>RSVP Recorded</title>
+            <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+            <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+              <div style="font-size:48px;margin-bottom:16px">💌</div>
+              <h2 style="color:#145466">Thanks for letting us know</h2>
+              <p>We've noted you can't make it to <strong>{rsvp["event_name"]}</strong>. Thanks for responding!</p>
+            </body></html>'''
+        return f'''<html><head><title>RSVP Recorded</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div class="gi-success" style="padding-top:60px">
+              <div class="gi-eyebrow">RSVP Recorded</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">Thanks for letting us know</h2>
+              <p style="color:#4a4a45">Sorry you can't make it, {vol_name} — we'll miss you at <strong>{rsvp["event_name"]}</strong>.</p>
+            </div>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    # ── Party/household checklist confirm ──
+    if rsvp_action == 'party_confirm':
+        responses = []
+        i = 0
+        while f'guest_{i}_name' in req.form:
+            name = req.form.get(f'guest_{i}_name', '').strip()
+            attending = req.form.get(f'guest_{i}') is not None
+            if name:
+                responses.append({'name': name, 'attending': attending})
+            i += 1
+        if not responses:
+            conn.close()
+            return f'<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Something went wrong — please <a href="/rsvp/{token}">go back</a> and try again.</h2></body></html>', 400
+
+        # If assigned to a block/role, make sure the real headcount (not just invite count)
+        # doesn't exceed its capacity — excluding this invite's own prior contribution so
+        # re-editing an existing response doesn't double-count against itself.
+        assigned_role_id = (rsvp.get('role_id') or '').strip()
+        new_attending_ct = sum(1 for r in responses if r['attending'])
+        if assigned_role_id and new_attending_ct > 0:
+            role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s', (assigned_role_id,))
+            if role:
+                other_rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested' AND id!=%s",
+                    (assigned_role_id, rsvp['id'])) or []
+                existing_ct = 0
+                for r in other_rows:
+                    pm = r.get('party_members')
+                    if pm:
+                        try:
+                            existing_ct += sum(1 for m in json.loads(pm) if m.get('attending') is True)
+                        except Exception:
+                            existing_ct += 1
+                    else:
+                        existing_ct += 1
+                available = max(0, int(role['slots']) - existing_ct)
+                if new_attending_ct > available:
+                    conn.close()
+                    word = 'spot' if available == 1 else 'spots'
+                    return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+                      <div style="font-size:48px;margin-bottom:16px">😔</div>
+                      <h2 style="color:#dc2626">Not quite enough room</h2>
+                      <p>Only {available} {word} left, but {new_attending_ct} of your party {"is" if new_attending_ct==1 else "are"} checked as coming. Please adjust and try again, or reach out to us directly.</p>
+                      <p><a href="/rsvp/{token}">Go back</a></p>
+                    </body></html>''', 409
+
+        any_coming = any(r['attending'] for r in responses)
+        new_status = 'interested' if any_coming else 'declined'
+        execute(conn, 'UPDATE event_rsvps SET status=%s, party_members=%s WHERE token=%s',
+            (new_status, json.dumps(responses), token))
+        conn.commit()
+        try:
+            s = get_email_settings()
+            recipients = get_recipient_emails(s)
+            if recipients and s.get('alert_new_rsvp', True):
+                coming_names = ', '.join(r['name'] for r in responses if r['attending']) or 'no one'
+                not_coming_names = ', '.join(r['name'] for r in responses if not r['attending']) or 'no one'
+                send_email(recipients, f'RSVP: {rsvp["event_name"]}',
+                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
+                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p></div>')
+        except Exception as e:
+            app.logger.warning(f'rsvp party alert email error: {e}')
+        conn.close()
+        coming_list = [r['name'] for r in responses if r['attending']]
+        not_coming_list = [r['name'] for r in responses if not r['attending']]
+        rows_html = ''.join(
+            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f1f5f9">'
+            f'<span style="font-weight:600;color:#2b2b28">{r["name"]}</span>'
+            f'<span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:{"#dcfce7;color:#166534" if r["attending"] else "#fee2e2;color:#991b1b"}">{"Coming" if r["attending"] else "Not Coming"}</span></div>'
+            for r in responses
+        )
+        headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        return f'''<html><head><title>RSVP Saved</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:44px 0 20px">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">RSVP Saved</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{headline}</h2>
+              <p style="color:#6b6b64;font-size:14px">{len(coming_list)} of {len(responses)} in your party {"is" if len(coming_list)==1 else "are"} coming</p>
+            </div>
+            <div class="gi-card">{rows_html}</div>
+            <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
+            <div class="gi-footer">Horizon West Theater Company</div>
+          </div>
+        </body></html>'''
+
+    # ── Confirm ──
     role_name = ''
     if role_id:
         role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, rsvp['event_id']))
         if role:
-            # Check slot availability
-            filled = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
-            if filled and int(filled['c']) >= int(role['slots']):
+            # Check slot availability (real headcount, not just invite count)
+            filled_ct = _role_headcount(conn, role_id)
+            if filled_ct >= int(role['slots']):
                 conn.close()
                 return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                 <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
                   <div style="font-size:48px;margin-bottom:16px">😔</div>
-                  <h2 style="color:#dc2626">That role just filled up</h2>
-                  <p>Sorry, the <strong>{role["name"]}</strong> slot was just taken. <a href="/rsvp/{token}">Go back</a> to choose another role.</p>
+                  <h2 style="color:#dc2626">That {slot_word.lower()} just filled up</h2>
+                  <p>Sorry, the <strong>{role["name"]}</strong> {slot_word.lower()} was just taken. <a href="/rsvp/{token}">Go back</a> to choose another.</p>
                 </body></html>''', 409
             role_name = role['name']
 
@@ -11550,38 +13090,70 @@ def rsvp_submit(token):
         s = get_email_settings()
         recipients = get_recipient_emails(s)
         if recipients:
-            vol_name = rsvp.get('volunteer_name','A volunteer')
             evt_name = rsvp['event_name']
             role_line = f' for <strong>{role_name}</strong>' if role_name else ''
+            action_word = 'RSVP\'d' if is_guest else 'signed up to volunteer'
             # New RSVP alert
             if s.get('alert_new_rsvp', True):
-                send_email(recipients, f'New Sign-up: {evt_name}',
-                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> signed up to volunteer{role_line} for <strong>{evt_name}</strong>.</p>'
+                send_email(recipients, f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
+                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
                     f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
-            # Role filled alert
+            # Slot filled alert
             if role_id and role_name and s.get('alert_role_filled', True):
-                filled_now = fetchone(conn, "SELECT COUNT(*) as c FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,))
+                filled_now_ct = _role_headcount(conn, role_id)
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
-                if filled_now and role_row and int(filled_now['c']) >= int(role_row['slots']):
-                    send_email(recipients, f'Role Filled: {role_name}  -  {evt_name}',
-                        f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> role for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
+                if role_row and filled_now_ct >= int(role_row['slots']):
+                    send_email(recipients, f'{slot_word} Filled: {role_name}  -  {evt_name}',
+                        f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
 
     conn.close()
-    return f'''<html><head><title>Signed Up!</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-    <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-      <div style="font-size:48px;margin-bottom:16px">🎉</div>
-      <h2 style="color:#145466">You're signed up!</h2>
-      <p>Thanks {rsvp.get("volunteer_name","")}! We've got you down for:</p>
-      <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
-        <div style="font-size:20px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-        {f'<div style="color:#555;margin-top:6px">{date_str}</div>' if date_str else ''}
-        {f'<div style="color:#16a34a;font-weight:600;font-size:16px;margin-top:8px">Role: {role_name}</div>' if role_name else ''}
+
+    if not is_guest:
+        return f'''<html><head><title>Signed Up!</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🎉</div>
+          <h2 style="color:#145466">You're signed up!</h2>
+          <p>Thanks {vol_name}! We've got you down for:</p>
+          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
+            <div style="font-size:20px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
+            {f'<div style="color:#555;margin-top:6px">{date_str}</div>' if date_str else ''}
+            {f'<div style="color:#16a34a;font-weight:600;font-size:16px;margin-top:8px">{slot_word}: {role_name}</div>' if role_name else ''}
+          </div>
+          <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
+        </body></html>'''
+
+    headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+    return f'''<html><head><title>You're In!</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        <div class="gi-success" style="padding-top:60px">
+          <div class="gi-success-icon">✓</div>
+          <div class="gi-eyebrow">You're All Set</div>
+          <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:28px;margin:6px 0 14px">{headline}</h2>
+          <p style="color:#4a4a45">Thanks {vol_name}! We've got you down{f' for {date_str}' if date_str else ''}{f' — {role_name}' if role_name else ''}.</p>
+          <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
+        </div>
+        <div class="gi-footer">Horizon West Theater Company</div>
       </div>
-      <p style="color:#888;font-size:14px">We'll follow up with more details as the event approaches. Thank you!</p>
     </body></html>'''
+
+@app.route('/rsvp/<token>/undo')
+def rsvp_undo(token):
+    """Lets someone who declined change their mind and see the RSVP form again."""
+    conn = get_db()
+    rsvp = fetchone(conn, 'SELECT id FROM event_rsvps WHERE token=%s', (token,))
+    if rsvp:
+        execute(conn, "UPDATE event_rsvps SET status='invited' WHERE token=%s", (token,))
+        conn.commit()
+    conn.close()
+    from flask import redirect
+    return redirect(f'/rsvp/{token}')
 
 @app.route('/api/events/<eid>/rsvps/<rid>', methods=['DELETE'])
 def remove_rsvp(eid, rid):
@@ -11592,6 +13164,328 @@ def remove_rsvp(eid, rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+
+@app.route('/api/events/<eid>/invite-image/upload', methods=['POST'])
+def upload_event_invite_image(eid):
+    err = require_permission('events')
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg','.jpeg','.png','.gif','.webp'): return jsonify({'error': 'Invalid file type'}), 400
+    filename = f'event-invite-{eid[:8]}-{str(uuid.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    gh_url, gh_err = upload_image_to_github(filename, file_bytes)
+    if gh_url:
+        url = gh_url
+    else:
+        app.logger.warning(f'Event invite image GitHub upload failed: {gh_err}')
+        with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
+        url = f'/static/images/{filename}'
+    conn = get_db()
+    execute(conn, 'UPDATE events SET invite_image_url=%s WHERE id=%s', (url, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'url': url})
+
+@app.route('/api/events/<eid>/invite-image', methods=['DELETE'])
+def clear_event_invite_image(eid):
+    err = require_permission('events')
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE events SET invite_image_url='' WHERE id=%s", (eid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/rsvp-event/<event_id>')
+def public_rsvp_open_page(event_id):
+    """Public, untracked RSVP link — anyone with the link can RSVP themselves,
+    for events shared broadly (e.g. posted publicly) rather than sent as personalized invites."""
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt or not evt.get('rsvp_enabled'):
+        conn.close()
+        return '<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>This RSVP link is not available.</h2></body></html>', 404
+    if evt.get('status') == 'cancelled':
+        conn.close()
+        return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
+          <p style="color:#6b7280"><strong>{evt["name"]}</strong> has been cancelled and is no longer accepting RSVPs.</p>
+        </body></html>'''
+    is_guest = evt.get('rsvp_kind') == 'guest'
+    slot_word = 'Time Slot' if is_guest else 'Role'
+    roles = fetchall(conn, '''SELECT r.* FROM event_roles r
+        WHERE r.event_id=%s ORDER BY r.sort_order, r.name''', (event_id,))
+    _rc = _role_headcounts_for_event(conn, event_id)
+    for _r in roles:
+        _r['filled'] = _rc.get(_r['id'], 0)
+    conn.close()
+
+    # A direct block/session link (?block=<role_id>) scopes the whole page to just that
+    # one block instead of showing the full picker — for "RSVP to the block we assigned you."
+    requested_block_id = request.args.get('block', '').strip()
+    locked_block = next((r for r in roles if r['id'] == requested_block_id), None) if requested_block_id else None
+    if locked_block:
+        roles = [locked_block]
+
+    date_str = evt.get('event_date','')
+    time_str = _fmt_time(evt.get('start_time',''))
+
+    # A locked block's own time (if set) takes over the top-of-page time display —
+    # blocks represent different time windows within the same event.
+    display_time_str = time_str
+    if locked_block and locked_block.get('block_time'):
+        bt = _fmt_time(locked_block['block_time'])
+        bte = _fmt_time(locked_block.get('block_time_end'))
+        display_time_str = f'{bt} – {bte}' if bte else bt
+
+    roles_html = ''
+    if roles and not locked_block:
+        for r in roles:
+            available = max(0, int(r['slots']) - int(r['filled'] or 0))
+            disabled = 'disabled' if available <= 0 else ''
+            style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+            badge_color = '#166534' if available > 0 else '#dc2626'
+            badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+            r_bt = _fmt_time(r.get('block_time'))
+            r_bte = _fmt_time(r.get('block_time_end'))
+            time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
+            desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+            roles_html += f'''<label class="gi-slot" style="{style}"
+                onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
+                <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
+                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
+            </label>'''
+    locked_block_html = ''
+    if locked_block:
+        available = max(0, int(locked_block['slots']) - int(locked_block['filled'] or 0))
+        hide_blocks = bool(evt.get('hide_block_names'))
+        if hide_blocks:
+            full_note = '<div class="gi-details" style="margin-top:0;background:#fff8e7;border-color:#fde68a"><div style="color:#92400e;font-size:13px">We\'re currently full for this — you can still let us know you\'d like to come and we\'ll follow up.</div></div>' if available <= 0 else ''
+            locked_block_html = f'''{full_note}
+        <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
+        else:
+            full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
+            locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+          <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
+          <div style="font-size:17px;font-weight:700;color:#0d3d4d">{locked_block["name"]}</div>
+          {full_note}
+        </div>
+        <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
+
+    image_url = (evt.get('invite_image_url') or '').strip()
+    headline = (evt.get('invite_headline') or '').strip() or evt['name']
+
+    role_check_js = ''
+    if roles:
+        role_check_js = (
+            "if(!roleId){ document.getElementById('rsvp-alert').innerHTML = "
+            "'<div style=\"background:#fee2e2;color:#991b1b;border-radius:8px;"
+            "padding:12px 16px;margin-bottom:14px;font-size:13px\">Please choose a "
+            + slot_word.lower() + ".</div>'; return }"
+        )
+
+    if not is_guest:
+        # Plain, functional styling for volunteer-shift sign-ups (unchanged tone)
+        return f'''<html><head><title>RSVP — {evt["name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <h2 style="color:#145466;margin-bottom:6px">Sign Up to Volunteer</h2>
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
+              <div style="font-size:18px;font-weight:700;color:#145466">{evt["name"]}</div>
+              {f'<div style="color:#555;margin-top:4px">{date_str}{" · "+time_str if time_str else ""}</div>' if date_str else ''}
+              {f'<div style="color:#888;font-size:13px">{evt["location"]}</div>' if evt.get("location") else ''}
+            </div>
+            {f'<p style="color:#6b7280;font-size:14px">{evt["description"]}</p>' if evt.get('description') else ''}
+          </div>
+          <div id="rsvp-alert"></div>
+          <form id="public-rsvp-form" onsubmit="return false">
+            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Your Name <span style="color:#dc2626">*</span></label>
+            <input type="text" id="pr-name" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
+            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Email <span style="color:#dc2626">*</span></label>
+            <input type="email" id="pr-email" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
+            {f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}' if roles else ''}
+            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
+              ✅ I Can Help!
+            </button>
+          </form>
+          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">Horizon West Theater Company</p>
+          <script>
+          async function submitPublicRsvp(){{
+            var name = document.getElementById('pr-name').value.trim()
+            var email = document.getElementById('pr-email').value.trim()
+            var roleInput = document.querySelector('input[name="role_id"]:checked')
+            var roleId = roleInput ? roleInput.value : ''
+            if(!name || !email){{
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+              return
+            }}
+            {role_check_js}
+            var btn = document.getElementById('pr-submit-btn')
+            btn.disabled = true; btn.textContent = 'Submitting…'
+            var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
+            var data = await r.json()
+            if(data.error){{
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+              btn.disabled = false; btn.textContent = "✅ I Can Help!"
+              return
+            }}
+            document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px">🎉</div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
+          }}
+          </script>
+        </body></html>'''
+
+    # ── Polished, designed invite for community/guest events ──
+    if image_url:
+        hero_html = f'''<div class="gi-hero">
+          <img src="{image_url}"/>
+          <div class="gi-hero-overlay"></div>
+          <div class="gi-hero-text">
+            <div class="gi-eyebrow">You're Invited</div>
+            <div class="gi-headline">{headline}</div>
+          </div>
+        </div>'''
+    else:
+        hero_html = f'''<div class="gi-no-image-hero">
+          <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+          <div class="gi-headline-plain">{headline}</div>
+        </div>'''
+
+    details_html = f'''<div class="gi-details">
+        <div class="gi-event-name">{evt["name"]}</div>
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{evt["address"]}</div>' if evt.get("address") else ''}
+      </div>
+      {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''
+
+    return f'''<html><head><title>You're Invited — {evt["name"]}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        {hero_html}
+        {details_html}
+        {locked_block_html}
+        <div class="gi-divider"><span></span></div>
+        <div id="rsvp-alert"></div>
+        <div class="gi-card">
+          <form id="public-rsvp-form" onsubmit="return false">
+            <label class="gi-label">Your Name *</label>
+            <input type="text" id="pr-name" required class="gi-input" placeholder="Full name"/>
+            <label class="gi-label">Email *</label>
+            <input type="email" id="pr-email" required class="gi-input" placeholder="you@example.com"/>
+            {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles and not locked_block else ''}
+            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp('confirm')" class="gi-btn" style="margin-top:8px">
+              RSVP — I'll Be There!
+            </button>
+            <button type="button" id="pr-decline-btn" onclick="submitPublicRsvp('decline')" class="gi-btn-secondary" style="margin-top:10px">
+              Can't Make It
+            </button>
+          </form>
+        </div>
+        <div class="gi-footer">Horizon West Theater Company</div>
+      </div>
+      <script>
+      async function submitPublicRsvp(action){{
+        var name = document.getElementById('pr-name').value.trim()
+        var email = document.getElementById('pr-email').value.trim()
+        var roleInput = document.querySelector('input[name="role_id"]:checked, input[name="role_id"][type=hidden]')
+        var roleId = roleInput ? roleInput.value : ''
+        if(!name || !email){{
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+          return
+        }}
+        if(action==='confirm'){{ {role_check_js} }}
+        var confirmBtn = document.getElementById('pr-submit-btn')
+        var declineBtn = document.getElementById('pr-decline-btn')
+        confirmBtn.disabled = true; declineBtn.disabled = true
+        var activeBtn = action==='decline' ? declineBtn : confirmBtn
+        var originalText = activeBtn.textContent
+        activeBtn.textContent = 'Submitting…'
+        var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId, action:action}})}})
+        var data = await r.json()
+        if(data.error){{
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          confirmBtn.disabled = false; declineBtn.disabled = false; activeBtn.textContent = originalText
+          return
+        }}
+        if(action==='decline'){{
+          document.body.innerHTML = '<div class="gi-success"><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">Thanks for letting us know</h2><p style="color:#4a4a45">Sorry you can\\'t make it, '+name+' — we\\'ll miss you at <strong>{evt["name"]}</strong>.</p></div>'
+          return
+        }}
+        document.body.innerHTML = '<div class="gi-success"><div class="gi-success-icon">✓</div><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">You\\'re in!</h2><p style="color:#4a4a45">Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p><p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p></div>'
+      }}
+      </script>
+    </body></html>'''
+
+@app.route('/api/public/rsvp-event/<event_id>', methods=['POST'])
+def public_rsvp_open_submit(event_id):
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip()
+    role_id = (d.get('role_id') or '').strip()
+    action = (d.get('action') or 'confirm').strip()
+    if not name or not email:
+        return jsonify({'error': 'Please provide your name and email.'}), 400
+    conn = get_db()
+    evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
+    if not evt or not evt.get('rsvp_enabled'):
+        conn.close()
+        return jsonify({'error': 'This RSVP link is not available.'}), 404
+    if evt.get('status') == 'cancelled':
+        conn.close()
+        return jsonify({'error': 'This event has been cancelled.'}), 400
+
+    if action == 'decline':
+        existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND LOWER(volunteer_email)=LOWER(%s)', (event_id, email))
+        if existing:
+            execute(conn, "UPDATE event_rsvps SET volunteer_name=%s, status='declined' WHERE id=%s", (name, existing['id']))
+        else:
+            execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,status)
+                VALUES (%s,%s,NULL,%s,%s,%s,'declined')''',
+                (str(uuid.uuid4()), event_id, name, email, str(uuid.uuid4())))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+
+    role_name = ''
+    if role_id:
+        role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s AND event_id=%s', (role_id, event_id))
+        if role:
+            filled_ct = _role_headcount(conn, role_id)
+            if filled_ct >= int(role['slots']):
+                conn.close()
+                return jsonify({'error': 'Sorry, that time slot just filled up — please go back and pick another.'}), 409
+            role_name = role['name']
+
+    # If this email already RSVP'd for this event, just update rather than duplicate
+    existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND LOWER(volunteer_email)=LOWER(%s)', (event_id, email))
+    if existing:
+        execute(conn, "UPDATE event_rsvps SET volunteer_name=%s, status='interested', role_id=%s, role_name=%s WHERE id=%s",
+            (name, role_id or None, role_name, existing['id']))
+    else:
+        execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,token,role_id,role_name,status)
+            VALUES (%s,%s,NULL,%s,%s,%s,%s,%s,'interested')''',
+            (str(uuid.uuid4()), event_id, name, email, str(uuid.uuid4()), role_id or None, role_name))
+    conn.commit()
+
+    try:
+        s = get_email_settings()
+        recipients = get_recipient_emails(s)
+        if recipients and s.get('alert_new_rsvp', True):
+            role_line = f' for <strong>{role_name}</strong>' if role_name else ''
+            send_email(recipients, f'New RSVP: {evt["name"]}',
+                f'<div style="font-family:sans-serif"><p>✋ <strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p></div>')
+    except Exception as e:
+        app.logger.warning(f'public rsvp alert email error: {e}')
+
+    conn.close()
+    return jsonify({'ok': True, 'role_name': role_name})
 
 
 # ── Board Management ─────────────────────────────────────────────
@@ -12333,13 +14227,14 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
 
-def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note=''):
+def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note='', redirect_url=None):
     """Create a Square hosted checkout link for a registration."""
     import uuid as _uuid
     if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
         app.logger.error('Square not configured: SQUARE_ACCESS_TOKEN or SQUARE_LOCATION_ID missing')
         return None, None, None
-    redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
+    if not redirect_url:
+        redirect_url = f"{APP_BASE_URL}/register/{program.get('slug') or program['id']}/confirmation?reg={registration_id}"
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
         'order': {
@@ -12520,6 +14415,10 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     if youth:
         ensure_guardian(youth['id'])
         enroll(youth['id'])
+        try:
+            execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (youth['id'], reg_id))
+        except Exception as e:
+            app.logger.warning(f'Could not link youth_id to registration {reg_id}: {e}')
 
     # Siblings
     import json as _json_sib
@@ -13288,29 +15187,71 @@ def square_webhook():
                     finalize_registration(conn, reg['id'], payment_id, order_id)
                     conn.commit()
                 else:
-                    # Check cart orders
-                    import json as _jw
-                    cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                    # Check hours store balance payments
+                    hour_red = fetchone(conn, "SELECT * FROM hour_redemptions WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='awaiting_payment'",
                         (order_id, order_id))
-                    if cart:
-                        execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
-                        try:
-                            items = _jw.loads(cart.get('items_json') or '[]')
-                        except Exception:
-                            items = []
-                        for it in items:
-                            rid = it.get('registration_id')
-                            if rid:
-                                reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
-                                if reg2 and reg2['status'] == 'pending_payment':
-                                    finalize_registration(conn, rid, payment_id, order_id)
+                    if hour_red:
+                        item = fetchone(conn, 'SELECT * FROM store_items WHERE id=%s', (hour_red['store_item_id'],)) if hour_red['store_item_id'] else None
+                        new_reg_id = _enroll_from_hours_redemption(conn, hour_red, item)
+                        execute(conn, "UPDATE hour_redemptions SET status='approved', square_payment_id=%s WHERE id=%s",
+                            (payment_id, hour_red['id']))
                         conn.commit()
+                        try:
+                            vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (hour_red['volunteer_id'],))
+                            if vol and vol.get('email'):
+                                send_email([vol['email']], 'Payment received — Hours Store',
+                                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                                    f'<h2 style="color:#145466">Payment Received!</h2>'
+                                    f'<p>Hi {vol.get("name","there")},</p>'
+                                    f'<p>Thanks — we received your balance payment for <strong>{hour_red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong>.'
+                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'
+                                    f'<p>Horizon West Theater Company</p></div>')
+                        except Exception as e:
+                            app.logger.warning(f'Hours store balance-paid email failed: {e}')
                     else:
-                        # Check pending donations
-                        don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                        # Check cart orders
+                        import json as _jw
+                        cart = fetchone(conn, "SELECT * FROM cart_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                             (order_id, order_id))
-                        if don:
-                            finalize_donation(conn, don['id'], payment_id, amount_cents)
+                        if cart:
+                            execute(conn, "UPDATE cart_orders SET status='completed' WHERE id=%s", (cart['id'],))
+                            try:
+                                items = _jw.loads(cart.get('items_json') or '[]')
+                            except Exception:
+                                items = []
+                            for it in items:
+                                rid = it.get('registration_id')
+                                if rid:
+                                    reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
+                                    if reg2 and reg2['status'] == 'pending_payment':
+                                        finalize_registration(conn, rid, payment_id, order_id)
+                            conn.commit()
+                        else:
+                            # Check pending donations
+                            don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                (order_id, order_id))
+                            if don:
+                                finalize_donation(conn, don['id'], payment_id, amount_cents)
+                conn.close()
+            elif status in ('FAILED', 'CANCELED') and order_id:
+                conn = get_db()
+                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                    (order_id, order_id))
+                if reg and reg['status'] in ('pending_payment', 'waitlisted'):
+                    card_details = obj.get('card_details', {}) or {}
+                    errors = obj.get('errors') or []
+                    reason = ''
+                    if errors:
+                        reason = '; '.join((e.get('detail') or e.get('code') or '') for e in errors if isinstance(e, dict))
+                    elif card_details.get('status'):
+                        reason = f"Card {card_details['status'].lower()}"
+                    execute(conn, '''UPDATE program_registrations SET
+                        payment_attempt_failed_at=NOW(),
+                        payment_failure_reason=%s,
+                        payment_attempt_count=COALESCE(payment_attempt_count,0)+1
+                        WHERE id=%s''', (reason or 'Payment attempt failed', reg['id']))
+                    conn.commit()
+                    app.logger.info(f'Payment attempt failed for registration {reg["id"]}: {reason}')
                 conn.close()
         except Exception as e:
             app.logger.error(f'Webhook processing error: {e}', exc_info=True)
@@ -14237,6 +16178,7 @@ def create_program_session(pid):
          d.get('status') or 'open',
          sort_order))
     conn.commit()
+    sync_hours_store_for_program(conn, pid)
     conn.close()
     return jsonify({'ok': True, 'id': sid})
 
@@ -14365,7 +16307,9 @@ def update_program_session(pid, sid):
          d.get('status') or 'open',
          int(d.get('sort_order') or 0),
          sid, pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 
@@ -14375,7 +16319,9 @@ def delete_program_session(pid, sid):
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))
-    conn.commit(); conn.close()
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True})
 
 
@@ -15515,43 +17461,17 @@ def twilio_oncall_no_answer():
     try:
         import requests as _rq
         ts2 = get_twilio_settings()
-        es = get_email_settings()
-        host = 'https://rolecall.hwtco.org'
 
         if not ts2.get('account_sid') or not ts2.get('auth_token'):
             return '', 204
 
-        # Build voicemail TwiML
-        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
-        audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
-        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
-        if not voicemail_greeting:
-            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
-        if not no_answer_msg:
-            no_answer_msg = 'We were unable to reach our on-call team.'
-
-        def say_or_play_vm(text, audio_url):
-            if audio_url: return f'<Play>{audio_url}</Play>'
-            return f'<Say voice="Polly.Joanna">{text}</Say>'
-
-        voicemail_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  {say_or_play_vm(no_answer_msg, '')}
-  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
-  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
-</Response>'''
-
-        # Redirect the caller's call leg directly to voicemail
-        if caller_sid:
-            result = _rq.post(
-                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls/{caller_sid}.json',
-                data={'Url': f'{host}/twilio/direct-voicemail', 'Method': 'POST'},
-                auth=(ts2['account_sid'], ts2['auth_token']),
-                timeout=5
-            )
-            app.logger.info(f'Redirected caller {caller_sid} to voicemail: {result.status_code} {result.text[:100]}')
-
-        # Also end the conference
+        # End the conference. The caller's original <Dial action="/twilio/direct-voicemail">
+        # already fires that redirect automatically as soon as the conference it's waiting
+        # in goes away — so this is the ONLY thing we need to do here. (We used to also
+        # REST-redirect caller_sid directly to /twilio/direct-voicemail, but that raced
+        # with this conference-end triggering the Dial action a second time, causing the
+        # caller to hear the no-answer message get cut off mid-sentence by the voicemail
+        # greeting starting over.)
         try:
             conf_resp = _rq.get(
                 f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',
@@ -15826,7 +17746,7 @@ def get_oncall_schedule():
 
 @app.route('/api/oncall', methods=['POST'])
 def create_oncall():
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
@@ -15842,7 +17762,7 @@ def create_oncall():
 
 @app.route('/api/oncall/<oid>', methods=['PUT'])
 def update_oncall(oid):
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     d = request.get_json(silent=True) or {}
     conn = get_db()
@@ -15856,7 +17776,7 @@ def update_oncall(oid):
 
 @app.route('/api/oncall/<oid>', methods=['DELETE'])
 def delete_oncall(oid):
-    err = require_auth()
+    err = require_permission('oncall')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
@@ -16188,13 +18108,14 @@ def create_rental_partner():
     conn = get_db()
     pid = str(_urp.uuid4())
     execute(conn, '''INSERT INTO rental_partners
-        (id, name, contact_name, contact_email, contact_phone, organization_type, notes, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,'active')''',
+        (id, name, contact_name, contact_email, contact_phone, organization_type, organization_website, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')''',
         (pid, (d.get('name') or '').strip(),
          (d.get('contact_name') or '').strip(),
          (d.get('contact_email') or '').strip(),
          (d.get('contact_phone') or '').strip(),
          (d.get('organization_type') or '').strip(),
+         (d.get('organization_website') or '').strip(),
          (d.get('notes') or '').strip()))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})
@@ -16206,12 +18127,115 @@ def update_rental_partner(pid):
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE rental_partners SET name=%s, contact_name=%s, contact_email=%s,
-        contact_phone=%s, organization_type=%s, notes=%s, status=%s, updated_at=NOW() WHERE id=%s''',
+        contact_phone=%s, organization_type=%s, organization_website=%s, notes=%s, status=%s, updated_at=NOW() WHERE id=%s''',
         ((d.get('name') or '').strip(), (d.get('contact_name') or '').strip(),
          (d.get('contact_email') or '').strip(), (d.get('contact_phone') or '').strip(),
-         (d.get('organization_type') or '').strip(), (d.get('notes') or '').strip(),
+         (d.get('organization_type') or '').strip(), (d.get('organization_website') or '').strip(),
+         (d.get('notes') or '').strip(),
          d.get('status') or 'active', pid))
     conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ARTISTIC PARTNERSHIP INTEREST FORM (public)
+# ─────────────────────────────────────────────
+
+@app.route('/api/rental/partnership-policy', methods=['GET'])
+def get_partnership_policy_admin():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='rental_partnership_policy'")
+    conn.close()
+    return jsonify({'policy_text': (row or {}).get('value') or ''})
+
+@app.route('/api/rental/partnership-policy', methods=['PUT'])
+def save_partnership_policy():
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('rental_partnership_policy', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ((d.get('policy_text') or '').strip(),))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/partnership-interest')
+def public_partnership_interest_page():
+    """Public-facing artistic partnership interest form."""
+    return send_from_directory('static', 'partnership-interest.html')
+
+@app.route('/api/public/partnership-interest-info')
+def public_partnership_interest_info():
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='rental_partnership_policy'")
+    spaces = fetchall(conn, 'SELECT id, name, description, capacity FROM rental_spaces WHERE active=true ORDER BY sort_order') or []
+    conn.close()
+    return jsonify({'policy_text': (row or {}).get('value') or '', 'spaces': spaces})
+
+@app.route('/api/public/partnership-interest', methods=['POST'])
+def public_partnership_interest_submit():
+    import uuid as _upi
+    d = request.json or {}
+    org_name = (d.get('organization_name') or '').strip()
+    contact_name = (d.get('contact_name') or '').strip()
+    contact_email = (d.get('contact_email') or '').strip()
+    purpose = (d.get('purpose') or '').strip()
+    if not org_name or not contact_name or not contact_email or not purpose:
+        return jsonify({'error': 'Please fill in all required fields.'}), 400
+    if not d.get('policy_agreed'):
+        return jsonify({'error': 'Please confirm you have read and understand our general policy.'}), 400
+    conn = get_db()
+    # Find existing partner by email, or create a new one
+    partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE LOWER(contact_email)=LOWER(%s)', (contact_email,))
+    if partner:
+        partner_id = partner['id']
+    else:
+        partner_id = str(_upi.uuid4())
+        execute(conn, '''INSERT INTO rental_partners
+            (id, name, contact_name, contact_email, contact_phone, organization_type, organization_website, notes, status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')''',
+            (partner_id, org_name, contact_name, contact_email,
+             (d.get('contact_phone') or '').strip(),
+             (d.get('organization_type') or '').strip(),
+             (d.get('organization_website') or '').strip(),
+             'Submitted via Partnership Interest Form'))
+    rid = str(_upi.uuid4())
+    execute(conn, '''INSERT INTO rental_requests
+        (id, partner_id, title, purpose, start_date, desired_frequency, source, status, notes)
+        VALUES (%s,%s,%s,%s,%s,%s,'interest_form','pending',%s)''',
+        (rid, partner_id, f'{org_name} — Partnership Interest', purpose, '',
+         (d.get('desired_frequency') or '').strip(),
+         (d.get('additional_notes') or '').strip()))
+    conn.commit()
+    try:
+        es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
+        approver_emails = []
+        try:
+            import json as _jpi
+            levels = _jpi.loads(es.get('rental_approval_levels') or '[]')
+            if levels and levels[0].get('emails'):
+                approver_emails = [e.strip() for e in levels[0]['emails'].replace(',', '\n').splitlines() if e.strip()]
+        except Exception:
+            pass
+        if not approver_emails:
+            raw = (es.get('rental_approver_emails') or '').strip()
+            approver_emails = [e.strip() for e in raw.replace(',', '\n').splitlines() if e.strip()]
+        subject = f'New Artistic Partnership Interest — {org_name}'
+        body = (f'A new partnership interest form has been submitted.<br><br>'
+                f'<strong>Organization:</strong> {org_name}<br>'
+                f'<strong>Contact:</strong> {contact_name} ({contact_email})<br>'
+                f'<strong>Wants to use the space for:</strong> {purpose}<br>'
+                f'<strong>How often:</strong> {(d.get("desired_frequency") or "Not specified")}<br><br>'
+                f'Please log in to RoleCall → Venue Rentals to review and follow up.')
+        for email_addr in approver_emails:
+            try:
+                send_email(email_addr, subject, body)
+            except Exception as email_err:
+                app.logger.warning(f'Partnership interest notify to {email_addr} failed: {email_err}')
+    except Exception as e:
+        app.logger.warning(f'Partnership interest notification error: {e}')
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/rental/requests', methods=['GET'])
@@ -16782,6 +18806,274 @@ def update_rental_occurrence(oid):
     conn = get_db()
     execute(conn, 'UPDATE rental_occurrences SET status=%s, notes=%s WHERE id=%s',
         (d.get('status','scheduled'), (d.get('notes') or '').strip(), oid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Rental Compliance AI Check ────────────────────────────────────────────────
+# Lets staff run a submitted contract/proposal of use through Claude, checked
+# against HWTC's uploaded lease + city use documentation, to get a first-pass
+# read on legal/compliance fit and how to frame a response. This is advisory
+# only — every result is labeled as needing human (and, where relevant, legal)
+# review before any binding decision is communicated back to a requester.
+
+def extract_pdf_text(file_bytes):
+    """Extract text from a PDF's bytes. Returns '' on failure rather than raising,
+    so a bad/scanned PDF doesn't take down the whole upload."""
+    try:
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(file_bytes))
+        return '\n\n'.join((page.extract_text() or '') for page in reader.pages).strip()
+    except Exception as e:
+        app.logger.error(f'PDF text extraction error: {e}')
+        return ''
+
+def run_compliance_check(proposal_text, title=''):
+    """Calls Claude with the stored lease + city use docs as context, plus the
+    submitted proposal, and returns a structured compliance assessment.
+    Returns (result_dict, error_message). error_message is None on success."""
+    import os as _os, requests as _rq, json as _json
+
+    raw = ''
+    try:
+        api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+        if not api_key:
+            return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+
+        conn = get_db()
+        docs = fetchall(conn, 'SELECT doc_type, filename, extracted_text FROM rental_compliance_docs ORDER BY uploaded_at') or []
+        conn.close()
+
+        lease_texts = [d['extracted_text'] for d in docs if d['doc_type'] == 'lease' and (d['extracted_text'] or '').strip()]
+        city_texts = [d['extracted_text'] for d in docs if d['doc_type'] == 'city_use' and (d['extracted_text'] or '').strip()]
+
+        if not lease_texts and not city_texts:
+            return None, 'No lease or city use documents have been uploaded yet. Upload at least one under Compliance Documents before running a check.'
+
+        lease_blob = '\n\n---\n\n'.join(lease_texts) or '(no lease document uploaded)'
+        city_blob = '\n\n---\n\n'.join(city_texts) or '(no city use document uploaded)'
+
+        system_prompt = '''You are assisting Horizon West Theater Company (HWTC), a nonprofit community theater in Winter Garden, Florida, in reviewing a submitted contract or proposal of use for their rented venue space.
+
+You are given HWTC's lease documentation, HWTC's city-issued use documentation (permits, zoning/use restrictions), and a submitted proposal or contract from an outside party wanting to use or rent the space.
+
+Your job:
+- Identify anything in the proposal that could conflict with the lease terms or the city's permitted use of the space (occupancy limits, permitted use types, hours, noise/alcohol restrictions, insurance/liability requirements, subletting/assignment restrictions, exclusivity clauses, etc.), citing the specific lease or city clause where possible.
+- Assess whether HWTC could accept this proposal as written while remaining compliant, whether it needs modification, or whether it cannot be accepted.
+- If modification is needed, suggest specific counter-terms or language HWTC could propose.
+- Suggest how HWTC staff should frame their response to the requester (tone and key points), whether accepting, countering, or declining.
+
+You are not a lawyer and this is not legal advice — it is a first-pass compliance screen to prepare HWTC staff before any final decision. Always flag when something has real legal or financial exposure and should go to HWTC's board or actual legal counsel before being finalized.
+
+Respond with ONLY valid JSON, no markdown code fences, no preamble, in exactly this shape:
+{
+  "verdict": "likely_compliant" | "needs_modification" | "likely_not_compliant" | "unclear_needs_more_info",
+  "summary": "2-3 sentence plain-English summary of the assessment",
+  "concerns": ["specific concern tied to a specific lease/city clause where possible", "..."],
+  "suggested_modifications": ["specific suggested change or counter-term", "..."],
+  "suggested_framing": "how staff should frame the response to the requester - tone and key points to include",
+  "requires_legal_review": true or false
+}
+
+Keep it focused and complete rather than exhaustive: list at most the 6 most important items in "concerns" and at most 6 in "suggested_modifications", each one sentence. Keep "summary" to 2-3 sentences and "suggested_framing" to a short paragraph. A shorter, finished response is far more useful than a longer one that gets cut off.
+
+Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines or line breaks within a string value must be written as the two characters backslash-n (\\n), never as an actual line break. Do not include any text before the opening { or after the closing }.'''
+
+        user_content = f'''LEASE DOCUMENTATION:
+{lease_blob}
+
+CITY USE DOCUMENTATION:
+{city_blob}
+
+SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
+{proposal_text}'''
+
+        resp = _rq.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': 'claude-sonnet-5',
+                'max_tokens': 8000,
+                'system': system_prompt,
+                'messages': [{'role': 'user', 'content': user_content}]
+            },
+            timeout=90
+        )
+        if resp.status_code != 200:
+            app.logger.error(f'Claude compliance check API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        if data.get('stop_reason') == 'max_tokens':
+            app.logger.error('Compliance check response was truncated at max_tokens')
+            return None, 'The response was cut off before finishing (the proposal or reference documents may be very long). Try again — this has more headroom now, but a very long proposal may need to be shortened.'
+        text_blocks = [b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text']
+        raw = ''.join(text_blocks).strip()
+
+        def try_parse(candidate):
+            # strict=False allows literal control characters (e.g. raw newlines)
+            # inside string values, which models sometimes emit despite instructions.
+            return _json.loads(candidate, strict=False)
+
+        # Strip stray markdown fences (```json ... ``` or ``` ... ```) if the model added them anyway
+        cleaned = raw
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[1] if '\n' in cleaned else cleaned
+            cleaned = cleaned.strip()
+            if cleaned.endswith('```'):
+                cleaned = cleaned.rsplit('```', 1)[0]
+        cleaned = cleaned.strip()
+
+        try:
+            result = try_parse(cleaned)
+        except _json.JSONDecodeError:
+            # Fallback: pull out the outermost {...} block in case of stray preamble/postamble text
+            start, end = cleaned.find('{'), cleaned.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                result = try_parse(cleaned[start:end+1])
+            else:
+                raise
+        return result, None
+    except _json.JSONDecodeError as e:
+        snippet = raw[:400].replace('\n', ' ')
+        app.logger.error(f'Compliance check JSON parse error: {e} | raw start: {snippet}')
+        return None, f'Claude returned a response that could not be parsed ({e}). Try running the check again — if it keeps happening, this usually clears up by rephrasing the proposal text slightly.'
+    except Exception as e:
+        app.logger.error(f'Compliance check error: {type(e).__name__}: {e}')
+        return None, f'Error running compliance check: {type(e).__name__}: {e}'
+
+@app.route('/api/rental/compliance/docs', methods=['GET'])
+def get_compliance_docs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    docs = fetchall(conn, '''SELECT id, doc_type, filename, uploaded_at, LENGTH(extracted_text) AS char_count
+        FROM rental_compliance_docs ORDER BY uploaded_at DESC''') or []
+    conn.close()
+    return jsonify(docs)
+
+@app.route('/api/rental/compliance/docs/upload', methods=['POST'])
+def upload_compliance_doc():
+    err = require_admin()
+    if err: return err
+    try:
+        if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+        f = request.files['file']
+        doc_type = (request.form.get('doc_type') or '').strip()
+        if doc_type not in ('lease', 'city_use'):
+            return jsonify({'error': "doc_type must be 'lease' or 'city_use'"}), 400
+        filename = secure_filename(f.filename or 'document.pdf')
+        ext = os.path.splitext(filename)[1].lower()
+        if ext != '.pdf':
+            return jsonify({'error': 'Only PDF files are supported for compliance documents'}), 400
+        file_bytes = f.read()
+        text = extract_pdf_text(file_bytes)
+        if not text:
+            return jsonify({'error': 'Could not extract text from this PDF. If it is a scanned/image PDF, it needs OCR first.'}), 400
+        doc_id = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO rental_compliance_docs (id, doc_type, filename, extracted_text)
+            VALUES (%s,%s,%s,%s)''', (doc_id, doc_type, filename, text))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': doc_id, 'filename': filename, 'char_count': len(text)})
+    except Exception as e:
+        app.logger.error(f'upload_compliance_doc error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/rental/compliance/docs/<did>', methods=['DELETE'])
+def delete_compliance_doc(did):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_compliance_docs WHERE id=%s', (did,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/compliance/checks', methods=['GET'])
+def get_compliance_checks():
+    err = require_auth()
+    if err: return err
+    request_id = request.args.get('request_id')
+    conn = get_db()
+    if request_id:
+        checks = fetchall(conn, '''SELECT * FROM rental_compliance_checks WHERE request_id=%s ORDER BY created_at DESC''', (request_id,)) or []
+    else:
+        checks = fetchall(conn, '''SELECT * FROM rental_compliance_checks ORDER BY created_at DESC LIMIT 100''') or []
+    conn.close()
+    return jsonify(checks)
+
+@app.route('/api/rental/compliance/checks', methods=['POST'])
+def create_compliance_check():
+    err = require_auth()
+    if err: return err
+    try:
+        d = request.json or {}
+        proposal_text = (d.get('proposal_text') or '').strip()
+        title = (d.get('title') or '').strip()
+        request_id = (d.get('request_id') or '').strip() or None
+        if not proposal_text:
+            return jsonify({'error': 'Paste or upload the proposal/contract text to check'}), 400
+
+        result, error = run_compliance_check(proposal_text, title)
+        if error:
+            return jsonify({'error': error}), 400
+
+        check_id = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO rental_compliance_checks
+            (id, request_id, title, proposal_text, verdict, analysis, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (check_id, request_id, title, proposal_text, result.get('verdict',''),
+             json.dumps(result), session.get('user_name','')))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': check_id, 'result': result})
+    except Exception as e:
+        app.logger.error(f'create_compliance_check error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/rental/compliance/checks/upload', methods=['POST'])
+def create_compliance_check_upload():
+    err = require_auth()
+    if err: return err
+    try:
+        if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+        f = request.files['file']
+        title = (request.form.get('title') or '').strip() or secure_filename(f.filename or 'Uploaded proposal')
+        request_id = (request.form.get('request_id') or '').strip() or None
+        filename = secure_filename(f.filename or 'proposal.pdf')
+        ext = os.path.splitext(filename)[1].lower()
+        if ext != '.pdf':
+            return jsonify({'error': 'Only PDF files are supported here — paste text instead for other formats'}), 400
+        proposal_text = extract_pdf_text(f.read())
+        if not proposal_text:
+            return jsonify({'error': 'Could not extract text from this PDF. If it is scanned/image-based, it needs OCR first.'}), 400
+
+        result, error = run_compliance_check(proposal_text, title)
+        if error:
+            return jsonify({'error': error}), 400
+
+        check_id = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO rental_compliance_checks
+            (id, request_id, title, proposal_text, verdict, analysis, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (check_id, request_id, title, proposal_text, result.get('verdict',''),
+             json.dumps(result), session.get('user_name','')))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': check_id, 'result': result})
+    except Exception as e:
+        app.logger.error(f'create_compliance_check_upload error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/rental/compliance/checks/<cid>', methods=['DELETE'])
+def delete_compliance_check(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_compliance_checks WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -17569,6 +19861,7 @@ def manual_finalize_registration(pid, rid):
 
 
 
+@app.route('/api/programs/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
 def send_registration_payment_link(pid, rid):
     """Resend or create a new payment link for a pending_payment registration."""
     err = require_auth()
@@ -17579,9 +19872,16 @@ def send_registration_payment_link(pid, rid):
     if not reg or not prog:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    # Use existing link if still valid
-    existing = reg.get('square_checkout_id') or reg.get('waitlist_payment_link')
-    amount = prog.get('price') or 0
+    if reg['status'] != 'pending_payment':
+        conn.close()
+        return jsonify({'error': 'This registration is not awaiting payment'}), 400
+    # Look up the original order's actual total rather than the flat program price —
+    # this correctly reflects sessions, participant count, and any discounts applied
+    # at the time they registered, instead of risking an incorrect recalculation.
+    amount = square_get_order_amount(reg.get('square_order_id'))
+    if not amount:
+        amount = prog.get('price') or 0
+        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
     pay_url, link_id, order_id = square_create_payment_link(
         prog, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
         note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
@@ -17593,22 +19893,42 @@ def send_registration_payment_link(pid, rid):
     conn.commit()
     # Email the family
     try:
-        send_email([reg['guardian_email']], f'Complete your registration — {prog["name"]}',
+        child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
+        send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prog["name"]}',
             f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
-            f'<h2 style="color:#145466">Complete Your Registration</h2>'
+            f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
-            f'<p>Your registration for <strong>{prog["name"]}</strong> is not yet complete. '
-            f'Click below to complete your payment and secure your spot.</p>'
+            f'<p>We saw that you started registering {child_name or "your participant"} for '
+            f'<strong>{prog["name"]}</strong>, but the payment didn\'t go through — sometimes that happens if a browser tab '
+            f'closes early or a card gets declined.</p>'
+            f'<p>If you\'d still like to register, no problem — here\'s a fresh link to finish up. Nothing has been charged yet.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Complete Payment</a></p>'
+            f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
             f'<p>Horizon West Theater Company</p></div>')
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'payment_url': pay_url})
 
+
+def square_get_order_amount(order_id):
+    """Look up the total amount (in cents) for a Square order — used to resend a payment
+    link at the exact original price (including whatever discounts applied at submission)
+    without having to re-derive the whole pricing engine."""
+    if not order_id or not SQUARE_ACCESS_TOKEN:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{order_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('order'):
+            return data['order'].get('total_money', {}).get('amount')
+        app.logger.warning(f'Square get order failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.error(f'Square get order exception: {e}')
+    return None
 
 @app.route('/api/programs/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])
 def send_balance_payment_link(pid, rid):
@@ -17648,3 +19968,10 @@ def send_balance_payment_link(pid, rid):
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'payment_url': pay_url})
+
+# Start the on-call scheduler now that it's actually defined (see note near init_db() above —
+# this used to be called too early, before this function existed, and silently never ran).
+try:
+    _start_oncall_scheduler()
+except Exception as _sche:
+    import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")

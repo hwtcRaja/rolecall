@@ -17442,43 +17442,17 @@ def twilio_oncall_no_answer():
     try:
         import requests as _rq
         ts2 = get_twilio_settings()
-        es = get_email_settings()
-        host = 'https://rolecall.hwtco.org'
 
         if not ts2.get('account_sid') or not ts2.get('auth_token'):
             return '', 204
 
-        # Build voicemail TwiML
-        voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
-        audio_voicemail = (es.get('twilio_audio_voicemail') or '').strip()
-        no_answer_msg = (es.get('twilio_voice_no_answer') or '').strip()
-        if not voicemail_greeting:
-            voicemail_greeting = 'No one is available right now. Please leave a message after the tone and we will get back to you shortly.'
-        if not no_answer_msg:
-            no_answer_msg = 'We were unable to reach our on-call team.'
-
-        def say_or_play_vm(text, audio_url):
-            if audio_url: return f'<Play>{audio_url}</Play>'
-            return f'<Say voice="Polly.Joanna">{text}</Say>'
-
-        voicemail_twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  {say_or_play_vm(no_answer_msg, '')}
-  {say_or_play_vm(voicemail_greeting, audio_voicemail)}
-  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
-</Response>'''
-
-        # Redirect the caller's call leg directly to voicemail
-        if caller_sid:
-            result = _rq.post(
-                f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Calls/{caller_sid}.json',
-                data={'Url': f'{host}/twilio/direct-voicemail', 'Method': 'POST'},
-                auth=(ts2['account_sid'], ts2['auth_token']),
-                timeout=5
-            )
-            app.logger.info(f'Redirected caller {caller_sid} to voicemail: {result.status_code} {result.text[:100]}')
-
-        # Also end the conference
+        # End the conference. The caller's original <Dial action="/twilio/direct-voicemail">
+        # already fires that redirect automatically as soon as the conference it's waiting
+        # in goes away — so this is the ONLY thing we need to do here. (We used to also
+        # REST-redirect caller_sid directly to /twilio/direct-voicemail, but that raced
+        # with this conference-end triggering the Dial action a second time, causing the
+        # caller to hear the no-answer message get cut off mid-sentence by the voicemail
+        # greeting starting over.)
         try:
             conf_resp = _rq.get(
                 f'https://api.twilio.com/2010-04-01/Accounts/{ts2["account_sid"]}/Conferences.json',

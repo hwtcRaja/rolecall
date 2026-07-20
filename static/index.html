@@ -23646,6 +23646,9 @@ const COMPLIANCE_VERDICT_META = {
 function openComplianceCheckModal(rid){
   const req = rid ? (_rentalData.requests||[]).find(r=>r.id===rid) : null
   const prefill = req ? `Title: ${req.title||''}\nPurpose: ${req.purpose||''}\nDates: ${req.start_date||''}${req.end_date?' to '+req.end_date:''}\nNotes: ${req.notes||''}`.trim() : ''
+  const nowStr = new Date().toLocaleString('en-US', {month:'numeric', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'})
+  const vendorName = req ? (req.partner_name || req.title || '') : ''
+  const defaultTitle = vendorName ? `${vendorName} - Compliance Check - ${nowStr}` : `Compliance Check - ${nowStr}`
   const overlay = document.createElement('div')
   overlay.id = 'compliance-check-overlay'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
@@ -23662,8 +23665,8 @@ function openComplianceCheckModal(rid){
    </div>
    <textarea id="cc-proposal-text" rows="8" placeholder="Paste the proposal or contract text to check..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:10px">${escHtml(prefill)}</textarea>
    <div style="margin-bottom:14px">
-    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Label (optional)</label>
-    <input type="text" id="cc-title" placeholder="e.g. Community Dance Co. rental proposal" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/>
+    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Label</label>
+    <input type="text" id="cc-title" value="${escHtml(defaultTitle)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"/>
    </div>
    <div style="display:flex;gap:8px;margin-bottom:16px">
     <button class="btn btn-primary" id="cc-run-btn" onclick="runComplianceCheck('${rid||''}')">Run Compliance Check</button>
@@ -23736,8 +23739,12 @@ async function loadComplianceHistory(rid){
   if(!area) return
   const url = rid ? '/api/rental/compliance/checks?request_id='+encodeURIComponent(rid) : '/api/rental/compliance/checks'
   const checks = await api(url)
-  if(!Array.isArray(checks) || !checks.length){ area.innerHTML=''; return }
-  area.innerHTML = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Past Checks</div>` +
+  const header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;border-top:1px solid var(--border);padding-top:14px">Past Checks${rid?' for this request':' (all requests)'}</div>`
+  if(!Array.isArray(checks) || !checks.length){
+    area.innerHTML = header + `<div style="font-size:12px;color:var(--text-muted);padding:4px 0 2px">No checks ${rid?'for this request':''} yet — run one above and it'll show up here.</div>`
+    return
+  }
+  area.innerHTML = header +
     checks.slice(0,10).map(c=>{
       const meta = COMPLIANCE_VERDICT_META[c.verdict] || {label:c.verdict||'Unknown', color:'#374151', bg:'#f3f4f6'}
       return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer" onclick='renderComplianceResult(${c.analysis.replace(/'/g,"&#39;")})'>

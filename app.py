@@ -1531,6 +1531,19 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_years INTEGER DEFAULT 3",
         "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_end_reason TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS production_contracts (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            extracted_text TEXT DEFAULT '',
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS production_contract_qa (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            question TEXT NOT NULL,
+            answer TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS event_staff (
             id TEXT PRIMARY KEY,
@@ -7244,6 +7257,12 @@ def portal_page():
 @app.route('/join')
 def join_page():
     resp = send_from_directory('static', 'join.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+@app.route('/show-questions')
+def show_questions_page():
+    resp = send_from_directory('static', 'show-questions.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
@@ -19210,6 +19229,211 @@ def delete_compliance_check(cid):
     return jsonify({'ok': True})
 
 # ── End Venue Rentals ─────────────────────────────────────────────────────────
+
+# ── Show Contracts Q&A ────────────────────────────────────────────────────────
+# Lets staff upload licensing/venue/performance contracts for a specific
+# production and ask plain-English questions against them (e.g. "can we take
+# photos?", "what are the choreography rules?"). Answers are grounded strictly
+# in the uploaded contract text for that show — advisory reference only, not
+# a substitute for reading the actual contract on anything binding.
+
+def ask_contract_question(production_id, question):
+    """Calls Claude with a production's uploaded contract text as context,
+    plus a staff question, and returns a plain-text answer grounded in that
+    text. Returns (answer, error). error is None on success."""
+    import os as _os, requests as _rq
+
+    try:
+        api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+        if not api_key:
+            return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+
+        conn = get_db()
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+        docs = fetchall(conn, '''SELECT filename, extracted_text FROM production_contracts
+            WHERE production_id=%s ORDER BY uploaded_at''', (production_id,)) or []
+        conn.close()
+
+        if not prod:
+            return None, 'Production not found.'
+        texts = [d for d in docs if (d['extracted_text'] or '').strip()]
+        if not texts:
+            return None, 'No contracts have been uploaded for this show yet. Upload at least one PDF before asking questions.'
+
+        contract_blob = '\n\n---\n\n'.join(
+            f"[Document: {d['filename']}]\n{d['extracted_text']}" for d in texts
+        )
+
+        system_prompt = f'''You are helping staff at Horizon West Theater Company (HWTC), a nonprofit community theater, answer questions about the licensing/performance contract(s) for their production of "{prod['name']}".
+
+Answer strictly based on the contract text provided below — do not guess or use outside knowledge of typical theater licensing terms. If the contract doesn't address the question, say so clearly rather than speculating. Where possible, point to which section, clause, or document the answer comes from. Keep answers direct and practical — staff need a clear yes/no/depends with the reasoning, not a lengthy essay.
+
+This is an internal reference tool, not legal advice. If a question touches on something with real financial or legal risk, or the contract language is genuinely ambiguous, say so explicitly and recommend staff confirm with the licensor or HWTC's legal counsel before acting.'''
+
+        resp = _rq.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': 'claude-sonnet-5',
+                'max_tokens': 1500,
+                'thinking': {'type': 'disabled'},
+                'system': [
+                    {'type': 'text', 'text': system_prompt},
+                    {'type': 'text', 'text': contract_blob, 'cache_control': {'type': 'ephemeral'}}
+                ],
+                'messages': [{'role': 'user', 'content': question}]
+            },
+            timeout=90
+        )
+        if resp.status_code != 200:
+            app.logger.error(f'Contract Q&A API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        if data.get('stop_reason') == 'max_tokens':
+            return None, 'The answer was cut off before finishing. Try asking a more specific question.'
+        answer = ''.join(b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text').strip()
+        if not answer:
+            return None, 'Claude returned an empty response. Try again.'
+        return answer, None
+    except Exception as e:
+        app.logger.error(f'Contract Q&A error: {type(e).__name__}: {e}')
+        return None, f'Error answering question: {type(e).__name__}: {e}'
+
+@app.route('/api/productions/<pid>/contracts')
+def get_production_contracts(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
+        FROM production_contracts WHERE production_id=%s ORDER BY uploaded_at DESC''', (pid,)) or []
+    conn.close()
+    return jsonify(docs)
+
+@app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
+def upload_production_contract(pid):
+    err = require_admin()
+    if err: return err
+    try:
+        if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+        f = request.files['file']
+        filename = secure_filename(f.filename or 'contract.pdf')
+        ext = os.path.splitext(filename)[1].lower()
+        if ext != '.pdf':
+            return jsonify({'error': 'Only PDF files are supported'}), 400
+        text = extract_pdf_text(f.read())
+        if not text:
+            return jsonify({'error': 'Could not extract text from this PDF. If it is scanned/image-based, it needs OCR first.'}), 400
+        cid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contracts (id, production_id, filename, extracted_text)
+            VALUES (%s,%s,%s,%s)''', (cid, pid, filename, text))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': cid, 'filename': filename, 'char_count': len(text)})
+    except Exception as e:
+        app.logger.error(f'upload_production_contract error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
+def delete_production_contract(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/contract-qa')
+def get_production_contract_qa(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
+        ORDER BY created_at DESC LIMIT 50''', (pid,)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
+def create_production_contract_qa(pid):
+    err = require_auth()
+    if err: return err
+    try:
+        d = request.json or {}
+        question = (d.get('question') or '').strip()
+        if not question:
+            return jsonify({'error': 'Please enter a question'}), 400
+        answer, error = ask_contract_question(pid, question)
+        if error:
+            return jsonify({'error': error}), 400
+        qid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contract_qa (id, production_id, question, answer, created_by)
+            VALUES (%s,%s,%s,%s,%s)''', (qid, pid, question, answer, session.get('user_name','')))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': qid, 'answer': answer})
+    except Exception as e:
+        app.logger.error(f'create_production_contract_qa error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
+def delete_production_contract_qa(qid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Public (no-login) Show Contracts Q&A ──────────────────────────────────
+# Lets anyone with the link — cast, crew, production team — pick a show and
+# ask questions, without needing a RoleCall account. Only shows that have at
+# least one contract uploaded appear. Rate-limited per production since this
+# is reachable without authentication and each question costs an API call.
+
+@app.route('/api/public/show-contracts/productions')
+def public_get_shows_with_contracts():
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT DISTINCT p.id, p.name FROM productions p
+        JOIN production_contracts pc ON pc.production_id=p.id
+        ORDER BY p.name''') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/public/show-contracts/<pid>/ask', methods=['POST'])
+def public_ask_contract_question(pid):
+    try:
+        conn = get_db()
+        recent_count = fetchone(conn, '''SELECT COUNT(*) AS c FROM production_contract_qa
+            WHERE production_id=%s AND created_at > NOW() - INTERVAL '10 minutes' ''', (pid,))
+        conn.close()
+        if recent_count and recent_count['c'] >= 20:
+            return jsonify({'error': 'This show has had a lot of questions in the last few minutes. Please try again shortly.'}), 429
+
+        d = request.json or {}
+        question = (d.get('question') or '').strip()
+        if not question:
+            return jsonify({'error': 'Please enter a question'}), 400
+        if len(question) > 1000:
+            return jsonify({'error': 'Question is too long — please shorten it'}), 400
+
+        answer, error = ask_contract_question(pid, question)
+        if error:
+            return jsonify({'error': error}), 400
+
+        qid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contract_qa (id, production_id, question, answer, created_by)
+            VALUES (%s,%s,%s,%s,%s)''', (qid, pid, question, answer, '(public)'))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'answer': answer})
+    except Exception as e:
+        app.logger.error(f'public_ask_contract_question error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+# ── End Show Contracts Q&A ────────────────────────────────────────────────────
 
 
 

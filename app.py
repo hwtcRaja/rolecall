@@ -1524,7 +1524,9 @@ def init_db():
             member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
             role_key TEXT NOT NULL,
             election_date TEXT NOT NULL,
+            term_years INTEGER DEFAULT 3,
             term_end_date TEXT DEFAULT '',
+            term_end_reason TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
@@ -13621,15 +13623,24 @@ def create_board_officer_term():
     try:
         # Auto-close any currently active term for this role so only one
         # person holds it at a time (this is a succession, not an overlap).
-        closed = fetchall(conn, '''SELECT id FROM board_officer_terms
+        # If the same person is being re-assigned to the role they already
+        # hold, that's a re-election — classify it automatically. Otherwise
+        # it's a handoff to someone else, and the caller must say why the
+        # outgoing holder's term ended (self-terminated vs not re-nominated).
+        closed = fetchall(conn, '''SELECT id, member_id FROM board_officer_terms
             WHERE role_key=%s AND (term_end_date IS NULL OR term_end_date='')''', (role_key,)) or []
+        outgoing_reason = (d.get('outgoing_term_end_reason') or '').strip()
         for row in closed:
-            execute(conn, 'UPDATE board_officer_terms SET term_end_date=%s WHERE id=%s', (election_date, row['id']))
+            reason = 're_elected_same_role' if row['member_id'] == member_id else (outgoing_reason or 'not_renominated')
+            execute(conn, 'UPDATE board_officer_terms SET term_end_date=%s, term_end_reason=%s WHERE id=%s',
+                (election_date, reason, row['id']))
 
         tid = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO board_officer_terms (id, member_id, role_key, election_date, term_end_date, notes)
-            VALUES (%s,%s,%s,%s,%s,%s)''',
-            (tid, member_id, role_key, election_date, (d.get('term_end_date') or '').strip(), (d.get('notes') or '').strip()))
+        execute(conn, '''INSERT INTO board_officer_terms (id, member_id, role_key, election_date, term_years, term_end_date, term_end_reason, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (tid, member_id, role_key, election_date, int(d.get('term_years', 3)),
+             (d.get('term_end_date') or '').strip(),
+             (d.get('term_end_reason') or '').strip(), (d.get('notes') or '').strip()))
         conn.commit()
         row = fetchone(conn, '''SELECT bot.*, bm.name AS member_name, bm.email AS member_email
             FROM board_officer_terms bot JOIN board_members bm ON bm.id=bot.member_id WHERE bot.id=%s''', (tid,))
@@ -13645,9 +13656,9 @@ def update_board_officer_term(tid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE board_officer_terms SET election_date=%s, term_end_date=%s, notes=%s WHERE id=%s''',
-        ((d.get('election_date') or '').strip(), (d.get('term_end_date') or '').strip(),
-         (d.get('notes') or '').strip(), tid))
+    execute(conn, '''UPDATE board_officer_terms SET election_date=%s, term_years=%s, term_end_date=%s, term_end_reason=%s, notes=%s WHERE id=%s''',
+        ((d.get('election_date') or '').strip(), int(d.get('term_years', 3)), (d.get('term_end_date') or '').strip(),
+         (d.get('term_end_reason') or '').strip(), (d.get('notes') or '').strip(), tid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

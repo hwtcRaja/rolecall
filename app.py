@@ -1529,6 +1529,8 @@ def init_db():
             term_end_reason TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_years INTEGER DEFAULT 3",
+        "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_end_reason TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS event_staff (
             id TEXT PRIMARY KEY,

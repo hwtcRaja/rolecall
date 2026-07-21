@@ -950,6 +950,8 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS term_end_date TEXT DEFAULT ''",
+        "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS term_end_reason TEXT DEFAULT ''",
         "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
         """CREATE TABLE IF NOT EXISTS audition_settings (
             id TEXT PRIMARY KEY,
@@ -1517,6 +1519,14 @@ def init_db():
             submitted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(member_id, month, year))""",
+        """CREATE TABLE IF NOT EXISTS board_officer_terms (
+            id TEXT PRIMARY KEY,
+            member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
+            role_key TEXT NOT NULL,
+            election_date TEXT NOT NULL,
+            term_end_date TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS event_staff (
             id TEXT PRIMARY KEY,
@@ -13562,6 +13572,94 @@ def delete_board_nomination(nid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+# ── Board Officer Roles (Exec Board + Chairs) ──────────────────────────────
+# Tracked separately from the board seat itself (board_nominations above),
+# since President/VP/Secretary/Treasurer (exec board) and the Marketing &
+# Communications Chair / Youth Education & Programming Officer (non-exec
+# officer roles) are elected/appointed on their own cadence, independent of
+# a member's board seat term.
+BOARD_OFFICER_ROLES = {
+    'president':                        {'label': 'President', 'category': 'exec'},
+    'vice_president':                    {'label': 'Vice President', 'category': 'exec'},
+    'secretary':                         {'label': 'Secretary', 'category': 'exec'},
+    'treasurer':                         {'label': 'Treasurer', 'category': 'exec'},
+    'marketing_comms_chair':             {'label': 'Marketing & Communications Chair', 'category': 'officer'},
+    'youth_ed_programming_officer':      {'label': 'Youth Education & Programming Officer', 'category': 'officer'},
+}
+
+@app.route('/api/board/officer-roles')
+def get_board_officer_roles():
+    err = require_auth()
+    if err: return err
+    return jsonify(BOARD_OFFICER_ROLES)
+
+@app.route('/api/board/officers')
+def get_board_officers():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    terms = fetchall(conn, '''SELECT bot.*, bm.name AS member_name, bm.email AS member_email
+        FROM board_officer_terms bot
+        JOIN board_members bm ON bm.id=bot.member_id
+        ORDER BY bot.role_key, bot.election_date DESC''') or []
+    conn.close()
+    return jsonify(terms)
+
+@app.route('/api/board/officers', methods=['POST'])
+def create_board_officer_term():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    role_key = (d.get('role_key') or '').strip()
+    member_id = (d.get('member_id') or '').strip()
+    election_date = (d.get('election_date') or '').strip()
+    if role_key not in BOARD_OFFICER_ROLES:
+        return jsonify({'error': 'Invalid role'}), 400
+    if not member_id or not election_date:
+        return jsonify({'error': 'Member and election date are required'}), 400
+    conn = get_db()
+    try:
+        # Auto-close any currently active term for this role so only one
+        # person holds it at a time (this is a succession, not an overlap).
+        closed = fetchall(conn, '''SELECT id FROM board_officer_terms
+            WHERE role_key=%s AND (term_end_date IS NULL OR term_end_date='')''', (role_key,)) or []
+        for row in closed:
+            execute(conn, 'UPDATE board_officer_terms SET term_end_date=%s WHERE id=%s', (election_date, row['id']))
+
+        tid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO board_officer_terms (id, member_id, role_key, election_date, term_end_date, notes)
+            VALUES (%s,%s,%s,%s,%s,%s)''',
+            (tid, member_id, role_key, election_date, (d.get('term_end_date') or '').strip(), (d.get('notes') or '').strip()))
+        conn.commit()
+        row = fetchone(conn, '''SELECT bot.*, bm.name AS member_name, bm.email AS member_email
+            FROM board_officer_terms bot JOIN board_members bm ON bm.id=bot.member_id WHERE bot.id=%s''', (tid,))
+        conn.close()
+        return jsonify({'ok': True, 'succeeded_count': len(closed), **row})
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/board/officers/<tid>', methods=['PUT'])
+def update_board_officer_term(tid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE board_officer_terms SET election_date=%s, term_end_date=%s, notes=%s WHERE id=%s''',
+        ((d.get('election_date') or '').strip(), (d.get('term_end_date') or '').strip(),
+         (d.get('notes') or '').strip(), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/officers/<tid>', methods=['DELETE'])
+def delete_board_officer_term(tid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_officer_terms WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/board/members', methods=['POST'])
 def create_board_member():
     err = require_admin()
@@ -13572,12 +13670,13 @@ def create_board_member():
     mid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes,volunteer_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes,volunteer_id,term_end_date,term_end_reason)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (mid, d['name'].strip(), d['email'].strip().lower(),
              d.get('role','').strip(), d.get('status','active'),
              d.get('join_date') or None, d.get('notes','').strip(),
-             d.get('volunteer_id') or None))
+             d.get('volunteer_id') or None,
+             d.get('term_end_date') or '', d.get('term_end_reason') or ''))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM board_members WHERE id=%s', (mid,))
         conn.close()
@@ -13592,12 +13691,13 @@ def update_board_member(mid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s,volunteer_id=%s
+    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s,volunteer_id=%s,term_end_date=%s,term_end_reason=%s
         WHERE id=%s''',
         (d.get('name','').strip(), d.get('email','').strip().lower(),
          d.get('role','').strip(), d.get('status','active'),
          d.get('join_date') or None, d.get('notes','').strip(),
-         d.get('volunteer_id') or None, mid))
+         d.get('volunteer_id') or None,
+         d.get('term_end_date') or '', d.get('term_end_reason') or '', mid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

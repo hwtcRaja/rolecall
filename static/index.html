@@ -444,6 +444,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Mainstage</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin"></span>Cast Sign-In</div>
+        <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
 
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
@@ -1140,6 +1141,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div id="psi-content">
  <div class="empty-state"><div class="empty-icon"></div><p>Select a production above</p></div>
+ </div>
+ </div>
+ </section>
+
+ <section class="page" id="page-show-contracts">
+ <div class="page-header">
+ <div><div class="page-title">Show Contracts</div><div class="page-subtitle">Upload contracts here — production teams ask questions on the public page, no login needed</div></div>
+ <div class="page-actions">
+ <button class="btn btn-secondary" onclick="copyShowQuestionsLink()">Copy Public Q&amp;A Link</button>
+ </div>
+ </div>
+ <div class="page-body">
+ <div style="margin-bottom:20px">
+ <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:4px">Show / Production</div>
+ <select id="sc-prod-id" class="filter-select" onchange="loadShowContractsForProduction()">
+ <option value="">— Select a Show —</option>
+ </select>
+ </div>
+ <div id="sc-content">
+ <div class="empty-state"><div class="empty-icon"></div><p>Select a show above to upload contracts and see past questions</p></div>
  </div>
  </div>
  </section>
@@ -3916,6 +3937,7 @@ function navTo(page,el){
  if(page==='youth-signin') initYouthSignIn()
  if(page==='carpools') loadCarpoolsPage()
  if(page==='production-signin') initProdSignIn()
+ if(page==='show-contracts') loadShowContractsPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -7895,7 +7917,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
- board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'',
+ board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  oncall:'📞', 'hours-store':'🏪'
 }
 
@@ -24132,6 +24154,124 @@ async function deleteComplianceDoc(did){
 }
 
 // ── End Venue Rentals ────────────────────────────────────────────────────────
+
+// ── Show Contracts Q&A ────────────────────────────────────────────────────
+function copyShowQuestionsLink(){
+ var url = window.location.origin + '/show-questions'
+ if(navigator.clipboard && navigator.clipboard.writeText){
+  navigator.clipboard.writeText(url).then(function(){ toast('Link copied: '+url,'success') }).catch(function(){ prompt('Copy this link:', url) })
+ } else {
+  prompt('Copy this link:', url)
+ }
+}
+
+function loadShowContractsPage(){
+ var sel=document.getElementById('sc-prod-id')
+ var list=(allProductions||[]).slice().sort(function(a,b){return (b.start_date||'').localeCompare(a.start_date||'')})
+ var current=sel.value
+ sel.innerHTML='<option value="">— Select a Show —</option>'+list.map(function(p){return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>'}).join('')
+ if(current) sel.value=current
+ loadShowContractsForProduction()
+}
+
+async function loadShowContractsForProduction(){
+ var pid=document.getElementById('sc-prod-id').value
+ var el=document.getElementById('sc-content')
+ if(!pid){ el.innerHTML='<div class="empty-state"><div class="empty-icon"></div><p>Select a show above to view its contracts and ask questions</p></div>'; return }
+ el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
+ var docs=await api('/api/productions/'+pid+'/contracts')
+ var history=await api('/api/productions/'+pid+'/contract-qa')
+ renderShowContracts(pid, Array.isArray(docs)?docs:[], Array.isArray(history)?history:[])
+}
+
+function renderShowContracts(pid, docs, history){
+ var el=document.getElementById('sc-content')
+ var docsHtml = docs.length
+ ? docs.map(function(d){return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
+   +'<div style="flex:1;font-size:12px">'+escHtml(d.filename)+'<div style="font-size:10px;color:var(--text-muted)">'+(d.char_count||0).toLocaleString()+' characters extracted · '+(d.uploaded_at||'').slice(0,10)+'</div></div>'
+   +'<button onclick="deleteShowContract(\''+d.id+'\',\''+pid+'\')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0;line-height:1">×</button>'
+   +'</div>'}).join('')
+ : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No contracts uploaded for this show yet.</div>'
+
+ var historyHtml = history.length
+ ? history.map(function(h){return '<div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px">'
+   +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+   +'<div style="font-weight:600;font-size:13px">'+escHtml(h.question)+'</div>'
+   +'<button onclick="deleteShowContractQA(\''+h.id+'\',\''+pid+'\')" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:14px;padding:0;flex-shrink:0">×</button>'
+   +'</div>'
+   +'<div style="font-size:13px;line-height:1.6;margin-top:6px;white-space:pre-wrap">'+escHtml(h.answer)+'</div>'
+   +'<div style="font-size:10px;color:var(--text-muted);margin-top:8px">'+(h.created_by?escHtml(h.created_by)+' · ':'')+(h.created_at||'').slice(0,10)+'</div>'
+   +'</div>'}).join('')
+ : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No questions asked yet.</div>'
+
+ el.innerHTML =
+ '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:10px">Uploaded Contracts</div>'
+ +docsHtml
+ +'<div style="margin-top:10px">'
+ +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'sc-upload-input\').click()">Upload Contract PDF</button>'
+ +'<input type="file" id="sc-upload-input" accept=".pdf" style="display:none" onchange="uploadShowContract(this,\''+pid+'\')"/>'
+ +'</div>'
+ +'<div id="sc-upload-status" style="font-size:12px;color:var(--teal-dark);margin-top:6px"></div>'
+ +'</div>'
+ +'<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:10px">Ask a Question</div>'
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Answers are based only on the contract(s) uploaded above for this show — this is a reference tool, not legal advice.</div>'
+ +'<textarea id="sc-question" rows="2" placeholder="e.g. Can we take photos during rehearsals? What are the rules around choreography?" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:10px"></textarea>'
+ +'<button class="btn btn-primary" id="sc-ask-btn" onclick="askShowContractQuestion(\''+pid+'\')">Ask</button>'
+ +'<div id="sc-answer-area" style="margin-top:14px"></div>'
+ +'</div>'
+ +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Past Questions</div>'
+ +historyHtml
+}
+
+async function uploadShowContract(input, pid){
+ var file=input.files[0]
+ if(!file) return
+ var status=document.getElementById('sc-upload-status')
+ if(status) status.textContent='Uploading and extracting text…'
+ try{
+  var fd=new FormData()
+  fd.append('file', file)
+  var r=await fetch('/api/productions/'+pid+'/contracts/upload', {method:'POST', body:fd, credentials:'include'})
+  var d=await r.json()
+  if(d.ok){ if(status) status.textContent='✓ '+d.filename+' uploaded ('+d.char_count.toLocaleString()+' characters)'; loadShowContractsForProduction() }
+  else if(status) status.textContent='Error: '+(d.error||'Upload failed')
+ } catch(err){
+  if(status) status.textContent='Error: '+err.message
+ }
+ input.value=''
+}
+
+async function deleteShowContract(cid, pid){
+ if(!confirm('Remove this contract? Questions will no longer be checked against it.')) return
+ var res=await api('/api/productions/contracts/'+cid,'DELETE')
+ if(res&&res.ok) loadShowContractsForProduction()
+}
+
+async function askShowContractQuestion(pid){
+ var question=(document.getElementById('sc-question')||{}).value.trim()
+ var area=document.getElementById('sc-answer-area')
+ if(!question){ area.innerHTML='<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">Enter a question first.</div>'; return }
+ var btn=document.getElementById('sc-ask-btn')
+ btn.disabled=true; btn.textContent='Thinking…'
+ area.innerHTML='<div style="font-size:13px;color:var(--text-muted);padding:8px 0">Checking the contract…</div>'
+ var res=await api('/api/productions/'+pid+'/contract-qa','POST',{question:question})
+ btn.disabled=false; btn.textContent='Ask'
+ if(res&&res.ok){
+  area.innerHTML='<div style="border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.6;white-space:pre-wrap">'+escHtml(res.answer)+'</div>'
+  document.getElementById('sc-question').value=''
+  loadShowContractsForProduction()
+ } else {
+  area.innerHTML='<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px">'+escHtml((res&&res.error)||'Error answering question')+'</div>'
+ }
+}
+
+async function deleteShowContractQA(qid, pid){
+ var res=await api('/api/productions/contract-qa/'+qid,'DELETE')
+ if(res&&res.ok) loadShowContractsForProduction()
+}
+// ── End Show Contracts Q&A ────────────────────────────────────────────────
 
 function loadMarqueePage(){
   // Wire tab buttons

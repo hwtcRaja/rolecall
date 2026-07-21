@@ -2737,11 +2737,29 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="bo-current-holder-note" style="font-size:12px;color:var(--text-muted);margin:-4px 0 12px"></div>
  <div class="form-group">
  <label>Board Member</label>
- <select id="bo-member-id"></select>
+ <select id="bo-member-id" onchange="renderBoardOfficerCurrentHolder()"></select>
+ </div>
+ <div id="bo-outgoing-reason-group" class="form-group" style="display:none;background:#fefce8;border-radius:8px;padding:10px 12px">
+ <label>Why is the previous holder's term ending?</label>
+ <select id="bo-outgoing-reason">
+ <option value="">— Select —</option>
+ <option value="self_terminated">Self-Terminated (Resigned from role)</option>
+ <option value="not_renominated">Not Re-Nominated</option>
+ </select>
  </div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
  <div class="form-group"><label>Election / Appointment Date</label><input type="date" id="bo-election-date"/></div>
- <div class="form-group"><label>Term End Date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label><input type="date" id="bo-term-end-date"/></div>
+ <div class="form-group"><label>Term Length (years)</label><input type="number" id="bo-term-years" min="1" value="3"/></div>
+ </div>
+ <div class="form-group"><label>Term End Date <span style="font-weight:400;color:var(--text-muted)">(optional — only if already over)</span></label><input type="date" id="bo-term-end-date"/></div>
+ <div class="form-group">
+ <label>Term End Reason <span style="font-weight:400;color:var(--text-muted)">(if entering an already-completed term)</span></label>
+ <select id="bo-term-end-reason">
+ <option value="">— N/A —</option>
+ <option value="self_terminated">Self-Terminated (Resigned from role)</option>
+ <option value="not_renominated">Not Re-Nominated</option>
+ <option value="re_elected_same_role">Re-Elected to Same Role</option>
+ </select>
  </div>
  <div style="font-size:11px;color:var(--text-muted);margin:-6px 0 12px">Leave term end blank if they're currently serving. Assigning someone new to a role that's currently filled will automatically end the previous holder's term as of this election date.</div>
  <div class="form-group"><label>Notes</label><textarea id="bo-notes" style="min-height:50px"></textarea></div>
@@ -6740,14 +6758,29 @@ function renderBoardOfficers(){
  return terms[0]
  }
 
+ function officerDueStatus(term){
+ var nd=new Date(term.election_date)
+ var ty=parseInt(term.term_years||3)
+ var endDate=new Date(nd); endDate.setFullYear(endDate.getFullYear()+ty)
+ var now=new Date()
+ var msLeft=endDate-now
+ var daysLeft=Math.ceil(msLeft/(1000*60*60*24))
+ var monthsLeft=Math.ceil(msLeft/(1000*60*60*24*30.5))
+ if(daysLeft<0) return {label:'Overdue since '+endDate.getFullYear(),color:'var(--red-600)',bg:'var(--red-50)'}
+ if(daysLeft<=180) return {label:'Due '+endDate.toLocaleDateString('en-US',{month:'short',year:'numeric'})+' ('+monthsLeft+'mo)',color:'var(--amber-700)',bg:'#fefce8'}
+ return {label:'Until '+endDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),color:'var(--green-600)',bg:'var(--green-50)'}
+ }
+
  function roleCard(roleKey){
  var role=_boardOfficerRoles[roleKey]
  var cur=currentHolder(roleKey)
+ var due=cur?officerDueStatus(cur):null
  return '<div class="card" style="padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
  +'<div>'
  +'<div style="font-weight:700;font-size:14px">'+escHtml(role.label)+'</div>'
  +(cur
  ?'<div style="font-size:13px;margin-top:2px">'+escHtml(cur.member_name)+'</div><div style="font-size:11px;color:var(--text-muted)">Since '+formatDate(cur.election_date)+'</div>'
+ +'<div style="margin-top:4px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+due.bg+';color:'+due.color+'">'+due.label+'</span></div>'
  :'<div style="font-size:13px;color:var(--text-hint);font-style:italic;margin-top:2px">Vacant</div>')
  +'</div>'
  +'<button class="btn btn-secondary btn-sm" onclick="openBoardOfficerModal(\''+roleKey+'\')">'+(cur?'Change':'Assign')+'</button>'
@@ -6760,15 +6793,18 @@ function renderBoardOfficers(){
  return new Date(b.election_date)-new Date(a.election_date)
  })
  if(!rows.length) return '<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:8px 0">No officer role history recorded yet</div>'
+ var reasonLabel={self_terminated:'Self-Terminated',not_renominated:'Not Re-Nominated',re_elected_same_role:'Re-Elected'}
  return '<div class="card" style="padding:0;overflow:hidden"><table>'
- +'<thead><tr><th>Role</th><th>Member</th><th>Elected</th><th>Term End</th><th>Notes</th><th></th></tr></thead><tbody>'
+ +'<thead><tr><th>Role</th><th>Member</th><th>Elected</th><th>Term</th><th>Term End</th><th>Reason</th><th>Notes</th><th></th></tr></thead><tbody>'
  +rows.map(function(t){
  var role=_boardOfficerRoles[t.role_key]
  return '<tr>'
  +'<td style="font-size:12px;font-weight:600">'+escHtml(role?role.label:t.role_key)+'</td>'
  +'<td style="font-size:12px">'+escHtml(t.member_name)+'</td>'
  +'<td style="font-size:12px">'+formatDate(t.election_date)+'</td>'
+ +'<td style="font-size:12px;color:var(--text-muted)">'+(t.term_years||3)+' yr</td>'
  +'<td style="font-size:12px">'+(t.term_end_date?formatDate(t.term_end_date):'<span style="color:var(--green-600);font-weight:600">Current</span>')+'</td>'
+ +'<td style="font-size:12px;color:var(--text-muted)">'+(t.term_end_reason?escHtml(reasonLabel[t.term_end_reason]||t.term_end_reason):'')+'</td>'
  +'<td style="font-size:12px;color:var(--text-muted)">'+escHtml(t.notes||'')+'</td>'
  +'<td style="text-align:right;white-space:nowrap">'
  +'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="editBoardOfficerTerm(\''+t.id+'\')">Edit</button> '
@@ -6808,13 +6844,23 @@ function populateBoardOfficerMemberSelect(selectedMemberId){
 
 function renderBoardOfficerCurrentHolder(){
  var roleKey=document.getElementById('bo-role-key').value
- var terms=_boardOfficerTerms.filter(function(t){return t.role_key===roleKey && !t.term_end_date})
- var note=document.getElementById('bo-current-holder-note')
+ var selectedMemberId=document.getElementById('bo-member-id').value
  var editingId=document.getElementById('bo-id').value
- if(terms.length && terms[0].id!==editingId){
- note.textContent='Currently held by '+terms[0].member_name+' (since '+formatDate(terms[0].election_date)+'). Saving will end their term as of the election date entered below.'
+ var terms=_boardOfficerTerms.filter(function(t){return t.role_key===roleKey && !t.term_end_date})
+ var current=terms.length?terms[0]:null
+ var note=document.getElementById('bo-current-holder-note')
+ var outgoingGroup=document.getElementById('bo-outgoing-reason-group')
+ if(current && current.id!==editingId){
+ if(selectedMemberId===current.member_id){
+ note.textContent='Currently held by '+current.member_name+' (since '+formatDate(current.election_date)+'). Since this is the same person, this will be recorded as a re-election.'
+ outgoingGroup.style.display='none'
+ } else {
+ note.textContent='Currently held by '+current.member_name+' (since '+formatDate(current.election_date)+'). Assigning someone else will end their term as of the election date below.'
+ outgoingGroup.style.display=''
+ }
  } else {
  note.textContent=''
+ outgoingGroup.style.display='none'
  }
 }
 
@@ -6822,7 +6868,10 @@ function openBoardOfficerModal(roleKey){
  document.getElementById('board-officer-modal-title').textContent='Assign Officer Role'
  document.getElementById('bo-id').value=''
  document.getElementById('bo-election-date').value=''
+ document.getElementById('bo-term-years').value='3'
  document.getElementById('bo-term-end-date').value=''
+ document.getElementById('bo-term-end-reason').value=''
+ document.getElementById('bo-outgoing-reason').value=''
  document.getElementById('bo-notes').value=''
  populateBoardOfficerRoleSelect(roleKey)
  populateBoardOfficerMemberSelect(null)
@@ -6836,7 +6885,10 @@ function editBoardOfficerTerm(id){
  document.getElementById('board-officer-modal-title').textContent='Edit Officer Term'
  document.getElementById('bo-id').value=t.id
  document.getElementById('bo-election-date').value=t.election_date||''
+ document.getElementById('bo-term-years').value=t.term_years||3
  document.getElementById('bo-term-end-date').value=t.term_end_date||''
+ document.getElementById('bo-term-end-reason').value=t.term_end_reason||''
+ document.getElementById('bo-outgoing-reason').value=''
  document.getElementById('bo-notes').value=t.notes||''
  populateBoardOfficerRoleSelect(t.role_key)
  populateBoardOfficerMemberSelect(t.member_id)
@@ -6849,10 +6901,16 @@ async function saveBoardOfficerTerm(){
  var roleKey=document.getElementById('bo-role-key').value
  var memberId=document.getElementById('bo-member-id').value
  var electionDate=document.getElementById('bo-election-date').value
+ var termYears=parseInt(document.getElementById('bo-term-years').value)||3
  var termEndDate=document.getElementById('bo-term-end-date').value
+ var termEndReason=document.getElementById('bo-term-end-reason').value
  var notes=document.getElementById('bo-notes').value.trim()
  if(!memberId||!electionDate){toast('Board member and election date are required','error');return}
- var data={role_key:roleKey,member_id:memberId,election_date:electionDate,term_end_date:termEndDate,notes:notes}
+ if(termEndDate&&!termEndReason){toast('Please select a term end reason','error');return}
+ var outgoingGroupVisible=document.getElementById('bo-outgoing-reason-group').style.display!=='none'
+ var outgoingReason=document.getElementById('bo-outgoing-reason').value
+ if(!id&&outgoingGroupVisible&&!outgoingReason){toast('Please select why the previous holder\'s term is ending','error');return}
+ var data={role_key:roleKey,member_id:memberId,election_date:electionDate,term_years:termYears,term_end_date:termEndDate,term_end_reason:termEndReason,outgoing_term_end_reason:outgoingReason,notes:notes}
  var res=id?await api('/api/board/officers/'+id,'PUT',data):await api('/api/board/officers','POST',data)
  if(res&&res.error){toast(res.error,'error');return}
  closeModal('modal-board-officer')

@@ -456,7 +456,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
         <!-- VENUE RENTALS -->
         <div class="nav-section">Venue &amp; Partnerships</div>
-        <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Venue Rentals</div>
+        <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Venue Rentals<span class="nav-badge" id="rental-pending-badge" style="display:none">0</span></div>
 
         <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
@@ -499,8 +499,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="page-actions">
       <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
       <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
-      <button class="btn btn-secondary" onclick="openRentalSpacesModal()">⚙️ Manage Spaces</button>
-      <button class="btn btn-secondary" onclick="openComplianceCheckModal()">🤖 Compliance Check</button>
+      <button class="btn btn-secondary" onclick="openRentalSpacesModal()">Manage Spaces</button>
+      <button class="btn btn-secondary" onclick="openComplianceCheckModal()">Compliance Check</button>
       <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
     </div>
   </div>
@@ -1460,10 +1460,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
  <button onclick="switchBoardTab('members')" id="btab-members" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Members</button>
+ <button onclick="switchBoardTab('officers')" id="btab-officers" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Officers</button>
  <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Meetings</button>
  <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Find Best Time</button>
  </div>
  <div id="btab-panel-members"></div>
+ <div id="btab-panel-officers" style="display:none"></div>
  <div id="btab-panel-meetings" style="display:none"></div>
  <div id="btab-panel-schedule" style="display:none"></div>
  </div>
@@ -2375,6 +2377,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('reports',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-email-templates-page">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Email Templates (Admin)</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-email-templates-page" placeholder="mail" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('email-templates-page',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-event-logs">
  <span style="font-size:16px"></span>
  </div>
@@ -2676,8 +2688,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group" style="grid-column:1/-1"><label>Name *</label><input type="text" id="bm-name"/></div>
  <div class="form-group" style="grid-column:1/-1"><label>Email *</label><input type="email" id="bm-email"/></div>
  <div class="form-group"><label>Role / Title</label><input type="text" id="bm-role" placeholder="e.g. President, Treasurer…"/></div>
- <div class="form-group"><label>Status</label><select id="bm-status"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option></select></div>
+ <div class="form-group"><label>Status</label><select id="bm-status" onchange="toggleBmTermEndFields()"><option value="active">Active</option><option value="emeritus">Emeritus</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option><option value="terminated">Terminated</option></select></div>
  <div class="form-group"><label>Join Date</label><input type="date" id="bm-join-date"/></div>
+ <div class="form-group" id="bm-term-end-date-group" style="display:none"><label>Term End Date</label><input type="date" id="bm-term-end-date"/></div>
+ <div class="form-group" id="bm-term-end-reason-group" style="display:none;grid-column:1/-1">
+ <label>Termination Type</label>
+ <select id="bm-term-end-reason">
+ <option value="">— Select —</option>
+ <option value="self_terminated">Self-Terminated (Resigned)</option>
+ <option value="not_renominated">Not Re-Nominated</option>
+ </select>
+ </div>
  <div class="form-group">
  <label>Linked Volunteer Profile</label>
  <select id="bm-volunteer-id" style="width:100%">
@@ -2699,6 +2720,35 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-board-member')">Cancel</button>
  <button class="btn btn-primary" onclick="saveBoardMember()">Save</button>
+ </div>
+ </div>
+</div>
+
+<!-- BOARD OFFICER TERM MODAL -->
+<div class="modal-overlay" id="modal-board-officer">
+ <div class="modal" style="max-width:480px">
+ <div class="modal-header"><div class="modal-title" id="board-officer-modal-title">Assign Officer Role</div><button class="modal-close" onclick="closeModal('modal-board-officer')">×</button></div>
+ <div class="modal-body">
+ <input type="hidden" id="bo-id"/>
+ <div class="form-group">
+ <label>Role</label>
+ <select id="bo-role-key" onchange="renderBoardOfficerCurrentHolder()"></select>
+ </div>
+ <div id="bo-current-holder-note" style="font-size:12px;color:var(--text-muted);margin:-4px 0 12px"></div>
+ <div class="form-group">
+ <label>Board Member</label>
+ <select id="bo-member-id"></select>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+ <div class="form-group"><label>Election / Appointment Date</label><input type="date" id="bo-election-date"/></div>
+ <div class="form-group"><label>Term End Date <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label><input type="date" id="bo-term-end-date"/></div>
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin:-6px 0 12px">Leave term end blank if they're currently serving. Assigning someone new to a role that's currently filled will automatically end the previous holder's term as of this election date.</div>
+ <div class="form-group"><label>Notes</label><textarea id="bo-notes" style="min-height:50px"></textarea></div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeModal('modal-board-officer')">Cancel</button>
+ <button class="btn btn-primary" onclick="saveBoardOfficerTerm()">Save</button>
  </div>
  </div>
 </div>
@@ -3921,7 +3971,18 @@ async function loadAllData(){
   const tabBadge = document.getElementById('app-pending-badge')
   if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
  }).catch(()=>{})
+ refreshRentalPendingBadge()
  refreshUnreadMessageBadge()
+}
+
+async function refreshRentalPendingBadge(){
+ try {
+  const reqs = await api('/api/rental/requests')
+  if(!Array.isArray(reqs)) return
+  const pending = reqs.filter(r=>r.status==='pending').length
+  const navBadge = document.getElementById('rental-pending-badge')
+  if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
+ } catch(e){}
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6546,13 +6607,19 @@ function toggleMinorSections(){
 
 var _boardMembers = []
 var _boardMeetings = []
+var _boardOfficerRoles = {}
+var _boardOfficerTerms = []
 var _boardTab = 'members'
 
 async function loadBoardPage(){
  var members = await api('/api/board/members')
  var meetings = await api('/api/board/meetings')
+ var officerRoles = await api('/api/board/officer-roles')
+ var officerTerms = await api('/api/board/officers')
  _boardMembers = Array.isArray(members) ? members: []
  _boardMeetings = Array.isArray(meetings) ? meetings: []
+ _boardOfficerRoles = (officerRoles && !officerRoles.error) ? officerRoles : {}
+ _boardOfficerTerms = Array.isArray(officerTerms) ? officerTerms: []
  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
  document.getElementById('board-subtitle').textContent = active+' active member'+(active!==1?'s':'')+' · '+_boardMeetings.length+' meeting'+(_boardMeetings.length!==1?'s':'')+' recorded'
  renderBoardTab(_boardTab)
@@ -6560,7 +6627,7 @@ async function loadBoardPage(){
 
 function switchBoardTab(tab){
  _boardTab = tab
- ;['members','meetings','schedule'].forEach(function(t){
+ ;['members','officers','meetings','schedule'].forEach(function(t){
  var btn=document.getElementById('btab-'+t), panel=document.getElementById('btab-panel-'+t)
  if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
  if(panel) panel.style.display=t===tab?'':'none'
@@ -6570,6 +6637,7 @@ function switchBoardTab(tab){
 
 function renderBoardTab(tab){
  if(tab==='members') renderBoardMembers()
+ else if(tab==='officers') renderBoardOfficers()
  else if(tab==='meetings') renderBoardMeetings()
  else if(tab==='schedule') renderBoardScheduler()
 }
@@ -6599,19 +6667,36 @@ function renderBoardMembers(){
  return {label:'Until '+endDate.toLocaleDateString('en-US',{month:'short',year:'numeric'}),color:'var(--green-600)',bg:'var(--green-50)',warn:false,upcoming:false}
  }
 
+ function statusMeta(status){
+ return {
+  active:      {label:'Active',      color:'var(--green-600)', bg:'var(--green-50)'},
+  emeritus:    {label:'Emeritus',    color:'var(--teal-dark)', bg:'var(--teal-50)'},
+  inactive:    {label:'Inactive',    color:'var(--text-muted)', bg:'var(--bg)'},
+  suspended:   {label:'Suspended',   color:'var(--amber-700)', bg:'#fefce8'},
+  terminated:  {label:'Terminated',  color:'var(--red-600)',   bg:'var(--red-50)'}
+ }[status] || {label:status, color:'var(--text-muted)', bg:'var(--bg)'}
+ }
+ var TERM_END_REASON_LABEL={self_terminated:'Self-Terminated',not_renominated:'Not Re-Nominated'}
+
  function memberRow(m){
  var rate=m.meetings_total>0?Math.round(m.meetings_attended/m.meetings_total*100):null
  var rc=rate===null?'var(--text-muted)':rate>=80?'var(--green-600)':rate>=60?'var(--amber-600)':'var(--red-600)'
  var ns=nomStatus(m)
+ var sm=statusMeta(m.status)
  var latestNom=(m.nominations||[]).slice(-1)[0]
  var latestType=latestNom?({election:' Election',renomination:' Renomination',appointment:' Appt'}[latestNom.nomination_type]||latestNom.nomination_type):''
  var volLink=m.volunteer_id
  ?'<span style="background:var(--teal-50);color:var(--teal-dark);font-size:10px;padding:1px 6px;border-radius:8px;font-weight:700;cursor:pointer" onclick="openProfile(\''+m.volunteer_id+'\')" title="View volunteer profile"> Vol</span>'
 :'<span style="font-size:10px;color:var(--text-hint)">—</span>'
+ var statusLine = m.status!=='active'
+ ?'<div style="margin-top:2px"><span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:'+sm.bg+';color:'+sm.color+'">'+sm.label+'</span>'
+ +(m.term_end_date?' <span style="font-size:10px;color:var(--text-muted)">'+(m.status==='terminated'&&m.term_end_reason?TERM_END_REASON_LABEL[m.term_end_reason]+' · ':'')+formatDate(m.term_end_date)+'</span>':'')
+ +'</div>'
+ :''
  return '<tr style="cursor:pointer" onclick="editBoardMember(\''+m.id+'\')" class="vol-row-hover">'
  +'<td><div style="display:flex;align-items:center;gap:8px">'+avatarHTML(m.name,30)
  +'<div><div style="font-weight:600;font-size:13px">'+escHtml(m.name)+'</div>'
- +'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div></div></div></td>'
+ +'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(m.role||'Board Member')+'</div>'+statusLine+'</div></div></td>'
  +'<td>'+volLink+'</td>'
  +'<td style="font-size:12px;color:var(--text-muted)">'+escHtml(m.email)+'</td>'
  +'<td style="font-size:12px">'+(m.join_date?formatDate(m.join_date):'<span style="color:var(--text-hint)">—</span>')+'</td>'
@@ -6636,10 +6721,153 @@ function renderBoardMembers(){
  html+=memberTable(active)
  }
  if(inactive.length){
- html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:20px;margin-bottom:8px">Inactive / Emeritus</div>'
+ html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:20px;margin-bottom:8px">Inactive, Suspended, Terminated &amp; Emeritus</div>'
  html+=memberTable(inactive)
  }
  el.innerHTML=html
+}
+
+function renderBoardOfficers(){
+ var el=document.getElementById('btab-panel-officers')
+ if(!el) return
+ var roleKeys = Object.keys(_boardOfficerRoles)
+ if(!roleKeys.length){ el.innerHTML='<div class="empty-state"><div class="icon"></div><p>Loading roles…</p></div>'; return }
+
+ function currentHolder(roleKey){
+ var terms=_boardOfficerTerms.filter(function(t){return t.role_key===roleKey && (!t.term_end_date)})
+ if(!terms.length) return null
+ terms.sort(function(a,b){return new Date(b.election_date)-new Date(a.election_date)})
+ return terms[0]
+ }
+
+ function roleCard(roleKey){
+ var role=_boardOfficerRoles[roleKey]
+ var cur=currentHolder(roleKey)
+ return '<div class="card" style="padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">'
+ +'<div>'
+ +'<div style="font-weight:700;font-size:14px">'+escHtml(role.label)+'</div>'
+ +(cur
+ ?'<div style="font-size:13px;margin-top:2px">'+escHtml(cur.member_name)+'</div><div style="font-size:11px;color:var(--text-muted)">Since '+formatDate(cur.election_date)+'</div>'
+ :'<div style="font-size:13px;color:var(--text-hint);font-style:italic;margin-top:2px">Vacant</div>')
+ +'</div>'
+ +'<button class="btn btn-secondary btn-sm" onclick="openBoardOfficerModal(\''+roleKey+'\')">'+(cur?'Change':'Assign')+'</button>'
+ +'</div>'
+ }
+
+ function historyTable(){
+ var rows=_boardOfficerTerms.slice().sort(function(a,b){
+ if(a.role_key!==b.role_key) return (_boardOfficerRoles[a.role_key]?.label||'').localeCompare(_boardOfficerRoles[b.role_key]?.label||'')
+ return new Date(b.election_date)-new Date(a.election_date)
+ })
+ if(!rows.length) return '<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:8px 0">No officer role history recorded yet</div>'
+ return '<div class="card" style="padding:0;overflow:hidden"><table>'
+ +'<thead><tr><th>Role</th><th>Member</th><th>Elected</th><th>Term End</th><th>Notes</th><th></th></tr></thead><tbody>'
+ +rows.map(function(t){
+ var role=_boardOfficerRoles[t.role_key]
+ return '<tr>'
+ +'<td style="font-size:12px;font-weight:600">'+escHtml(role?role.label:t.role_key)+'</td>'
+ +'<td style="font-size:12px">'+escHtml(t.member_name)+'</td>'
+ +'<td style="font-size:12px">'+formatDate(t.election_date)+'</td>'
+ +'<td style="font-size:12px">'+(t.term_end_date?formatDate(t.term_end_date):'<span style="color:var(--green-600);font-weight:600">Current</span>')+'</td>'
+ +'<td style="font-size:12px;color:var(--text-muted)">'+escHtml(t.notes||'')+'</td>'
+ +'<td style="text-align:right;white-space:nowrap">'
+ +'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="editBoardOfficerTerm(\''+t.id+'\')">Edit</button> '
+ +'<button onclick="deleteBoardOfficerTerm(\''+t.id+'\')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:15px;padding:0 4px">×</button>'
+ +'</td></tr>'
+ }).join('')+'</tbody></table></div>'
+ }
+
+ var execRoles = Object.keys(_boardOfficerRoles).filter(function(k){return _boardOfficerRoles[k].category==='exec'})
+ var officerRoles = Object.keys(_boardOfficerRoles).filter(function(k){return _boardOfficerRoles[k].category==='officer'})
+
+ el.innerHTML =
+ '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Executive Board</div>'
+ +execRoles.map(roleCard).join('')
+ +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:20px;margin-bottom:8px">Officer Roles</div>'
+ +officerRoles.map(roleCard).join('')
+ +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:20px;margin-bottom:8px">Role History</div>'
+ +historyTable()
+}
+
+function populateBoardOfficerRoleSelect(selectedRoleKey){
+ var sel=document.getElementById('bo-role-key')
+ var exec=Object.keys(_boardOfficerRoles).filter(function(k){return _boardOfficerRoles[k].category==='exec'})
+ var officer=Object.keys(_boardOfficerRoles).filter(function(k){return _boardOfficerRoles[k].category==='officer'})
+ sel.innerHTML =
+ '<optgroup label="Executive Board">'+exec.map(function(k){return '<option value="'+k+'">'+escHtml(_boardOfficerRoles[k].label)+'</option>'}).join('')+'</optgroup>'
+ +'<optgroup label="Officer Roles">'+officer.map(function(k){return '<option value="'+k+'">'+escHtml(_boardOfficerRoles[k].label)+'</option>'}).join('')
+ if(selectedRoleKey) sel.value=selectedRoleKey
+}
+
+function populateBoardOfficerMemberSelect(selectedMemberId){
+ var sel=document.getElementById('bo-member-id')
+ var list=_boardMembers.slice().sort(function(a,b){return a.name.localeCompare(b.name)})
+ sel.innerHTML = list.map(function(m){return '<option value="'+m.id+'">'+escHtml(m.name)+(m.status!=='active'?' ('+m.status+')':'')+'</option>'}).join('')
+ if(selectedMemberId) sel.value=selectedMemberId
+}
+
+function renderBoardOfficerCurrentHolder(){
+ var roleKey=document.getElementById('bo-role-key').value
+ var terms=_boardOfficerTerms.filter(function(t){return t.role_key===roleKey && !t.term_end_date})
+ var note=document.getElementById('bo-current-holder-note')
+ var editingId=document.getElementById('bo-id').value
+ if(terms.length && terms[0].id!==editingId){
+ note.textContent='Currently held by '+terms[0].member_name+' (since '+formatDate(terms[0].election_date)+'). Saving will end their term as of the election date entered below.'
+ } else {
+ note.textContent=''
+ }
+}
+
+function openBoardOfficerModal(roleKey){
+ document.getElementById('board-officer-modal-title').textContent='Assign Officer Role'
+ document.getElementById('bo-id').value=''
+ document.getElementById('bo-election-date').value=''
+ document.getElementById('bo-term-end-date').value=''
+ document.getElementById('bo-notes').value=''
+ populateBoardOfficerRoleSelect(roleKey)
+ populateBoardOfficerMemberSelect(null)
+ renderBoardOfficerCurrentHolder()
+ openModal('modal-board-officer')
+}
+
+function editBoardOfficerTerm(id){
+ var t=_boardOfficerTerms.find(function(t){return t.id===id})
+ if(!t) return
+ document.getElementById('board-officer-modal-title').textContent='Edit Officer Term'
+ document.getElementById('bo-id').value=t.id
+ document.getElementById('bo-election-date').value=t.election_date||''
+ document.getElementById('bo-term-end-date').value=t.term_end_date||''
+ document.getElementById('bo-notes').value=t.notes||''
+ populateBoardOfficerRoleSelect(t.role_key)
+ populateBoardOfficerMemberSelect(t.member_id)
+ renderBoardOfficerCurrentHolder()
+ openModal('modal-board-officer')
+}
+
+async function saveBoardOfficerTerm(){
+ var id=document.getElementById('bo-id').value
+ var roleKey=document.getElementById('bo-role-key').value
+ var memberId=document.getElementById('bo-member-id').value
+ var electionDate=document.getElementById('bo-election-date').value
+ var termEndDate=document.getElementById('bo-term-end-date').value
+ var notes=document.getElementById('bo-notes').value.trim()
+ if(!memberId||!electionDate){toast('Board member and election date are required','error');return}
+ var data={role_key:roleKey,member_id:memberId,election_date:electionDate,term_end_date:termEndDate,notes:notes}
+ var res=id?await api('/api/board/officers/'+id,'PUT',data):await api('/api/board/officers','POST',data)
+ if(res&&res.error){toast(res.error,'error');return}
+ closeModal('modal-board-officer')
+ toast(id?'Officer term updated!':(res&&res.succeeded_count?'Assigned — previous holder\'s term ended':'Officer role assigned!'),'success')
+ await loadBoardPage()
+ switchBoardTab('officers')
+}
+
+async function deleteBoardOfficerTerm(id){
+ if(!confirm('Delete this officer term record? This cannot be undone.')) return
+ var res=await api('/api/board/officers/'+id,'DELETE')
+ if(res&&res.error){toast(res.error,'error');return}
+ toast('Removed')
+ await loadBoardPage()
+ switchBoardTab('officers')
 }
 
 function renderBoardMeetings(){
@@ -6830,10 +7058,20 @@ function populateBoardVolunteerDropdown(selectedId){
  }).join('')
 }
 
+function toggleBmTermEndFields(){
+ var status=document.getElementById('bm-status').value
+ var showDate = status==='suspended'||status==='terminated'
+ var showReason = status==='terminated'
+ document.getElementById('bm-term-end-date-group').style.display = showDate?'':'none'
+ document.getElementById('bm-term-end-reason-group').style.display = showReason?'':'none'
+}
+
 function openBoardMemberModal(){
  document.getElementById('board-member-modal-title').textContent='Add Board Member'
- ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes'].forEach(function(id){document.getElementById(id).value=''})
+ ;['bm-id','bm-name','bm-email','bm-role','bm-join-date','bm-notes','bm-term-end-date'].forEach(function(id){document.getElementById(id).value=''})
  document.getElementById('bm-status').value='active'
+ document.getElementById('bm-term-end-reason').value=''
+ toggleBmTermEndFields()
  document.getElementById('bm-nominations-section').style.display='none'
  populateBoardVolunteerDropdown(null)
  openModal('modal-board-member')
@@ -6846,6 +7084,9 @@ function editBoardMember(id){
  document.getElementById('bm-id').value=m.id; document.getElementById('bm-name').value=m.name
  document.getElementById('bm-email').value=m.email; document.getElementById('bm-role').value=m.role||''
  document.getElementById('bm-status').value=m.status; document.getElementById('bm-join-date').value=m.join_date||''
+ document.getElementById('bm-term-end-date').value=m.term_end_date||''
+ document.getElementById('bm-term-end-reason').value=m.term_end_reason||''
+ toggleBmTermEndFields()
  document.getElementById('bm-notes').value=m.notes||''
  populateBoardVolunteerDropdown(m.volunteer_id||null)
  // Show nominations
@@ -6881,8 +7122,13 @@ function openNominationFromModal(){
 async function saveBoardMember(){
  var name=document.getElementById('bm-name').value.trim(), email=document.getElementById('bm-email').value.trim()
  if(!name||!email){toast('Name and email required','error');return}
+ var status=document.getElementById('bm-status').value
+ var termEndDate=document.getElementById('bm-term-end-date').value||''
+ var termEndReason=document.getElementById('bm-term-end-reason').value||''
+ if((status==='suspended'||status==='terminated')&&!termEndDate){toast('Please set a term end date for this status','error');return}
+ if(status==='terminated'&&!termEndReason){toast('Please select whether this was self-terminated or not re-nominated','error');return}
  var id=document.getElementById('bm-id').value
- var data={name,email,role:document.getElementById('bm-role').value.trim(),status:document.getElementById('bm-status').value,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim(),volunteer_id:document.getElementById('bm-volunteer-id').value||null}
+ var data={name,email,role:document.getElementById('bm-role').value.trim(),status,join_date:document.getElementById('bm-join-date').value||null,notes:document.getElementById('bm-notes').value.trim(),volunteer_id:document.getElementById('bm-volunteer-id').value||null,term_end_date:termEndDate,term_end_reason:status==='terminated'?termEndReason:''}
  var res=id?await api('/api/board/members/'+id,'PUT',data):await api('/api/board/members','POST',data)
  if(res&&res.error){toast(res.error,'error');return}
  closeModal('modal-board-member'); toast(id?'Member updated!':'Member added!')
@@ -7591,7 +7837,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
- board:'', directors:'', 'my-time':'', rentals:'',
+ board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'',
  oncall:'📞', 'hours-store':'🏪'
 }
 
@@ -23032,6 +23278,11 @@ async function loadRentalsPage(){
   }
   document.getElementById('rentals-subtitle').textContent =
     _rentalData.partners.length + ' partners · ' + _rentalData.requests.length + ' requests'
+  const rNavBadge = document.getElementById('rental-pending-badge')
+  if(rNavBadge){
+    const pendingCount = _rentalData.requests.filter(r=>r.status==='pending').length
+    rNavBadge.textContent = pendingCount; rNavBadge.style.display = pendingCount?'':'none'
+  }
   renderRentalsPage()
 }
 
@@ -23160,7 +23411,7 @@ function renderRentalsPage(){
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
-         <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">🤖 Compliance Check</button>
+         <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
          <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
@@ -23654,13 +23905,13 @@ function openComplianceCheckModal(rid){
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:640px;padding:24px;max-height:92vh;overflow-y:auto">
    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-    <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">🤖 Compliance Check${req?': '+escHtml(req.title||''):''}</div>
+    <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Compliance Check${req?': '+escHtml(req.title||''):''}</div>
     <button onclick="this.closest('[style*=fixed]').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>
    </div>
    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Checks a proposal/contract against your uploaded lease and city use documents. This is an AI first pass to help you prepare — not legal advice, and every result should be reviewed by a person before you respond to the requester.</div>
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
     <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Proposal / Contract Text</label>
-    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cc-file-input').click()">📄 Upload PDF instead</button>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cc-file-input').click()">Upload PDF instead</button>
     <input type="file" id="cc-file-input" accept=".pdf" style="display:none" onchange="handleComplianceFileUpload(this,'${rid||''}')"/>
    </div>
    <textarea id="cc-proposal-text" rows="8" placeholder="Paste the proposal or contract text to check..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:10px">${escHtml(prefill)}</textarea>
@@ -23670,7 +23921,7 @@ function openComplianceCheckModal(rid){
    </div>
    <div style="display:flex;gap:8px;margin-bottom:16px">
     <button class="btn btn-primary" id="cc-run-btn" onclick="runComplianceCheck('${rid||''}')">Run Compliance Check</button>
-    <button class="btn btn-secondary" onclick="openComplianceDocsModal()">📎 Manage Lease/City Documents</button>
+    <button class="btn btn-secondary" onclick="openComplianceDocsModal()">Manage Lease/City Documents</button>
    </div>
    <div id="cc-result-area"></div>
    <div id="cc-history-area" style="margin-top:18px"></div>
@@ -23721,7 +23972,7 @@ function renderComplianceResult(result){
   area.innerHTML = `<div style="border:1.5px solid var(--border);border-radius:10px;padding:16px;margin-top:4px">
    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
     <span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:${meta.bg};color:${meta.color}">${escHtml(meta.label)}</span>
-    ${result.requires_legal_review?'<span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:#ede9fe;color:#5b21b6">⚖️ Recommend legal/board review</span>':''}
+    ${result.requires_legal_review?'<span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:#ede9fe;color:#5b21b6">Recommend legal/board review</span>':''}
    </div>
    <div style="font-size:13px;line-height:1.6;margin-bottom:12px">${escHtml(result.summary||'')}</div>
    ${(result.concerns||[]).length?`<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Concerns</div>
@@ -23769,9 +24020,9 @@ function openComplianceDocsModal(){
    <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Upload your lease and any city-issued use documentation (permits, zoning approvals). These are used as reference material for every compliance check — PDF only.</div>
    <div id="cd-list" style="margin-bottom:16px">Loading…</div>
    <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:14px">
-    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-lease-input').click()">📄 Upload Lease PDF</button>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-lease-input').click()">Upload Lease PDF</button>
     <input type="file" id="cd-lease-input" accept=".pdf" style="display:none" onchange="uploadComplianceDoc(this,'lease')"/>
-    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-city-input').click()">🏛️ Upload City Use PDF</button>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cd-city-input').click()">Upload City Use PDF</button>
     <input type="file" id="cd-city-input" accept=".pdf" style="display:none" onchange="uploadComplianceDoc(this,'city_use')"/>
    </div>
    <div id="cd-status" style="font-size:12px;color:var(--teal-dark);margin-top:8px"></div>
@@ -23789,7 +24040,7 @@ async function loadComplianceDocsList(){
   if(!el) return
   const docs = await api('/api/rental/compliance/docs')
   if(!Array.isArray(docs) || !docs.length){ el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No documents uploaded yet.</div>'; return }
-  const typeLabel = {lease:'📄 Lease', city_use:'🏛️ City Use'}
+  const typeLabel = {lease:'Lease', city_use:'City Use'}
   el.innerHTML = docs.map(d=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
    <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--bg)">${typeLabel[d.doc_type]||d.doc_type}</span>
    <div style="flex:1;font-size:12px">${escHtml(d.filename)}<div style="font-size:10px;color:var(--text-muted)">${(d.char_count||0).toLocaleString()} characters extracted · ${(d.uploaded_at||'').slice(0,10)}</div></div>

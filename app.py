@@ -1229,6 +1229,17 @@ def init_db():
             status TEXT DEFAULT 'scheduled',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS operating_costs (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL,
+            monthly_amount INTEGER DEFAULT 0,
+            notes TEXT DEFAULT '',
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS space_capacity_hours (
+            day_of_week INTEGER PRIMARY KEY,
+            open_time TEXT DEFAULT '08:00',
+            close_time TEXT DEFAULT '22:00',
+            closed BOOLEAN DEFAULT FALSE)""",
         """CREATE TABLE IF NOT EXISTS rental_compliance_docs (
             id TEXT PRIMARY KEY,
             doc_type TEXT NOT NULL,
@@ -19434,6 +19445,207 @@ def public_ask_contract_question(pid):
         return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
 
 # ── End Show Contracts Q&A ────────────────────────────────────────────────────
+
+# ── Cost & Pricing Calculator ─────────────────────────────────────────────────
+# Helps figure out what programming (classes, workshops, Rising Stars) and
+# external rentals need to charge to cover fixed operating costs and hit a
+# target profit margin, plus shows the financial gap for a given month based
+# on real scheduled hours vs. total available space-time.
+
+import calendar as _calendar_mod
+from datetime import date as _date_cls, datetime as _datetime_cls
+
+DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+
+def _hours_between(start_time, end_time):
+    """'14:30' - '09:00' style time strings -> hours as float. Returns 0 on bad input."""
+    try:
+        sh, sm = [int(x) for x in start_time.split(':')]
+        eh, em = [int(x) for x in end_time.split(':')]
+        mins = (eh*60+em) - (sh*60+sm)
+        return max(0, mins)/60.0
+    except Exception:
+        return 0.0
+
+@app.route('/api/finance/operating-costs')
+def get_operating_costs():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM operating_costs ORDER BY category') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/finance/operating-costs', methods=['POST'])
+def create_operating_cost():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    category = (d.get('category') or '').strip()
+    if not category:
+        return jsonify({'error': 'Category is required'}), 400
+    cid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO operating_costs (id, category, monthly_amount, notes)
+        VALUES (%s,%s,%s,%s)''', (cid, category, int(d.get('monthly_amount', 0)), (d.get('notes') or '').strip()))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': cid})
+
+@app.route('/api/finance/operating-costs/<cid>', methods=['PUT'])
+def update_operating_cost(cid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE operating_costs SET category=%s, monthly_amount=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
+        ((d.get('category') or '').strip(), int(d.get('monthly_amount', 0)), (d.get('notes') or '').strip(), cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/finance/operating-costs/<cid>', methods=['DELETE'])
+def delete_operating_cost(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM operating_costs WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/finance/capacity-hours')
+def get_capacity_hours():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM space_capacity_hours ORDER BY day_of_week') or []
+    if len(rows) < 7:
+        existing_days = {r['day_of_week'] for r in rows}
+        for dow in range(7):
+            if dow not in existing_days:
+                execute(conn, '''INSERT INTO space_capacity_hours (day_of_week, open_time, close_time, closed)
+                    VALUES (%s,'08:00','22:00',FALSE) ON CONFLICT (day_of_week) DO NOTHING''', (dow,))
+        conn.commit()
+        rows = fetchall(conn, 'SELECT * FROM space_capacity_hours ORDER BY day_of_week') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/finance/capacity-hours', methods=['PUT'])
+def update_capacity_hours():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    hours = d.get('hours', [])
+    conn = get_db()
+    for h in hours:
+        execute(conn, '''INSERT INTO space_capacity_hours (day_of_week, open_time, close_time, closed)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (day_of_week) DO UPDATE SET open_time=EXCLUDED.open_time, close_time=EXCLUDED.close_time, closed=EXCLUDED.closed''',
+            (int(h['day_of_week']), h.get('open_time','08:00'), h.get('close_time','22:00'), bool(h.get('closed', False))))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/finance/summary')
+def get_finance_summary():
+    err = require_auth()
+    if err: return err
+    month_str = request.args.get('month')  # 'YYYY-MM'
+    try:
+        year, month = [int(x) for x in month_str.split('-')]
+    except Exception:
+        today = _date_cls.today()
+        year, month = today.year, today.month
+
+    days_in_month = _calendar_mod.monthrange(year, month)[1]
+    month_dates = [_date_cls(year, month, d) for d in range(1, days_in_month+1)]
+    month_start = month_dates[0].isoformat()
+    month_end = month_dates[-1].isoformat()
+
+    conn = get_db()
+
+    # --- Fixed costs ---
+    costs = fetchall(conn, 'SELECT * FROM operating_costs') or []
+    total_fixed_costs = sum(c['monthly_amount'] for c in costs)
+
+    # --- Capacity: total possible hours this month ---
+    cap_rows = fetchall(conn, 'SELECT * FROM space_capacity_hours') or []
+    cap_by_dow = {r['day_of_week']: r for r in cap_rows}
+    total_possible_hours = 0.0
+    for dt in month_dates:
+        py_dow = dt.weekday()  # Monday=0 .. Sunday=6, matches DAY_NAMES/our storage
+        cap = cap_by_dow.get(py_dow)
+        if cap and not cap['closed']:
+            total_possible_hours += _hours_between(cap['open_time'], cap['close_time'])
+
+    # --- Scheduled hours: youth program sessions ---
+    sessions = fetchall(conn, '''SELECT ps.*, yp.name AS program_name FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
+        WHERE ps.status != 'cancelled' ''') or []
+    program_hours = 0.0
+    program_hours_by_name = {}
+    dow_name_to_idx = {name: i for i, name in enumerate(DAY_NAMES)}
+    for s in sessions:
+        dow_idx = dow_name_to_idx.get((s.get('day_of_week') or '').strip().capitalize())
+        if dow_idx is None:
+            continue
+        sess_start = s.get('start_date') or month_start
+        sess_end = s.get('end_date') or month_end
+        hrs_per_occurrence = _hours_between(s.get('start_time',''), s.get('end_time',''))
+        if hrs_per_occurrence <= 0:
+            continue
+        for dt in month_dates:
+            if dt.weekday() == dow_idx and sess_start <= dt.isoformat() <= sess_end:
+                program_hours += hrs_per_occurrence
+                program_hours_by_name[s['program_name']] = program_hours_by_name.get(s['program_name'], 0) + hrs_per_occurrence
+
+    # --- Scheduled hours: rentals ---
+    rental_occ = fetchall(conn, '''SELECT ro.*, rr.title, rr.status AS request_status FROM rental_occurrences ro
+        JOIN rental_requests rr ON rr.id=ro.request_id
+        WHERE ro.occurrence_date >= %s AND ro.occurrence_date <= %s AND rr.status='approved' ''',
+        (month_start, month_end)) or []
+    rental_hours = sum(_hours_between(o.get('start_time',''), o.get('end_time','')) for o in rental_occ)
+
+    scheduled_hours = program_hours + rental_hours
+    gap_hours = max(0.0, total_possible_hours - scheduled_hours)
+
+    # --- Revenue (approximation: payments/charges recorded within the month) ---
+    program_revenue_cents = fetchone(conn, '''SELECT COALESCE(SUM(amount_paid),0) AS s FROM program_registrations
+        WHERE status NOT IN ('cancelled','denied') AND created_at::date >= %s AND created_at::date <= %s''',
+        (month_start, month_end))
+    program_revenue_cents = program_revenue_cents['s'] if program_revenue_cents else 0
+
+    rental_revenue_cents = fetchone(conn, '''SELECT COALESCE(SUM(rr.total_amount),0) AS s
+        FROM rental_requests rr
+        WHERE rr.status='approved' AND EXISTS (
+            SELECT 1 FROM rental_occurrences ro WHERE ro.request_id=rr.id
+            AND ro.occurrence_date >= %s AND ro.occurrence_date <= %s)''',
+        (month_start, month_end))
+    rental_revenue_cents = rental_revenue_cents['s'] if rental_revenue_cents else 0
+
+    total_revenue_cents = program_revenue_cents + rental_revenue_cents
+    shortfall_cents = (total_fixed_costs * 100) - total_revenue_cents  # positive = short, negative = surplus
+
+    conn.close()
+
+    cost_per_scheduled_hour = round((total_fixed_costs / scheduled_hours), 2) if scheduled_hours > 0 else None
+    cost_per_hour_if_full = round((total_fixed_costs / total_possible_hours), 2) if total_possible_hours > 0 else None
+
+    return jsonify({
+        'month': f'{year:04d}-{month:02d}',
+        'total_fixed_costs': total_fixed_costs,
+        'total_possible_hours': round(total_possible_hours, 1),
+        'scheduled_hours': round(scheduled_hours, 1),
+        'program_hours': round(program_hours, 1),
+        'rental_hours': round(rental_hours, 1),
+        'program_hours_by_name': {k: round(v, 1) for k, v in program_hours_by_name.items()},
+        'gap_hours': round(gap_hours, 1),
+        'program_revenue_cents': program_revenue_cents,
+        'rental_revenue_cents': rental_revenue_cents,
+        'total_revenue_cents': total_revenue_cents,
+        'shortfall_cents': shortfall_cents,
+        'cost_per_scheduled_hour': cost_per_scheduled_hour,
+        'cost_per_hour_if_full': cost_per_hour_if_full,
+    })
+
+# ── End Cost & Pricing Calculator ─────────────────────────────────────────────
 
 
 

@@ -19563,7 +19563,7 @@ def get_finance_summary():
 
     # --- Fixed costs ---
     costs = fetchall(conn, 'SELECT * FROM operating_costs') or []
-    total_fixed_costs = sum(c['monthly_amount'] for c in costs)
+    total_fixed_costs = sum(c['monthly_amount'] for c in costs) / 100.0  # stored in cents, convert to dollars
 
     # --- Capacity: total possible hours this month ---
     cap_rows = fetchall(conn, 'SELECT * FROM space_capacity_hours') or []

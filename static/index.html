@@ -470,6 +470,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
+        <div class="nav-item" onclick="navTo('cost-pricing',this)"><span class="nav-icon" id="ni-cost-pricing"></span>Cost &amp; Pricing</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
@@ -1464,6 +1465,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <section class="page" id="page-event-logs">
  <div class="page-body">
  <div id="event-logs-list"></div>
+ </div>
+ </section>
+
+ <!-- COST & PRICING PAGE -->
+ <section class="page" id="page-cost-pricing">
+ <div class="page-header">
+ <div><div class="page-title">Cost &amp; Pricing</div><div class="page-subtitle">Figure out what to charge, and see the financial gap for a given month</div></div>
+ </div>
+ <div class="page-body" id="cp-body">
+ <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>
  </div>
  </section>
 
@@ -3938,6 +3949,7 @@ function navTo(page,el){
  if(page==='carpools') loadCarpoolsPage()
  if(page==='production-signin') initProdSignIn()
  if(page==='show-contracts') loadShowContractsPage()
+ if(page==='cost-pricing') loadCostPricingPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -24272,6 +24284,290 @@ async function deleteShowContractQA(qid, pid){
  if(res&&res.ok) loadShowContractsForProduction()
 }
 // ── End Show Contracts Q&A ────────────────────────────────────────────────
+
+// ── Cost & Pricing Calculator ──────────────────────────────────────────────
+var _cpCosts = []
+var _cpCapacity = []
+var _cpSummary = null
+var _cpMonth = new Date().toISOString().slice(0,7)
+var CP_DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+
+function cpDollars(cents){ return '$'+((cents||0)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) }
+
+async function loadCostPricingPage(){
+ var body = document.getElementById('cp-body')
+ body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading…</div>'
+ var costs = await api('/api/finance/operating-costs')
+ var capacity = await api('/api/finance/capacity-hours')
+ var summary = await api('/api/finance/summary?month='+_cpMonth)
+ _cpCosts = Array.isArray(costs) ? costs : []
+ _cpCapacity = Array.isArray(capacity) ? capacity : []
+ _cpSummary = (summary && !summary.error) ? summary : null
+ renderCostPricingPage()
+}
+
+async function refreshCpSummaryOnly(){
+ var summary = await api('/api/finance/summary?month='+_cpMonth)
+ _cpSummary = (summary && !summary.error) ? summary : null
+ renderCostPricingPage()
+}
+
+function renderCostPricingPage(){
+ var body = document.getElementById('cp-body')
+ var totalFixed = _cpCosts.reduce(function(s,c){return s+(c.monthly_amount||0)},0)
+
+ // --- Operating Costs card ---
+ var costsRows = _cpCosts.length ? _cpCosts.map(function(c){
+  return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
+  +'<div style="flex:1;font-size:13px;font-weight:600">'+escHtml(c.category)+(c.notes?'<div style="font-size:11px;color:var(--text-muted);font-weight:400">'+escHtml(c.notes)+'</div>':'')+'</div>'
+  +'<div style="font-size:13px;font-weight:700">'+cpDollars(c.monthly_amount)+'/mo</div>'
+  +'<button class="btn btn-secondary btn-sm" onclick="editOperatingCost(\''+c.id+'\')">Edit</button>'
+  +'<button onclick="deleteOperatingCost(\''+c.id+'\')" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:16px;padding:0 4px">×</button>'
+  +'</div>'
+ }).join('') : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;padding:4px 0">No fixed costs entered yet.</div>'
+
+ var costsCard = '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+ +'<div style="font-size:13px;font-weight:700">Fixed Monthly Operating Costs</div>'
+ +'<div style="font-size:15px;font-weight:800;color:var(--teal-dark)">'+cpDollars(totalFixed)+'/mo</div>'
+ +'</div>'
+ +costsRows
+ +'<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="openAddCostForm()">+ Add Cost Category</button>'
+ +'<div id="cp-add-cost-form" style="display:none;margin-top:10px;padding:12px;background:var(--bg);border-radius:8px">'
+ +'<div style="display:grid;grid-template-columns:1fr 140px;gap:8px;margin-bottom:8px">'
+ +'<input type="text" id="cp-new-cost-category" placeholder="e.g. Rent, Utilities, Insurance" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+ +'<input type="number" id="cp-new-cost-amount" placeholder="Monthly $" step="0.01" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+ +'</div>'
+ +'<input type="text" id="cp-new-cost-notes" placeholder="Notes (optional)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:8px"/>'
+ +'<button class="btn btn-primary btn-sm" onclick="saveNewOperatingCost()">Save</button> '
+ +'<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'cp-add-cost-form\').style.display=\'none\'">Cancel</button>'
+ +'</div>'
+ +'</div>'
+
+ // --- Capacity Hours card ---
+ var capByDow = {}
+ _cpCapacity.forEach(function(c){ capByDow[c.day_of_week]=c })
+ var capRows = CP_DAY_NAMES.map(function(name, idx){
+  var c = capByDow[idx] || {open_time:'08:00', close_time:'22:00', closed:false}
+  return '<div style="display:grid;grid-template-columns:100px 1fr 1fr 80px;gap:8px;align-items:center;margin-bottom:6px">'
+  +'<div style="font-size:12px;font-weight:600">'+name+'</div>'
+  +'<input type="time" id="cp-open-'+idx+'" value="'+c.open_time+'" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px" '+(c.closed?'disabled':'')+'/>'
+  +'<input type="time" id="cp-close-'+idx+'" value="'+c.close_time+'" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px" '+(c.closed?'disabled':'')+'/>'
+  +'<label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="cp-closed-'+idx+'" onchange="toggleCpDayClosed('+idx+')" '+(c.closed?'checked':'')+'/> Closed</label>'
+  +'</div>'
+ }).join('')
+
+ var capacityCard = '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:4px">Space Capacity Hours</div>'
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">When the space could be in use at all — your programming, rentals, anything. This defines the ceiling for "total possible hours."</div>'
+ +capRows
+ +'<button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="saveCapacityHours()">Save Hours</button>'
+ +'<span id="cp-capacity-save-status" style="font-size:11px;color:var(--teal-dark);margin-left:8px"></span>'
+ +'</div>'
+
+ // --- Monthly Snapshot card ---
+ var snapshotCard = renderCpSnapshotCard()
+
+ // --- Calculators ---
+ var defaultCostPerHour = (_cpSummary && _cpSummary.cost_per_scheduled_hour) || (_cpSummary && _cpSummary.cost_per_hour_if_full) || 0
+
+ var pricingCalcCard = '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:4px">Program Pricing Calculator</div>'
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">For a dance class, workshop, or a whole run like Rising Stars — figure out what to charge per student.</div>'
+ +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+ +cpNumField('pc-sessions','Number of Sessions',1)
+ +cpNumField('pc-hours-per-session','Hours per Session',1)
+ +cpNumField('pc-enrollment','Expected Enrollment',10)
+ +cpNumField('pc-margin','Target Profit Margin %',20)
+ +'</div>'
+ +'<div style="margin-bottom:10px">'
+ +'<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Cost per Hour to Run the Space <span style="font-weight:400;text-transform:none">(from your snapshot — override to test other scenarios)</span></label>'
+ +'<input type="number" id="pc-cost-per-hour" value="'+defaultCostPerHour+'" step="0.01" oninput="calcProgramPricing()" style="width:160px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+ +'</div>'
+ +'<div id="pc-result" style="margin-top:12px"></div>'
+ +'</div>'
+
+ var rentalCalcCard = '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:4px">External Rental Rate Calculator</div>'
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Suggests an hourly rate for renting out the space to a partner or outside group.</div>'
+ +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+ +cpNumField('rc-hours','Hours Requested',3)
+ +cpNumField('rc-margin','Target Profit Margin %',30)
+ +'</div>'
+ +'<div style="margin-bottom:10px">'
+ +'<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Cost per Hour to Run the Space</label>'
+ +'<input type="number" id="rc-cost-per-hour" value="'+defaultCostPerHour+'" step="0.01" oninput="calcRentalRate()" style="width:160px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+ +'</div>'
+ +'<div id="rc-result" style="margin-top:12px"></div>'
+ +'</div>'
+
+ body.innerHTML = costsCard + capacityCard + snapshotCard + pricingCalcCard + rentalCalcCard
+
+ // wire up live recalculation for the two calculators
+ ;['pc-sessions','pc-hours-per-session','pc-enrollment','pc-margin'].forEach(function(id){
+  var el=document.getElementById(id); if(el) el.oninput=calcProgramPricing
+ })
+ ;['rc-hours','rc-margin'].forEach(function(id){
+  var el=document.getElementById(id); if(el) el.oninput=calcRentalRate
+ })
+ calcProgramPricing()
+ calcRentalRate()
+}
+
+function cpNumField(id, label, defVal){
+ return '<div><label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">'+label+'</label>'
+ +'<input type="number" id="'+id+'" value="'+defVal+'" min="0" step="0.5" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+}
+
+function renderCpSnapshotCard(){
+ if(!_cpSummary){
+  return '<div class="card" style="padding:16px;margin-bottom:20px"><div style="font-size:13px;color:var(--text-muted)">Could not load this month\'s snapshot.</div></div>'
+ }
+ var s = _cpSummary
+ var shortfall = s.shortfall_cents
+ var shortfallColor = shortfall > 0 ? 'var(--red-600)' : 'var(--green-600)'
+ var shortfallLabel = shortfall > 0 ? 'Short by' : 'Surplus of'
+ var gapPct = s.total_possible_hours>0 ? Math.round((s.gap_hours/s.total_possible_hours)*100) : 0
+
+ var programBreakdown = Object.keys(s.program_hours_by_name||{}).length
+  ? '<div style="margin-top:6px">'+Object.entries(s.program_hours_by_name).map(function(e){return '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(e[0])+': '+e[1]+' hrs</div>'}).join('')+'</div>'
+  : ''
+
+ return '<div class="card" style="padding:16px;margin-bottom:20px">'
+ +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+ +'<div style="font-size:13px;font-weight:700">Monthly Snapshot</div>'
+ +'<input type="month" id="cp-month-picker" value="'+_cpMonth+'" onchange="changeCpMonth()" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px"/>'
+ +'</div>'
+ +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+ +'<div>'
+ +'<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Fixed Costs This Month</div>'
+ +'<div style="font-size:20px;font-weight:800">'+cpDollars(s.total_fixed_costs*100)+'</div>'
+ +'</div>'
+ +'<div>'
+ +'<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Revenue This Month</div>'
+ +'<div style="font-size:20px;font-weight:800">'+cpDollars(s.total_revenue_cents)+'</div>'
+ +'<div style="font-size:11px;color:var(--text-muted)">Programs '+cpDollars(s.program_revenue_cents)+' · Rentals '+cpDollars(s.rental_revenue_cents)+'</div>'
+ +'</div>'
+ +'</div>'
+ +'<div style="margin-top:14px;padding:12px 14px;border-radius:10px;background:'+(shortfall>0?'var(--red-50)':'var(--green-50)')+'">'
+ +'<div style="font-size:12px;font-weight:700;color:'+shortfallColor+'">'+shortfallLabel+' '+cpDollars(Math.abs(shortfall))+'</div>'
+ +'</div>'
+ +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:16px">'
+ +'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Possible Hours</div><div style="font-size:16px;font-weight:700">'+s.total_possible_hours+'</div></div>'
+ +'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Scheduled Hours</div><div style="font-size:16px;font-weight:700">'+s.scheduled_hours+'</div>'+programBreakdown+'</div>'
+ +'<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Gap Hours</div><div style="font-size:16px;font-weight:700;color:var(--amber-700)">'+s.gap_hours+' <span style="font-size:11px;font-weight:400">('+gapPct+'%)</span></div></div>'
+ +'</div>'
+ +'<div style="margin-top:14px;font-size:12px;color:var(--text-muted)">Cost per scheduled hour: <strong>'+(s.cost_per_scheduled_hour!=null?'$'+s.cost_per_scheduled_hour:'—')+'</strong> · Cost per hour if fully booked: <strong>'+(s.cost_per_hour_if_full!=null?'$'+s.cost_per_hour_if_full:'—')+'</strong></div>'
+ +'<div style="font-size:11px;color:var(--text-hint);margin-top:8px;font-style:italic">Revenue is approximated from payments recorded and rentals booked within this calendar month — not a precise per-session accrual.</div>'
+ +'</div>'
+}
+
+function changeCpMonth(){
+ _cpMonth = document.getElementById('cp-month-picker').value
+ refreshCpSummaryOnly()
+}
+
+function toggleCpDayClosed(idx){
+ var closed = document.getElementById('cp-closed-'+idx).checked
+ document.getElementById('cp-open-'+idx).disabled = closed
+ document.getElementById('cp-close-'+idx).disabled = closed
+}
+
+async function saveCapacityHours(){
+ var hours = CP_DAY_NAMES.map(function(name, idx){
+  return {
+   day_of_week: idx,
+   open_time: document.getElementById('cp-open-'+idx).value || '08:00',
+   close_time: document.getElementById('cp-close-'+idx).value || '22:00',
+   closed: document.getElementById('cp-closed-'+idx).checked
+  }
+ })
+ var res = await api('/api/finance/capacity-hours','PUT',{hours:hours})
+ var status = document.getElementById('cp-capacity-save-status')
+ if(res&&res.ok){ status.textContent='✓ Saved'; await loadCostPricingPage() }
+ else status.textContent='Error saving'
+}
+
+function openAddCostForm(){
+ document.getElementById('cp-add-cost-form').style.display=''
+}
+
+async function saveNewOperatingCost(){
+ var category = document.getElementById('cp-new-cost-category').value.trim()
+ var amount = parseFloat(document.getElementById('cp-new-cost-amount').value)||0
+ var notes = document.getElementById('cp-new-cost-notes').value.trim()
+ if(!category){ toast('Category is required','error'); return }
+ var res = await api('/api/finance/operating-costs','POST',{category:category, monthly_amount:Math.round(amount*100), notes:notes})
+ if(res&&res.ok){ toast('Cost added!','success'); await loadCostPricingPage() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function editOperatingCost(id){
+ var c = _cpCosts.find(function(c){return c.id===id})
+ if(!c) return
+ var newCategory = prompt('Category:', c.category)
+ if(newCategory===null) return
+ var newAmount = prompt('Monthly amount ($):', (c.monthly_amount/100).toFixed(2))
+ if(newAmount===null) return
+ var newNotes = prompt('Notes (optional):', c.notes||'')
+ var res = await api('/api/finance/operating-costs/'+id,'PUT',{category:newCategory.trim(), monthly_amount:Math.round(parseFloat(newAmount)*100)||0, notes:(newNotes||'').trim()})
+ if(res&&res.ok){ toast('Updated!','success'); await loadCostPricingPage() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function deleteOperatingCost(id){
+ if(!confirm('Remove this cost category?')) return
+ var res = await api('/api/finance/operating-costs/'+id,'DELETE')
+ if(res&&res.ok) await loadCostPricingPage()
+}
+
+function calcProgramPricing(){
+ var el = document.getElementById('pc-result')
+ if(!el) return
+ var sessions = parseFloat(document.getElementById('pc-sessions').value)||0
+ var hoursPerSession = parseFloat(document.getElementById('pc-hours-per-session').value)||0
+ var enrollment = parseFloat(document.getElementById('pc-enrollment').value)||0
+ var marginPct = parseFloat(document.getElementById('pc-margin').value)||0
+ var costPerHour = parseFloat(document.getElementById('pc-cost-per-hour').value)||0
+
+ var totalHours = sessions*hoursPerSession
+ var totalCost = totalHours*costPerHour
+ if(enrollment<=0 || totalCost<=0){
+  el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);font-style:italic">Fill in the numbers above to see a suggested price.</div>'
+  return
+ }
+ var costPerStudent = totalCost/enrollment
+ var suggestedPrice = costPerStudent/(1-(marginPct/100))
+ var totalRevenue = suggestedPrice*enrollment
+ var profit = totalRevenue-totalCost
+
+ el.innerHTML = '<div style="border:1.5px solid var(--teal);border-radius:10px;padding:14px 16px;background:var(--teal-50)">'
+ +'<div style="font-size:11px;font-weight:700;color:var(--teal-dark);text-transform:uppercase">Suggested Price per Student</div>'
+ +'<div style="font-size:26px;font-weight:800;color:var(--teal-dark)">$'+suggestedPrice.toFixed(2)+'</div>'
+ +'<div style="font-size:12px;color:var(--text-muted);margin-top:8px">Total hours: '+totalHours+' · Cost to run: $'+totalCost.toFixed(2)+' · Projected revenue: $'+totalRevenue.toFixed(2)+' · Projected profit: $'+profit.toFixed(2)+'</div>'
+ +'</div>'
+}
+
+function calcRentalRate(){
+ var el = document.getElementById('rc-result')
+ if(!el) return
+ var hours = parseFloat(document.getElementById('rc-hours').value)||0
+ var marginPct = parseFloat(document.getElementById('rc-margin').value)||0
+ var costPerHour = parseFloat(document.getElementById('rc-cost-per-hour').value)||0
+ if(hours<=0 || costPerHour<=0){
+  el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);font-style:italic">Fill in the numbers above to see a suggested rate.</div>'
+  return
+ }
+ var suggestedHourlyRate = costPerHour/(1-(marginPct/100))
+ var suggestedTotal = suggestedHourlyRate*hours
+
+ el.innerHTML = '<div style="border:1.5px solid var(--teal);border-radius:10px;padding:14px 16px;background:var(--teal-50)">'
+ +'<div style="font-size:11px;font-weight:700;color:var(--teal-dark);text-transform:uppercase">Suggested Hourly Rate</div>'
+ +'<div style="font-size:26px;font-weight:800;color:var(--teal-dark)">$'+suggestedHourlyRate.toFixed(2)+'/hr</div>'
+ +'<div style="font-size:12px;color:var(--text-muted);margin-top:8px">For '+hours+' hours: $'+suggestedTotal.toFixed(2)+' total</div>'
+ +'</div>'
+}
+// ── End Cost & Pricing Calculator ──────────────────────────────────────────
 
 function loadMarqueePage(){
   // Wire tab buttons

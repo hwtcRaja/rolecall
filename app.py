@@ -1614,6 +1614,12 @@ def init_db():
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS sms_conversations (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            customer_phone TEXT NOT NULL,
+            oncall_phone TEXT DEFAULT '',
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -17830,26 +17836,126 @@ def twilio_call_status():
 
 
 
+def _phone_last10(p):
+    """Strip a phone number down to its last 10 digits for comparison,
+    since Twilio uses E.164 (+15551234567) but numbers get stored in all
+    sorts of formats elsewhere in the app."""
+    digits = ''.join(ch for ch in (p or '') if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+def lookup_contact_name_by_phone(phone):
+    """Check a phone number against known contacts (volunteers, guardians on
+    file, rental partners) so inbound texts can show a name instead of a bare
+    number. Returns None if it's not a number we recognize."""
+    last10 = _phone_last10(phone)
+    if not last10:
+        return None
+    conn = get_db()
+    try:
+        row = fetchone(conn, '''SELECT name FROM volunteers
+            WHERE RIGHT(REGEXP_REPLACE(phone,'[^0-9]','','g'),10)=%s LIMIT 1''', (last10,))
+        if row: return row['name']
+        row = fetchone(conn, '''SELECT guardian_name AS name FROM program_registrations
+            WHERE RIGHT(REGEXP_REPLACE(guardian_phone,'[^0-9]','','g'),10)=%s
+            ORDER BY created_at DESC LIMIT 1''', (last10,))
+        if row and row['name']: return row['name']
+        row = fetchone(conn, '''SELECT contact_name, name AS org_name FROM rental_partners
+            WHERE RIGHT(REGEXP_REPLACE(contact_phone,'[^0-9]','','g'),10)=%s LIMIT 1''', (last10,))
+        if row: return row['contact_name'] or row['org_name']
+    except Exception as e:
+        app.logger.warning(f'lookup_contact_name_by_phone error: {e}')
+    finally:
+        conn.close()
+    return None
+
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
-    """Inbound SMS webhook — forward to on-call person."""
+    """Inbound SMS webhook.
+
+    Two very different things land here:
+    1. A customer texting the HWTC number for the first time (or continuing
+       a conversation) — forward it to whoever's on call.
+    2. The on-call person REPLYING on their own phone. Their reply is sent
+       to the HWTC Twilio number (since that's who the forwarded message
+       appeared to come from), so without tracking, it looks identical to a
+       new customer message and gets re-broadcast instead of delivered back
+       to the actual customer. We tell the two apart by checking whether the
+       From number matches whoever is currently on call, and route the
+       on-call person's replies to the most recently active customer thread.
+    """
     oncall = get_oncall_now()
     ts = get_twilio_settings()
     forward_to = (oncall or {}).get('phone') or ts['fallback']
     person_name = (oncall or {}).get('person_name') or 'fallback'
     from_num = request.form.get('From','Unknown')
     body = request.form.get('Body','').strip()
-    host = request.host_url.rstrip('/')
-    import datetime as _dtsms
     now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
+
+    is_oncall_replying = forward_to and _phone_last10(from_num) == _phone_last10(forward_to)
+
+    if is_oncall_replying:
+        conn = get_db()
+        target_row = None
+        # Optional "@1234 message" prefix lets the on-call person pick a
+        # specific conversation by the customer's last 4 digits, in case
+        # more than one person has texted in recently.
+        msg_body = body
+        if body.startswith('@') and ' ' in body:
+            code, rest = body[1:].split(' ', 1)
+            if code.isdigit() and len(code) == 4:
+                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
+                msg_body = rest.strip()
+        if not target_row:
+            target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                WHERE last_message_at > NOW() - INTERVAL '4 hours'
+                ORDER BY last_message_at DESC LIMIT 1''')
+
+        if not target_row:
+            conn.close()
+            app.logger.info('On-call reply received but no active conversation to route it to.')
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
+        customer_phone = target_row['customer_phone']
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=msg_body, from_=ts['from_phone'], to=customer_phone)
+            execute(conn, 'UPDATE sms_conversations SET last_message_at=NOW() WHERE id=%s', (target_row['id'],))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Twilio reply-forward SMS failed: {e}')
+        conn.close()
+
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'↩️ *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
+        ], text=f'On-call reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}')
+
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # --- New/continuing customer message ---
+    contact_name = lookup_contact_name_by_phone(from_num)
+    sender_label = f'{contact_name} ({fmt_phone(from_num)})' if contact_name else fmt_phone(from_num)
+
+    conn = get_db()
+    # No unique constraint on customer_phone (a customer could have multiple
+    # historical threads), so just insert a fresh row per message rather than
+    # upsert — "most recent by last_message_at" is what routing relies on.
+    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
+        VALUES (%s,%s,NOW())''', (from_num, forward_to))
+    conn.commit(); conn.close()
+
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:
         try:
             from twilio.rest import Client as _TwClient
             client = _TwClient(ts['account_sid'], ts['auth_token'])
             client.messages.create(
-                body=f'[HWTC] From {fmt_phone(from_num)}: {body}',
+                body=f'[HWTC] From {sender_label}: {body}\n(Just reply to this text to respond — it\'ll go straight to them.)',
                 from_=ts['from_phone'],
                 to=forward_to
             )
@@ -17858,8 +17964,8 @@ def twilio_sms():
     # Post to Slack
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'💬 *Inbound Text Message*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
-    ], text=f'Text from {fmt_phone(from_num)}: {body[:100]}')
+            f'💬 *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+    ], text=f'Text from {sender_label}: {body[:100]}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
     twiml = f'''<?xml version="1.0" encoding="UTF-8"?>

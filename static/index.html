@@ -24390,8 +24390,12 @@ function renderCostPricingPage(){
  +'<input type="number" id="pc-total-hours-override" step="0.5" placeholder="auto" style="width:160px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
  +'</div>'
  +'<div id="pc-price-input-wrap" style="margin-bottom:10px;display:none">'
- +'<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Price per Student ($)</label>'
- +'<input type="number" id="pc-price-per-student" value="500" step="1" style="width:160px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+ +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+ +'<div><label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Price per Student ($)</label>'
+ +'<input type="number" id="pc-price-per-student" value="500" step="1" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+ +'<div><label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Other Program Costs ($) <span style="font-weight:400;text-transform:none">(instructors, materials, costumes, etc.)</span></label>'
+ +'<input type="number" id="pc-other-costs" value="0" step="1" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+ +'</div>'
  +'</div>'
  +'<div id="pc-cost-input-wrap" style="margin-bottom:10px">'
  +'<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;display:block;margin-bottom:4px">Cost per Hour to Run the Space <span style="font-weight:400;text-transform:none">(from your snapshot — override to test other scenarios)</span></label>'
@@ -24417,7 +24421,7 @@ function renderCostPricingPage(){
  body.innerHTML = costsCard + capacityCard + snapshotCard + pricingCalcCard + rentalCalcCard
 
  // wire up live recalculation for the two calculators
- ;['pc-sessions','pc-hours-per-session','pc-enrollment','pc-margin','pc-total-hours-override','pc-price-per-student','pc-cost-per-hour'].forEach(function(id){
+ ;['pc-sessions','pc-hours-per-session','pc-enrollment','pc-margin','pc-total-hours-override','pc-price-per-student','pc-other-costs','pc-cost-per-hour'].forEach(function(id){
   var el=document.getElementById(id); if(el) el.oninput=calcProgramPricing
  })
  ;['rc-hours','rc-margin'].forEach(function(id){
@@ -24557,13 +24561,14 @@ function calcProgramPricing(){
 
  if(_cpPricingMode==='budget'){
   var pricePerStudent = parseFloat(document.getElementById('pc-price-per-student').value)||0
+  var otherCosts = parseFloat(document.getElementById('pc-other-costs').value)||0
   if(enrollment<=0 || pricePerStudent<=0 || totalHours<=0){
    el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);font-style:italic">Fill in the numbers above to see the space budget.</div>'
    return
   }
   var totalRevenue = pricePerStudent*enrollment
   var targetProfit = totalRevenue*(marginPct/100)
-  var spaceBudget = totalRevenue-targetProfit
+  var spaceBudget = totalRevenue-targetProfit-otherCosts
   var affordableCostPerHour = spaceBudget/totalHours
   var snapshotCostPerHour = (_cpSummary && (_cpSummary.cost_per_scheduled_hour || _cpSummary.cost_per_hour_if_full)) || null
   var comparisonHtml = ''
@@ -24575,11 +24580,15 @@ function calcProgramPricing(){
     : 'That\'s $'+Math.abs(diff).toFixed(2)+'/hr less than your real cost of $'+snapshotCostPerHour+'/hr — this pricing falls short.'
    comparisonHtml = '<div style="font-size:12px;font-weight:600;color:'+diffColor+';margin-top:8px">'+diffLabel+'</div>'
   }
+  var negativeWarning = spaceBudget < 0
+   ? '<div style="font-size:12px;font-weight:600;color:var(--red-600);margin-top:8px">Other costs and target profit alone already exceed total revenue — there\'s nothing left for space at this price.</div>'
+   : ''
   el.innerHTML = '<div style="border:1.5px solid var(--teal);border-radius:10px;padding:14px 16px;background:var(--teal-50)">'
   +'<div style="font-size:11px;font-weight:700;color:var(--teal-dark);text-transform:uppercase">Budget Available for Space</div>'
   +'<div style="font-size:26px;font-weight:800;color:var(--teal-dark)">$'+spaceBudget.toFixed(2)+' <span style="font-size:14px;font-weight:600">($'+affordableCostPerHour.toFixed(2)+'/hr over '+totalHours+' hrs)</span></div>'
-  +'<div style="font-size:12px;color:var(--text-muted);margin-top:8px">Total revenue: $'+totalRevenue.toFixed(2)+' ('+enrollment+' students × $'+pricePerStudent.toFixed(2)+') · Target profit ('+marginPct+'%): $'+targetProfit.toFixed(2)+'</div>'
+  +'<div style="font-size:12px;color:var(--text-muted);margin-top:8px">Total revenue: $'+totalRevenue.toFixed(2)+' ('+enrollment+' students × $'+pricePerStudent.toFixed(2)+') · Target profit ('+marginPct+'%): $'+targetProfit.toFixed(2)+' · Other program costs: $'+otherCosts.toFixed(2)+'</div>'
   +comparisonHtml
+  +negativeWarning
   +'</div>'
   return
  }

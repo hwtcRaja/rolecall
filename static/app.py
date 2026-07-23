@@ -950,6 +950,8 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             updated_by TEXT)""",
         "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL",
+        "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS term_end_date TEXT DEFAULT ''",
+        "ALTER TABLE board_members ADD COLUMN IF NOT EXISTS term_end_reason TEXT DEFAULT ''",
         "ALTER TABLE board_meeting_attendance ADD COLUMN IF NOT EXISTS attendance_type TEXT DEFAULT 'absent'",
         """CREATE TABLE IF NOT EXISTS audition_settings (
             id TEXT PRIMARY KEY,
@@ -1517,6 +1519,31 @@ def init_db():
             submitted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(member_id, month, year))""",
+        """CREATE TABLE IF NOT EXISTS board_officer_terms (
+            id TEXT PRIMARY KEY,
+            member_id TEXT NOT NULL REFERENCES board_members(id) ON DELETE CASCADE,
+            role_key TEXT NOT NULL,
+            election_date TEXT NOT NULL,
+            term_years INTEGER DEFAULT 3,
+            term_end_date TEXT DEFAULT '',
+            term_end_reason TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_years INTEGER DEFAULT 3",
+        "ALTER TABLE board_officer_terms ADD COLUMN IF NOT EXISTS term_end_reason TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS production_contracts (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            extracted_text TEXT DEFAULT '',
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS production_contract_qa (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            question TEXT NOT NULL,
+            answer TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_message TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS event_staff (
             id TEXT PRIMARY KEY,
@@ -1576,6 +1603,12 @@ def init_db():
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS sms_conversations (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            customer_phone TEXT NOT NULL,
+            oncall_phone TEXT DEFAULT '',
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -7230,6 +7263,12 @@ def portal_page():
 @app.route('/join')
 def join_page():
     resp = send_from_directory('static', 'join.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+@app.route('/show-questions')
+def show_questions_page():
+    resp = send_from_directory('static', 'show-questions.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
@@ -13562,6 +13601,103 @@ def delete_board_nomination(nid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+# ── Board Officer Roles (Exec Board + Chairs) ──────────────────────────────
+# Tracked separately from the board seat itself (board_nominations above),
+# since President/VP/Secretary/Treasurer (exec board) and the Marketing &
+# Communications Chair / Youth Education & Programming Officer (non-exec
+# officer roles) are elected/appointed on their own cadence, independent of
+# a member's board seat term.
+BOARD_OFFICER_ROLES = {
+    'president':                        {'label': 'President', 'category': 'exec'},
+    'vice_president':                    {'label': 'Vice President', 'category': 'exec'},
+    'secretary':                         {'label': 'Secretary', 'category': 'exec'},
+    'treasurer':                         {'label': 'Treasurer', 'category': 'exec'},
+    'marketing_comms_chair':             {'label': 'Marketing & Communications Chair', 'category': 'officer'},
+    'youth_ed_programming_officer':      {'label': 'Youth Education & Programming Officer', 'category': 'officer'},
+}
+
+@app.route('/api/board/officer-roles')
+def get_board_officer_roles():
+    err = require_auth()
+    if err: return err
+    return jsonify(BOARD_OFFICER_ROLES)
+
+@app.route('/api/board/officers')
+def get_board_officers():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    terms = fetchall(conn, '''SELECT bot.*, bm.name AS member_name, bm.email AS member_email
+        FROM board_officer_terms bot
+        JOIN board_members bm ON bm.id=bot.member_id
+        ORDER BY bot.role_key, bot.election_date DESC''') or []
+    conn.close()
+    return jsonify(terms)
+
+@app.route('/api/board/officers', methods=['POST'])
+def create_board_officer_term():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    role_key = (d.get('role_key') or '').strip()
+    member_id = (d.get('member_id') or '').strip()
+    election_date = (d.get('election_date') or '').strip()
+    if role_key not in BOARD_OFFICER_ROLES:
+        return jsonify({'error': 'Invalid role'}), 400
+    if not member_id or not election_date:
+        return jsonify({'error': 'Member and election date are required'}), 400
+    conn = get_db()
+    try:
+        # Auto-close any currently active term for this role so only one
+        # person holds it at a time (this is a succession, not an overlap).
+        # If the same person is being re-assigned to the role they already
+        # hold, that's a re-election — classify it automatically. Otherwise
+        # it's a handoff to someone else, and the caller must say why the
+        # outgoing holder's term ended (self-terminated vs not re-nominated).
+        closed = fetchall(conn, '''SELECT id, member_id FROM board_officer_terms
+            WHERE role_key=%s AND (term_end_date IS NULL OR term_end_date='')''', (role_key,)) or []
+        outgoing_reason = (d.get('outgoing_term_end_reason') or '').strip()
+        for row in closed:
+            reason = 're_elected_same_role' if row['member_id'] == member_id else (outgoing_reason or 'not_renominated')
+            execute(conn, 'UPDATE board_officer_terms SET term_end_date=%s, term_end_reason=%s WHERE id=%s',
+                (election_date, reason, row['id']))
+
+        tid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO board_officer_terms (id, member_id, role_key, election_date, term_years, term_end_date, term_end_reason, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (tid, member_id, role_key, election_date, int(d.get('term_years', 3)),
+             (d.get('term_end_date') or '').strip(),
+             (d.get('term_end_reason') or '').strip(), (d.get('notes') or '').strip()))
+        conn.commit()
+        row = fetchone(conn, '''SELECT bot.*, bm.name AS member_name, bm.email AS member_email
+            FROM board_officer_terms bot JOIN board_members bm ON bm.id=bot.member_id WHERE bot.id=%s''', (tid,))
+        conn.close()
+        return jsonify({'ok': True, 'succeeded_count': len(closed), **row})
+    except Exception as e:
+        conn.rollback(); conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/board/officers/<tid>', methods=['PUT'])
+def update_board_officer_term(tid):
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE board_officer_terms SET election_date=%s, term_years=%s, term_end_date=%s, term_end_reason=%s, notes=%s WHERE id=%s''',
+        ((d.get('election_date') or '').strip(), int(d.get('term_years', 3)), (d.get('term_end_date') or '').strip(),
+         (d.get('term_end_reason') or '').strip(), (d.get('notes') or '').strip(), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/officers/<tid>', methods=['DELETE'])
+def delete_board_officer_term(tid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_officer_terms WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/board/members', methods=['POST'])
 def create_board_member():
     err = require_admin()
@@ -13572,12 +13708,13 @@ def create_board_member():
     mid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes,volunteer_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO board_members (id,name,email,role,status,join_date,notes,volunteer_id,term_end_date,term_end_reason)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (mid, d['name'].strip(), d['email'].strip().lower(),
              d.get('role','').strip(), d.get('status','active'),
              d.get('join_date') or None, d.get('notes','').strip(),
-             d.get('volunteer_id') or None))
+             d.get('volunteer_id') or None,
+             d.get('term_end_date') or '', d.get('term_end_reason') or ''))
         conn.commit()
         row = fetchone(conn, 'SELECT * FROM board_members WHERE id=%s', (mid,))
         conn.close()
@@ -13592,12 +13729,13 @@ def update_board_member(mid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s,volunteer_id=%s
+    execute(conn, '''UPDATE board_members SET name=%s,email=%s,role=%s,status=%s,join_date=%s,notes=%s,volunteer_id=%s,term_end_date=%s,term_end_reason=%s
         WHERE id=%s''',
         (d.get('name','').strip(), d.get('email','').strip().lower(),
          d.get('role','').strip(), d.get('status','active'),
          d.get('join_date') or None, d.get('notes','').strip(),
-         d.get('volunteer_id') or None, mid))
+         d.get('volunteer_id') or None,
+         d.get('term_end_date') or '', d.get('term_end_reason') or '', mid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -17687,26 +17825,129 @@ def twilio_call_status():
 
 
 
+def _phone_last10(p):
+    """Strip a phone number down to its last 10 digits for comparison,
+    since Twilio uses E.164 (+15551234567) but numbers get stored in all
+    sorts of formats elsewhere in the app."""
+    digits = ''.join(ch for ch in (p or '') if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+def lookup_contact_name_by_phone(phone):
+    """Check a phone number against known contacts (volunteers, guardians on
+    file, rental partners) so inbound texts can show a name instead of a bare
+    number. Returns None if it's not a number we recognize."""
+    last10 = _phone_last10(phone)
+    if not last10:
+        return None
+    conn = get_db()
+    try:
+        row = fetchone(conn, '''SELECT name FROM volunteers
+            WHERE RIGHT(REGEXP_REPLACE(phone,'[^0-9]','','g'),10)=%s LIMIT 1''', (last10,))
+        if row: return row['name']
+        row = fetchone(conn, '''SELECT guardian_name AS name FROM program_registrations
+            WHERE RIGHT(REGEXP_REPLACE(guardian_phone,'[^0-9]','','g'),10)=%s
+            ORDER BY created_at DESC LIMIT 1''', (last10,))
+        if row and row['name']: return row['name']
+        row = fetchone(conn, '''SELECT contact_name, name AS org_name FROM rental_partners
+            WHERE RIGHT(REGEXP_REPLACE(contact_phone,'[^0-9]','','g'),10)=%s LIMIT 1''', (last10,))
+        if row: return row['contact_name'] or row['org_name']
+    except Exception as e:
+        app.logger.warning(f'lookup_contact_name_by_phone error: {e}')
+    finally:
+        conn.close()
+    return None
+
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
-    """Inbound SMS webhook — forward to on-call person."""
+    """Inbound SMS webhook.
+
+    Two very different things land here:
+    1. A customer texting the HWTC number for the first time (or continuing
+       a conversation) — forward it to whoever's on call.
+    2. The on-call person REPLYING on their own phone. Their reply is sent
+       to the HWTC Twilio number (since that's who the forwarded message
+       appeared to come from), so without tracking, it looks identical to a
+       new customer message and gets re-broadcast instead of delivered back
+       to the actual customer. We tell the two apart by checking whether the
+       From number matches whoever is currently on call, and route the
+       on-call person's replies to the most recently active customer thread.
+    """
     oncall = get_oncall_now()
     ts = get_twilio_settings()
     forward_to = (oncall or {}).get('phone') or ts['fallback']
     person_name = (oncall or {}).get('person_name') or 'fallback'
     from_num = request.form.get('From','Unknown')
     body = request.form.get('Body','').strip()
-    host = request.host_url.rstrip('/')
-    import datetime as _dtsms
     now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
+
+    is_oncall_replying = forward_to and _phone_last10(from_num) == _phone_last10(forward_to)
+    app.logger.info(f'SMS routing check — from_num={from_num} (last10={_phone_last10(from_num)}), '
+                     f'forward_to={forward_to} (last10={_phone_last10(forward_to)}), '
+                     f'oncall_entry={(oncall or {}).get("person_name")}, is_oncall_replying={bool(is_oncall_replying)}')
+
+    if is_oncall_replying:
+        conn = get_db()
+        target_row = None
+        # Optional "@1234 message" prefix lets the on-call person pick a
+        # specific conversation by the customer's last 4 digits, in case
+        # more than one person has texted in recently.
+        msg_body = body
+        if body.startswith('@') and ' ' in body:
+            code, rest = body[1:].split(' ', 1)
+            if code.isdigit() and len(code) == 4:
+                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
+                msg_body = rest.strip()
+        if not target_row:
+            target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                WHERE last_message_at > NOW() - INTERVAL '4 hours'
+                ORDER BY last_message_at DESC LIMIT 1''')
+
+        if not target_row:
+            conn.close()
+            app.logger.info('On-call reply received but no active conversation to route it to.')
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
+        customer_phone = target_row['customer_phone']
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=msg_body, from_=ts['from_phone'], to=customer_phone)
+            execute(conn, 'UPDATE sms_conversations SET last_message_at=NOW() WHERE id=%s', (target_row['id'],))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Twilio reply-forward SMS failed: {e}')
+        conn.close()
+
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f'↩️ *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
+        ], text=f'On-call reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}')
+
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # --- New/continuing customer message ---
+    contact_name = lookup_contact_name_by_phone(from_num)
+    sender_label = f'{contact_name} ({fmt_phone(from_num)})' if contact_name else fmt_phone(from_num)
+
+    conn = get_db()
+    # No unique constraint on customer_phone (a customer could have multiple
+    # historical threads), so just insert a fresh row per message rather than
+    # upsert — "most recent by last_message_at" is what routing relies on.
+    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
+        VALUES (%s,%s,NOW())''', (from_num, forward_to))
+    conn.commit(); conn.close()
+
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:
         try:
             from twilio.rest import Client as _TwClient
             client = _TwClient(ts['account_sid'], ts['auth_token'])
             client.messages.create(
-                body=f'[HWTC] From {fmt_phone(from_num)}: {body}',
+                body=f'[HWTC] From {sender_label}: {body}\n(Just reply to this text to respond — it\'ll go straight to them.)',
                 from_=ts['from_phone'],
                 to=forward_to
             )
@@ -17715,8 +17956,8 @@ def twilio_sms():
     # Post to Slack
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'💬 *Inbound Text Message*\n*From:* `{fmt_phone(from_num)}`\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
-    ], text=f'Text from {fmt_phone(from_num)}: {body[:100]}')
+            f'💬 *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+    ], text=f'Text from {sender_label}: {body[:100]}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
     twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -18879,13 +19120,13 @@ Keep it focused and complete rather than exhaustive: list at most the 6 most imp
 
 Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines or line breaks within a string value must be written as the two characters backslash-n (\\n), never as an actual line break. Do not include any text before the opening { or after the closing }.'''
 
-        user_content = f'''LEASE DOCUMENTATION:
+        reference_docs_block = f'''LEASE DOCUMENTATION:
 {lease_blob}
 
 CITY USE DOCUMENTATION:
-{city_blob}
+{city_blob}'''
 
-SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
+        user_content = f'''SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}:
 {proposal_text}'''
 
         resp = _rq.post(
@@ -18898,7 +19139,22 @@ SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}
             json={
                 'model': 'claude-sonnet-5',
                 'max_tokens': 8000,
-                'system': system_prompt,
+                # Claude Sonnet 5 runs with adaptive thinking on by default, and max_tokens
+                # is a combined cap on thinking + visible output. This task just needs a
+                # direct structured answer, not extended reasoning, so disable thinking —
+                # otherwise the model can spend most of the budget on invisible reasoning
+                # and truncate before finishing the actual JSON.
+                'thinking': {'type': 'disabled'},
+                # Split into two system blocks so the large, slow-changing reference
+                # documents (lease + city use) can be cached separately from the fixed
+                # instructions. cache_control on the reference-docs block caches
+                # everything up through it — instructions included — so as long as
+                # the uploaded documents haven't changed, repeat checks within the
+                # cache window reuse this instead of reprocessing it from scratch.
+                'system': [
+                    {'type': 'text', 'text': system_prompt},
+                    {'type': 'text', 'text': reference_docs_block, 'cache_control': {'type': 'ephemeral'}}
+                ],
                 'messages': [{'role': 'user', 'content': user_content}]
             },
             timeout=90
@@ -18907,6 +19163,10 @@ SUBMITTED PROPOSAL / CONTRACT TO REVIEW{(' ("' + title + '")') if title else ''}
             app.logger.error(f'Claude compliance check API error: {resp.status_code} {resp.text[:300]}')
             return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
         data = resp.json()
+        usage = data.get('usage', {})
+        app.logger.info(f'Compliance check token usage — cache_read: {usage.get("cache_read_input_tokens", 0)}, '
+                         f'cache_write: {usage.get("cache_creation_input_tokens", 0)}, '
+                         f'fresh_input: {usage.get("input_tokens", 0)}, output: {usage.get("output_tokens", 0)}')
         if data.get('stop_reason') == 'max_tokens':
             app.logger.error('Compliance check response was truncated at max_tokens')
             return None, 'The response was cut off before finishing (the proposal or reference documents may be very long). Try again — this has more headroom now, but a very long proposal may need to be shortened.'
@@ -19078,6 +19338,212 @@ def delete_compliance_check(cid):
     return jsonify({'ok': True})
 
 # ── End Venue Rentals ─────────────────────────────────────────────────────────
+
+# ── Show Contracts Q&A ────────────────────────────────────────────────────────
+# Lets staff upload licensing/venue/performance contracts for a specific
+# production and ask plain-English questions against them (e.g. "can we take
+# photos?", "what are the choreography rules?"). Answers are grounded strictly
+# in the uploaded contract text for that show — advisory reference only, not
+# a substitute for reading the actual contract on anything binding.
+
+def ask_contract_question(production_id, question):
+    """Calls Claude with a production's uploaded contract text as context,
+    plus a staff question, and returns a plain-text answer grounded in that
+    text. Returns (answer, error). error is None on success."""
+    import os as _os, requests as _rq
+
+    try:
+        api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+        if not api_key:
+            return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+
+        conn = get_db()
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+        docs = fetchall(conn, '''SELECT filename, extracted_text FROM production_contracts
+            WHERE production_id=%s ORDER BY uploaded_at''', (production_id,)) or []
+        conn.close()
+
+        if not prod:
+            return None, 'Production not found.'
+        texts = [d for d in docs if (d['extracted_text'] or '').strip()]
+        if not texts:
+            return None, 'No contracts have been uploaded for this show yet. Upload at least one PDF before asking questions.'
+
+        contract_blob = '\n\n---\n\n'.join(
+            f"[Document: {d['filename']}]\n{d['extracted_text']}" for d in texts
+        )
+
+        system_prompt = f'''You are helping staff at Horizon West Theater Company (HWTC), a nonprofit community theater, answer questions about the licensing/performance contract(s) for their production of "{prod['name']}".
+
+Answer strictly based on the contract text provided below — do not guess or use outside knowledge of typical theater licensing terms. If the contract doesn't address the question, say so clearly rather than speculating. Where possible, point to which section, clause, or document the answer comes from. Keep answers direct and practical — staff need a clear yes/no/depends with the reasoning, not a lengthy essay.
+
+This is an internal reference tool, not legal advice. If a question touches on something with real financial or legal risk, or the contract language is genuinely ambiguous, say so explicitly and recommend staff confirm with the licensor or HWTC's legal counsel before acting.'''
+
+        resp = _rq.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': 'claude-sonnet-5',
+                'max_tokens': 1500,
+                'thinking': {'type': 'disabled'},
+                'system': [
+                    {'type': 'text', 'text': system_prompt},
+                    {'type': 'text', 'text': contract_blob, 'cache_control': {'type': 'ephemeral'}}
+                ],
+                'messages': [{'role': 'user', 'content': question}]
+            },
+            timeout=90
+        )
+        if resp.status_code != 200:
+            app.logger.error(f'Contract Q&A API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        if data.get('stop_reason') == 'max_tokens':
+            return None, 'The answer was cut off before finishing. Try asking a more specific question.'
+        answer = ''.join(b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text').strip()
+        if not answer:
+            return None, 'Claude returned an empty response. Try again.'
+        return answer, None
+    except Exception as e:
+        app.logger.error(f'Contract Q&A error: {type(e).__name__}: {e}')
+        return None, f'Error answering question: {type(e).__name__}: {e}'
+
+@app.route('/api/productions/<pid>/contracts')
+def get_production_contracts(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
+        FROM production_contracts WHERE production_id=%s ORDER BY uploaded_at DESC''', (pid,)) or []
+    conn.close()
+    return jsonify(docs)
+
+@app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
+def upload_production_contract(pid):
+    err = require_admin()
+    if err: return err
+    try:
+        if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+        f = request.files['file']
+        filename = secure_filename(f.filename or 'contract.pdf')
+        ext = os.path.splitext(filename)[1].lower()
+        if ext != '.pdf':
+            return jsonify({'error': 'Only PDF files are supported'}), 400
+        text = extract_pdf_text(f.read())
+        if not text:
+            return jsonify({'error': 'Could not extract text from this PDF. If it is scanned/image-based, it needs OCR first.'}), 400
+        cid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contracts (id, production_id, filename, extracted_text)
+            VALUES (%s,%s,%s,%s)''', (cid, pid, filename, text))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': cid, 'filename': filename, 'char_count': len(text)})
+    except Exception as e:
+        app.logger.error(f'upload_production_contract error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
+def delete_production_contract(cid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/contract-qa')
+def get_production_contract_qa(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
+        ORDER BY created_at DESC LIMIT 50''', (pid,)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
+def create_production_contract_qa(pid):
+    err = require_auth()
+    if err: return err
+    try:
+        d = request.json or {}
+        question = (d.get('question') or '').strip()
+        if not question:
+            return jsonify({'error': 'Please enter a question'}), 400
+        answer, error = ask_contract_question(pid, question)
+        if error:
+            return jsonify({'error': error}), 400
+        qid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contract_qa (id, production_id, question, answer, created_by)
+            VALUES (%s,%s,%s,%s,%s)''', (qid, pid, question, answer, session.get('user_name','')))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'id': qid, 'answer': answer})
+    except Exception as e:
+        app.logger.error(f'create_production_contract_qa error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+@app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
+def delete_production_contract_qa(qid):
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Public (no-login) Show Contracts Q&A ──────────────────────────────────
+# Lets anyone with the link — cast, crew, production team — pick a show and
+# ask questions, without needing a RoleCall account. Only shows that have at
+# least one contract uploaded appear. Rate-limited per production since this
+# is reachable without authentication and each question costs an API call.
+
+@app.route('/api/public/show-contracts/productions')
+def public_get_shows_with_contracts():
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT DISTINCT p.id, p.name FROM productions p
+        JOIN production_contracts pc ON pc.production_id=p.id
+        ORDER BY p.name''') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/public/show-contracts/<pid>/ask', methods=['POST'])
+def public_ask_contract_question(pid):
+    try:
+        conn = get_db()
+        recent_count = fetchone(conn, '''SELECT COUNT(*) AS c FROM production_contract_qa
+            WHERE production_id=%s AND created_at > NOW() - INTERVAL '10 minutes' ''', (pid,))
+        conn.close()
+        if recent_count and recent_count['c'] >= 20:
+            return jsonify({'error': 'This show has had a lot of questions in the last few minutes. Please try again shortly.'}), 429
+
+        d = request.json or {}
+        question = (d.get('question') or '').strip()
+        if not question:
+            return jsonify({'error': 'Please enter a question'}), 400
+        if len(question) > 1000:
+            return jsonify({'error': 'Question is too long — please shorten it'}), 400
+
+        answer, error = ask_contract_question(pid, question)
+        if error:
+            return jsonify({'error': error}), 400
+
+        qid = str(uuid.uuid4())
+        conn = get_db()
+        execute(conn, '''INSERT INTO production_contract_qa (id, production_id, question, answer, created_by)
+            VALUES (%s,%s,%s,%s,%s)''', (qid, pid, question, answer, '(public)'))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'answer': answer})
+    except Exception as e:
+        app.logger.error(f'public_ask_contract_question error: {type(e).__name__}: {e}')
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+# ── End Show Contracts Q&A ────────────────────────────────────────────────────
+
 
 
 

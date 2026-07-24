@@ -19551,13 +19551,18 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">Files</button>
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
+            <button class="portal-sub-btn" data-ptab="tickets" onclick="switchProdPortalTab('tickets',this)">Tickets</button>
  ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
  ${isRS?`<div id="pptab-general-${pid}" style="display:none"><div id="prod-general-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
 
- <!-- Announcements -->
+ <div id="pptab-tickets-${pid}" style="display:none">
+        <div id="prod-tickets-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div>
+      </div>
+
+      <!-- Announcements -->
  <div id="pptab-announcements-${pid}" ${isRS?'style="display:none"':''}>
  <div class="card" style="padding:20px">
  <div style="font-size:14px;font-weight:700;margin-bottom:12px"> Announcements</div>
@@ -19994,7 +19999,7 @@ async function submitScConflict(pid){
 function switchProdPortalTab(tab, btn){
  const pid = window._currentProductionDetailId
  if(!pid) return
- ;['announcements','files','about','team','conflicts','overview','general','messages'].forEach(t=>{
+ ;['announcements','files','about','team','conflicts','overview','general','messages','tickets'].forEach(t=>{
  const el = document.getElementById('pptab-'+t+'-'+pid)
  if(el) el.style.display = t===tab?'':'none'
  })
@@ -20022,6 +20027,7 @@ function switchProdPortalTab(tab, btn){
  if(tab==='conflicts') loadProductionConflicts(pid)
  if(tab==='overview') loadProductionOverview(pid)
  if(tab==='general') loadProductionGeneralInfo(pid)
+ if(tab==='tickets') loadTicketsTab(pid)
 }
 
 async function loadProductionOverview(pid){
@@ -25222,5 +25228,551 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 </script>
 <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
 <script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true" onload="if(window._currentNavIcons)applyNavIcons(window._currentNavIcons)"></script>
+<!-- ═══════════════ TICKETING UI (Phase 1) — modals + logic ═══════════════ -->
+<div class="modal-overlay" id="modal-tk-perf">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="tk-perf-title">Add Performance</div>
+      <button class="modal-close" onclick="closeModal('modal-tk-perf')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="tk-perf-id"/>
+      <input type="hidden" id="tk-perf-pid"/>
+      <div class="form-group"><label>Label (optional)</label>
+        <input type="text" id="tk-perf-name" placeholder="e.g. Opening Night, Matinee"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Date *</label><input type="date" id="tk-perf-date"/></div>
+        <div class="form-group"><label>Curtain Time</label><input type="time" id="tk-perf-time"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Doors Time</label><input type="time" id="tk-perf-doors"/></div>
+        <div class="form-group"><label>Status</label>
+          <select id="tk-perf-status">
+            <option value="draft">Draft</option>
+            <option value="on_sale">On Sale</option>
+            <option value="sold_out">Sold Out</option>
+            <option value="closed">Closed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>Venue</label>
+        <select id="tk-perf-venue" onchange="tkLoadSeatMapsForPerf()">
+          <option value="">— Select venue —</option>
+        </select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          Manage venues &amp; seat maps from the <b>Venues</b> button on the Tickets tab.</div>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="tk-perf-reserved" checked onchange="tkToggleReserved()" style="width:auto"/>
+          Reserved seating (uses a seat map)
+        </label>
+      </div>
+      <div class="form-group" id="tk-perf-seatmap-wrap">
+        <label>Seat Map</label>
+        <select id="tk-perf-seatmap"><option value="">— Select seat map —</option></select>
+      </div>
+      <div class="form-group" id="tk-perf-ga-wrap" style="display:none">
+        <label>General Admission Capacity</label>
+        <input type="number" id="tk-perf-ga" min="0" placeholder="e.g. 120"/>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Sales Open</label><input type="date" id="tk-perf-sopen"/></div>
+        <div class="form-group"><label>Sales Close</label><input type="date" id="tk-perf-sclose"/></div>
+      </div>
+      <div class="form-group"><label>Notes</label><textarea id="tk-perf-notes" placeholder="Internal notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-tk-perf')">Cancel</button>
+      <button class="btn btn-primary" onclick="tkSavePerf()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-tk-venues">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">🏛️ Venues &amp; Seat Maps</div>
+      <button class="modal-close" onclick="closeModal('modal-tk-venues')">×</button>
+    </div>
+    <div class="modal-body" id="tk-venues-body">
+      <div style="color:var(--text-muted)">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-tk-types">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="tk-types-title">Ticket Types</div>
+      <button class="modal-close" onclick="closeModal('modal-tk-types')">×</button>
+    </div>
+    <div class="modal-body" id="tk-types-body">
+      <div style="color:var(--text-muted)">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════ TICKETING (Phase 1) front-end logic ═══════════════════ */
+var _tkVenues = [];                // cached venue list
+var _tkSeatMapCache = {};          // venueId -> [seat maps]
+
+function tkMoney(cents){ return '$' + ((cents||0)/100).toFixed(2); }
+
+function tkStatusBadge(s){
+  var map = {
+    draft:      ['Draft',     '#6b7280', 'rgba(107,114,128,0.12)'],
+    on_sale:    ['On Sale',   '#047857', 'rgba(4,120,87,0.12)'],
+    sold_out:   ['Sold Out',  '#b45309', 'rgba(180,83,9,0.12)'],
+    closed:     ['Closed',    '#374151', 'rgba(55,65,81,0.12)'],
+    cancelled:  ['Cancelled', '#b91c1c', 'rgba(185,28,28,0.12)']
+  };
+  var m = map[s] || map.draft;
+  return '<span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;color:'+m[1]+';background:'+m[2]+'">'+m[0]+'</span>';
+}
+
+function tkFmtDate(d){
+  if(!d) return '';
+  try { var dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}); }
+  catch(e){ return d; }
+}
+function tkFmtTime(t){
+  if(!t) return '';
+  try { var p=t.split(':'); var h=parseInt(p[0]); var ap=h>=12?'PM':'AM'; h=h%12||12; return h+':'+p[1]+' '+ap; }
+  catch(e){ return t; }
+}
+
+/* ── Tickets tab: list performances ─────────────────────────────────────── */
+async function loadTicketsTab(pid){
+  var el = document.getElementById('prod-tickets-inner-'+pid);
+  if(!el) return;
+  el.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading performances…</div>';
+  var perfs = await api('/api/productions/'+pid+'/performances');
+  if(perfs && perfs.error){
+    el.innerHTML = '<div style="padding:20px;color:var(--red,#b91c1c)">'+escHtml(perfs.error)+'</div>';
+    return;
+  }
+  var toolbar =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+    + '<div style="font-size:15px;font-weight:700">🎟️ Performances</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()">🏛️ Venues</button>'
+    + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
+    + '</div></div>';
+
+  if(!perfs || !perfs.length){
+    el.innerHTML = toolbar
+      + '<div class="empty-state" style="padding:40px 20px;text-align:center;color:var(--text-muted)">'
+      + '<div style="font-size:34px">🎭</div>'
+      + '<p style="margin:8px 0 2px;font-weight:600">No performances yet</p>'
+      + '<p style="font-size:13px">Add showtimes for this production to start selling tickets.</p>'
+      + '</div>';
+    return;
+  }
+
+  var cards = perfs.map(function(p){
+    var cap = p.capacity || 0;
+    var when = tkFmtDate(p.performance_date) + (p.performance_time? ' · '+tkFmtTime(p.performance_time):'');
+    var seatInfo = p.reserved_seating
+        ? (p.seat_map_name? escHtml(p.seat_map_name)+' · '+cap+' seats' : '<span style="color:var(--red,#b91c1c)">No seat map set</span>')
+        : (cap? cap+' GA seats' : 'General admission');
+    return ''
+      + '<div class="card" style="padding:16px;margin-bottom:12px">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
+      +     '<div style="flex:1;min-width:200px">'
+      +       '<div style="font-size:15px;font-weight:700">'+escHtml(p.name||'Performance')+'  '+tkStatusBadge(p.status)+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">📅 '+when+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">📍 '+escHtml(p.venue_name||'No venue')+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">🪑 '+seatInfo+'</div>'
+      +       '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.ticket_type_count||0)+' ticket type(s)</div>'
+      +     '</div>'
+      +     '<div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:130px">'
+      +       '<button class="btn btn-secondary btn-sm" onclick="openTicketTypes(\''+p.id+'\',\''+escHtml((p.name||tkFmtDate(p.performance_date))).replace(/'/g,"\\'")+'\')">Ticket Types</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="ticketPerfModal(\''+pid+'\',\''+p.id+'\')">Edit</button>'
+      +       (p.status==='on_sale'
+                ? '<button class="btn btn-secondary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'closed\',\''+pid+'\')">Close Sales</button>'
+                : '<button class="btn btn-primary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'on_sale\',\''+pid+'\')">Open Sales</button>')
+      +       '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeletePerf(\''+p.id+'\',\''+pid+'\')">Delete</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }).join('');
+
+  el.innerHTML = toolbar + cards;
+}
+
+/* ── Performance create / edit modal ────────────────────────────────────── */
+async function ticketPerfModal(pid, perfId){
+  document.getElementById('tk-perf-pid').value = pid;
+  document.getElementById('tk-perf-id').value = perfId || '';
+  document.getElementById('tk-perf-title').textContent = perfId? 'Edit Performance' : 'Add Performance';
+
+  // Ensure venues are loaded into the select
+  if(!_tkVenues.length){
+    var vs = await api('/api/venues');
+    _tkVenues = Array.isArray(vs)? vs : [];
+  }
+  var vsel = document.getElementById('tk-perf-venue');
+  vsel.innerHTML = '<option value="">— Select venue —</option>'
+    + _tkVenues.map(function(v){ return '<option value="'+v.id+'">'+escHtml(v.name)+'</option>'; }).join('');
+
+  // Reset fields
+  ['tk-perf-name','tk-perf-date','tk-perf-time','tk-perf-doors','tk-perf-ga','tk-perf-sopen','tk-perf-sclose','tk-perf-notes']
+    .forEach(function(id){ document.getElementById(id).value=''; });
+  document.getElementById('tk-perf-status').value='draft';
+  document.getElementById('tk-perf-reserved').checked = true;
+
+  if(perfId){
+    var perfs = await api('/api/productions/'+pid+'/performances');
+    var p = (perfs||[]).find(function(x){ return x.id===perfId; });
+    if(p){
+      document.getElementById('tk-perf-name').value = p.name||'';
+      document.getElementById('tk-perf-date').value = p.performance_date||'';
+      document.getElementById('tk-perf-time').value = p.performance_time||'';
+      document.getElementById('tk-perf-doors').value = p.doors_time||'';
+      document.getElementById('tk-perf-status').value = p.status||'draft';
+      document.getElementById('tk-perf-venue').value = p.venue_id||'';
+      document.getElementById('tk-perf-reserved').checked = !!p.reserved_seating;
+      document.getElementById('tk-perf-ga').value = p.ga_capacity||'';
+      document.getElementById('tk-perf-sopen').value = p.sales_open_at||'';
+      document.getElementById('tk-perf-sclose').value = p.sales_close_at||'';
+      document.getElementById('tk-perf-notes').value = p.notes||'';
+      await tkLoadSeatMapsForPerf(p.seat_map_id||'');
+    }
+  } else {
+    await tkLoadSeatMapsForPerf('');
+  }
+  tkToggleReserved();
+  openModal('modal-tk-perf');
+}
+
+function tkToggleReserved(){
+  var reserved = document.getElementById('tk-perf-reserved').checked;
+  document.getElementById('tk-perf-seatmap-wrap').style.display = reserved? '' : 'none';
+  document.getElementById('tk-perf-ga-wrap').style.display = reserved? 'none' : '';
+}
+
+async function tkLoadSeatMapsForPerf(selectId){
+  var venueId = document.getElementById('tk-perf-venue').value;
+  var sel = document.getElementById('tk-perf-seatmap');
+  if(!venueId){ sel.innerHTML = '<option value="">— Select venue first —</option>'; return; }
+  var maps = _tkSeatMapCache[venueId];
+  if(!maps){
+    maps = await api('/api/venues/'+venueId+'/seat-maps');
+    maps = Array.isArray(maps)? maps : [];
+    _tkSeatMapCache[venueId] = maps;
+  }
+  sel.innerHTML = '<option value="">— Select seat map —</option>'
+    + maps.map(function(m){ return '<option value="'+m.id+'">'+escHtml(m.name)+' ('+(m.seat_count||m.capacity||0)+' seats)</option>'; }).join('');
+  if(selectId) sel.value = selectId;
+}
+
+async function tkSavePerf(){
+  var pid = document.getElementById('tk-perf-pid').value;
+  var id = document.getElementById('tk-perf-id').value;
+  var reserved = document.getElementById('tk-perf-reserved').checked;
+  var body = {
+    name: document.getElementById('tk-perf-name').value.trim(),
+    performance_date: document.getElementById('tk-perf-date').value,
+    performance_time: document.getElementById('tk-perf-time').value,
+    doors_time: document.getElementById('tk-perf-doors').value,
+    status: document.getElementById('tk-perf-status').value,
+    venue_id: document.getElementById('tk-perf-venue').value || null,
+    reserved_seating: reserved,
+    seat_map_id: reserved ? (document.getElementById('tk-perf-seatmap').value || null) : null,
+    ga_capacity: reserved ? null : parseInt(document.getElementById('tk-perf-ga').value||'0'),
+    sales_open_at: document.getElementById('tk-perf-sopen').value,
+    sales_close_at: document.getElementById('tk-perf-sclose').value,
+    notes: document.getElementById('tk-perf-notes').value.trim()
+  };
+  if(!body.performance_date){ toast('Please choose a date','error'); return; }
+  if(reserved && !body.seat_map_id){ toast('Reserved seating needs a seat map','error'); return; }
+  var res = id
+    ? await api('/api/performances/'+id, 'PUT', body)
+    : await api('/api/productions/'+pid+'/performances', 'POST', body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Performance saved','success');
+  closeModal('modal-tk-perf');
+  loadTicketsTab(pid);
+}
+
+async function tkSetStatus(perfId, status, pid){
+  var res = await api('/api/performances/'+perfId+'/status', 'POST', {status:status});
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Status updated','success');
+  loadTicketsTab(pid);
+}
+
+async function tkDeletePerf(perfId, pid){
+  if(!confirm('Delete this performance and its ticket types? This cannot be undone.')) return;
+  var res = await api('/api/performances/'+perfId, 'DELETE');
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Performance deleted','info');
+  loadTicketsTab(pid);
+}
+
+/* ── Venues & Seat Maps manager ─────────────────────────────────────────── */
+async function openVenuesModal(){
+  openModal('modal-tk-venues');
+  await renderVenuesList();
+}
+
+async function renderVenuesList(){
+  var body = document.getElementById('tk-venues-body');
+  body.innerHTML = '<div style="color:var(--text-muted)">Loading…</div>';
+  var vs = await api('/api/venues?all=1');
+  _tkVenues = Array.isArray(vs)? vs.filter(function(v){return v.active!==false;}) : [];
+  var list = (Array.isArray(vs)?vs:[]).map(function(v){
+    return ''
+      + '<div class="card" style="padding:14px;margin-bottom:10px">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+      +     '<div><div style="font-weight:700">'+escHtml(v.name)+(v.active===false?' <span style="font-size:11px;color:var(--text-muted)">(inactive)</span>':'')+'</div>'
+      +       '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(v.city||v.address||'')+' · '+(v.seat_map_count||0)+' seat map(s)</div></div>'
+      +     '<div style="display:flex;gap:6px">'
+      +       '<button class="btn btn-secondary btn-sm" onclick="openSeatMaps(\''+v.id+'\',\''+escHtml(v.name).replace(/'/g,"\\'")+'\')">Seat Maps</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkVenueForm(\''+v.id+'\')">Edit</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }).join('');
+  body.innerHTML =
+    '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+    + '<button class="btn btn-primary btn-sm" onclick="tkVenueForm()">+ Add Venue</button></div>'
+    + (list || '<div style="color:var(--text-muted);text-align:center;padding:20px">No venues yet. Add your first venue.</div>')
+    + '<div id="tk-venue-form-slot"></div>';
+}
+
+function tkVenueForm(vid){
+  var v = _tkVenues.find(function(x){ return x.id===vid; }) || {};
+  var slot = document.getElementById('tk-venue-form-slot');
+  slot.innerHTML =
+    '<div class="card" style="padding:16px;margin-top:8px;border:2px solid var(--teal-400,#0d9488)">'
+    + '<div style="font-weight:700;margin-bottom:10px">'+(vid?'Edit Venue':'New Venue')+'</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-v-name" value="'+escHtml(v.name||'')+'" placeholder="e.g. Garden Theatre"/></div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>Address</label><input type="text" id="tk-v-address" value="'+escHtml(v.address||'')+'"/></div>'
+    +   '<div class="form-group"><label>City</label><input type="text" id="tk-v-city" value="'+escHtml(v.city||'')+'"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Notes</label><input type="text" id="tk-v-notes" value="'+escHtml(v.notes||'')+'"/></div>'
+    + (vid? '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tk-v-active" '+(v.active===false?'':'checked')+' style="width:auto"/> Active</label>':'')
+    + '<div style="display:flex;gap:8px">'
+    +   '<button class="btn btn-primary btn-sm" onclick="tkSaveVenue(\''+(vid||'')+'\')">Save</button>'
+    +   (vid? '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeleteVenue(\''+vid+'\')">Delete</button>':'')
+    +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-venue-form-slot\').innerHTML=\'\'">Cancel</button>'
+    + '</div></div>';
+  slot.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function tkSaveVenue(vid){
+  var body = {
+    name: document.getElementById('tk-v-name').value.trim(),
+    address: document.getElementById('tk-v-address').value.trim(),
+    city: document.getElementById('tk-v-city').value.trim(),
+    notes: document.getElementById('tk-v-notes').value.trim()
+  };
+  if(vid){ var a=document.getElementById('tk-v-active'); if(a) body.active=a.checked; }
+  if(!body.name){ toast('Venue name is required','error'); return; }
+  var res = vid ? await api('/api/venues/'+vid,'PUT',body) : await api('/api/venues','POST',body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Venue saved','success');
+  _tkSeatMapCache = {};
+  renderVenuesList();
+}
+
+async function tkDeleteVenue(vid){
+  if(!confirm('Delete this venue?')) return;
+  var res = await api('/api/venues/'+vid,'DELETE');
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Venue deleted','info');
+  renderVenuesList();
+}
+
+/* ── Seat maps for a venue ──────────────────────────────────────────────── */
+async function openSeatMaps(venueId, venueName){
+  var body = document.getElementById('tk-venues-body');
+  body.innerHTML = '<div style="color:var(--text-muted)">Loading seat maps…</div>';
+  var maps = await api('/api/venues/'+venueId+'/seat-maps');
+  maps = Array.isArray(maps)? maps : [];
+  _tkSeatMapCache[venueId] = maps;
+  var list = maps.map(function(m){
+    return ''
+      + '<div class="card" style="padding:14px;margin-bottom:10px">'
+      +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+      +     '<div><div style="font-weight:700">'+escHtml(m.name)+(m.is_default?' <span style="font-size:11px;color:var(--teal-400,#0d9488)">★ default</span>':'')+'</div>'
+      +       '<div style="font-size:12px;color:var(--text-muted)">'+(m.seat_count||0)+' seats</div></div>'
+      +     '<div style="display:flex;gap:6px">'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Section</button>'
+      +       '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeleteSeatMap(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Delete</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div id="tk-sm-section-'+m.id+'"></div>'
+      + '</div>';
+  }).join('');
+  body.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">'
+    +  '<button class="btn btn-secondary btn-sm" onclick="renderVenuesList()">← Back to Venues</button>'
+    +  '<div style="font-weight:700">'+escHtml(venueName)+' — Seat Maps</div>'
+    +  '<button class="btn btn-primary btn-sm" onclick="tkSeatMapForm(\''+venueId+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ New Seat Map</button>'
+    + '</div>'
+    + (list || '<div style="color:var(--text-muted);text-align:center;padding:20px">No seat maps yet.</div>')
+    + '<div id="tk-seatmap-form-slot"></div>';
+}
+
+function tkSeatMapForm(venueId, venueName){
+  var slot = document.getElementById('tk-seatmap-form-slot');
+  slot.innerHTML =
+    '<div class="card" style="padding:16px;margin-top:8px;border:2px solid var(--teal-400,#0d9488)">'
+    + '<div style="font-weight:700;margin-bottom:10px">New Seat Map</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-sm-name" placeholder="e.g. Full House, Orchestra Only"/></div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tk-sm-default" style="width:auto"/> Make this the default layout</label>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button class="btn btn-primary btn-sm" onclick="tkSaveSeatMap(\''+venueId+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Create</button>'
+    +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-seatmap-form-slot\').innerHTML=\'\'">Cancel</button>'
+    + '</div></div>';
+}
+
+async function tkSaveSeatMap(venueId, venueName){
+  var body = { name: document.getElementById('tk-sm-name').value.trim(),
+               is_default: document.getElementById('tk-sm-default').checked };
+  if(!body.name){ toast('Seat map name is required','error'); return; }
+  var res = await api('/api/venues/'+venueId+'/seat-maps','POST',body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Seat map created','success');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+}
+
+async function tkDeleteSeatMap(venueId, mapId, venueName){
+  if(!confirm('Delete this seat map and all its seats?')) return;
+  var res = await api('/api/seat-maps/'+mapId,'DELETE');
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Seat map deleted','info');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+}
+
+function tkGenerateSectionForm(venueId, mapId, venueName){
+  var slot = document.getElementById('tk-sm-section-'+mapId);
+  if(slot.innerHTML.trim()){ slot.innerHTML=''; return; }
+  slot.innerHTML =
+    '<div style="background:var(--bg,#f7f7f5);border-radius:8px;padding:12px;margin-top:10px">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Generate a block of seats</div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>Section name</label><input type="text" id="tk-sec-name-'+mapId+'" placeholder="e.g. Orchestra"/></div>'
+    +   '<div class="form-group"><label>Seat type</label><select id="tk-sec-type-'+mapId+'"><option value="standard">Standard</option><option value="accessible">Accessible</option><option value="house">House</option></select></div>'
+    + '</div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>First row letter</label><input type="text" id="tk-sec-rowstart-'+mapId+'" value="A" maxlength="1"/></div>'
+    +   '<div class="form-group"><label># of rows</label><input type="number" id="tk-sec-rowcount-'+mapId+'" value="10" min="1" max="26"/></div>'
+    +   '<div class="form-group"><label>Seats per row</label><input type="number" id="tk-sec-perrow-'+mapId+'" value="12" min="1"/></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button class="btn btn-primary btn-sm" onclick="tkGenerateSection(\''+venueId+'\',\''+mapId+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Generate Seats</button>'
+    +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-sm-section-'+mapId+'\').innerHTML=\'\'">Cancel</button>'
+    + '</div></div>';
+}
+
+async function tkGenerateSection(venueId, mapId, venueName){
+  var body = {
+    section: document.getElementById('tk-sec-name-'+mapId).value.trim(),
+    seat_type: document.getElementById('tk-sec-type-'+mapId).value,
+    row_start: document.getElementById('tk-sec-rowstart-'+mapId).value.trim() || 'A',
+    row_count: parseInt(document.getElementById('tk-sec-rowcount-'+mapId).value||'0'),
+    seats_per_row: parseInt(document.getElementById('tk-sec-perrow-'+mapId).value||'0')
+  };
+  if(!body.row_count || !body.seats_per_row){ toast('Enter rows and seats per row','error'); return; }
+  var res = await api('/api/seat-maps/'+mapId+'/generate-section','POST',body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Created '+res.created+' seats','success');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+}
+
+/* ── Ticket types for a performance ─────────────────────────────────────── */
+var _tkTypesPerfId = null;
+async function openTicketTypes(perfId, label){
+  _tkTypesPerfId = perfId;
+  document.getElementById('tk-types-title').textContent = 'Ticket Types — ' + (label||'');
+  openModal('modal-tk-types');
+  await renderTicketTypes();
+}
+
+async function renderTicketTypes(){
+  var body = document.getElementById('tk-types-body');
+  body.innerHTML = '<div style="color:var(--text-muted)">Loading…</div>';
+  var types = await api('/api/performances/'+_tkTypesPerfId+'/ticket-types');
+  types = Array.isArray(types)? types : [];
+  var rows = types.map(function(t){
+    return ''
+      + '<div class="card" style="padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+      +   '<div><div style="font-weight:700">'+escHtml(t.name)+' — '+tkMoney(t.price_cents)+(t.active===false?' <span style="font-size:11px;color:var(--text-muted)">(inactive)</span>':'')+'</div>'
+      +     (t.description?'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(t.description)+'</div>':'')
+      +     (t.quantity_limit?'<div style="font-size:12px;color:var(--text-muted)">Limit: '+t.quantity_limit+'</div>':'')
+      +   '</div>'
+      +   '<div style="display:flex;gap:6px">'
+      +     '<button class="btn btn-secondary btn-sm" onclick="tkTypeForm(\''+t.id+'\')">Edit</button>'
+      +     '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeleteType(\''+t.id+'\')">×</button>'
+      +   '</div>'
+      + '</div>';
+  }).join('');
+  window._tkTypes = types;
+  body.innerHTML =
+    '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+    + '<button class="btn btn-primary btn-sm" onclick="tkTypeForm()">+ Add Ticket Type</button></div>'
+    + (rows || '<div style="color:var(--text-muted);text-align:center;padding:16px">No ticket types yet. Add tiers like Adult, Student, Senior.</div>')
+    + '<div id="tk-type-form-slot"></div>';
+}
+
+function tkTypeForm(tid){
+  var t = (window._tkTypes||[]).find(function(x){ return x.id===tid; }) || {};
+  var slot = document.getElementById('tk-type-form-slot');
+  slot.innerHTML =
+    '<div class="card" style="padding:16px;margin-top:8px;border:2px solid var(--teal-400,#0d9488)">'
+    + '<div style="font-weight:700;margin-bottom:10px">'+(tid?'Edit':'New')+' Ticket Type</div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>Name *</label><input type="text" id="tk-t-name" value="'+escHtml(t.name||'')+'" placeholder="e.g. Adult"/></div>'
+    +   '<div class="form-group"><label>Price ($)</label><input type="number" id="tk-t-price" step="0.01" min="0" value="'+(t.price_cents!=null?(t.price_cents/100).toFixed(2):'')+'"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Description</label><input type="text" id="tk-t-desc" value="'+escHtml(t.description||'')+'"/></div>'
+    + '<div class="form-group"><label>Quantity limit (optional)</label><input type="number" id="tk-t-limit" min="0" value="'+(t.quantity_limit||'')+'"/></div>'
+    + (tid?'<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tk-t-active" '+(t.active===false?'':'checked')+' style="width:auto"/> Active</label>':'')
+    + '<div style="display:flex;gap:8px">'
+    +   '<button class="btn btn-primary btn-sm" onclick="tkSaveType(\''+(tid||'')+'\')">Save</button>'
+    +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-type-form-slot\').innerHTML=\'\'">Cancel</button>'
+    + '</div></div>';
+}
+
+async function tkSaveType(tid){
+  var body = {
+    name: document.getElementById('tk-t-name').value.trim(),
+    price_dollars: parseFloat(document.getElementById('tk-t-price').value||'0'),
+    description: document.getElementById('tk-t-desc').value.trim(),
+    quantity_limit: parseInt(document.getElementById('tk-t-limit').value||'0') || null
+  };
+  if(tid){ var a=document.getElementById('tk-t-active'); if(a) body.active=a.checked; }
+  if(!body.name){ toast('Ticket type name is required','error'); return; }
+  var res = tid
+    ? await api('/api/ticket-types/'+tid,'PUT',body)
+    : await api('/api/performances/'+_tkTypesPerfId+'/ticket-types','POST',body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Ticket type saved','success');
+  renderTicketTypes();
+  // refresh the performance list count if the tab is open
+  if(window._currentProductionDetailId) loadTicketsTab(window._currentProductionDetailId);
+}
+
+async function tkDeleteType(tid){
+  if(!confirm('Delete this ticket type?')) return;
+  var res = await api('/api/ticket-types/'+tid,'DELETE');
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Ticket type deleted','info');
+  renderTicketTypes();
+  if(window._currentProductionDetailId) loadTicketsTab(window._currentProductionDetailId);
+}
+</script>
+<!-- ═══════════════ END TICKETING UI ═══════════════ -->
+
 </body>
 </html>

@@ -1862,7 +1862,17 @@ def init_db():
             role_name TEXT DEFAULT '',
             created_by TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
-    ]:
+    
+        # ── Ticketing Phase 1 tables ──
+        "CREATE TABLE IF NOT EXISTS venues (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,\n        address     TEXT DEFAULT '',\n        city        TEXT DEFAULT '',\n        notes       TEXT DEFAULT '',\n        active      BOOLEAN DEFAULT TRUE,\n        created_at  TIMESTAMP DEFAULT NOW(),\n        updated_at  TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS seat_maps (\n        id          TEXT PRIMARY KEY,\n        venue_id    TEXT NOT NULL REFERENCES venues(id) ON DELETE CASCADE,\n        name        TEXT NOT NULL,\n        capacity    INTEGER DEFAULT 0,\n        is_default  BOOLEAN DEFAULT FALSE,\n        notes       TEXT DEFAULT '',\n        created_at  TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS seat_map_seats (\n        id            TEXT PRIMARY KEY,\n        seat_map_id   TEXT NOT NULL REFERENCES seat_maps(id) ON DELETE CASCADE,\n        section       TEXT DEFAULT '',\n        row_name      TEXT DEFAULT '',\n        seat_number   INTEGER,\n        seat_label    TEXT DEFAULT '',\n        x             INTEGER DEFAULT 0,\n        y             INTEGER DEFAULT 0,\n        seat_type     TEXT DEFAULT 'standard',\n        accessible    BOOLEAN DEFAULT FALSE,\n        house_seat    BOOLEAN DEFAULT FALSE,\n        active        BOOLEAN DEFAULT TRUE,\n        created_at    TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS performances (\n        id            TEXT PRIMARY KEY,\n        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,\n        venue_id      TEXT REFERENCES venues(id) ON DELETE SET NULL,\n        seat_map_id   TEXT REFERENCES seat_maps(id) ON DELETE SET NULL,\n        name          TEXT DEFAULT '',\n        performance_date TEXT NOT NULL,\n        performance_time TEXT DEFAULT '',\n        doors_time    TEXT DEFAULT '',\n        reserved_seating BOOLEAN DEFAULT TRUE,\n        ga_capacity   INTEGER,\n        sales_open_at  TEXT DEFAULT '',\n        sales_close_at TEXT DEFAULT '',\n        status        TEXT DEFAULT 'draft',\n        notes         TEXT DEFAULT '',\n        created_at    TIMESTAMP DEFAULT NOW(),\n        updated_at    TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS ticket_types (\n        id             TEXT PRIMARY KEY,\n        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,\n        name           TEXT NOT NULL,\n        price_cents    INTEGER NOT NULL DEFAULT 0,\n        description    TEXT DEFAULT '',\n        quantity_limit INTEGER,\n        sort_order     INTEGER DEFAULT 0,\n        active         BOOLEAN DEFAULT TRUE,\n        created_at     TIMESTAMP DEFAULT NOW())",
+        'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
+        'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
+        'CREATE INDEX IF NOT EXISTS ix_ticket_types_perf ON ticket_types(performance_id)',
+]:
         try:
             c.execute(col_sql)
             conn.commit()
@@ -20622,3 +20632,460 @@ try:
     _start_oncall_scheduler()
 except Exception as _sche:
     import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
+
+
+# ═════════════════════════ ROUTES START ═════════════════════════════════
+# (Paste from here down into app.py, e.g. after the Productions section.)
+
+# ─────────────────────────────────────────────────────────────────────────
+#  Small helper — permission gate that also lets producers manage tickets
+#  for their own show. Falls back to the generic 'ticketing' permission.
+# ─────────────────────────────────────────────────────────────────────────
+def _require_ticketing():
+    """Admin/treasurer/president/staff with ticketing perm may manage tickets."""
+    return require_permission('ticketing')
+
+
+# ── VENUES ──────────────────────────────────────────────────────────────
+@app.route('/api/venues', methods=['GET'])
+def get_venues():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    include_inactive = request.args.get('all') == '1'
+    where = '' if include_inactive else 'WHERE v.active=TRUE'
+    venues = fetchall(conn, f'''
+        SELECT v.*,
+               (SELECT COUNT(*) FROM seat_maps sm WHERE sm.venue_id=v.id) AS seat_map_count
+        FROM venues v {where}
+        ORDER BY v.name''')
+    conn.close()
+    return jsonify(venues or [])
+
+
+@app.route('/api/venues', methods=['POST'])
+def create_venue():
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Venue name is required'}), 400
+    vid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO venues (id,name,address,city,notes,active)
+                     VALUES (%s,%s,%s,%s,%s,%s)''',
+            (vid, d['name'].strip(), (d.get('address') or '').strip(),
+             (d.get('city') or '').strip(), (d.get('notes') or '').strip(),
+             bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/venues/<vid>', methods=['PUT'])
+def update_venue(vid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE venues SET name=%s,address=%s,city=%s,notes=%s,active=%s,updated_at=NOW()
+                     WHERE id=%s''',
+            ((d.get('name') or '').strip(), (d.get('address') or '').strip(),
+             (d.get('city') or '').strip(), (d.get('notes') or '').strip(),
+             bool(d.get('active', True)), vid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/venues/<vid>', methods=['DELETE'])
+def delete_venue(vid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    # Block delete if any performance still points at this venue.
+    in_use = fetchone(conn, 'SELECT COUNT(*) AS c FROM performances WHERE venue_id=%s', (vid,))
+    if in_use and in_use['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This venue is used by one or more performances. '
+                                 'Mark it inactive instead of deleting.'}), 400
+    execute(conn, 'DELETE FROM venues WHERE id=%s', (vid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── SEAT MAPS ───────────────────────────────────────────────────────────
+@app.route('/api/venues/<vid>/seat-maps', methods=['GET'])
+def get_seat_maps(vid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    maps = fetchall(conn, '''
+        SELECT sm.*,
+               (SELECT COUNT(*) FROM seat_map_seats s WHERE s.seat_map_id=sm.id AND s.active=TRUE) AS seat_count
+        FROM seat_maps sm WHERE sm.venue_id=%s ORDER BY sm.is_default DESC, sm.name''', (vid,))
+    conn.close()
+    return jsonify(maps or [])
+
+
+@app.route('/api/seat-maps/<mid>', methods=['GET'])
+def get_seat_map_detail(mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    sm = fetchone(conn, '''SELECT sm.*, v.name AS venue_name
+                           FROM seat_maps sm JOIN venues v ON sm.venue_id=v.id
+                           WHERE sm.id=%s''', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    sm['seats'] = fetchall(conn, '''SELECT * FROM seat_map_seats WHERE seat_map_id=%s
+                                     ORDER BY section, row_name, seat_number''', (mid,))
+    conn.close()
+    return jsonify(sm)
+
+
+@app.route('/api/venues/<vid>/seat-maps', methods=['POST'])
+def create_seat_map(vid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Seat map name is required'}), 400
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    # If this is being set as default, clear other defaults for the venue.
+    if d.get('is_default'):
+        execute(conn, 'UPDATE seat_maps SET is_default=FALSE WHERE venue_id=%s', (vid,))
+    execute(conn, '''INSERT INTO seat_maps (id,venue_id,name,capacity,is_default,notes)
+                     VALUES (%s,%s,%s,%s,%s,%s)''',
+            (mid, vid, d['name'].strip(), int(d.get('capacity') or 0),
+             bool(d.get('is_default', False)), (d.get('notes') or '').strip()))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/seat-maps/<mid>', methods=['PUT'])
+def update_seat_map(mid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT venue_id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    if d.get('is_default'):
+        execute(conn, 'UPDATE seat_maps SET is_default=FALSE WHERE venue_id=%s', (sm['venue_id'],))
+    execute(conn, '''UPDATE seat_maps SET name=%s,capacity=%s,is_default=%s,notes=%s WHERE id=%s''',
+            ((d.get('name') or '').strip(), int(d.get('capacity') or 0),
+             bool(d.get('is_default', False)), (d.get('notes') or '').strip(), mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>', methods=['DELETE'])
+def delete_seat_map(mid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    in_use = fetchone(conn, 'SELECT COUNT(*) AS c FROM performances WHERE seat_map_id=%s', (mid,))
+    if in_use and in_use['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This seat map is used by one or more performances.'}), 400
+    execute(conn, 'DELETE FROM seat_maps WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── SEAT MAP BUILDER — bulk generate rows of seats ──────────────────────
+@app.route('/api/seat-maps/<mid>/generate-section', methods=['POST'])
+def generate_seat_section(mid):
+    """
+    Auto-lay-out a rectangular block of seats.
+      section:    "Orchestra"
+      row_labels: ["A","B","C",...]  OR  row_start="A", row_count=10
+      seats_per_row: 12
+      number_from: 1
+    Creates rows × seats_per_row seats with grid x/y coords.
+    """
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = (d.get('section') or '').strip()
+    seats_per_row = int(d.get('seats_per_row') or 0)
+    number_from = int(d.get('number_from') or 1)
+    seat_type = (d.get('seat_type') or 'standard').strip()
+
+    # Build the list of row labels
+    row_labels = d.get('row_labels')
+    if not row_labels:
+        import string
+        start = (d.get('row_start') or 'A').strip().upper()
+        count = int(d.get('row_count') or 0)
+        if count <= 0 or not start:
+            return jsonify({'error': 'Provide row_labels OR row_start + row_count'}), 400
+        letters = string.ascii_uppercase
+        try:
+            start_idx = letters.index(start[0])
+        except ValueError:
+            start_idx = 0
+        row_labels = [letters[i] for i in range(start_idx, min(start_idx + count, 26))]
+
+    if seats_per_row <= 0 or not row_labels:
+        return jsonify({'error': 'seats_per_row and at least one row are required'}), 400
+
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+
+    # Offset new section below any existing seats so blocks don't overlap.
+    max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    y_base = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+
+    created = 0
+    for r_i, row_name in enumerate(row_labels):
+        for s_i in range(seats_per_row):
+            seat_no = number_from + s_i
+            label = f'{row_name}{seat_no}'
+            execute(conn, '''INSERT INTO seat_map_seats
+                             (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), mid, section, row_name, seat_no, label,
+                     s_i, y_base + r_i, seat_type))
+            created += 1
+
+    # Refresh capacity = count of active seats
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/seats/<sid>', methods=['PUT'])
+def update_seat(sid):
+    """Edit a single seat (mark accessible, house seat, rename, deactivate)."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    fields, vals = [], []
+    for f in ['section', 'row_name', 'seat_label', 'seat_type']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append((d[f] or '').strip())
+    for f in ['seat_number', 'x', 'y']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(int(d[f] or 0))
+    for f in ['accessible', 'house_seat', 'active']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(bool(d[f]))
+    if not fields:
+        conn.close(); return jsonify({'error': 'Nothing to update'}), 400
+    vals.append(sid)
+    execute(conn, f'UPDATE seat_map_seats SET {",".join(fields)} WHERE id=%s', vals)
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/seats/<sid>', methods=['DELETE'])
+def delete_seat(sid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>/seats', methods=['DELETE'])
+def clear_seat_map(mid):
+    """Wipe all seats from a map (start over in the builder)."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=0 WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── PERFORMANCES ────────────────────────────────────────────────────────
+@app.route('/api/productions/<pid>/performances', methods=['GET'])
+def get_performances(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    perfs = fetchall(conn, '''
+        SELECT pf.*,
+               v.name AS venue_name,
+               sm.name AS seat_map_name,
+               sm.capacity AS seat_map_capacity,
+               (SELECT COUNT(*) FROM ticket_types tt WHERE tt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
+        FROM performances pf
+        LEFT JOIN venues v ON pf.venue_id=v.id
+        LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
+        WHERE pf.production_id=%s
+        ORDER BY pf.performance_date, pf.performance_time''', (pid,))
+    # Attach capacity: reserved uses seat map count, GA uses ga_capacity.
+    for pf in (perfs or []):
+        if pf.get('reserved_seating') and pf.get('seat_map_id'):
+            pf['capacity'] = pf.get('seat_map_capacity') or 0
+        else:
+            pf['capacity'] = pf.get('ga_capacity') or 0
+    conn.close()
+    return jsonify(perfs or [])
+
+
+@app.route('/api/productions/<pid>/performances', methods=['POST'])
+def create_performance(pid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('performance_date') or '').strip():
+        return jsonify({'error': 'Performance date is required'}), 400
+    reserved = bool(d.get('reserved_seating', True))
+    if reserved and not d.get('seat_map_id'):
+        return jsonify({'error': 'Reserved-seating performances need a seat map'}), 400
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO performances
+                     (id,production_id,venue_id,seat_map_id,name,performance_date,performance_time,
+                      doors_time,reserved_seating,ga_capacity,sales_open_at,sales_close_at,status,notes)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (fid, pid, d.get('venue_id') or None, d.get('seat_map_id') or None,
+             (d.get('name') or '').strip(), d['performance_date'].strip(),
+             (d.get('performance_time') or '').strip(), (d.get('doors_time') or '').strip(),
+             reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
+             (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
+             d.get('status', 'draft'), (d.get('notes') or '').strip()))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pf.*, v.name AS venue_name, sm.name AS seat_map_name
+                            FROM performances pf
+                            LEFT JOIN venues v ON pf.venue_id=v.id
+                            LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
+                            WHERE pf.id=%s''', (fid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/performances/<fid>', methods=['PUT'])
+def update_performance(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    reserved = bool(d.get('reserved_seating', True))
+    conn = get_db()
+    execute(conn, '''UPDATE performances SET
+                     venue_id=%s, seat_map_id=%s, name=%s, performance_date=%s, performance_time=%s,
+                     doors_time=%s, reserved_seating=%s, ga_capacity=%s, sales_open_at=%s,
+                     sales_close_at=%s, status=%s, notes=%s, updated_at=NOW()
+                     WHERE id=%s''',
+            (d.get('venue_id') or None, d.get('seat_map_id') or None,
+             (d.get('name') or '').strip(), (d.get('performance_date') or '').strip(),
+             (d.get('performance_time') or '').strip(), (d.get('doors_time') or '').strip(),
+             reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
+             (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
+             d.get('status', 'draft'), (d.get('notes') or '').strip(), fid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/performances/<fid>/status', methods=['POST'])
+def set_performance_status(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    status = (d.get('status') or '').strip()
+    if status not in ('draft', 'on_sale', 'sold_out', 'closed', 'cancelled'):
+        return jsonify({'error': f'Invalid status: {status}'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE performances SET status=%s, updated_at=NOW() WHERE id=%s', (status, fid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'status': status})
+
+
+@app.route('/api/performances/<fid>', methods=['DELETE'])
+def delete_performance(fid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM ticket_types WHERE performance_id=%s', (fid,))
+    execute(conn, 'DELETE FROM performances WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── TICKET TYPES (price tiers) ──────────────────────────────────────────
+@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
+def get_ticket_types(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE performance_id=%s
+                             ORDER BY sort_order, name''', (fid,))
+    conn.close()
+    return jsonify(rows or [])
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['POST'])
+def create_ticket_type(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Ticket type name is required'}), 400
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE performance_id=%s', (fid,))
+    execute(conn, '''INSERT INTO ticket_types
+                     (id,performance_id,name,price_cents,description,quantity_limit,sort_order,active)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (tid, fid, d['name'].strip(),
+             int(round(float(d.get('price_dollars') or 0) * 100)) if d.get('price_dollars') is not None
+                 else int(d.get('price_cents') or 0),
+             (d.get('description') or '').strip(),
+             d.get('quantity_limit') or None,
+             (max_sort['m'] or 0) + 1, bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/ticket-types/<tid>', methods=['PUT'])
+def update_ticket_type(tid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    price_cents = (int(round(float(d['price_dollars']) * 100))
+                   if d.get('price_dollars') is not None else int(d.get('price_cents') or 0))
+    conn = get_db()
+    execute(conn, '''UPDATE ticket_types SET name=%s,price_cents=%s,description=%s,
+                     quantity_limit=%s,active=%s WHERE id=%s''',
+            ((d.get('name') or '').strip(), price_cents, (d.get('description') or '').strip(),
+             d.get('quantity_limit') or None, bool(d.get('active', True)), tid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/ticket-types/<tid>', methods=['DELETE'])
+def delete_ticket_type(tid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM ticket_types WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+

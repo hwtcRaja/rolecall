@@ -794,6 +794,9 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
+        "ALTER TABLE youth_program_enrollments ALTER COLUMN program_id DROP NOT NULL",
+        "ALTER TABLE youth_program_enrollments ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_youth_production_enrollment ON youth_program_enrollments(youth_id, production_id) WHERE production_id IS NOT NULL",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options TEXT DEFAULT '[]'",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options_label TEXT DEFAULT ''",
         "UPDATE interest_types SET sub_options='[]' WHERE sub_options IS NULL",
@@ -1268,6 +1271,7 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
@@ -1821,6 +1825,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
@@ -5290,7 +5295,7 @@ def save_registration_settings(pid):
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
         booking_mode=%s, max_sessions_per_reg=%s, show_capacity_public=%s, show_almost_sold_out=%s,
         show_sold_out_strikethrough=%s,
-        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
@@ -5313,6 +5318,7 @@ def save_registration_settings(pid):
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
+         d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
@@ -5648,8 +5654,13 @@ def get_youth():
         y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (y['id'],))
         y['waivers'] = fetchall(conn,
             'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (y['id'],))
-        y['enrollments'] = fetchall(conn,
-            'SELECT e.*, p.name as program_name FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (y['id'],))
+        y['enrollments'] = fetchall(conn, '''
+            SELECT e.*, p.name as program_name, NULL as program_status FROM youth_program_enrollments e
+                JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
+            UNION ALL
+            SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+                JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
+            ORDER BY enrolled_date DESC''', (y['id'], y['id']))
     conn.close()
     return jsonify(youth)
 
@@ -5665,8 +5676,13 @@ def get_youth_participant(yid):
     y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
-    y['enrollments'] = fetchall(conn,
-        'SELECT e.*, p.name as program_name, p.status as program_status FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (yid,))
+    y['enrollments'] = fetchall(conn, '''
+        SELECT e.*, p.name as program_name, p.status as program_status FROM youth_program_enrollments e
+            JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
+        UNION ALL
+        SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+            JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
+        ORDER BY enrolled_date DESC''', (yid, yid))
     try:
         y['notes'] = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,))
         y['incidents'] = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC', (yid,))
@@ -14454,6 +14470,7 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
     if not reg: return
     prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (reg.get('production_id'),)) if reg.get('production_id') else None
 
     # Update registration status
     execute(conn, '''UPDATE program_registrations SET status='confirmed',
@@ -14548,14 +14565,21 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
     def enroll(youth_id):
-        if not prog: return
+        if not prog and not prod: return
         try:
             import uuid as _ue
-            execute(conn, '''INSERT INTO youth_program_enrollments
-                (id, youth_id, program_id, enrolled_date, notes)
-                VALUES (%s,%s,%s,NOW()::TEXT,%s)
-                ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+            if prog:
+                execute(conn, '''INSERT INTO youth_program_enrollments
+                    (id, youth_id, program_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                    (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+            elif prod:
+                execute(conn, '''INSERT INTO youth_program_enrollments
+                    (id, youth_id, production_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
+                    (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
         except Exception as e:
             app.logger.warning(f'Enrollment insert: {e}')
 
@@ -15227,8 +15251,11 @@ def public_submit_registration(slug):
     if p.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
         sib_type = p.get('sibling_discount_type') or 'percent'
         sib_val = p.get('sibling_discount_value') or 0
-        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-        sibling_discount_amount = per_sib * (participant_count - 1)
+        if (p.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+            sibling_discount_amount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+        else:
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sibling_discount_amount = per_sib * (participant_count - 1)
 
     # Deposit payment plan
     deposit = p.get('deposit_amount') or 0
@@ -15625,8 +15652,11 @@ def public_register_production(slug):
     if prod.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
         sib_type = prod.get('sibling_discount_type') or 'percent'
         sib_val = prod.get('sibling_discount_value') or 0
-        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-        sibling_discount_amount = per_sib * (participant_count - 1)
+        if (prod.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+            sibling_discount_amount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+        else:
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sibling_discount_amount = per_sib * (participant_count - 1)
 
     deposit = prod.get('deposit_amount') or 0
     effective_price = max(0, basket - discount_amount - sibling_discount_amount)
@@ -15806,7 +15836,7 @@ def save_production_registration_settings(pid):
     execute(conn, '''UPDATE productions SET
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s,
-        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, form_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
@@ -15823,6 +15853,7 @@ def save_production_registration_settings(pid):
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
+         d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
@@ -16088,8 +16119,11 @@ def cart_checkout():
         if prog.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
             sib_type = prog.get('sibling_discount_type') or 'percent'
             sib_val = prog.get('sibling_discount_value') or 0
-            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-            sib_discount = per_sib * (participant_count - 1)
+            if (prog.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+                sib_discount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+            else:
+                per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+                sib_discount = per_sib * (participant_count - 1)
 
         effective = max(0, basket - prog_discount - sib_discount)
         item_data = {

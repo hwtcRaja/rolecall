@@ -13573,6 +13573,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
+    s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>&#127903; Tickets</button>"
  if(p.stage==='rising_stars'){
    s += "<button id='prodtab-btn-auditions' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;auditions&quot;)'>Auditions</button>"
    s += "<button id='prodtab-btn-registrations' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;registrations&quot;)'>Registrations</button>"
@@ -13676,7 +13677,8 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
  s += '</div>'
  // Portal content tab
- s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
+ s += '<div id="prodtab-tickets" style="display:none"><div id="prod-tickets-inner-'+p.id+'"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>'
+    s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
  s += '<div id="prodtab-auditions" style="display:none"><div id="prodtab-auditions-inner-'+p.id+'"></div></div>'
  if(p.stage==='rising_stars'){
    s += '<div id="prodtab-registrations" style="display:none"><div id="prodtab-registrations-inner-'+p.id+'"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div></div>'
@@ -19551,18 +19553,13 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">Files</button>
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
-            <button class="portal-sub-btn" data-ptab="tickets" onclick="switchProdPortalTab('tickets',this)">Tickets</button>
  ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
  ${isRS?`<div id="pptab-general-${pid}" style="display:none"><div id="prod-general-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
 
- <div id="pptab-tickets-${pid}" style="display:none">
-        <div id="prod-tickets-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div>
-      </div>
-
-      <!-- Announcements -->
+ <!-- Announcements -->
  <div id="pptab-announcements-${pid}" ${isRS?'style="display:none"':''}>
  <div class="card" style="padding:20px">
  <div style="font-size:14px;font-weight:700;margin-bottom:12px"> Announcements</div>
@@ -19812,7 +19809,7 @@ function openProductionRegistrationSettingsModal(pid){
 
 function switchProductionTab(tab){
  const pid = window._currentProductionDetailId
- const tabs = ['members','youth','schedule','info','portal','auditions','registrations']
+ const tabs = ['members','youth','schedule','info','portal','auditions','registrations','tickets']
  tabs.forEach(t=>{
  const el = document.getElementById('prodtab-'+t)
  if(el) el.style.display = t===tab?'':'none'
@@ -19830,6 +19827,7 @@ function switchProductionTab(tab){
  }
  }
  if(tab==='registrations' && pid) loadProductionRegistrations(pid)
+ if(tab==='tickets' && pid) loadTicketsTab(pid)
  if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
 }
 
@@ -19999,7 +19997,7 @@ async function submitScConflict(pid){
 function switchProdPortalTab(tab, btn){
  const pid = window._currentProductionDetailId
  if(!pid) return
- ;['announcements','files','about','team','conflicts','overview','general','messages','tickets'].forEach(t=>{
+ ;['announcements','files','about','team','conflicts','overview','general','messages'].forEach(t=>{
  const el = document.getElementById('pptab-'+t+'-'+pid)
  if(el) el.style.display = t===tab?'':'none'
  })
@@ -20027,7 +20025,6 @@ function switchProdPortalTab(tab, btn){
  if(tab==='conflicts') loadProductionConflicts(pid)
  if(tab==='overview') loadProductionOverview(pid)
  if(tab==='general') loadProductionGeneralInfo(pid)
- if(tab==='tickets') loadTicketsTab(pid)
 }
 
 async function loadProductionOverview(pid){

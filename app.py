@@ -1155,6 +1155,7 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_time TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS interest_list_fields TEXT DEFAULT '[]'",
@@ -1817,6 +1818,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_time TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
@@ -5306,7 +5308,7 @@ def save_registration_settings(pid):
         booking_mode=%s, max_sessions_per_reg=%s, show_capacity_public=%s, show_almost_sold_out=%s,
         show_sold_out_strikethrough=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
-        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        registration_open_date=%s, registration_open_time=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
@@ -5330,6 +5332,7 @@ def save_registration_settings(pid):
          int(d.get('sibling_discount_value') or 0),
          d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
+         d.get('registration_open_time') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
          (d.get('program_info') or '').strip(),
@@ -14623,6 +14626,29 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     conn.commit()
 
 
+def _registration_not_yet_open(prog):
+    """Return (True, message) if this program/production has a scheduled open
+    date/time still in the future, else (False, None). Time is optional; a bare
+    date opens at 00:00 that day. All comparisons in America/New_York."""
+    open_date = (prog.get('registration_open_date') or '').strip()
+    if not open_date:
+        return False, None
+    open_time = ((prog.get('registration_open_time') or '').strip() or '00:00')[:5]
+    try:
+        from zoneinfo import ZoneInfo as _ZIno
+        import datetime as _dtno
+        open_dt = _dtno.datetime.fromisoformat(f'{open_date}T{open_time}:00').replace(tzinfo=_ZIno('America/New_York'))
+        now = _dtno.datetime.now(_ZIno('America/New_York'))
+        if now < open_dt:
+            try:
+                friendly = open_dt.strftime('%A, %B %-d at %-I:%M %p')
+            except Exception:
+                friendly = open_dt.strftime('%Y-%m-%d %H:%M')
+            return True, f'Registration opens {friendly}.'
+    except Exception:
+        return False, None
+    return False, None
+
 # ── Public registration page ──────────────────────────────────────────────────
 
 @app.route('/register/<slug>')
@@ -15150,6 +15176,11 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': 'Registrations are not currently open for this program'}), 400
 
+    _not_yet, _opens_msg = _registration_not_yet_open(p)
+    if _not_yet:
+        conn.close()
+        return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
+
     # Check capacity
     reg_count = get_registration_count(conn, p['id'])
     cap = p.get('capacity')
@@ -15628,6 +15659,10 @@ def public_register_production(slug):
     if not guardian_email:
         conn.close()
         return jsonify({'error': 'Email required'}), 400
+    _not_yet, _opens_msg = _registration_not_yet_open(prod)
+    if _not_yet:
+        conn.close()
+        return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
     reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
     if prod.get('capacity') and reg_count >= prod['capacity']:
         conn.close()
@@ -15847,7 +15882,7 @@ def save_production_registration_settings(pid):
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
-        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        registration_open_date=%s, registration_open_time=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, form_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
@@ -15865,6 +15900,7 @@ def save_production_registration_settings(pid):
          int(d.get('sibling_discount_value') or 0),
          d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
+         d.get('registration_open_time') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
          (d.get('program_info') or '').strip(),

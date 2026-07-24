@@ -20881,6 +20881,8 @@ async function notifyInterestList(pid){
 function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, onSavedCallback){
   const prog = progOverride || allPrograms.find(function(p){ return p.id===pid }) || {}
   const _saveEndpoint = saveEndpointOverride || ('/api/programs/'+pid+'/registration-settings')
+  const _isProduction = _saveEndpoint.indexOf('/productions/') !== -1
+  const _apiBase = _isProduction ? ('/api/productions/'+pid) : ('/api/programs/'+pid)
   const existing = document.getElementById('reg-settings-overlay')
   if(existing) existing.remove()
   const overlay = document.createElement('div')
@@ -21275,15 +21277,15 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
   document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
   // Load Square catalog items
   loadSquareCatalogItems(prog.square_catalog_item_id || '')
-  document.getElementById('rs-create-item-btn').addEventListener('click', function(){ openCreateCatalogItemModal(pid) })
-  loadDiscountCodes(pid)
+  document.getElementById('rs-create-item-btn').addEventListener('click', function(){ openCreateCatalogItemModal(pid, _apiBase, prog) })
+  loadDiscountCodes(pid, _apiBase)
   document.getElementById('rs-add-code-btn').addEventListener('click', async function(){
     const code = (document.getElementById('rs-new-code')||{}).value||''
     const type = (document.getElementById('rs-code-type')||{}).value||'percent'
     const val = parseInt((document.getElementById('rs-code-value')||{}).value)||0
     if(!code.trim() || !val){ toast('Enter a code and value','error'); return }
     this.disabled=true; this.textContent='Creating...'
-    const res = await api('/api/programs/'+pid+'/discount-codes','POST',{
+    const res = await api(_apiBase+'/discount-codes','POST',{
       code:code.trim().toUpperCase(), discount_type:type, discount_value:val,
       min_spend_cents: Math.round((parseFloat((document.getElementById('rs-min-spend')||{}).value)||0)*100),
       max_uses: parseInt((document.getElementById('rs-code-max-uses')||{}).value)||null,
@@ -21297,7 +21299,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
       if(document.getElementById('rs-min-spend')) document.getElementById('rs-min-spend').value=''
       if(document.getElementById('rs-code-max-uses')) document.getElementById('rs-code-max-uses').value=''
       if(document.getElementById('rs-sib-code')) document.getElementById('rs-sib-code').checked=false
-      loadDiscountCodes(pid)
+      loadDiscountCodes(pid, _apiBase)
     }
     else toast((res && res.error)||'Error','error')
   })
@@ -21379,8 +21381,9 @@ async function loadSquareCatalogItems(selectedId){
   }
 }
 
-function openCreateCatalogItemModal(pid){
-  const prog = allPrograms.find(function(p){ return p.id===pid }) || {}
+function openCreateCatalogItemModal(pid, apiBase, progOverride){
+  apiBase = apiBase || ('/api/programs/'+pid)
+  const prog = progOverride || allPrograms.find(function(p){ return p.id===pid }) || {}
   const overlay2 = document.createElement('div')
   overlay2.id = 'catalog-create-overlay'
   overlay2.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
@@ -21427,10 +21430,14 @@ function openCreateCatalogItemModal(pid){
     overlay2.remove()
     toast('Catalog item created in Square!', 'success')
     // Reload catalog list and select the new item
-    await api('/api/programs/'+pid+'/link-catalog-item','POST',{catalog_item_id: res.variation_id||res.id})
+    await api(apiBase+'/link-catalog-item','POST',{catalog_item_id: res.variation_id||res.id})
     await loadSquareCatalogItems(res.variation_id||res.id)
-    // Also reload programs to update local cache
-    api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+    // Also reload the local cache so the linked item persists in memory
+    if(apiBase.indexOf('/productions/')!==-1){
+      api('/api/productions').then(function(prods){ if(Array.isArray(prods)) allProductions = prods })
+    } else {
+      api('/api/youth-programs').then(function(progs){ if(Array.isArray(progs)) allPrograms = progs })
+    }
   })
 }
 
@@ -21554,10 +21561,11 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
   })
 }
 
-async function loadDiscountCodes(pid){
+async function loadDiscountCodes(pid, apiBase){
+  apiBase = apiBase || ('/api/programs/'+pid)
   const el = document.getElementById('rs-discount-codes-list')
   if(!el) return
-  const codes = await api('/api/programs/'+pid+'/discount-codes')
+  const codes = await api(apiBase+'/discount-codes')
   if(!Array.isArray(codes) || !codes.length){
     el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No codes yet</div>'
     return
@@ -21576,8 +21584,8 @@ async function loadDiscountCodes(pid){
   el.querySelectorAll('.dc-delete-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
       if(!confirm('Deactivate this code?')) return
-      const res = await api('/api/programs/'+pid+'/discount-codes/'+btn.dataset.cid,'DELETE')
-      if(res && res.ok){ toast('Code deactivated','success'); loadDiscountCodes(pid) }
+      const res = await api(apiBase+'/discount-codes/'+btn.dataset.cid,'DELETE')
+      if(res && res.ok){ toast('Code deactivated','success'); loadDiscountCodes(pid, apiBase) }
     })
   })
 }
@@ -24292,7 +24300,7 @@ function loadMarqueePage(){
   renderMarqueeTab('dashboard')
 }
 
-function switchMarqueeTab(tab){
+function switchMarqueeTab(tab, filterValue){
   _marqueeTab = tab
   document.querySelectorAll('.marquee-tab').forEach(function(b){
     var isActive = b.dataset.tab === tab
@@ -24302,20 +24310,20 @@ function switchMarqueeTab(tab){
   document.querySelectorAll('[id^="marquee-tab-"]').forEach(function(d){ d.style.display='none' })
   var panel = document.getElementById('marquee-tab-'+tab)
   if(panel) panel.style.display=''
-  renderMarqueeTab(tab)
+  renderMarqueeTab(tab, filterValue)
 }
 
-function loadMarqueeRegistrations(){
-  renderMarqueeTab('registrations')
+function loadMarqueeRegistrations(filterValue){
+  renderMarqueeTab('registrations', filterValue)
 }
 
-async function renderMarqueeTab(tab){
+async function renderMarqueeTab(tab, filterValue){
   var el = document.getElementById('marquee-tab-'+tab)
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
   if(tab==='dashboard') await renderMarqueeDashboard(el)
   else if(tab==='catalog') await renderMarqueeCatalog(el)
-  else if(tab==='registrations') await renderMarqueeRegistrations(el)
+  else if(tab==='registrations') await renderMarqueeRegistrations(el, filterValue)
   else if(tab==='orders') await renderMarqueeOrders(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
   else if(tab==='donations') await renderMarqueeDonations(el)
@@ -24415,12 +24423,16 @@ function renderMarqueeDashboardBody(el, data){
         progRevenue = progSessions.reduce(function(s,x){ return s+(x.revenue_cents||0) },0)
       }
       var statusBg = p.registration_status==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
+      var typeBadge = p.type==='production'
+        ? '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:#f5f3ff;color:#6d28d9">Rising Stars</span>'
+        : ''
 
       html += '<div style="border-bottom:1px solid var(--border)">'
         + '<div style="display:flex;align-items:center;gap:10px;padding:12px 20px">'
         + '<div style="flex:1;min-width:0;cursor:pointer" onclick="this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\').style.display=this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\').style.display===\'none\'?\'\':\'none\'">'
         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">'
         + '<span style="font-size:13px;font-weight:700">'+escHtml(p.name||'')+'</span>'
+        + typeBadge
         + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+statusBg+'">'+escHtml(p.registration_status||'')+'</span>'
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
@@ -24430,7 +24442,7 @@ function renderMarqueeDashboardBody(el, data){
         + '</div>'
         + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
         + '</div>'
-        + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\'registrations\');setTimeout(function(){ var f=document.getElementById(\'mq-prog-filter\'); if(f){ f.value=\''+p.id+'\'; loadMarqueeRegistrations() } },150)" style="font-size:11px;white-space:nowrap;flex-shrink:0">View Regs</button>'
+        + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\'registrations\',\''+(p.type==='production'?'prod:':'prog:')+p.id+'\')" style="font-size:11px;white-space:nowrap;flex-shrink:0">View Regs</button>'
         + '<span style="color:var(--text-muted);font-size:14px;cursor:pointer" onclick="var d=this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\');d.style.display=d.style.display===\'none\'?\'\':\'none\'">›</span>'
         + '</div>'
 
@@ -24647,16 +24659,25 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
   progFilter = progFilter || ''
   statusFilter = statusFilter || ''
   var url = '/api/marquee/registrations'
-  if(progFilter||statusFilter) url += '?program_id='+encodeURIComponent(progFilter)+'&status='+encodeURIComponent(statusFilter)
+  var qparams = []
+  if(progFilter.indexOf('prod:')===0) qparams.push('production_id='+encodeURIComponent(progFilter.slice(5)))
+  else if(progFilter.indexOf('prog:')===0) qparams.push('program_id='+encodeURIComponent(progFilter.slice(5)))
+  if(statusFilter) qparams.push('status='+encodeURIComponent(statusFilter))
+  if(qparams.length) url += '?'+qparams.join('&')
   var data = await api(url)
   var regs = (data && data.registrations) || []
   var programs = (data && data.programs) || []
+  var productionsRS = (data && data.productions) || []
   _marqueeRegs = regs
   _marqueePrograms = programs
 
-  var progOpts = '<option value="">All Programs</option>' + programs.map(function(p){
-    return '<option value="'+escHtml(p.id)+'">'+escHtml(p.name)+'</option>'
-  }).join('')
+  var progOpts = '<option value="">All Programs</option>'
+    + (programs.length ? '<optgroup label="Programs">' + programs.map(function(p){
+        return '<option value="prog:'+escHtml(p.id)+'"'+(progFilter==='prog:'+p.id?' selected':'')+'>'+escHtml(p.name)+'</option>'
+      }).join('') + '</optgroup>' : '')
+    + (productionsRS.length ? '<optgroup label="Rising Stars">' + productionsRS.map(function(p){
+        return '<option value="prod:'+escHtml(p.id)+'"'+(progFilter==='prod:'+p.id?' selected':'')+'>'+escHtml(p.name)+'</option>'
+      }).join('') + '</optgroup>' : '')
   var statusOpts = '<option value="">All Statuses</option><option value="confirmed">Confirmed</option><option value="pending_payment">Pending Payment</option><option value="waitlisted">Waitlisted</option><option value="cancelled">Cancelled</option>'
   var statusMap = {confirmed:'background:#dcfce7;color:#166534',pending_payment:'background:#fef3c7;color:#92400e',waitlisted:'background:#ede9fe;color:#6d28d9',cancelled:'background:#fee2e2;color:#991b1b'}
   var counts = {confirmed:0,pending_payment:0,waitlisted:0}
@@ -24701,9 +24722,10 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           var sessionCell = mqHasSessions ? '<td style="padding:8px;font-size:11px;color:var(--text-muted);max-width:160px">'
             + ((r.session_names||[]).length ? (r.session_names||[]).map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')
             + '</td>' : ''
-          var actions = '<button class="btn btn-secondary btn-sm mq-edit-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button>'
-          if(r.status==='pending_payment') actions += ' <button class="btn btn-secondary btn-sm mq-resend-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button>'
-          if(r.balance_due>0 && r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm mq-balance-btn" data-pid="'+r.program_id+'" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button>'
+          var actionId = r.context_type==='production' ? r.production_id : r.program_id
+          var actions = '<button class="btn btn-secondary btn-sm mq-edit-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Edit</button>'
+          if(r.status==='pending_payment') actions += ' <button class="btn btn-secondary btn-sm mq-resend-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Resend</button>'
+          if(r.balance_due>0 && r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm mq-balance-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Pay Balance</button>'
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
@@ -24733,11 +24755,16 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
     renderMarqueeRegistrations(el, pf, sf)
   })
   el.querySelectorAll('.mq-edit-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){ openEditRegistrationModal(btn.dataset.pid, btn.dataset.rid, _marqueeRegs) })
+    btn.addEventListener('click', function(){
+      var isProd = btn.dataset.type==='production'
+      var saveEndpoint = (isProd?'/api/productions/':'/api/programs/')+btn.dataset.pid+'/registrations/'+btn.dataset.rid
+      openEditRegistrationModal(btn.dataset.pid, btn.dataset.rid, _marqueeRegs, saveEndpoint)
+    })
   })
   el.querySelectorAll('.mq-resend-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
-      var res = await api('/api/programs/'+btn.dataset.pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
+      var base = (btn.dataset.type==='production'?'/api/productions/':'/api/programs/')+btn.dataset.pid
+      var res = await api(base+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
       if(res&&res.ok) toast('Payment link resent','success')
       else toast((res&&res.error)||'Error','error')
     })
@@ -24745,7 +24772,8 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
   el.querySelectorAll('.mq-balance-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
       if(!confirm('Send balance payment link?')) return
-      var res = await api('/api/programs/'+btn.dataset.pid+'/registrations/'+btn.dataset.rid+'/send-balance-link','POST')
+      var base = (btn.dataset.type==='production'?'/api/productions/':'/api/programs/')+btn.dataset.pid
+      var res = await api(base+'/registrations/'+btn.dataset.rid+'/send-balance-link','POST')
       if(res&&res.ok) toast('Balance link sent','success')
       else toast((res&&res.error)||'Error','error')
     })
@@ -25060,6 +25088,31 @@ async function renderMarqueeDiscounts(el){
       html += '<div class="card" style="padding:16px;margin-bottom:10px">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#0d3d4d">'+escHtml(p.name)+'</div>'
         + codes.map(function(c){
+            var label = c.is_sibling_discount ? '🤝 Sibling: ' : ''
+            label += c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
+            if(c.min_spend) label += ' (min $'+(c.min_spend/100).toFixed(2)+')'
+            var uses = c.max_uses ? (c.uses||0)+'/'+c.max_uses+' uses' : (c.uses||0)+' uses'
+            return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
+              + '<div><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">'+escHtml(c.code)+'</code>'
+              + ' <span style="font-size:12px;color:var(--text-muted)">'+escHtml(label)+' &middot; '+escHtml(uses)+'</span></div>'
+              + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;'+(c.active?'background:#dcfce7;color:#166534':'background:#fee2e2;color:#991b1b')+'">'+(c.active?'Active':'Inactive')+'</span>'
+              + '</div>'
+          }).join('')
+        + '</div>'
+    }
+  }
+
+  // ── Rising Stars production codes ──
+  var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
+  if(prods.length){
+    html += '<div style="font-size:13px;font-weight:700;color:#374151;margin:16px 0 10px">Rising Stars Codes</div>'
+    for(var j=0;j<prods.length;j++){
+      var rp = prods[j]
+      var rcodes = await api('/api/productions/'+rp.id+'/discount-codes')
+      if(!Array.isArray(rcodes)||!rcodes.length) continue
+      html += '<div class="card" style="padding:16px;margin-bottom:10px">'
+        + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#6d28d9">'+escHtml(rp.name)+'</div>'
+        + rcodes.map(function(c){
             var label = c.is_sibling_discount ? '🤝 Sibling: ' : ''
             label += c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
             if(c.min_spend) label += ' (min $'+(c.min_spend/100).toFixed(2)+')'

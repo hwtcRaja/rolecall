@@ -21133,10 +21133,16 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<option value="percent"'+(prog.sibling_discount_type!=='fixed'?' selected':'')+'>% off</option>'
     + '<option value="fixed"'+(prog.sibling_discount_type==='fixed'?' selected':'')+'>$ off</option>'
     + '</select></div>'
-    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Amount per additional child</label>'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Amount</label>'
     + '<input type="number" id="rs-sib-value" value="'+(prog.sibling_discount_value||'')+'" placeholder="e.g. 10" min="0" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;box-sizing:border-box;outline:none"/></div>'
     + '</div>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">e.g. 10% off — 3 children at $100 each = $100 + $90 + $90 = $280</div>'
+    + '<div style="margin-top:8px">'
+    + '<label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Apply discount to</label>'
+    + '<select id="rs-sib-basis" onchange="updateSibDiscountExample()" style="width:100%;padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    + '<option value="per_child"'+((prog.sibling_discount_basis||'per_child')!=='cart_total'?' selected':'')+'>Each additional child\'s price</option>'
+    + '<option value="cart_total"'+(prog.sibling_discount_basis==='cart_total'?' selected':'')+'>The whole cart total (when 2+ children)</option>'
+    + '</select></div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px" id="rs-sib-example"></div>'
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Form Fields</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:10px">Choose which fields appear on the registration form. Name and email are always included.</div>'
     + (function(){
@@ -21275,6 +21281,10 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     }
   })
   document.getElementById('rs-slug').addEventListener('input', function(){ document.getElementById('slug-preview').textContent = this.value||'...' })
+  document.getElementById('rs-sib-type').addEventListener('change', updateSibDiscountExample)
+  document.getElementById('rs-sib-value').addEventListener('input', updateSibDiscountExample)
+  document.getElementById('rs-sib-basis').addEventListener('change', updateSibDiscountExample)
+  updateSibDiscountExample()
   // Load Square catalog items
   loadSquareCatalogItems(prog.square_catalog_item_id || '')
   document.getElementById('rs-create-item-btn').addEventListener('click', function(){ openCreateCatalogItemModal(pid, _apiBase, prog) })
@@ -21378,6 +21388,27 @@ async function loadSquareCatalogItems(selectedId){
   if(selectedId){
     var hint = document.getElementById('rs-catalog-hint')
     if(hint) hint.textContent = 'Linked to Square catalog item'
+  }
+}
+
+function updateSibDiscountExample(){
+  var exEl = document.getElementById('rs-sib-example')
+  if(!exEl) return
+  var price = parseFloat((document.getElementById('rs-price')||{}).value)||0
+  var type = (document.getElementById('rs-sib-type')||{}).value||'percent'
+  var val = parseFloat((document.getElementById('rs-sib-value')||{}).value)||0
+  var basis = (document.getElementById('rs-sib-basis')||{}).value||'per_child'
+  if(price<=0 || val<=0){ exEl.textContent = 'Enter a price and discount amount above to see an example.'; return }
+  var childCount = 3
+  var basket = price*childCount
+  if(basis==='cart_total'){
+    var discount = type==='percent' ? basket*(val/100) : Math.min(val,basket)
+    exEl.textContent = 'e.g. '+childCount+' children at $'+price.toFixed(2)+' each = $'+basket.toFixed(2)+' cart, minus '+(type==='percent'?val+'%':'$'+val.toFixed(2))+' off the total = $'+(basket-discount).toFixed(2)
+  } else {
+    var perChild = type==='percent' ? price*(val/100) : Math.min(val,price)
+    var childPrice = Math.max(0,price-perChild)
+    var total = price + childPrice*(childCount-1)
+    exEl.textContent = 'e.g. '+childCount+' children at $'+price.toFixed(2)+' each, '+(type==='percent'?val+'%':'$'+val.toFixed(2))+' off each additional child = $'+price.toFixed(2)+' + $'+childPrice.toFixed(2)+' + $'+childPrice.toFixed(2)+' = $'+total.toFixed(2)
   }
 }
 
@@ -21718,6 +21749,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     sibling_discount_enabled: (document.getElementById('rs-sib-enabled')||{}).checked||false,
     sibling_discount_type: (document.getElementById('rs-sib-type')||{}).value||'percent',
     sibling_discount_value: parseInt((document.getElementById('rs-sib-value')||{}).value)||0,
+    sibling_discount_basis: (document.getElementById('rs-sib-basis')||{}).value||'per_child',
     registration_open_date: document.getElementById('rs-open-date').value || null,
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,

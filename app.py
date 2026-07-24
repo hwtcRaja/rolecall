@@ -1229,17 +1229,6 @@ def init_db():
             status TEXT DEFAULT 'scheduled',
             notes TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
-        """CREATE TABLE IF NOT EXISTS operating_costs (
-            id TEXT PRIMARY KEY,
-            category TEXT NOT NULL,
-            monthly_amount INTEGER DEFAULT 0,
-            notes TEXT DEFAULT '',
-            updated_at TIMESTAMP DEFAULT NOW())""",
-        """CREATE TABLE IF NOT EXISTS space_capacity_hours (
-            day_of_week INTEGER PRIMARY KEY,
-            open_time TEXT DEFAULT '08:00',
-            close_time TEXT DEFAULT '22:00',
-            closed BOOLEAN DEFAULT FALSE)""",
         """CREATE TABLE IF NOT EXISTS rental_compliance_docs (
             id TEXT PRIMARY KEY,
             doc_type TEXT NOT NULL,
@@ -5265,6 +5254,19 @@ def link_catalog_item(pid):
     d = request.json or {}
     conn = get_db()
     execute(conn, 'UPDATE youth_programs SET square_catalog_item_id=%s WHERE id=%s',
+        (d.get('catalog_item_id') or None, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/link-catalog-item', methods=['POST'])
+def link_production_catalog_item(pid):
+    """Link a Square catalog item (variation ID) to a production (e.g. Rising Stars)."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET square_catalog_item_id=%s WHERE id=%s',
         (d.get('catalog_item_id') or None, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -15806,7 +15808,7 @@ def save_production_registration_settings(pid):
         capacity=%s, price=%s, deposit_amount=%s,
         sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
         registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
-        program_info=%s, custom_fields=%s, form_fields=%s,
+        program_info=%s, custom_fields=%s, form_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
@@ -15827,6 +15829,7 @@ def save_production_registration_settings(pid):
          (d.get('program_info') or '').strip(),
          _jps.dumps(d.get('custom_fields') or []),
          _jps.dumps(d.get('form_fields') or {}),
+         d.get('square_catalog_item_id') or None,
          (d.get('registration_note') or '').strip(),
          (d.get('program_location') or '').strip(),
          d.get('schedule_type') or 'date_range',
@@ -17893,6 +17896,9 @@ def twilio_sms():
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
 
     is_oncall_replying = forward_to and _phone_last10(from_num) == _phone_last10(forward_to)
+    app.logger.info(f'SMS routing check — from_num={from_num} (last10={_phone_last10(from_num)}), '
+                     f'forward_to={forward_to} (last10={_phone_last10(forward_to)}), '
+                     f'oncall_entry={(oncall or {}).get("person_name")}, is_oncall_replying={bool(is_oncall_replying)}')
 
     if is_oncall_replying:
         conn = get_db()
@@ -19552,206 +19558,6 @@ def public_ask_contract_question(pid):
 
 # ── End Show Contracts Q&A ────────────────────────────────────────────────────
 
-# ── Cost & Pricing Calculator ─────────────────────────────────────────────────
-# Helps figure out what programming (classes, workshops, Rising Stars) and
-# external rentals need to charge to cover fixed operating costs and hit a
-# target profit margin, plus shows the financial gap for a given month based
-# on real scheduled hours vs. total available space-time.
-
-import calendar as _calendar_mod
-from datetime import date as _date_cls, datetime as _datetime_cls
-
-DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-
-def _hours_between(start_time, end_time):
-    """'14:30' - '09:00' style time strings -> hours as float. Returns 0 on bad input."""
-    try:
-        sh, sm = [int(x) for x in start_time.split(':')]
-        eh, em = [int(x) for x in end_time.split(':')]
-        mins = (eh*60+em) - (sh*60+sm)
-        return max(0, mins)/60.0
-    except Exception:
-        return 0.0
-
-@app.route('/api/finance/operating-costs')
-def get_operating_costs():
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    rows = fetchall(conn, 'SELECT * FROM operating_costs ORDER BY category') or []
-    conn.close()
-    return jsonify(rows)
-
-@app.route('/api/finance/operating-costs', methods=['POST'])
-def create_operating_cost():
-    err = require_admin()
-    if err: return err
-    d = request.json or {}
-    category = (d.get('category') or '').strip()
-    if not category:
-        return jsonify({'error': 'Category is required'}), 400
-    cid = str(uuid.uuid4())
-    conn = get_db()
-    execute(conn, '''INSERT INTO operating_costs (id, category, monthly_amount, notes)
-        VALUES (%s,%s,%s,%s)''', (cid, category, int(d.get('monthly_amount', 0)), (d.get('notes') or '').strip()))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'id': cid})
-
-@app.route('/api/finance/operating-costs/<cid>', methods=['PUT'])
-def update_operating_cost(cid):
-    err = require_admin()
-    if err: return err
-    d = request.json or {}
-    conn = get_db()
-    execute(conn, '''UPDATE operating_costs SET category=%s, monthly_amount=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
-        ((d.get('category') or '').strip(), int(d.get('monthly_amount', 0)), (d.get('notes') or '').strip(), cid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/finance/operating-costs/<cid>', methods=['DELETE'])
-def delete_operating_cost(cid):
-    err = require_admin()
-    if err: return err
-    conn = get_db()
-    execute(conn, 'DELETE FROM operating_costs WHERE id=%s', (cid,))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/finance/capacity-hours')
-def get_capacity_hours():
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    rows = fetchall(conn, 'SELECT * FROM space_capacity_hours ORDER BY day_of_week') or []
-    if len(rows) < 7:
-        existing_days = {r['day_of_week'] for r in rows}
-        for dow in range(7):
-            if dow not in existing_days:
-                execute(conn, '''INSERT INTO space_capacity_hours (day_of_week, open_time, close_time, closed)
-                    VALUES (%s,'08:00','22:00',FALSE) ON CONFLICT (day_of_week) DO NOTHING''', (dow,))
-        conn.commit()
-        rows = fetchall(conn, 'SELECT * FROM space_capacity_hours ORDER BY day_of_week') or []
-    conn.close()
-    return jsonify(rows)
-
-@app.route('/api/finance/capacity-hours', methods=['PUT'])
-def update_capacity_hours():
-    err = require_admin()
-    if err: return err
-    d = request.json or {}
-    hours = d.get('hours', [])
-    conn = get_db()
-    for h in hours:
-        execute(conn, '''INSERT INTO space_capacity_hours (day_of_week, open_time, close_time, closed)
-            VALUES (%s,%s,%s,%s)
-            ON CONFLICT (day_of_week) DO UPDATE SET open_time=EXCLUDED.open_time, close_time=EXCLUDED.close_time, closed=EXCLUDED.closed''',
-            (int(h['day_of_week']), h.get('open_time','08:00'), h.get('close_time','22:00'), bool(h.get('closed', False))))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/finance/summary')
-def get_finance_summary():
-    err = require_auth()
-    if err: return err
-    month_str = request.args.get('month')  # 'YYYY-MM'
-    try:
-        year, month = [int(x) for x in month_str.split('-')]
-    except Exception:
-        today = _date_cls.today()
-        year, month = today.year, today.month
-
-    days_in_month = _calendar_mod.monthrange(year, month)[1]
-    month_dates = [_date_cls(year, month, d) for d in range(1, days_in_month+1)]
-    month_start = month_dates[0].isoformat()
-    month_end = month_dates[-1].isoformat()
-
-    conn = get_db()
-
-    # --- Fixed costs ---
-    costs = fetchall(conn, 'SELECT * FROM operating_costs') or []
-    total_fixed_costs = sum(c['monthly_amount'] for c in costs) / 100.0  # stored in cents, convert to dollars
-
-    # --- Capacity: total possible hours this month ---
-    cap_rows = fetchall(conn, 'SELECT * FROM space_capacity_hours') or []
-    cap_by_dow = {r['day_of_week']: r for r in cap_rows}
-    total_possible_hours = 0.0
-    for dt in month_dates:
-        py_dow = dt.weekday()  # Monday=0 .. Sunday=6, matches DAY_NAMES/our storage
-        cap = cap_by_dow.get(py_dow)
-        if cap and not cap['closed']:
-            total_possible_hours += _hours_between(cap['open_time'], cap['close_time'])
-
-    # --- Scheduled hours: youth program sessions ---
-    sessions = fetchall(conn, '''SELECT ps.*, yp.name AS program_name FROM program_sessions ps
-        JOIN youth_programs yp ON yp.id=ps.program_id
-        WHERE ps.status != 'cancelled' ''') or []
-    program_hours = 0.0
-    program_hours_by_name = {}
-    dow_name_to_idx = {name: i for i, name in enumerate(DAY_NAMES)}
-    for s in sessions:
-        dow_idx = dow_name_to_idx.get((s.get('day_of_week') or '').strip().capitalize())
-        if dow_idx is None:
-            continue
-        sess_start = s.get('start_date') or month_start
-        sess_end = s.get('end_date') or month_end
-        hrs_per_occurrence = _hours_between(s.get('start_time',''), s.get('end_time',''))
-        if hrs_per_occurrence <= 0:
-            continue
-        for dt in month_dates:
-            if dt.weekday() == dow_idx and sess_start <= dt.isoformat() <= sess_end:
-                program_hours += hrs_per_occurrence
-                program_hours_by_name[s['program_name']] = program_hours_by_name.get(s['program_name'], 0) + hrs_per_occurrence
-
-    # --- Scheduled hours: rentals ---
-    rental_occ = fetchall(conn, '''SELECT ro.*, rr.title, rr.status AS request_status FROM rental_occurrences ro
-        JOIN rental_requests rr ON rr.id=ro.request_id
-        WHERE ro.occurrence_date >= %s AND ro.occurrence_date <= %s AND rr.status='approved' ''',
-        (month_start, month_end)) or []
-    rental_hours = sum(_hours_between(o.get('start_time',''), o.get('end_time','')) for o in rental_occ)
-
-    scheduled_hours = program_hours + rental_hours
-    gap_hours = max(0.0, total_possible_hours - scheduled_hours)
-
-    # --- Revenue (approximation: payments/charges recorded within the month) ---
-    program_revenue_cents = fetchone(conn, '''SELECT COALESCE(SUM(amount_paid),0) AS s FROM program_registrations
-        WHERE status NOT IN ('cancelled','denied') AND created_at::date >= %s AND created_at::date <= %s''',
-        (month_start, month_end))
-    program_revenue_cents = program_revenue_cents['s'] if program_revenue_cents else 0
-
-    rental_revenue_cents = fetchone(conn, '''SELECT COALESCE(SUM(rr.total_amount),0) AS s
-        FROM rental_requests rr
-        WHERE rr.status='approved' AND EXISTS (
-            SELECT 1 FROM rental_occurrences ro WHERE ro.request_id=rr.id
-            AND ro.occurrence_date >= %s AND ro.occurrence_date <= %s)''',
-        (month_start, month_end))
-    rental_revenue_cents = rental_revenue_cents['s'] if rental_revenue_cents else 0
-
-    total_revenue_cents = program_revenue_cents + rental_revenue_cents
-    shortfall_cents = (total_fixed_costs * 100) - total_revenue_cents  # positive = short, negative = surplus
-
-    conn.close()
-
-    cost_per_scheduled_hour = round((total_fixed_costs / scheduled_hours), 2) if scheduled_hours > 0 else None
-    cost_per_hour_if_full = round((total_fixed_costs / total_possible_hours), 2) if total_possible_hours > 0 else None
-
-    return jsonify({
-        'month': f'{year:04d}-{month:02d}',
-        'total_fixed_costs': total_fixed_costs,
-        'total_possible_hours': round(total_possible_hours, 1),
-        'scheduled_hours': round(scheduled_hours, 1),
-        'program_hours': round(program_hours, 1),
-        'rental_hours': round(rental_hours, 1),
-        'program_hours_by_name': {k: round(v, 1) for k, v in program_hours_by_name.items()},
-        'gap_hours': round(gap_hours, 1),
-        'program_revenue_cents': program_revenue_cents,
-        'rental_revenue_cents': rental_revenue_cents,
-        'total_revenue_cents': total_revenue_cents,
-        'shortfall_cents': shortfall_cents,
-        'cost_per_scheduled_hour': cost_per_scheduled_hour,
-        'cost_per_hour_if_full': cost_per_hour_if_full,
-    })
-
-# ── End Cost & Pricing Calculator ─────────────────────────────────────────────
 
 
 
@@ -20092,14 +19898,17 @@ def marquee_overview():
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
     # Revenue: sum confirmed registrations only (cart orders are the payment mechanism,
-    # not additional revenue — counting both would double-count)
+    # not additional revenue — counting both would double-count). Includes both
+    # program registrations and production (e.g. Rising Stars) registrations,
+    # since both live in the same program_registrations table.
     total_revenue_row = fetchone(conn, '''SELECT COALESCE(SUM(
-        COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+        COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
         - COALESCE(pr.discount_amount,0)
         - COALESCE(pr.sibling_discount_amount,0)
     ),0) AS total
     FROM program_registrations pr
     LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+    LEFT JOIN productions prod ON prod.id=pr.production_id
     WHERE pr.status=\'confirmed\' ''') or {}
     total_revenue = int((total_revenue_row or {}).get('total', 0))
     # Donations this year
@@ -20121,6 +19930,17 @@ def marquee_overview():
                 1 AS item_count, 'direct' AS order_type, yp.name AS program_name
             FROM program_registrations pr
             JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status != 'cancelled'
+            AND pr.square_order_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL)
+            AND (pr.square_checkout_id IS NULL OR pr.square_checkout_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL))
+            UNION ALL
+            SELECT pr.id, pr.guardian_name, pr.guardian_email,
+                (COALESCE(prod.price,0)*COALESCE(pr.participant_count,1)
+                 - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)) AS total_cents,
+                pr.status, pr.created_at,
+                1 AS item_count, 'direct' AS order_type, prod.name AS program_name
+            FROM program_registrations pr
+            JOIN productions prod ON prod.id=pr.production_id
             WHERE pr.status != 'cancelled'
             AND pr.square_order_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL)
             AND (pr.square_checkout_id IS NULL OR pr.square_checkout_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL))
@@ -20156,6 +19976,32 @@ def marquee_overview():
         WHERE yp.registration_status != \'draft\'
         GROUP BY yp.id, yp.name, yp.price, yp.capacity, yp.registration_status, yp.sessions_enabled
         ORDER BY confirmed_count DESC, yp.name''') or []
+    for row in program_breakdown:
+        row['type'] = 'program'
+
+    # Rising Stars production breakdown — same shape as program_breakdown so the
+    # dashboard can render both in one list. Only Rising Stars productions carry
+    # paid registrations; regular mainstage productions use cast sign-up, not this.
+    production_breakdown = fetchall(conn, '''SELECT
+        prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
+        FALSE AS sessions_enabled,
+        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count,
+        COALESCE(SUM(
+            COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+            - COALESCE(pr.discount_amount,0)
+            - COALESCE(pr.sibling_discount_amount,0)
+        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
+        FROM productions prod
+        LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
+        WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
+        GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
+        ORDER BY confirmed_count DESC, prod.name''') or []
+    for row in production_breakdown:
+        row['type'] = 'production'
+
+    program_breakdown = program_breakdown + production_breakdown
 
     # Session breakdown for programs with sessions
     try:
@@ -20211,22 +20057,23 @@ def marquee_overview():
     except Exception as e:
         app.logger.warning(f'Session registrants query failed: {e}')
 
-    # Fetch registrant names for non-session programs
+    # Fetch registrant names for non-session programs and productions
     regs_by_program = {}
     try:
         try: conn.rollback()
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
-            pr.program_id, pr.child_first_name, pr.child_last_name,
+            COALESCE(pr.program_id, pr.production_id) AS group_id,
+            pr.child_first_name, pr.child_last_name,
             pr.guardian_name, pr.status
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')
             ORDER BY pr.child_last_name, pr.child_first_name''') or []
         for r in flat_registrants:
-            pid2 = r.get('program_id')
+            pid2 = r.get('group_id')
             if pid2 not in regs_by_program: regs_by_program[pid2] = []
-            regs_by_program[pid2].append(r)
+            regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')
 
@@ -20634,6 +20481,98 @@ def send_balance_payment_link(pid, rid):
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
             f'<strong>{prog["name"]}</strong>.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Pay Balance — ${balance/100:.2f}</a></p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Balance link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
+@app.route('/api/productions/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+def send_production_registration_payment_link(pid, rid):
+    """Resend or create a new payment link for a pending_payment production (e.g. Rising Stars) registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if reg['status'] != 'pending_payment':
+        conn.close()
+        return jsonify({'error': 'This registration is not awaiting payment'}), 400
+    amount = square_get_order_amount(reg.get('square_order_id'))
+    if not amount:
+        amount = prod.get('price') or 0
+        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
+    redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
+    pay_url, link_id, order_id = square_create_payment_link(
+        prod, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
+        note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prod["name"]}',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+        (link_id, order_id, rid))
+    conn.commit()
+    try:
+        child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
+        send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prod["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>We saw that you started registering {child_name or "your participant"} for '
+            f'<strong>{prod["name"]}</strong>, but the payment didn\'t go through — sometimes that happens if a browser tab '
+            f'closes early or a card gets declined.</p>'
+            f'<p>If you\'d still like to register, no problem — here\'s a fresh link to finish up. Nothing has been charged yet.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Finish Registration</a></p>'
+            f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Payment link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])
+def send_production_balance_payment_link(pid, rid):
+    """Send a payment link for the remaining balance on a deposit production registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    balance = reg.get('balance_due') or 0
+    if balance <= 0:
+        conn.close()
+        return jsonify({'error': 'No balance due'}), 400
+    redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
+    pay_url, link_id, order_id = square_create_payment_link(
+        prod, rid + '_balance', reg['guardian_email'], reg.get('guardian_name',''), balance,
+        note=f'Balance payment — {reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prod["name"]}',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET balance_payment_link=%s WHERE id=%s', (pay_url, rid))
+    conn.commit()
+    try:
+        send_email([reg['guardian_email']], f'Balance payment due — {prod["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Balance Payment Due</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
+            f'<strong>{prod["name"]}</strong>.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Pay Balance — ${balance/100:.2f}</a></p>'

@@ -611,6 +611,7 @@ function buildPaymentOptions(prog){
   const hasSibDiscount = prog.sibling_discount_enabled && sibCount > 0
   const sibDiscType = prog.sibling_discount_type || 'percent'
   const sibDiscVal = prog.sibling_discount_value || 0
+  const sibDiscBasis = prog.sibling_discount_basis || 'per_child'
 
   // Promo discount
   let promoDiscount = 0
@@ -618,13 +619,6 @@ function buildPaymentOptions(prog){
   if(_promoResult && _promoResult.valid){
     promoDiscount = _promoResult.discount_amount || 0
     promoLabel = _promoResult.label || ''
-  }
-
-  // Auto sibling discount
-  let sibDiscount = 0
-  if(hasSibDiscount){
-    const perSib = sibDiscType==='percent' ? Math.floor(price * sibDiscVal / 100) : Math.min(sibDiscVal, price)
-    sibDiscount = perSib * sibCount
   }
 
   // Compute effective price per participant from sessions if enabled
@@ -643,6 +637,18 @@ function buildPaymentOptions(prog){
     }
   }
   const basket = effectivePrice * numParticipants
+
+  // Auto sibling discount
+  let sibDiscount = 0
+  if(hasSibDiscount){
+    if(sibDiscBasis === 'cart_total'){
+      sibDiscount = sibDiscType==='percent' ? Math.floor(basket * sibDiscVal / 100) : Math.min(sibDiscVal, basket)
+    } else {
+      const perSib = sibDiscType==='percent' ? Math.floor(price * sibDiscVal / 100) : Math.min(sibDiscVal, price)
+      sibDiscount = perSib * sibCount
+    }
+  }
+
   const totalDiscount = promoDiscount + sibDiscount
   const finalPrice = Math.max(0, basket - totalDiscount)
 
@@ -704,9 +710,13 @@ function buildPaymentOptions(prog){
 
     // Auto sibling discount
     if(hasSibDiscount && sibDiscount > 0){
-      const sl = sibDiscType==='percent'
-        ? 'Sibling discount ('+sibDiscVal+'% &times; '+sibCount+')'
-        : 'Sibling discount ($'+(sibDiscVal/100).toFixed(2)+' &times; '+sibCount+')'
+      const sl = sibDiscBasis === 'cart_total'
+        ? (sibDiscType==='percent'
+            ? 'Sibling discount ('+sibDiscVal+'% off cart total)'
+            : 'Sibling discount ($'+(sibDiscVal/100).toFixed(2)+' off cart total)')
+        : (sibDiscType==='percent'
+            ? 'Sibling discount ('+sibDiscVal+'% &times; '+sibCount+')'
+            : 'Sibling discount ($'+(sibDiscVal/100).toFixed(2)+' &times; '+sibCount+')')
       html += summaryLine(sl, -sibDiscount, '#166534')
     }
 

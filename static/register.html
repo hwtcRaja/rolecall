@@ -163,6 +163,67 @@ function buildScheduleHTML(prog){
     + '</div>'
 }
 
+// ── Registration open countdown ──────────────────────────────────────────
+function easternWallToDate(dateStr, timeStr){
+  try{
+    var t = ((timeStr||'00:00')+'').slice(0,5) || '00:00';
+    var utcGuess = new Date(dateStr + 'T' + t + ':00Z');
+    if(isNaN(utcGuess.getTime())) return null;
+    var localInTz = new Date(utcGuess.toLocaleString('en-US',{timeZone:'America/New_York'}));
+    var localInUtc = new Date(utcGuess.toLocaleString('en-US',{timeZone:'UTC'}));
+    return new Date(utcGuess.getTime() + (localInUtc.getTime() - localInTz.getTime()));
+  }catch(e){ return null; }
+}
+function getRegOpenDate(prog){
+  if(!prog) return null;
+  var d = (prog.registration_open_date||'').trim();
+  if(!d) return null;
+  return easternWallToDate(d, (prog.registration_open_time||''));
+}
+function countdownUnitsHTML(ms){
+  if(ms < 0) ms = 0;
+  var s = Math.floor(ms/1000);
+  var days = Math.floor(s/86400); s -= days*86400;
+  var hrs = Math.floor(s/3600); s -= hrs*3600;
+  var mins = Math.floor(s/60); s -= mins*60;
+  var secs = s;
+  function unit(v,label){
+    return '<div style="min-width:64px;background:#0d3d4d;border-radius:12px;padding:12px 6px">'
+      + '<div style="font-size:30px;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums">'+String(v).padStart(2,'0')+'</div>'
+      + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#7fbfd0;margin-top:4px">'+label+'</div></div>';
+  }
+  return unit(days,'Days')+unit(hrs,'Hrs')+unit(mins,'Min')+unit(secs,'Sec');
+}
+function buildCountdownCard(openAt){
+  var friendly = '';
+  try{
+    friendly = openAt.toLocaleString('en-US',{timeZone:'America/New_York',weekday:'long',month:'long',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
+  }catch(e){ friendly = openAt.toString(); }
+  return '<div class="card"><div class="card-body" style="text-align:center;padding:32px 22px">'
+    + '<div style="font-size:34px;margin-bottom:6px">\u23f3</div>'
+    + '<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#145466;margin-bottom:14px">Registration Opens In</div>'
+    + '<div id="reg-countdown" style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">'
+    + countdownUnitsHTML(openAt.getTime() - Date.now())
+    + '</div>'
+    + '<div style="font-size:14px;color:#374151;font-weight:600">'+escHtml(friendly)+'</div>'
+    + '<div style="font-size:12px;color:#9ca3af;margin-top:10px">This page will open automatically \u2014 no need to refresh.</div>'
+    + '</div></div>';
+}
+var _regCountdownTimer = null;
+function startRegCountdown(openAt){
+  if(_regCountdownTimer){ clearInterval(_regCountdownTimer); }
+  _regCountdownTimer = setInterval(function(){
+    var remaining = openAt.getTime() - Date.now();
+    if(remaining <= 0){
+      clearInterval(_regCountdownTimer); _regCountdownTimer = null;
+      init();  // re-fetch fresh data; form unlocks now that the time has passed
+      return;
+    }
+    var el = document.getElementById('reg-countdown');
+    if(el){ el.innerHTML = countdownUnitsHTML(remaining); }
+  }, 1000);
+}
+
 async function init(){
   if(isConfirmation && regId){ showConfirmation(); return }
   const data = await apiFetch(apiBase+slug)
@@ -289,8 +350,13 @@ function renderPage(){
     : ''
 
   // Action section
+  var _regOpenAt = getRegOpenDate(program)
+  var _showCountdown = !!(_regOpenAt && _regOpenAt.getTime() > Date.now() && status !== 'closed')
   var actionHTML = ''
-  if(status==='open' && spotsLeft!==0){
+  if(_showCountdown){
+    actionHTML = buildCountdownCard(_regOpenAt)
+    if(status==='interest_list'){ actionHTML += buildInterestForm() }
+  } else if(status==='open' && spotsLeft!==0){
     actionHTML = buildRegistrationForm(formType, customFields, showCap, showAlmost)
   } else if(status==='open' && spotsLeft===0){
     actionHTML = buildWaitlistForm(formType, customFields)
@@ -317,6 +383,8 @@ function renderPage(){
     + instrHTML
     + '</div></div>'
     + actionHTML
+
+  if(_showCountdown){ startRegCountdown(_regOpenAt) }
 }
 
 function customFieldInputs(fields){

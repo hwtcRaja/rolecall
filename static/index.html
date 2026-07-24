@@ -20948,7 +20948,10 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     // Dates
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Opens</label>'
-    + '<input type="date" id="rs-open-date" value="'+(prog.registration_open_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<input type="date" id="rs-open-date" value="'+(prog.registration_open_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+    + '<input type="time" id="rs-open-time" value="'+(prog.registration_open_time||'')+'" style="width:100%;margin-top:6px;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Optional. Parents see a live countdown until this exact date &amp; time.</div>'
+    + '</div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Registration Closes</label>'
     + '<input type="date" id="rs-close-date" value="'+(prog.registration_close_date||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '</div>'
@@ -21754,6 +21757,7 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     sibling_discount_value: parseInt((document.getElementById('rs-sib-value')||{}).value)||0,
     sibling_discount_basis: (document.getElementById('rs-sib-basis')||{}).value||'per_child',
     registration_open_date: document.getElementById('rs-open-date').value || null,
+    registration_open_time: (document.getElementById('rs-open-time') ? (document.getElementById('rs-open-time').value || null) : null),
     registration_close_date: document.getElementById('rs-close-date').value || null,
     waitlist_auto_charge: document.getElementById('rs-auto-charge').checked !== false,
     program_info: window._regSettingsQuill ? window._regSettingsQuill.root.innerHTML : '',

@@ -1256,7 +1256,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-youth">
  <div class="page-header">
  <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
- <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+ <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
  </div>
  <div class="page-body">
  <div class="search-bar">
@@ -7537,6 +7537,18 @@ async function biRunImport(){
  if(res.errors&&res.errors.length){var e=document.getElementById('bi-result-errors');e.style.display='';e.innerHTML='<strong style="color:#dc2626">Errors:</strong><ul style="margin:4px 0 0 16px">'+res.errors.map(function(e){return'<li>'+escHtml(e)+'</li>'}).join('')+'</ul>'}
 }
 async function biDone(){closeModal('modal-bulk-import');await loadAllData();if(typeof renderYouth==='function')renderYouth();toast('Participants updated!','success')}
+
+async function backfillParticipantDobs(){
+ if(!confirm('Recover birthdays that were captured at registration but never saved to the participant\'s profile?\n\nThis only fills in participants who currently have no birthday on file — it will never overwrite an existing one.')) return
+ const res = await api('/api/admin/backfill-participant-dobs','POST')
+ if(res?.error){toast(res.error,'error');return}
+ var msg = res.fixed > 0 ? `Recovered ${res.fixed} birthday${res.fixed!==1?'s':''}` : 'No missing birthdays could be recovered'
+ if(res.no_match > 0) msg += ` (${res.no_match} registration${res.no_match!==1?'s':''} couldn't be matched to a participant)`
+ if(res.registrations_with_no_dob_at_all > 0) msg += `. ${res.registrations_with_no_dob_at_all} registration${res.registrations_with_no_dob_at_all!==1?'s never':' never'} had a birthday entered at all — nothing to recover for those.`
+ toast(msg, res.fixed > 0 ? 'success' : '')
+ await loadAllData()
+ renderYouth()
+}
 
 async function backfillPassphrases(){
  if(!confirm('Set default passphrase (firstname_lastname_hwtc) for all participants who don\'t have one yet?\n\nThis will NOT change anyone who already has a passphrase.')) return
@@ -21592,6 +21604,8 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     + '</div>'
     + '<div style="padding:20px;display:flex;flex-direction:column;gap:14px">'
     + '<div style="font-size:14px;font-weight:600">'+(reg.child_first_name||'')+(reg.child_last_name?' '+reg.child_last_name:'')+'</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Date of Birth</label>'
+    + '<input id="er-dob" type="date" value="'+escHtml((reg.child_dob||'').slice(0,10))+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
     + '<select id="er-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+statusOpts+'</select></div>'
     + sessionsHTML
@@ -21654,6 +21668,7 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
       emergency_contact_name: document.getElementById('er-ec-name').value,
       emergency_contact_phone: document.getElementById('er-ec-phone').value,
       notes: document.getElementById('er-notes').value,
+      child_dob: document.getElementById('er-dob').value,
       session_ids: sessionIds,
     }
     const res = await api(url, 'PUT', payload)

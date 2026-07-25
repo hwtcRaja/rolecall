@@ -1249,6 +1249,8 @@ def init_db():
             created_by TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
             program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -1267,6 +1269,11 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_type TEXT DEFAULT 'full'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_due INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_customer_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_charge_by_date TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_status TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_source_label TEXT DEFAULT ''""",
         """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS min_spend INTEGER DEFAULT 0""",
         """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_sibling_discount BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
@@ -1815,6 +1822,8 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
@@ -5313,7 +5322,8 @@ def save_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s
+        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s,
+        step_up_hold_enabled=%s, step_up_hold_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -5350,6 +5360,8 @@ def save_registration_settings(pid):
          d.get('end_date') or None,
          _json.dumps(d.get('form_fields') or {}),
          bool(d.get('hours_store_enabled', False)),
+         bool(d.get('step_up_hold_enabled', False)),
+         int(d.get('step_up_hold_days') or 14),
          pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -14431,6 +14443,7 @@ if __name__ == '__main__':
 
 SQUARE_ACCESS_TOKEN = os.environ.get('SQUARE_ACCESS_TOKEN', '')
 SQUARE_LOCATION_ID  = os.environ.get('SQUARE_LOCATION_ID', '')
+SQUARE_APPLICATION_ID = os.environ.get('SQUARE_APPLICATION_ID', '')
 SQUARE_WEBHOOK_SIG  = os.environ.get('SQUARE_WEBHOOK_SIGNATURE_KEY', '')
 SQUARE_ENV          = os.environ.get('SQUARE_ENV', 'sandbox')  # 'sandbox' or 'production'
 SQUARE_API_BASE     = 'https://connect.squareup.com' if SQUARE_ENV == 'production' else 'https://connect.squareupsandbox.com'
@@ -14438,6 +14451,94 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+
+def square_find_or_create_customer(email, name='', phone=''):
+    """Find a Square customer by email, or create one. Used for card-on-file holds.
+    Returns customer_id or None."""
+    if not SQUARE_ACCESS_TOKEN or not email:
+        return None
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/customers/search',
+            json={'query': {'filter': {'email_address': {'exact': email}}}},
+            headers=square_headers(), timeout=15)
+        data = r.json()
+        customers = data.get('customers') or []
+        if customers:
+            return customers[0]['id']
+    except Exception as e:
+        app.logger.warning(f'Square customer search failed: {e}')
+    try:
+        import uuid as _uuidc
+        parts = (name or '').strip().split(' ', 1)
+        payload = {'idempotency_key': str(_uuidc.uuid4()), 'email_address': email}
+        if parts and parts[0]:
+            payload['given_name'] = parts[0]
+            if len(parts) > 1: payload['family_name'] = parts[1]
+        if phone: payload['phone_number'] = phone
+        r = requests.post(f'{SQUARE_API_BASE}/v2/customers', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('customer'):
+            return data['customer']['id']
+        app.logger.error(f'Square customer create failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.error(f'Square customer create exception: {e}')
+    return None
+
+
+def square_save_card(customer_id, source_id, cardholder_name=''):
+    """Save a tokenized card on file for a customer WITHOUT charging it.
+    source_id is the token produced client-side by Square's Web Payments SDK.
+    Returns card_id or None."""
+    if not SQUARE_ACCESS_TOKEN or not customer_id or not source_id:
+        return None
+    try:
+        import uuid as _uuidk
+        payload = {
+            'idempotency_key': str(_uuidk.uuid4()),
+            'source_id': source_id,
+            'card': {'customer_id': customer_id},
+        }
+        if cardholder_name:
+            payload['card']['cardholder_name'] = cardholder_name[:100]
+        r = requests.post(f'{SQUARE_API_BASE}/v2/cards', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('card'):
+            return data['card']['id']
+        app.logger.error(f'Square save card failed {r.status_code}: {data}')
+        return None
+    except Exception as e:
+        app.logger.error(f'Square save card exception: {e}')
+        return None
+
+
+def square_charge_saved_card(customer_id, card_id, amount_cents, note=''):
+    """Charge a previously saved card on file (used when staff clicks 'Charge Now'
+    on an overdue Step Up hold). Returns (success, payment_id_or_error_message)."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return False, 'Square not configured'
+    try:
+        import uuid as _uuidp
+        payload = {
+            'idempotency_key': str(_uuidp.uuid4()),
+            'source_id': card_id,
+            'customer_id': customer_id,
+            'amount_money': {'amount': amount_cents, 'currency': 'USD'},
+            'location_id': SQUARE_LOCATION_ID,
+            'note': (note or '')[:500],
+            'autocomplete': True,
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/payments', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment'):
+            return True, data['payment']['id']
+        errors = data.get('errors') or []
+        msg = errors[0].get('detail') if errors else f'Square error {r.status_code}'
+        app.logger.error(f'Square charge saved card failed {r.status_code}: {data}')
+        return False, msg
+    except Exception as e:
+        app.logger.error(f'Square charge saved card exception: {e}')
+        return False, str(e)
 
 def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note='', redirect_url=None):
     """Create a Square hosted checkout link for a registration."""
@@ -14486,6 +14587,20 @@ def square_create_payment_link(program, registration_id, guardian_email, guardia
     except Exception as e:
         app.logger.error(f'Square payment link exception: {e}')
         return None, None, None
+
+
+def square_setup_card_hold(guardian_email, guardian_name, guardian_phone, card_token):
+    """Save a card on file (no charge) for a Step Up hold.
+    Returns (customer_id, card_id, error_message). error_message is None on success."""
+    if not card_token:
+        return None, None, 'Card details are required to hold your spot with a Step Up payment plan.'
+    customer_id = square_find_or_create_customer(guardian_email, guardian_name, guardian_phone)
+    if not customer_id:
+        return None, None, 'Could not save your card. Please try again or contact us.'
+    card_id = square_save_card(customer_id, card_token, guardian_name)
+    if not card_id:
+        return None, None, 'Could not save your card. Please double-check your card details and try again.'
+    return customer_id, card_id, None
 
 
 def get_program_by_slug(slug):
@@ -15337,7 +15452,7 @@ def public_submit_registration(slug):
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
-    def insert_reg(status, extra_cols='', extra_vals=()):
+    def insert_reg(status, extra_cols='', extra_vals=(), payment_type_override=None, balance_due_override=None):
         execute(conn, f'''INSERT INTO program_registrations
             (id, program_id, registration_type, status,
              registration_form_type,
@@ -15363,7 +15478,29 @@ def public_submit_registration(slug):
              d.get('pronouns','').strip() or None,
              discount_code or None, discount_amount, sibling_discount_amount,
              participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
-             'deposit' if use_deposit else 'full', balance_due) + extra_vals)
+             payment_type_override or ('deposit' if use_deposit else 'full'),
+             balance_due if balance_due_override is None else balance_due_override) + extra_vals)
+
+    # Step Up (or similar third-party subsidy) hold — save a card on file now,
+    # charge nothing. Staff reviews and charges later from the Step Up Holds queue
+    # if the subsidy payment hasn't shown up by the charge-by date.
+    if d.get('payment_type') == 'step_up_hold' and p.get('step_up_hold_enabled') and effective_price > 0:
+        customer_id, card_id, hold_err = square_setup_card_hold(
+            email, d.get('guardian_name',''), d.get('guardian_phone',''), d.get('card_token'))
+        if hold_err:
+            conn.close()
+            return jsonify({'error': hold_err}), 400
+        from datetime import timedelta as _tdsu
+        charge_by = (date.today() + _tdsu(days=int(p.get('step_up_hold_days') or 14))).isoformat()
+        insert_reg('confirmed',
+            extra_cols='square_customer_id, square_card_id, hold_charge_by_date, hold_status, hold_source_label',
+            extra_vals=(customer_id, card_id, charge_by, 'pending', 'Step Up'),
+            payment_type_override='step_up_hold', balance_due_override=effective_price)
+        finalize_registration(conn, rid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': rid,
+                        'charge_by_date': charge_by, 'amount_held': effective_price})
 
     if charge_now == 0:
         insert_reg('confirmed')
@@ -15510,7 +15647,91 @@ def square_webhook():
     return jsonify({'ok': True})
 
 
-def finalize_donation(conn, pending_id, payment_id, amount_cents):
+# ─────────────────────────────────────────────
+#  STEP UP HOLDS (card-on-file, charge-later queue)
+# ─────────────────────────────────────────────
+
+def _step_up_hold_auth():
+    err = require_permission('rising_stars')
+    if err:
+        err = require_permission('youth')
+        if err:
+            return require_permission('productions')
+    return None
+
+
+@app.route('/api/admin/step-up-holds', methods=['GET'])
+def list_step_up_holds():
+    """Every registration on a Step Up (or similar) card-on-file hold, newest charge-by first."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT pr.id, pr.child_first_name, pr.child_last_name,
+        pr.guardian_name, pr.guardian_email, pr.guardian_phone,
+        pr.balance_due, pr.hold_charge_by_date, pr.hold_status, pr.hold_source_label,
+        pr.square_customer_id, pr.square_card_id, pr.created_at,
+        COALESCE(yp.name, prod.name) AS show_name,
+        CASE WHEN pr.program_id IS NOT NULL THEN 'program' ELSE 'production' END AS context_type
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id = pr.program_id
+        LEFT JOIN productions prod ON prod.id = pr.production_id
+        WHERE pr.payment_type='step_up_hold'
+        ORDER BY (pr.hold_status='pending') DESC, pr.hold_charge_by_date ASC NULLS LAST''') or []
+    conn.close()
+    return jsonify({'holds': rows})
+
+
+@app.route('/api/admin/step-up-holds/<rid>/charge', methods=['POST'])
+def charge_step_up_hold(rid):
+    """Staff-triggered charge of the saved card for an overdue (or any) Step Up hold."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (rid,))
+    if not reg or reg.get('payment_type') != 'step_up_hold':
+        conn.close()
+        return jsonify({'error': 'Not a Step Up hold'}), 404
+    if reg.get('hold_status') == 'charged':
+        conn.close()
+        return jsonify({'error': 'This hold has already been charged'}), 400
+    amount = reg.get('balance_due') or 0
+    if amount <= 0 or not reg.get('square_card_id'):
+        conn.close()
+        return jsonify({'error': 'No saved card or amount on this hold'}), 400
+    name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
+    note = f'Step Up hold charge — {name}'
+    ok, result = square_charge_saved_card(reg.get('square_customer_id'), reg['square_card_id'], amount, note=note)
+    if not ok:
+        conn.close()
+        return jsonify({'error': f'Charge failed: {result}'}), 400
+    execute(conn, '''UPDATE program_registrations SET hold_status='charged',
+        square_payment_id=%s, balance_due=0, updated_at=NOW() WHERE id=%s''', (result, rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'payment_id': result})
+
+
+@app.route('/api/admin/step-up-holds/<rid>/release', methods=['POST'])
+def release_step_up_hold(rid):
+    """Mark a hold as released — the subsidy payment came through, don't charge the card."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT id, payment_type, hold_status FROM program_registrations WHERE id=%s', (rid,))
+    if not reg or reg.get('payment_type') != 'step_up_hold':
+        conn.close()
+        return jsonify({'error': 'Not a Step Up hold'}), 404
+    if reg.get('hold_status') == 'charged':
+        conn.close()
+        return jsonify({'error': 'This hold has already been charged'}), 400
+    execute(conn, '''UPDATE program_registrations SET hold_status='released', balance_due=0,
+        updated_at=NOW() WHERE id=%s''', (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+
     """Convert a pending donation into a donor_donations record."""
     import uuid as _ud
     don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (pending_id,))
@@ -15742,6 +15963,54 @@ def public_register_production(slug):
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
     rid = str(_uc2.uuid4())
+
+    # Step Up (or similar third-party subsidy) hold — save a card on file now,
+    # charge nothing. Staff reviews and charges later from the Step Up Holds queue
+    # if the subsidy payment hasn't shown up by the charge-by date.
+    if d.get('payment_type') == 'step_up_hold' and prod.get('step_up_hold_enabled') and effective_price > 0:
+        customer_id, card_id, hold_err = square_setup_card_hold(
+            guardian_email, d.get('guardian_name',''), d.get('guardian_phone',''), d.get('card_token'))
+        if hold_err:
+            conn.close()
+            return jsonify({'error': hold_err}), 400
+        from datetime import timedelta as _tdsu2
+        charge_by = (date.today() + _tdsu2(days=int(prod.get('step_up_hold_days') or 14))).isoformat()
+        execute(conn, '''INSERT INTO program_registrations
+            (id, production_id, registration_type, status,
+             child_first_name, child_last_name, child_dob, shirt_size,
+             guardian_name, guardian_email, guardian_phone,
+             emergency_contact_name, emergency_contact_phone, notes,
+             allergies, pickup_contacts, photo_consent, pronouns,
+             discount_code, discount_amount, sibling_discount_amount,
+             participant_count, siblings_json, payment_type, balance_due,
+             square_customer_id, square_card_id, hold_charge_by_date, hold_status, hold_source_label)
+            VALUES (%s,%s,'registration','confirmed',
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,'step_up_hold',%s,
+                    %s,%s,%s,'pending','Step Up')''',
+            (rid, prod['id'],
+             (d.get('child_first_name') or '').strip(),
+             (d.get('child_last_name') or '').strip(),
+             d.get('child_dob') or None, d.get('shirt_size') or None,
+             (d.get('guardian_name') or '').strip(),
+             guardian_email, (d.get('guardian_phone') or '').strip() or None,
+             (d.get('emergency_contact_name') or '').strip() or None,
+             (d.get('emergency_contact_phone') or '').strip() or None,
+             (d.get('notes') or '').strip() or None,
+             (d.get('allergies') or '').strip() or None,
+             (d.get('pickup_contacts') or '').strip() or None,
+             bool(d.get('photo_consent')),
+             (d.get('pronouns') or '').strip() or None,
+             discount_code_used or None, discount_amount, sibling_discount_amount,
+             participant_count, _jc2.dumps(siblings), effective_price,
+             customer_id, card_id, charge_by))
+        conn.commit()
+        finalize_registration(conn, rid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': rid,
+                        'charge_by_date': charge_by, 'amount_held': effective_price})
+
     execute(conn, '''INSERT INTO program_registrations
         (id, production_id, registration_type, status,
          child_first_name, child_last_name, child_dob, shirt_size,
@@ -15919,7 +16188,7 @@ def save_production_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s
+        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -15949,6 +16218,8 @@ def save_production_registration_settings(pid):
          (d.get('schedule_notes') or '').strip(),
          d.get('start_date') or None,
          d.get('end_date') or None,
+         bool(d.get('step_up_hold_enabled', False)),
+         int(d.get('step_up_hold_days') or 14),
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -16127,6 +16398,25 @@ def rising_stars_live_page():
     resp = send_from_directory('static', 'rising-stars-live.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
+
+
+@app.route('/step-up-holds')
+def step_up_holds_page():
+    resp = send_from_directory('static', 'step-up-holds.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
+@app.route('/api/public/square-config')
+def public_square_config():
+    """Public, safe-to-expose values needed to init Square's Web Payments SDK
+    (card-on-file entry for Step Up holds). Never expose SQUARE_ACCESS_TOKEN here."""
+    return jsonify({
+        'application_id': SQUARE_APPLICATION_ID,
+        'location_id': SQUARE_LOCATION_ID,
+        'environment': SQUARE_ENV,
+        'configured': bool(SQUARE_APPLICATION_ID and SQUARE_LOCATION_ID),
+    })
 
 
 @app.route('/api/public/programs')

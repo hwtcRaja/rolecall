@@ -35,6 +35,7 @@
   .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.03)}
   .card-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#145466;margin-bottom:4px}
   .card-title{font-size:16px;font-weight:700;color:#0d3d4d;margin-bottom:16px}
+  .section-divider{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#145466;border-top:1px solid #e5e7eb;padding-top:16px;margin:20px 0 4px}
 
   .form-group{margin-bottom:14px}
   label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:5px}
@@ -63,25 +64,24 @@
     <div class="stepup-chip"><img src="https://rolecall.hwtco.org/static/images/stepup_logo.png" class="stepup-logo" alt="Step Up For Students"/></div>
   </div>
   <div class="partner-badge">Proud Partner</div>
-  <h1>Enroll Your Card for Step Up</h1>
-  <p>Horizon West Theater Company is a proud <strong>Step Up For Students</strong> partner, serving <strong>Central Florida's homeschool community</strong>. Enroll your card once, then just enter your Awards ID whenever you register — Step Up covers your program, and your card stays on file as a quiet backup so nothing ever holds up your child's spot.</p>
+  <h1>Step Up Family Enrollment</h1>
+  <p>Horizon West Theater Company is a proud <strong>Step Up For Students</strong> partner, welcoming <strong>Central Florida's homeschool community</strong> into our programs. Enroll your family once, and from then on you can register for any HWTC program using your Awards ID — no paperwork, no re-enrolling each time.</p>
 </div>
 
 <div class="wrap">
 
   <div class="intro-strip">
-    <div class="intro-step"><div class="n">1</div><div class="t">Enter your info &amp; card below</div></div>
+    <div class="intro-step"><div class="n">1</div><div class="t">Tell us about your family</div></div>
     <div class="intro-arrow">→</div>
-    <div class="intro-step"><div class="n">2</div><div class="t">We keep it safely on file</div></div>
+    <div class="intro-step"><div class="n">2</div><div class="t">We set up your payment backup</div></div>
     <div class="intro-arrow">→</div>
-    <div class="intro-step"><div class="n">3</div><div class="t">Use your Awards ID at registration</div></div>
+    <div class="intro-step"><div class="n">3</div><div class="t">Register for programs anytime</div></div>
   </div>
 
   <div class="card" id="app">
-    <div class="card-eyebrow">Card Enrollment</div>
-    <div class="card-title">One-time setup for your family</div>
+    <div class="card-eyebrow">Family Enrollment</div>
+    <div class="card-title">Join our Step Up program family</div>
     <div id="form-alert"></div>
-    <div class="note">As a Step Up partner, we bill Step Up directly for your program — your card is simply our backup, so your child's spot is never at risk if there's ever a delay on Step Up's end. We do run a small $5 verification hold to confirm your card is active; it's voided immediately and never actually charged.</div>
 
     <div class="form-group">
       <label>Step Up Awards ID</label>
@@ -99,13 +99,16 @@
       <label>Phone</label>
       <input id="f-phone" type="tel" placeholder="(555) 555-5555"/>
     </div>
+
+    <div class="section-divider">Payment Backup</div>
+    <div class="note">We bill Step Up directly for your programs — this card is simply our backup, used only if there's ever a delay on Step Up's end, so your child's spot is never at risk. We run a small $5 verification hold to confirm it's active; it's voided immediately and never actually charged.</div>
     <div class="form-group">
       <label>Card Details</label>
       <div id="card-container"></div>
       <div id="card-errors" style="color:#dc2626;font-size:12px"></div>
     </div>
 
-    <button class="btn" id="submit-btn">Save My Card</button>
+    <button class="btn" id="submit-btn">Complete Enrollment</button>
   </div>
 
   <div class="footer-note">Horizon West Theater Company is a proud partner of Step Up For Students and Central Florida's homeschool community.</div>
@@ -164,31 +167,31 @@
     if(!name || !email){ show('Please enter your name and email.','error'); return; }
     if(!squareCard){ show('Card form is still loading — please wait a moment and try again.','error'); return; }
 
-    btn.disabled = true; btn.textContent = 'Verifying card…';
+    btn.disabled = true; btn.textContent = 'Verifying…';
     var tokenResult;
     try{
       tokenResult = await squareCard.tokenize();
     }catch(e){
       show('Could not verify card details. Please try again.','error');
-      btn.disabled = false; btn.textContent = 'Save My Card'; return;
+      btn.disabled = false; btn.textContent = 'Complete Enrollment'; return;
     }
     if(tokenResult.status !== 'OK'){
       var msg = (tokenResult.errors && tokenResult.errors[0] && tokenResult.errors[0].message) || 'Could not verify card details.';
       show(msg,'error');
-      btn.disabled = false; btn.textContent = 'Save My Card'; return;
+      btn.disabled = false; btn.textContent = 'Complete Enrollment'; return;
     }
 
-    btn.textContent = 'Saving…';
+    btn.textContent = 'Enrolling…';
     var res = await apiFetch('/api/public/step-up-members/enroll','POST',{
       step_up_id: stepUpId, guardian_name: name, guardian_email: email,
       guardian_phone: phone, card_token: tokenResult.token,
     });
     if(res.error){
-      show(res.error,'error'); btn.disabled = false; btn.textContent = 'Save My Card'; return;
+      show(res.error,'error'); btn.disabled = false; btn.textContent = 'Complete Enrollment'; return;
     }
     document.getElementById('app').innerHTML = '<div class="success-screen">'
-      + '<h2 style="color:#166534;margin:0 0 6px">Card saved!</h2>'
-      + '<p style="color:#6b7280;font-size:13.5px;margin:0 0 4px">'+(res.updated ? 'Your saved card has been updated.' : 'You\'re all set.')+' Next time you register, just choose "Pay via Step Up" and enter this ID:</p>'
+      + '<h2 style="color:#166534;margin:0 0 6px">You\'re enrolled!</h2>'
+      + '<p style="color:#6b7280;font-size:13.5px;margin:0 0 4px">'+(res.updated ? 'Your enrollment has been updated.' : 'Your family is all set.')+' Next time you register for an HWTC program, look for "Registered Step Up member?" and enter this ID:</p>'
       + '<div class="id-chip">'+escHtml(stepUpId)+'</div>'
       + '<p style="color:#6b7280;font-size:12.5px;margin-top:10px">'+escHtml(res.card_brand||'Card')+' ending in '+escHtml(res.card_last4||'····')+'</p>'
       + '</div>';

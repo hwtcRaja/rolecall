@@ -1296,6 +1296,8 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_customer_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_group_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_charge_by_date TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_status TEXT""",
@@ -5755,7 +5757,7 @@ def get_youth():
             SELECT e.*, p.name as program_name, NULL as program_status FROM youth_program_enrollments e
                 JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
             UNION ALL
-            SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+            SELECT e.*, prod.name as program_name, NULL as program_status FROM youth_program_enrollments e
                 JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
             ORDER BY enrolled_date DESC''', (y['id'], y['id']))
     conn.close()
@@ -21342,7 +21344,8 @@ def send_registration_payment_link(pid, rid):
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link'}), 500
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+    execute(conn, '''UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s,
+        last_resent_at=NOW(), resend_count=COALESCE(resend_count,0)+1 WHERE id=%s''',
         (link_id, order_id, rid))
     conn.commit()
     # Email the family
@@ -21365,7 +21368,7 @@ def send_registration_payment_link(pid, rid):
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'payment_url': pay_url})
+    return jsonify({'ok': True, 'payment_url': pay_url, 'last_resent_at': datetime.utcnow().isoformat(), 'resend_count': (reg.get('resend_count') or 0) + 1})
 
 
 def square_get_order_amount(order_id):
@@ -21449,7 +21452,8 @@ def send_production_registration_payment_link(pid, rid):
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link'}), 500
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+    execute(conn, '''UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s,
+        last_resent_at=NOW(), resend_count=COALESCE(resend_count,0)+1 WHERE id=%s''',
         (link_id, order_id, rid))
     conn.commit()
     try:
@@ -21471,7 +21475,7 @@ def send_production_registration_payment_link(pid, rid):
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'payment_url': pay_url})
+    return jsonify({'ok': True, 'payment_url': pay_url, 'last_resent_at': datetime.utcnow().isoformat(), 'resend_count': (reg.get('resend_count') or 0) + 1})
 
 
 @app.route('/api/productions/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])

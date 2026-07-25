@@ -8542,6 +8542,45 @@ def portal_instructor_login():
 #  PRODUCTIONS (additional routes)
 # ─────────────────────────────────────────────
 
+@app.route('/api/productions/<pid>/youth-members/sync-from-registrations', methods=['POST'])
+def sync_prod_cast_from_registrations(pid):
+    """Catch up youth_production_members from confirmed registrations — for the initial
+    backlog, and safe to re-run anytime afterward as a manual sync/safety net."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT id, stage FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    regs = fetchall(conn, '''SELECT id, youth_id, child_first_name, child_last_name, guardian_email
+        FROM program_registrations WHERE production_id=%s AND status='confirmed' ''', (pid,)) or []
+    added, already_member, skipped_no_match = 0, 0, 0
+    import uuid as _bfu
+    for r in regs:
+        youth_id = r.get('youth_id')
+        if not youth_id:
+            yp = fetchone(conn, '''SELECT yp.id FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yg.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+                (r.get('guardian_email') or '', r.get('child_first_name') or '', r.get('child_last_name') or ''))
+            youth_id = yp['id'] if yp else None
+        if not youth_id:
+            skipped_no_match += 1
+            continue
+        existing = fetchone(conn, 'SELECT id FROM youth_production_members WHERE production_id=%s AND youth_id=%s', (pid, youth_id))
+        if existing:
+            already_member += 1
+            continue
+        execute(conn, 'INSERT INTO youth_production_members (id,production_id,youth_id,role) VALUES (%s,%s,%s,%s)',
+            (str(_bfu.uuid4()), pid, youth_id, ''))
+        added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'added': added, 'already_member': already_member,
+                    'skipped_no_match': skipped_no_match, 'total_checked': len(regs)})
+
+
 @app.route('/api/productions/<pid>/youth-members')
 def get_prod_youth_members(pid):
     err = require_auth()
@@ -15002,6 +15041,15 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     VALUES (%s,%s,%s,NOW()::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
+                # Rising Stars: the Cast tab is driven by youth_production_members,
+                # not youth_program_enrollments — auto-add confirmed registrants there
+                # too so staff don't have to manually "+ Enroll" everyone who registers.
+                if prod.get('stage') == 'rising_stars':
+                    existing_member = fetchone(conn, '''SELECT id FROM youth_production_members
+                        WHERE production_id=%s AND youth_id=%s''', (prod['id'], youth_id))
+                    if not existing_member:
+                        execute(conn, '''INSERT INTO youth_production_members (id, production_id, youth_id, role)
+                            VALUES (%s,%s,%s,%s)''', (str(_ue.uuid4()), prod['id'], youth_id, ''))
         except Exception as e:
             app.logger.warning(f'Enrollment insert: {e}')
 

@@ -862,8 +862,7 @@ function buildPaymentOptions(prog){
 
     if(stepUpEnabled){
       html += '<div id="step-up-panel" style="display:none;border:1.5px solid #145466;border-radius:10px;padding:14px;margin-top:8px;background:#f0f9fb">'
-        + '<div style="font-size:13px;color:#374151;margin-bottom:10px">Already saved a card with us? Enter your Step Up Awards ID below and we\'ll find it — <strong>nothing is charged today.</strong> '
-        + 'If we haven\'t received your Step Up payment by <strong>'+chargeByStr+'</strong>, we\'ll charge that card for $'+(finalPrice/100).toFixed(2)+'.</div>'
+        + '<div style="font-size:13px;color:#374151;margin-bottom:10px">As a Step Up partner, we bill Step Up directly for this program. Enter your Step Up Awards ID below and we\'ll find your card on file — it\'s just our backup, so <strong>nothing is charged today.</strong></div>'
         + '<label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Step Up Awards ID</label>'
         + '<input id="f-step-up-id" placeholder="Enter your Awards ID" oninput="onStepUpIdInput()" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>'
         + '<div id="step-up-lookup-result" style="margin-top:8px;font-size:13px"></div>'
@@ -1114,7 +1113,7 @@ async function submitRegistration(){
     }
     window.location.href = res.payment_url
   } else if(res.type==='step_up_hold'){
-    document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><h2 style="color:#166534;margin-bottom:8px">You\'re registered!</h2><p style="color:#6b7280;font-size:14px">Your card is on file and will <strong>not</strong> be charged today. If we haven\'t received your Step Up payment by <strong>'+fmtDate(res.charge_by_date)+'</strong>, we\'ll charge the card on file. A confirmation will be sent to '+escHtml(email)+'.</p></div></div>'
+    document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><h2 style="color:#166534;margin-bottom:8px">You\'re registered!</h2><p style="color:#6b7280;font-size:14px">We\'ll bill Step Up directly for this program — your card on file is just our backup, so nothing is charged today. If we haven\'t heard from Step Up by <strong>'+fmtDate(res.charge_by_date)+'</strong>, we\'ll use the card on file to keep things moving. A confirmation will be sent to '+escHtml(email)+'.</p></div></div>'
   } else if(res.type==='waitlisted'){
     document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u23f3</div><h2 style="color:#92400e;margin-bottom:8px">You\'re on the waitlist!</h2><p style="color:#6b7280;font-size:14px">You are <strong>#'+res.position+'</strong> on the waitlist. We will email you at '+escHtml(email)+' if a spot opens up.</p></div></div>'
   } else {

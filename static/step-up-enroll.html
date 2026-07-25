@@ -12,7 +12,8 @@
   .header::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 500px 220px at 50% -20%, rgba(255,255,255,0.10), transparent 60%);pointer-events:none}
 
   .logo-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px;position:relative}
-  .hwtc-logo{height:46px;width:auto}
+  .hwtc-chip{background:#fff;border-radius:12px;padding:8px 18px;box-shadow:0 4px 14px rgba(0,0,0,0.15);display:flex;align-items:center}
+  .hwtc-logo{height:34px;width:auto;display:block}
   .logo-divider{font-size:16px;color:rgba(255,255,255,0.45);font-weight:300}
   .stepup-chip{background:#fff;border-radius:12px;padding:8px 14px;box-shadow:0 4px 14px rgba(0,0,0,0.15)}
   .stepup-logo{height:34px;width:auto;display:block}
@@ -48,7 +49,6 @@
   .alert-success{background:#dcfce7;color:#166534}
   #card-container{background:#fff;border:1.5px solid #d1d5db;border-radius:8px;padding:10px;min-height:44px;margin-bottom:6px}
   .success-screen{text-align:center;padding:20px 4px}
-  .success-screen .icon{font-size:44px;margin-bottom:10px}
   .success-screen .id-chip{display:inline-block;background:#f0f9fb;border:1.5px solid #145466;color:#0d3d4d;font-weight:700;padding:6px 14px;border-radius:8px;margin:10px 0;font-size:15px}
 
   .footer-note{text-align:center;font-size:12px;color:#9ca3af;margin-top:22px;line-height:1.6}
@@ -58,13 +58,13 @@
 
 <div class="header">
   <div class="logo-row">
-    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" class="hwtc-logo" alt="Horizon West Theater Company"/>
+    <div class="hwtc-chip"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" class="hwtc-logo" alt="Horizon West Theater Company"/></div>
     <span class="logo-divider">×</span>
     <div class="stepup-chip"><img src="https://rolecall.hwtco.org/static/images/stepup_logo.png" class="stepup-logo" alt="Step Up For Students"/></div>
   </div>
-  <div class="partner-badge">🤝 Proud Partner</div>
+  <div class="partner-badge">Proud Partner</div>
   <h1>Enroll Your Card for Step Up</h1>
-  <p>Horizon West Theater Company is proud to partner with <strong>Step Up For Students</strong> and to serve <strong>Central Florida's homeschool community</strong>. Save your card once — from then on, just enter your Awards ID when registering.</p>
+  <p>Horizon West Theater Company is a proud <strong>Step Up For Students</strong> partner, serving <strong>Central Florida's homeschool community</strong>. Enroll your card once, then just enter your Awards ID whenever you register — Step Up covers your program, and your card stays on file as a quiet backup so nothing ever holds up your child's spot.</p>
 </div>
 
 <div class="wrap">
@@ -72,7 +72,7 @@
   <div class="intro-strip">
     <div class="intro-step"><div class="n">1</div><div class="t">Enter your info &amp; card below</div></div>
     <div class="intro-arrow">→</div>
-    <div class="intro-step"><div class="n">2</div><div class="t">We save it — nothing is charged</div></div>
+    <div class="intro-step"><div class="n">2</div><div class="t">We keep it safely on file</div></div>
     <div class="intro-arrow">→</div>
     <div class="intro-step"><div class="n">3</div><div class="t">Use your Awards ID at registration</div></div>
   </div>
@@ -81,7 +81,7 @@
     <div class="card-eyebrow">Card Enrollment</div>
     <div class="card-title">One-time setup for your family</div>
     <div id="form-alert"></div>
-    <div class="note">We run a $5 verification hold on your card to confirm it's active — that hold is voided immediately and never actually charged. Beyond that, nothing is charged when you enroll. Your card is only ever charged for a program if we don't receive your Step Up payment by the date shown at registration.</div>
+    <div class="note">As a Step Up partner, we bill Step Up directly for your program — your card is simply our backup, so your child's spot is never at risk if there's ever a delay on Step Up's end. We do run a small $5 verification hold to confirm your card is active; it's voided immediately and never actually charged.</div>
 
     <div class="form-group">
       <label>Step Up Awards ID</label>
@@ -187,7 +187,6 @@
       show(res.error,'error'); btn.disabled = false; btn.textContent = 'Save My Card'; return;
     }
     document.getElementById('app').innerHTML = '<div class="success-screen">'
-      + '<div class="icon">✅</div>'
       + '<h2 style="color:#166534;margin:0 0 6px">Card saved!</h2>'
       + '<p style="color:#6b7280;font-size:13.5px;margin:0 0 4px">'+(res.updated ? 'Your saved card has been updated.' : 'You\'re all set.')+' Next time you register, just choose "Pay via Step Up" and enter this ID:</p>'
       + '<div class="id-chip">'+escHtml(stepUpId)+'</div>'

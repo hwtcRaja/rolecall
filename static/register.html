@@ -670,37 +670,62 @@ function buildInterestForm(){
 var _promoResult = null   // last validated promo {valid, discount_amount, label, _code, ...}
 var _siblingCount = 0
 
-// ── Step Up hold (look up a previously-enrolled family's card by rewards ID) ──
-var _stepUpMatch = null   // {found, guardian_name, card_brand, card_last4} for the last looked-up ID
-var _stepUpLookupTimer = null
+// ── Step Up hold (look up each enrolled family member's card by Awards ID) ──
+var _stepUpMatches = {}   // {idx: {found, guardian_name, card_brand, card_last4}}
+var _stepUpLookupTimers = {}
 
-async function lookupStepUpMember(){
-  var input = document.getElementById('f-step-up-id')
-  var resultEl = document.getElementById('step-up-lookup-result')
-  var consentWrap = document.getElementById('step-up-consent-wrap')
+function getStepUpParticipants(){
+  var primaryFirst = ((document.getElementById('f-first')||{}).value||'').trim()
+  var primaryLast = ((document.getElementById('f-last')||{}).value||'').trim()
+  var names = [(primaryFirst+' '+primaryLast).trim() || 'Participant 1']
+  getSiblings().forEach(function(s, i){
+    names.push((s.first_name+' '+s.last_name).trim() || ('Sibling '+(i+1)))
+  })
+  return names
+}
+
+function stepUpShares(totalCents, n){
+  var base = Math.floor(totalCents / n)
+  var remainder = totalCents - base*n
+  var shares = []
+  for(var i=0;i<n;i++) shares.push(base + (i < remainder ? 1 : 0))
+  return shares
+}
+
+async function lookupStepUpMember(idx){
+  var input = document.getElementById('f-step-up-id-'+idx)
+  var resultEl = document.getElementById('step-up-lookup-result-'+idx)
   if(!input || !resultEl) return
   var id = (input.value||'').trim()
-  _stepUpMatch = null
-  if(consentWrap) consentWrap.style.display = 'none'
+  delete _stepUpMatches[idx]
+  updateStepUpConsentVisibility()
   if(!id){ resultEl.innerHTML = ''; return }
-  resultEl.innerHTML = '<span style="color:#6b7280">Looking up your card…</span>'
+  resultEl.innerHTML = '<span style="color:#6b7280">Looking up…</span>'
   try{
     var res = await apiFetch('/api/public/step-up-members/lookup','POST',{step_up_id:id})
     if(res && res.found){
-      _stepUpMatch = res
+      _stepUpMatches[idx] = res
       resultEl.innerHTML = '<span style="color:#166534;font-weight:600">&#10003; Found — '+escHtml(res.card_brand||'Card')+' ending in '+escHtml(res.card_last4||'····')+'</span>'
-      if(consentWrap) consentWrap.style.display = ''
     } else {
       resultEl.innerHTML = '<span style="color:#dc2626">No valid enrollment on file for that ID. Please reach out to us directly to get set up.</span>'
     }
   }catch(e){
     resultEl.innerHTML = '<span style="color:#dc2626">Could not look that up right now. Please try again.</span>'
   }
+  updateStepUpConsentVisibility()
 }
 
-function onStepUpIdInput(){
-  clearTimeout(_stepUpLookupTimer)
-  _stepUpLookupTimer = setTimeout(lookupStepUpMember, 450)
+function updateStepUpConsentVisibility(){
+  var consentWrap = document.getElementById('step-up-consent-wrap')
+  if(!consentWrap) return
+  var names = getStepUpParticipants()
+  var allFound = names.length > 0 && names.every(function(_, i){ return _stepUpMatches[i] && _stepUpMatches[i].found })
+  consentWrap.style.display = allFound ? '' : 'none'
+}
+
+function onStepUpIdInput(idx){
+  clearTimeout(_stepUpLookupTimers[idx])
+  _stepUpLookupTimers[idx] = setTimeout(function(){ lookupStepUpMember(idx) }, 450)
 }
 
 function buildPaymentOptions(prog){
@@ -862,18 +887,25 @@ function buildPaymentOptions(prog){
       + '</div>'
 
     if(stepUpEnabled){
+      var stepUpNames = getStepUpParticipants()
+      var stepUpShareAmts = stepUpShares(finalPrice, stepUpNames.length)
       html += '<div id="step-up-panel" style="display:none;border:1.5px solid #145466;border-radius:10px;padding:14px;margin-top:8px;background:#f0f9fb">'
-        + '<label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Awards ID</label>'
-        + '<input id="f-step-up-id" placeholder="Enter your Awards ID" oninput="onStepUpIdInput()" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>'
-        + '<div id="step-up-lookup-result" style="margin-top:8px;font-size:13px"></div>'
-        + '<div style="display:flex;align-items:center;gap:6px;margin-top:10px">'
+        + (stepUpNames.length > 1 ? '<div style="font-size:12px;color:#6b7280;margin-bottom:10px">Step Up funds are per student, so each participant needs their own Awards ID.</div>' : '')
+        + stepUpNames.map(function(nm, i){
+            return '<div style="margin-bottom:'+(i<stepUpNames.length-1?'12px':'0')+'">'
+              + '<label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">'+escHtml(nm)+' &mdash; Awards ID <span style="font-weight:400;text-transform:none;color:#9ca3af">($'+(stepUpShareAmts[i]/100).toFixed(2)+')</span></label>'
+              + '<input id="f-step-up-id-'+i+'" placeholder="Enter Awards ID" oninput="onStepUpIdInput('+i+')" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>'
+              + '<div id="step-up-lookup-result-'+i+'" style="margin-top:6px;font-size:13px"></div>'
+              + '</div>'
+          }).join('')
+        + '<div style="display:flex;align-items:center;gap:6px;margin-top:12px">'
         + '<img src="/static/images/stepup_icon.png" style="width:14px;height:14px;flex-shrink:0"/>'
         + '<span style="font-size:12px;color:#6b7280">Family of Step Up? Reach out to us for more information.</span>'
         + '</div>'
         + '<div id="step-up-consent-wrap" style="display:none">'
         + '<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;cursor:pointer">'
         + '<input type="checkbox" id="f-step-up-consent" style="width:18px;height:18px;min-width:18px;padding:0;border-radius:4px;margin-top:2px;accent-color:#145466;flex-shrink:0"/>'
-        + '<span style="font-size:12.5px;color:#374151;line-height:1.5">I understand my card on file will be charged $'+(finalPrice/100).toFixed(2)+' on or after <strong>'+chargeByStr+'</strong> if HWTC has not received a Step Up payment for this registration by then.</span>'
+        + '<span style="font-size:12.5px;color:#374151;line-height:1.5">I understand each card on file above will be charged its listed amount on or after <strong>'+chargeByStr+'</strong> if HWTC has not received the corresponding Step Up payment.</span>'
         + '</label>'
         + '</div>'
         + '</div>'
@@ -1062,11 +1094,16 @@ async function submitRegistration(){
   }
 
   const paymentType = (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full'
-  var stepUpId = null
+  var stepUpChildren = null
   if(paymentType === 'step_up_hold'){
-    stepUpId = ((document.getElementById('f-step-up-id')||{}).value||'').trim()
-    if(!stepUpId || !_stepUpMatch || !_stepUpMatch.found){
-      show('Please enter your Step Up Awards ID and wait for us to find your saved card.','error'); return
+    var stepUpNamesAtSubmit = getStepUpParticipants()
+    stepUpChildren = []
+    for(var si=0; si<stepUpNamesAtSubmit.length; si++){
+      var sid = ((document.getElementById('f-step-up-id-'+si)||{}).value||'').trim()
+      if(!sid || !_stepUpMatches[si] || !_stepUpMatches[si].found){
+        show('Please enter a valid Step Up Awards ID for '+stepUpNamesAtSubmit[si]+'.','error'); return
+      }
+      stepUpChildren.push({name: stepUpNamesAtSubmit[si], step_up_id: sid})
     }
     const consentCheckbox = document.getElementById('f-step-up-consent')
     if(!consentCheckbox || !consentCheckbox.checked){
@@ -1103,7 +1140,7 @@ async function submitRegistration(){
     bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
     discount_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
     payment_type: paymentType,
-    step_up_id: stepUpId,
+    step_up_children: stepUpChildren,
   }
 
   const res = await apiFetch(apiBase+slug+'/register','POST',payload)

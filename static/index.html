@@ -22875,7 +22875,7 @@ function suhRender(){
   }
 
   list.innerHTML = holds.map(h=>{
-    const name = ((h.child_first_name||'')+' '+(h.child_last_name||'')).trim() || 'Unnamed'
+    const name = h.child_name || 'Unnamed'
     const days = suhDaysUntil(h.hold_charge_by_date)
     let dateClass='', dateLabel=suhFmtDate(h.hold_charge_by_date), dateColor='var(--text-muted)', dateBg='var(--bg)'
     if(h.hold_status==='pending' && days!=null){

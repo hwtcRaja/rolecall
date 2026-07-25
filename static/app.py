@@ -794,6 +794,9 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
+        "ALTER TABLE youth_program_enrollments ALTER COLUMN program_id DROP NOT NULL",
+        "ALTER TABLE youth_program_enrollments ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_youth_production_enrollment ON youth_program_enrollments(youth_id, production_id) WHERE production_id IS NOT NULL",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options TEXT DEFAULT '[]'",
         "ALTER TABLE interest_types ADD COLUMN IF NOT EXISTS sub_options_label TEXT DEFAULT ''",
         "UPDATE interest_types SET sub_options='[]' WHERE sub_options IS NULL",
@@ -1152,6 +1155,7 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS registration_open_time TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS square_catalog_item_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS interest_list_fields TEXT DEFAULT '[]'",
@@ -1268,6 +1272,7 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
@@ -1813,6 +1818,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_time TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS waitlist_auto_charge BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_info TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_images TEXT DEFAULT '[]'",
@@ -1821,6 +1827,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
@@ -1857,7 +1864,17 @@ def init_db():
             role_name TEXT DEFAULT '',
             created_by TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
-    ]:
+    
+        # ── Ticketing Phase 1 tables ──
+        "CREATE TABLE IF NOT EXISTS venues (\n        id          TEXT PRIMARY KEY,\n        name        TEXT NOT NULL,\n        address     TEXT DEFAULT '',\n        city        TEXT DEFAULT '',\n        notes       TEXT DEFAULT '',\n        active      BOOLEAN DEFAULT TRUE,\n        created_at  TIMESTAMP DEFAULT NOW(),\n        updated_at  TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS seat_maps (\n        id          TEXT PRIMARY KEY,\n        venue_id    TEXT NOT NULL REFERENCES venues(id) ON DELETE CASCADE,\n        name        TEXT NOT NULL,\n        capacity    INTEGER DEFAULT 0,\n        is_default  BOOLEAN DEFAULT FALSE,\n        notes       TEXT DEFAULT '',\n        created_at  TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS seat_map_seats (\n        id            TEXT PRIMARY KEY,\n        seat_map_id   TEXT NOT NULL REFERENCES seat_maps(id) ON DELETE CASCADE,\n        section       TEXT DEFAULT '',\n        row_name      TEXT DEFAULT '',\n        seat_number   INTEGER,\n        seat_label    TEXT DEFAULT '',\n        x             INTEGER DEFAULT 0,\n        y             INTEGER DEFAULT 0,\n        seat_type     TEXT DEFAULT 'standard',\n        accessible    BOOLEAN DEFAULT FALSE,\n        house_seat    BOOLEAN DEFAULT FALSE,\n        active        BOOLEAN DEFAULT TRUE,\n        created_at    TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS performances (\n        id            TEXT PRIMARY KEY,\n        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,\n        venue_id      TEXT REFERENCES venues(id) ON DELETE SET NULL,\n        seat_map_id   TEXT REFERENCES seat_maps(id) ON DELETE SET NULL,\n        name          TEXT DEFAULT '',\n        performance_date TEXT NOT NULL,\n        performance_time TEXT DEFAULT '',\n        doors_time    TEXT DEFAULT '',\n        reserved_seating BOOLEAN DEFAULT TRUE,\n        ga_capacity   INTEGER,\n        sales_open_at  TEXT DEFAULT '',\n        sales_close_at TEXT DEFAULT '',\n        status        TEXT DEFAULT 'draft',\n        notes         TEXT DEFAULT '',\n        created_at    TIMESTAMP DEFAULT NOW(),\n        updated_at    TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS ticket_types (\n        id             TEXT PRIMARY KEY,\n        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,\n        name           TEXT NOT NULL,\n        price_cents    INTEGER NOT NULL DEFAULT 0,\n        description    TEXT DEFAULT '',\n        quantity_limit INTEGER,\n        sort_order     INTEGER DEFAULT 0,\n        active         BOOLEAN DEFAULT TRUE,\n        created_at     TIMESTAMP DEFAULT NOW())",
+        'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
+        'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
+        'CREATE INDEX IF NOT EXISTS ix_ticket_types_perf ON ticket_types(performance_id)',
+]:
         try:
             c.execute(col_sql)
             conn.commit()
@@ -5259,6 +5276,19 @@ def link_catalog_item(pid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/productions/<pid>/link-catalog-item', methods=['POST'])
+def link_production_catalog_item(pid):
+    """Link a Square catalog item (variation ID) to a production (e.g. Rising Stars)."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET square_catalog_item_id=%s WHERE id=%s',
+        (d.get('catalog_item_id') or None, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 # ─────────────────────────────────────────────
 #  REGISTRATION SETTINGS
 # ─────────────────────────────────────────────
@@ -5277,8 +5307,8 @@ def save_registration_settings(pid):
         capacity=%s, price=%s, deposit_amount=%s, sessions_enabled=%s,
         booking_mode=%s, max_sessions_per_reg=%s, show_capacity_public=%s, show_almost_sold_out=%s,
         show_sold_out_strikethrough=%s,
-        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
-        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
+        registration_open_date=%s, registration_open_time=%s, registration_close_date=%s, waitlist_auto_charge=%s,
         program_info=%s, custom_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
@@ -5300,7 +5330,9 @@ def save_registration_settings(pid):
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
+         d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
+         d.get('registration_open_time') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
          (d.get('program_info') or '').strip(),
@@ -5383,6 +5415,38 @@ def delete_discount_code(pid, cid):
     if err: return err
     conn = get_db()
     execute(conn, 'UPDATE discount_codes SET active=FALSE WHERE id=%s AND program_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/programs/<pid>/discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/programs/<pid>/discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -5635,8 +5699,13 @@ def get_youth():
         y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (y['id'],))
         y['waivers'] = fetchall(conn,
             'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (y['id'],))
-        y['enrollments'] = fetchall(conn,
-            'SELECT e.*, p.name as program_name FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (y['id'],))
+        y['enrollments'] = fetchall(conn, '''
+            SELECT e.*, p.name as program_name, NULL as program_status FROM youth_program_enrollments e
+                JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
+            UNION ALL
+            SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+                JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
+            ORDER BY enrolled_date DESC''', (y['id'], y['id']))
     conn.close()
     return jsonify(youth)
 
@@ -5652,8 +5721,13 @@ def get_youth_participant(yid):
     y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
-    y['enrollments'] = fetchall(conn,
-        'SELECT e.*, p.name as program_name, p.status as program_status FROM youth_program_enrollments e JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s ORDER BY e.enrolled_date DESC', (yid,))
+    y['enrollments'] = fetchall(conn, '''
+        SELECT e.*, p.name as program_name, p.status as program_status FROM youth_program_enrollments e
+            JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
+        UNION ALL
+        SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+            JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
+        ORDER BY enrolled_date DESC''', (yid, yid))
     try:
         y['notes'] = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,))
         y['incidents'] = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY incident_date DESC', (yid,))
@@ -14441,6 +14515,7 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
     if not reg: return
     prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (reg.get('production_id'),)) if reg.get('production_id') else None
 
     # Update registration status
     execute(conn, '''UPDATE program_registrations SET status='confirmed',
@@ -14535,14 +14610,21 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
     def enroll(youth_id):
-        if not prog: return
+        if not prog and not prod: return
         try:
             import uuid as _ue
-            execute(conn, '''INSERT INTO youth_program_enrollments
-                (id, youth_id, program_id, enrolled_date, notes)
-                VALUES (%s,%s,%s,NOW()::TEXT,%s)
-                ON CONFLICT (youth_id, program_id) DO NOTHING''',
-                (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+            if prog:
+                execute(conn, '''INSERT INTO youth_program_enrollments
+                    (id, youth_id, program_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    ON CONFLICT (youth_id, program_id) DO NOTHING''',
+                    (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
+            elif prod:
+                execute(conn, '''INSERT INTO youth_program_enrollments
+                    (id, youth_id, production_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
+                    (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
         except Exception as e:
             app.logger.warning(f'Enrollment insert: {e}')
 
@@ -14575,6 +14657,29 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
 
     conn.commit()
 
+
+def _registration_not_yet_open(prog):
+    """Return (True, message) if this program/production has a scheduled open
+    date/time still in the future, else (False, None). Time is optional; a bare
+    date opens at 00:00 that day. All comparisons in America/New_York."""
+    open_date = (prog.get('registration_open_date') or '').strip()
+    if not open_date:
+        return False, None
+    open_time = ((prog.get('registration_open_time') or '').strip() or '00:00')[:5]
+    try:
+        from zoneinfo import ZoneInfo as _ZIno
+        import datetime as _dtno
+        open_dt = _dtno.datetime.fromisoformat(f'{open_date}T{open_time}:00').replace(tzinfo=_ZIno('America/New_York'))
+        now = _dtno.datetime.now(_ZIno('America/New_York'))
+        if now < open_dt:
+            try:
+                friendly = open_dt.strftime('%A, %B %-d at %-I:%M %p')
+            except Exception:
+                friendly = open_dt.strftime('%Y-%m-%d %H:%M')
+            return True, f'Registration opens {friendly}.'
+    except Exception:
+        return False, None
+    return False, None
 
 # ── Public registration page ──────────────────────────────────────────────────
 
@@ -15103,6 +15208,11 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': 'Registrations are not currently open for this program'}), 400
 
+    _not_yet, _opens_msg = _registration_not_yet_open(p)
+    if _not_yet:
+        conn.close()
+        return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
+
     # Check capacity
     reg_count = get_registration_count(conn, p['id'])
     cap = p.get('capacity')
@@ -15214,8 +15324,11 @@ def public_submit_registration(slug):
     if p.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
         sib_type = p.get('sibling_discount_type') or 'percent'
         sib_val = p.get('sibling_discount_value') or 0
-        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-        sibling_discount_amount = per_sib * (participant_count - 1)
+        if (p.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+            sibling_discount_amount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+        else:
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sibling_discount_amount = per_sib * (participant_count - 1)
 
     # Deposit payment plan
     deposit = p.get('deposit_amount') or 0
@@ -15578,6 +15691,10 @@ def public_register_production(slug):
     if not guardian_email:
         conn.close()
         return jsonify({'error': 'Email required'}), 400
+    _not_yet, _opens_msg = _registration_not_yet_open(prod)
+    if _not_yet:
+        conn.close()
+        return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
     reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
     if prod.get('capacity') and reg_count >= prod['capacity']:
         conn.close()
@@ -15612,8 +15729,11 @@ def public_register_production(slug):
     if prod.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
         sib_type = prod.get('sibling_discount_type') or 'percent'
         sib_val = prod.get('sibling_discount_value') or 0
-        per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-        sibling_discount_amount = per_sib * (participant_count - 1)
+        if (prod.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+            sibling_discount_amount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+        else:
+            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+            sibling_discount_amount = per_sib * (participant_count - 1)
 
     deposit = prod.get('deposit_amount') or 0
     effective_price = max(0, basket - discount_amount - sibling_discount_amount)
@@ -15793,9 +15913,9 @@ def save_production_registration_settings(pid):
     execute(conn, '''UPDATE productions SET
         registration_status=%s, registration_form_type=%s, slug=%s,
         capacity=%s, price=%s, deposit_amount=%s,
-        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s,
-        registration_open_date=%s, registration_close_date=%s, waitlist_auto_charge=%s,
-        program_info=%s, custom_fields=%s, form_fields=%s,
+        sibling_discount_enabled=%s, sibling_discount_type=%s, sibling_discount_value=%s, sibling_discount_basis=%s,
+        registration_open_date=%s, registration_open_time=%s, registration_close_date=%s, waitlist_auto_charge=%s,
+        program_info=%s, custom_fields=%s, form_fields=%s, square_catalog_item_id=%s,
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
@@ -15810,12 +15930,15 @@ def save_production_registration_settings(pid):
          bool(d.get('sibling_discount_enabled')),
          d.get('sibling_discount_type') or 'percent',
          int(d.get('sibling_discount_value') or 0),
+         d.get('sibling_discount_basis') or 'per_child',
          d.get('registration_open_date') or None,
+         d.get('registration_open_time') or None,
          d.get('registration_close_date') or None,
          bool(d.get('waitlist_auto_charge', True)),
          (d.get('program_info') or '').strip(),
          _jps.dumps(d.get('custom_fields') or []),
          _jps.dumps(d.get('form_fields') or {}),
+         d.get('square_catalog_item_id') or None,
          (d.get('registration_note') or '').strip(),
          (d.get('program_location') or '').strip(),
          d.get('schedule_type') or 'date_range',
@@ -15919,6 +16042,38 @@ def delete_production_discount_code(pid, cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/productions/<pid>/discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/productions/<pid>/discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/productions/<pid>/notify-interest-list', methods=['POST'])
 def notify_production_interest_list(pid):
     err = require_auth()
@@ -15965,6 +16120,13 @@ def notify_production_interest_list(pid):
 @app.route('/register/cart/confirmation')
 def cart_page():
     return send_from_directory('static', 'cart.html')
+
+
+@app.route('/rising-stars-live')
+def rising_stars_live_page():
+    resp = send_from_directory('static', 'rising-stars-live.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
 
 
 @app.route('/api/public/programs')
@@ -16074,8 +16236,11 @@ def cart_checkout():
         if prog.get('sibling_discount_enabled') and participant_count >= 2 and price > 0:
             sib_type = prog.get('sibling_discount_type') or 'percent'
             sib_val = prog.get('sibling_discount_value') or 0
-            per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
-            sib_discount = per_sib * (participant_count - 1)
+            if (prog.get('sibling_discount_basis') or 'per_child') == 'cart_total':
+                sib_discount = int(basket * sib_val / 100) if sib_type == 'percent' else min(sib_val, basket)
+            else:
+                per_sib = int(price * sib_val / 100) if sib_type == 'percent' else min(sib_val, price)
+                sib_discount = per_sib * (participant_count - 1)
 
         effective = max(0, basket - prog_discount - sib_discount)
         item_data = {
@@ -19721,6 +19886,40 @@ def delete_cart_discount_code(cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/marquee/cart-discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM cart_discount_codes WHERE id=%s', (cid,))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE cart_discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/marquee/cart-discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM cart_discount_codes WHERE id=%s', (cid,))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM cart_discount_codes WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 # ── Public donation page routes ──────────────────────────────────────────────
 
 @app.route('/donate')
@@ -19884,14 +20083,17 @@ def marquee_overview():
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
     # Revenue: sum confirmed registrations only (cart orders are the payment mechanism,
-    # not additional revenue — counting both would double-count)
+    # not additional revenue — counting both would double-count). Includes both
+    # program registrations and production (e.g. Rising Stars) registrations,
+    # since both live in the same program_registrations table.
     total_revenue_row = fetchone(conn, '''SELECT COALESCE(SUM(
-        COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+        COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
         - COALESCE(pr.discount_amount,0)
         - COALESCE(pr.sibling_discount_amount,0)
     ),0) AS total
     FROM program_registrations pr
     LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+    LEFT JOIN productions prod ON prod.id=pr.production_id
     WHERE pr.status=\'confirmed\' ''') or {}
     total_revenue = int((total_revenue_row or {}).get('total', 0))
     # Donations this year
@@ -19913,6 +20115,17 @@ def marquee_overview():
                 1 AS item_count, 'direct' AS order_type, yp.name AS program_name
             FROM program_registrations pr
             JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status != 'cancelled'
+            AND pr.square_order_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL)
+            AND (pr.square_checkout_id IS NULL OR pr.square_checkout_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL))
+            UNION ALL
+            SELECT pr.id, pr.guardian_name, pr.guardian_email,
+                (COALESCE(prod.price,0)*COALESCE(pr.participant_count,1)
+                 - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)) AS total_cents,
+                pr.status, pr.created_at,
+                1 AS item_count, 'direct' AS order_type, prod.name AS program_name
+            FROM program_registrations pr
+            JOIN productions prod ON prod.id=pr.production_id
             WHERE pr.status != 'cancelled'
             AND pr.square_order_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL)
             AND (pr.square_checkout_id IS NULL OR pr.square_checkout_id NOT IN (SELECT square_order_id FROM cart_orders WHERE square_order_id IS NOT NULL))
@@ -19948,6 +20161,32 @@ def marquee_overview():
         WHERE yp.registration_status != \'draft\'
         GROUP BY yp.id, yp.name, yp.price, yp.capacity, yp.registration_status, yp.sessions_enabled
         ORDER BY confirmed_count DESC, yp.name''') or []
+    for row in program_breakdown:
+        row['type'] = 'program'
+
+    # Rising Stars production breakdown — same shape as program_breakdown so the
+    # dashboard can render both in one list. Only Rising Stars productions carry
+    # paid registrations; regular mainstage productions use cast sign-up, not this.
+    production_breakdown = fetchall(conn, '''SELECT
+        prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
+        FALSE AS sessions_enabled,
+        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count,
+        COALESCE(SUM(
+            COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+            - COALESCE(pr.discount_amount,0)
+            - COALESCE(pr.sibling_discount_amount,0)
+        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
+        FROM productions prod
+        LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
+        WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
+        GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
+        ORDER BY confirmed_count DESC, prod.name''') or []
+    for row in production_breakdown:
+        row['type'] = 'production'
+
+    program_breakdown = program_breakdown + production_breakdown
 
     # Session breakdown for programs with sessions
     try:
@@ -20003,22 +20242,23 @@ def marquee_overview():
     except Exception as e:
         app.logger.warning(f'Session registrants query failed: {e}')
 
-    # Fetch registrant names for non-session programs
+    # Fetch registrant names for non-session programs and productions
     regs_by_program = {}
     try:
         try: conn.rollback()
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
-            pr.program_id, pr.child_first_name, pr.child_last_name,
+            COALESCE(pr.program_id, pr.production_id) AS group_id,
+            pr.child_first_name, pr.child_last_name,
             pr.guardian_name, pr.status
             FROM program_registrations pr
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')
             ORDER BY pr.child_last_name, pr.child_first_name''') or []
         for r in flat_registrants:
-            pid2 = r.get('program_id')
+            pid2 = r.get('group_id')
             if pid2 not in regs_by_program: regs_by_program[pid2] = []
-            regs_by_program[pid2].append(r)
+            regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')
 
@@ -20090,6 +20330,74 @@ def marquee_all_registrations():
     productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
+
+
+@app.route('/api/rising-stars/live-stats', methods=['GET'])
+def rising_stars_live_stats():
+    """Real-time Rising Stars enrollment snapshot for the live tracker screen.
+    Intentionally public (no login) so it can run unattended on a lobby TV/tablet."""
+    conn = get_db()
+    shows = fetchall(conn, '''SELECT
+        prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
+        prod.image_url, prod.portal_color, prod.registration_open_date, prod.registration_open_time,
+        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count
+        FROM productions prod
+        LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != 'cancelled'
+        WHERE prod.stage='rising_stars' AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
+        GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status, prod.image_url,
+                 prod.portal_color, prod.registration_open_date, prod.registration_open_time
+        ORDER BY prod.name''') or []
+
+    from zoneinfo import ZoneInfo as _ZIls
+    for s in shows:
+        s['opened_at'] = None
+        s['opens_at'] = None
+        open_date = (s.pop('registration_open_date', None) or '').strip()
+        open_time = (s.pop('registration_open_time', None) or '').strip()
+        if open_date:
+            try:
+                open_dt = datetime.fromisoformat(f'{open_date}T{(open_time or "00:00")[:5]}:00').replace(tzinfo=_ZIls('America/New_York'))
+                open_utc_iso = open_dt.astimezone(_ZIls('UTC')).isoformat()
+                if datetime.now(_ZIls('America/New_York')) >= open_dt:
+                    s['opened_at'] = open_utc_iso
+                else:
+                    s['opens_at'] = open_utc_iso
+            except Exception:
+                pass
+
+    recent = fetchall(conn, '''SELECT pr.id, pr.child_first_name, pr.child_last_name, pr.status,
+        pr.created_at, pr.production_id, p.name AS production_name
+        FROM program_registrations pr
+        JOIN productions p ON p.id = pr.production_id
+        WHERE p.stage='rising_stars' AND pr.status != 'cancelled'
+        ORDER BY pr.created_at DESC LIMIT 25''') or []
+    conn.close()
+
+    for r in recent:
+        first = (r.get('child_first_name') or '').strip()
+        last = (r.get('child_last_name') or '').strip()
+        r['display_name'] = (first + (' ' + last[0] + '.' if last else '')).strip() or 'A new star'
+        r.pop('child_first_name', None)
+        r.pop('child_last_name', None)
+
+    total_confirmed = sum(s.get('confirmed_count') or 0 for s in shows)
+    total_pending = sum(s.get('pending_count') or 0 for s in shows)
+    total_waitlisted = sum(s.get('waitlisted_count') or 0 for s in shows)
+    total_capacity = sum(s.get('capacity') or 0 for s in shows if s.get('capacity'))
+
+    return jsonify({
+        'shows': shows,
+        'recent': recent,
+        'totals': {
+            'confirmed': total_confirmed,
+            'pending': total_pending,
+            'waitlisted': total_waitlisted,
+            'capacity': total_capacity or None,
+        },
+        'server_time': datetime.utcnow().isoformat(),
+    })
 
 
 @app.route('/api/programs/<pid>/sessions/summary', methods=['GET'])
@@ -20435,9 +20743,558 @@ def send_balance_payment_link(pid, rid):
     conn.close()
     return jsonify({'ok': True, 'payment_url': pay_url})
 
+@app.route('/api/productions/<pid>/registrations/<rid>/send-payment-link', methods=['POST'])
+def send_production_registration_payment_link(pid, rid):
+    """Resend or create a new payment link for a pending_payment production (e.g. Rising Stars) registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if reg['status'] != 'pending_payment':
+        conn.close()
+        return jsonify({'error': 'This registration is not awaiting payment'}), 400
+    amount = square_get_order_amount(reg.get('square_order_id'))
+    if not amount:
+        amount = prod.get('price') or 0
+        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
+    redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
+    pay_url, link_id, order_id = square_create_payment_link(
+        prod, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
+        note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prod["name"]}',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+        (link_id, order_id, rid))
+    conn.commit()
+    try:
+        child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
+        send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prod["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>We saw that you started registering {child_name or "your participant"} for '
+            f'<strong>{prod["name"]}</strong>, but the payment didn\'t go through — sometimes that happens if a browser tab '
+            f'closes early or a card gets declined.</p>'
+            f'<p>If you\'d still like to register, no problem — here\'s a fresh link to finish up. Nothing has been charged yet.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Finish Registration</a></p>'
+            f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Payment link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
+
+@app.route('/api/productions/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])
+def send_production_balance_payment_link(pid, rid):
+    """Send a payment link for the remaining balance on a deposit production registration."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s AND production_id=%s', (rid, pid))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not reg or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    balance = reg.get('balance_due') or 0
+    if balance <= 0:
+        conn.close()
+        return jsonify({'error': 'No balance due'}), 400
+    redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
+    pay_url, link_id, order_id = square_create_payment_link(
+        prod, rid + '_balance', reg['guardian_email'], reg.get('guardian_name',''), balance,
+        note=f'Balance payment — {reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prod["name"]}',
+        redirect_url=redirect_url)
+    if not pay_url:
+        conn.close()
+        return jsonify({'error': 'Could not create payment link'}), 500
+    execute(conn, 'UPDATE program_registrations SET balance_payment_link=%s WHERE id=%s', (pay_url, rid))
+    conn.commit()
+    try:
+        send_email([reg['guardian_email']], f'Balance payment due — {prod["name"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<h2 style="color:#145466">Balance Payment Due</h2>'
+            f'<p>Hi {reg.get("guardian_name","")},</p>'
+            f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
+            f'<strong>{prod["name"]}</strong>.</p>'
+            f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
+            f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
+            f'Pay Balance — ${balance/100:.2f}</a></p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.warning(f'Balance link email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'payment_url': pay_url})
+
 # Start the on-call scheduler now that it's actually defined (see note near init_db() above —
 # this used to be called too early, before this function existed, and silently never ran).
 try:
     _start_oncall_scheduler()
 except Exception as _sche:
     import logging; logging.getLogger(__name__).warning(f"Scheduler start failed: {_sche}")
+
+
+# ═════════════════════════ ROUTES START ═════════════════════════════════
+# (Paste from here down into app.py, e.g. after the Productions section.)
+
+# ─────────────────────────────────────────────────────────────────────────
+#  Small helper — permission gate that also lets producers manage tickets
+#  for their own show. Falls back to the generic 'ticketing' permission.
+# ─────────────────────────────────────────────────────────────────────────
+def _require_ticketing():
+    """Admin/treasurer/president/staff with ticketing perm may manage tickets."""
+    return require_permission('ticketing')
+
+
+# ── VENUES ──────────────────────────────────────────────────────────────
+@app.route('/api/venues', methods=['GET'])
+def get_venues():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    include_inactive = request.args.get('all') == '1'
+    where = '' if include_inactive else 'WHERE v.active=TRUE'
+    venues = fetchall(conn, f'''
+        SELECT v.*,
+               (SELECT COUNT(*) FROM seat_maps sm WHERE sm.venue_id=v.id) AS seat_map_count
+        FROM venues v {where}
+        ORDER BY v.name''')
+    conn.close()
+    return jsonify(venues or [])
+
+
+@app.route('/api/venues', methods=['POST'])
+def create_venue():
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Venue name is required'}), 400
+    vid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO venues (id,name,address,city,notes,active)
+                     VALUES (%s,%s,%s,%s,%s,%s)''',
+            (vid, d['name'].strip(), (d.get('address') or '').strip(),
+             (d.get('city') or '').strip(), (d.get('notes') or '').strip(),
+             bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/venues/<vid>', methods=['PUT'])
+def update_venue(vid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, '''UPDATE venues SET name=%s,address=%s,city=%s,notes=%s,active=%s,updated_at=NOW()
+                     WHERE id=%s''',
+            ((d.get('name') or '').strip(), (d.get('address') or '').strip(),
+             (d.get('city') or '').strip(), (d.get('notes') or '').strip(),
+             bool(d.get('active', True)), vid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/venues/<vid>', methods=['DELETE'])
+def delete_venue(vid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    # Block delete if any performance still points at this venue.
+    in_use = fetchone(conn, 'SELECT COUNT(*) AS c FROM performances WHERE venue_id=%s', (vid,))
+    if in_use and in_use['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This venue is used by one or more performances. '
+                                 'Mark it inactive instead of deleting.'}), 400
+    execute(conn, 'DELETE FROM venues WHERE id=%s', (vid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── SEAT MAPS ───────────────────────────────────────────────────────────
+@app.route('/api/venues/<vid>/seat-maps', methods=['GET'])
+def get_seat_maps(vid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    maps = fetchall(conn, '''
+        SELECT sm.*,
+               (SELECT COUNT(*) FROM seat_map_seats s WHERE s.seat_map_id=sm.id AND s.active=TRUE) AS seat_count
+        FROM seat_maps sm WHERE sm.venue_id=%s ORDER BY sm.is_default DESC, sm.name''', (vid,))
+    conn.close()
+    return jsonify(maps or [])
+
+
+@app.route('/api/seat-maps/<mid>', methods=['GET'])
+def get_seat_map_detail(mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    sm = fetchone(conn, '''SELECT sm.*, v.name AS venue_name
+                           FROM seat_maps sm JOIN venues v ON sm.venue_id=v.id
+                           WHERE sm.id=%s''', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    sm['seats'] = fetchall(conn, '''SELECT * FROM seat_map_seats WHERE seat_map_id=%s
+                                     ORDER BY section, row_name, seat_number''', (mid,))
+    conn.close()
+    return jsonify(sm)
+
+
+@app.route('/api/venues/<vid>/seat-maps', methods=['POST'])
+def create_seat_map(vid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Seat map name is required'}), 400
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    # If this is being set as default, clear other defaults for the venue.
+    if d.get('is_default'):
+        execute(conn, 'UPDATE seat_maps SET is_default=FALSE WHERE venue_id=%s', (vid,))
+    execute(conn, '''INSERT INTO seat_maps (id,venue_id,name,capacity,is_default,notes)
+                     VALUES (%s,%s,%s,%s,%s,%s)''',
+            (mid, vid, d['name'].strip(), int(d.get('capacity') or 0),
+             bool(d.get('is_default', False)), (d.get('notes') or '').strip()))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/seat-maps/<mid>', methods=['PUT'])
+def update_seat_map(mid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT venue_id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    if d.get('is_default'):
+        execute(conn, 'UPDATE seat_maps SET is_default=FALSE WHERE venue_id=%s', (sm['venue_id'],))
+    execute(conn, '''UPDATE seat_maps SET name=%s,capacity=%s,is_default=%s,notes=%s WHERE id=%s''',
+            ((d.get('name') or '').strip(), int(d.get('capacity') or 0),
+             bool(d.get('is_default', False)), (d.get('notes') or '').strip(), mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>', methods=['DELETE'])
+def delete_seat_map(mid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    in_use = fetchone(conn, 'SELECT COUNT(*) AS c FROM performances WHERE seat_map_id=%s', (mid,))
+    if in_use and in_use['c'] > 0:
+        conn.close()
+        return jsonify({'error': 'This seat map is used by one or more performances.'}), 400
+    execute(conn, 'DELETE FROM seat_maps WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── SEAT MAP BUILDER — bulk generate rows of seats ──────────────────────
+@app.route('/api/seat-maps/<mid>/generate-section', methods=['POST'])
+def generate_seat_section(mid):
+    """
+    Auto-lay-out a rectangular block of seats.
+      section:    "Orchestra"
+      row_labels: ["A","B","C",...]  OR  row_start="A", row_count=10
+      seats_per_row: 12
+      number_from: 1
+    Creates rows × seats_per_row seats with grid x/y coords.
+    """
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = (d.get('section') or '').strip()
+    seats_per_row = int(d.get('seats_per_row') or 0)
+    number_from = int(d.get('number_from') or 1)
+    seat_type = (d.get('seat_type') or 'standard').strip()
+
+    # Build the list of row labels
+    row_labels = d.get('row_labels')
+    if not row_labels:
+        import string
+        start = (d.get('row_start') or 'A').strip().upper()
+        count = int(d.get('row_count') or 0)
+        if count <= 0 or not start:
+            return jsonify({'error': 'Provide row_labels OR row_start + row_count'}), 400
+        letters = string.ascii_uppercase
+        try:
+            start_idx = letters.index(start[0])
+        except ValueError:
+            start_idx = 0
+        row_labels = [letters[i] for i in range(start_idx, min(start_idx + count, 26))]
+
+    if seats_per_row <= 0 or not row_labels:
+        return jsonify({'error': 'seats_per_row and at least one row are required'}), 400
+
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+
+    # Offset new section below any existing seats so blocks don't overlap.
+    max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    y_base = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+
+    created = 0
+    for r_i, row_name in enumerate(row_labels):
+        for s_i in range(seats_per_row):
+            seat_no = number_from + s_i
+            label = f'{row_name}{seat_no}'
+            execute(conn, '''INSERT INTO seat_map_seats
+                             (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), mid, section, row_name, seat_no, label,
+                     s_i, y_base + r_i, seat_type))
+            created += 1
+
+    # Refresh capacity = count of active seats
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/seats/<sid>', methods=['PUT'])
+def update_seat(sid):
+    """Edit a single seat (mark accessible, house seat, rename, deactivate)."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    fields, vals = [], []
+    for f in ['section', 'row_name', 'seat_label', 'seat_type']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append((d[f] or '').strip())
+    for f in ['seat_number', 'x', 'y']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(int(d[f] or 0))
+    for f in ['accessible', 'house_seat', 'active']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(bool(d[f]))
+    if not fields:
+        conn.close(); return jsonify({'error': 'Nothing to update'}), 400
+    vals.append(sid)
+    execute(conn, f'UPDATE seat_map_seats SET {",".join(fields)} WHERE id=%s', vals)
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/seats/<sid>', methods=['DELETE'])
+def delete_seat(sid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>/seats', methods=['DELETE'])
+def clear_seat_map(mid):
+    """Wipe all seats from a map (start over in the builder)."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=0 WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── PERFORMANCES ────────────────────────────────────────────────────────
+@app.route('/api/productions/<pid>/performances', methods=['GET'])
+def get_performances(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    perfs = fetchall(conn, '''
+        SELECT pf.*,
+               v.name AS venue_name,
+               sm.name AS seat_map_name,
+               sm.capacity AS seat_map_capacity,
+               (SELECT COUNT(*) FROM ticket_types tt WHERE tt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
+        FROM performances pf
+        LEFT JOIN venues v ON pf.venue_id=v.id
+        LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
+        WHERE pf.production_id=%s
+        ORDER BY pf.performance_date, pf.performance_time''', (pid,))
+    # Attach capacity: reserved uses seat map count, GA uses ga_capacity.
+    for pf in (perfs or []):
+        if pf.get('reserved_seating') and pf.get('seat_map_id'):
+            pf['capacity'] = pf.get('seat_map_capacity') or 0
+        else:
+            pf['capacity'] = pf.get('ga_capacity') or 0
+    conn.close()
+    return jsonify(perfs or [])
+
+
+@app.route('/api/productions/<pid>/performances', methods=['POST'])
+def create_performance(pid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('performance_date') or '').strip():
+        return jsonify({'error': 'Performance date is required'}), 400
+    reserved = bool(d.get('reserved_seating', True))
+    if reserved and not d.get('seat_map_id'):
+        return jsonify({'error': 'Reserved-seating performances need a seat map'}), 400
+    fid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO performances
+                     (id,production_id,venue_id,seat_map_id,name,performance_date,performance_time,
+                      doors_time,reserved_seating,ga_capacity,sales_open_at,sales_close_at,status,notes)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (fid, pid, d.get('venue_id') or None, d.get('seat_map_id') or None,
+             (d.get('name') or '').strip(), d['performance_date'].strip(),
+             (d.get('performance_time') or '').strip(), (d.get('doors_time') or '').strip(),
+             reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
+             (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
+             d.get('status', 'draft'), (d.get('notes') or '').strip()))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pf.*, v.name AS venue_name, sm.name AS seat_map_name
+                            FROM performances pf
+                            LEFT JOIN venues v ON pf.venue_id=v.id
+                            LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
+                            WHERE pf.id=%s''', (fid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/performances/<fid>', methods=['PUT'])
+def update_performance(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    reserved = bool(d.get('reserved_seating', True))
+    conn = get_db()
+    execute(conn, '''UPDATE performances SET
+                     venue_id=%s, seat_map_id=%s, name=%s, performance_date=%s, performance_time=%s,
+                     doors_time=%s, reserved_seating=%s, ga_capacity=%s, sales_open_at=%s,
+                     sales_close_at=%s, status=%s, notes=%s, updated_at=NOW()
+                     WHERE id=%s''',
+            (d.get('venue_id') or None, d.get('seat_map_id') or None,
+             (d.get('name') or '').strip(), (d.get('performance_date') or '').strip(),
+             (d.get('performance_time') or '').strip(), (d.get('doors_time') or '').strip(),
+             reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
+             (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
+             d.get('status', 'draft'), (d.get('notes') or '').strip(), fid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/performances/<fid>/status', methods=['POST'])
+def set_performance_status(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    status = (d.get('status') or '').strip()
+    if status not in ('draft', 'on_sale', 'sold_out', 'closed', 'cancelled'):
+        return jsonify({'error': f'Invalid status: {status}'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE performances SET status=%s, updated_at=NOW() WHERE id=%s', (status, fid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'status': status})
+
+
+@app.route('/api/performances/<fid>', methods=['DELETE'])
+def delete_performance(fid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM ticket_types WHERE performance_id=%s', (fid,))
+    execute(conn, 'DELETE FROM performances WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── TICKET TYPES (price tiers) ──────────────────────────────────────────
+@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
+def get_ticket_types(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE performance_id=%s
+                             ORDER BY sort_order, name''', (fid,))
+    conn.close()
+    return jsonify(rows or [])
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['POST'])
+def create_ticket_type(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('name') or '').strip():
+        return jsonify({'error': 'Ticket type name is required'}), 400
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE performance_id=%s', (fid,))
+    execute(conn, '''INSERT INTO ticket_types
+                     (id,performance_id,name,price_cents,description,quantity_limit,sort_order,active)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (tid, fid, d['name'].strip(),
+             int(round(float(d.get('price_dollars') or 0) * 100)) if d.get('price_dollars') is not None
+                 else int(d.get('price_cents') or 0),
+             (d.get('description') or '').strip(),
+             d.get('quantity_limit') or None,
+             (max_sort['m'] or 0) + 1, bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/ticket-types/<tid>', methods=['PUT'])
+def update_ticket_type(tid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    price_cents = (int(round(float(d['price_dollars']) * 100))
+                   if d.get('price_dollars') is not None else int(d.get('price_cents') or 0))
+    conn = get_db()
+    execute(conn, '''UPDATE ticket_types SET name=%s,price_cents=%s,description=%s,
+                     quantity_limit=%s,active=%s WHERE id=%s''',
+            ((d.get('name') or '').strip(), price_cents, (d.get('description') or '').strip(),
+             d.get('quantity_limit') or None, bool(d.get('active', True)), tid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/ticket-types/<tid>', methods=['DELETE'])
+def delete_ticket_type(tid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM ticket_types WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+

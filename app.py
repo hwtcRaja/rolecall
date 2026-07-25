@@ -1251,6 +1251,18 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
+        """CREATE TABLE IF NOT EXISTS step_up_members (
+            id TEXT PRIMARY KEY,
+            step_up_id TEXT NOT NULL UNIQUE,
+            guardian_name TEXT DEFAULT '',
+            guardian_email TEXT DEFAULT '',
+            guardian_phone TEXT DEFAULT '',
+            square_customer_id TEXT,
+            square_card_id TEXT,
+            card_brand TEXT DEFAULT '',
+            card_last4 TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
             program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -14489,9 +14501,9 @@ def square_find_or_create_customer(email, name='', phone=''):
 def square_save_card(customer_id, source_id, cardholder_name=''):
     """Save a tokenized card on file for a customer WITHOUT charging it.
     source_id is the token produced client-side by Square's Web Payments SDK.
-    Returns card_id or None."""
+    Returns (card_id, brand, last4) — all None on failure."""
     if not SQUARE_ACCESS_TOKEN or not customer_id or not source_id:
-        return None
+        return None, None, None
     try:
         import uuid as _uuidk
         payload = {
@@ -14504,12 +14516,13 @@ def square_save_card(customer_id, source_id, cardholder_name=''):
         r = requests.post(f'{SQUARE_API_BASE}/v2/cards', json=payload, headers=square_headers(), timeout=15)
         data = r.json()
         if r.status_code == 200 and data.get('card'):
-            return data['card']['id']
+            card = data['card']
+            return card['id'], card.get('card_brand'), card.get('last_4')
         app.logger.error(f'Square save card failed {r.status_code}: {data}')
-        return None
+        return None, None, None
     except Exception as e:
         app.logger.error(f'Square save card exception: {e}')
-        return None
+        return None, None, None
 
 
 def square_charge_saved_card(customer_id, card_id, amount_cents, note=''):
@@ -14538,6 +14551,44 @@ def square_charge_saved_card(customer_id, card_id, amount_cents, note=''):
         return False, msg
     except Exception as e:
         app.logger.error(f'Square charge saved card exception: {e}')
+        return False, str(e)
+
+
+def square_verify_card(customer_id, card_id):
+    """Run a small $5 authorization on a freshly-saved card, then immediately void it,
+    to confirm the card is real and currently chargeable — without capturing any funds.
+    ($5 matches HWTC's standard minimum-charge policy; the hold is canceled before it
+    ever settles, so no processing fee applies — fees are only assessed on completed payments.)
+    Catches expired cards, closed accounts, and typos that pass basic format checks.
+    Returns (True, None) if the card checks out, else (False, error_message)."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return False, 'Square not configured'
+    try:
+        import uuid as _uuidv
+        payload = {
+            'idempotency_key': str(_uuidv.uuid4()),
+            'source_id': card_id,
+            'customer_id': customer_id,
+            'amount_money': {'amount': 500, 'currency': 'USD'},
+            'location_id': SQUARE_LOCATION_ID,
+            'autocomplete': False,
+            'note': 'Card verification (authorization voided immediately)',
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/payments', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code != 200 or not data.get('payment'):
+            errors = data.get('errors') or []
+            msg = errors[0].get('detail') if errors else 'This card could not be verified. Please double-check the details or try a different card.'
+            app.logger.warning(f'Square card verification declined {r.status_code}: {data}')
+            return False, msg
+        payment_id = data['payment']['id']
+        try:
+            requests.post(f'{SQUARE_API_BASE}/v2/payments/{payment_id}/cancel', headers=square_headers(), timeout=15)
+        except Exception as e:
+            app.logger.warning(f'Square card verification void failed for payment {payment_id}: {e}')
+        return True, None
+    except Exception as e:
+        app.logger.error(f'Square card verification exception: {e}')
         return False, str(e)
 
 def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note='', redirect_url=None):
@@ -14590,17 +14641,111 @@ def square_create_payment_link(program, registration_id, guardian_email, guardia
 
 
 def square_setup_card_hold(guardian_email, guardian_name, guardian_phone, card_token):
-    """Save a card on file (no charge) for a Step Up hold.
-    Returns (customer_id, card_id, error_message). error_message is None on success."""
+    """Save a card on file (no charge). Used by Step Up member enrollment.
+    Returns (customer_id, card_id, brand, last4, error_message). error_message is None on success."""
     if not card_token:
-        return None, None, 'Card details are required to hold your spot with a Step Up payment plan.'
+        return None, None, None, None, 'Card details are required.'
     customer_id = square_find_or_create_customer(guardian_email, guardian_name, guardian_phone)
     if not customer_id:
-        return None, None, 'Could not save your card. Please try again or contact us.'
-    card_id = square_save_card(customer_id, card_token, guardian_name)
+        return None, None, None, None, 'Could not save your card. Please try again or contact us.'
+    card_id, brand, last4 = square_save_card(customer_id, card_token, guardian_name)
     if not card_id:
-        return None, None, 'Could not save your card. Please double-check your card details and try again.'
-    return customer_id, card_id, None
+        return None, None, None, None, 'Could not save your card. Please double-check your card details and try again.'
+    return customer_id, card_id, brand, last4, None
+
+
+@app.route('/api/public/step-up-members/enroll', methods=['POST'])
+def step_up_member_enroll():
+    """One-time enrollment: save a card on file against a family's Step Up Awards ID.
+    Re-enrolling with the same ID replaces the saved card (e.g. their card expired)."""
+    d = request.json or {}
+    step_up_id = (d.get('step_up_id') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    card_token = d.get('card_token')
+    if not step_up_id:
+        return jsonify({'error': 'Step Up Awards ID is required.'}), 400
+    if not guardian_email or not guardian_name:
+        return jsonify({'error': 'Name and email are required.'}), 400
+    customer_id, card_id, brand, last4, err = square_setup_card_hold(
+        guardian_email, guardian_name, guardian_phone, card_token)
+    if err:
+        return jsonify({'error': err}), 400
+
+    # Verify the card is actually chargeable (catches expired/closed/declined cards
+    # that pass basic format checks) with a $1 authorization that's voided immediately —
+    # no funds are ever captured.
+    verified, verify_err = square_verify_card(customer_id, card_id)
+    if not verified:
+        square_disable_card(card_id)
+        return jsonify({'error': verify_err or "This card couldn't be verified. Please double-check the details or try a different card."}), 400
+
+    conn = get_db()
+    import uuid as _usm
+    existing = fetchone(conn, 'SELECT id, square_card_id FROM step_up_members WHERE step_up_id=%s', (step_up_id,))
+    if existing:
+        execute(conn, '''UPDATE step_up_members SET guardian_name=%s, guardian_email=%s, guardian_phone=%s,
+            square_customer_id=%s, square_card_id=%s, card_brand=%s, card_last4=%s, updated_at=NOW()
+            WHERE step_up_id=%s''',
+            (guardian_name, guardian_email, guardian_phone, customer_id, card_id, brand, last4, step_up_id))
+        old_card_id = existing.get('square_card_id')
+        if old_card_id and old_card_id != card_id:
+            square_disable_card(old_card_id)
+    else:
+        execute(conn, '''INSERT INTO step_up_members
+            (id, step_up_id, guardian_name, guardian_email, guardian_phone,
+             square_customer_id, square_card_id, card_brand, card_last4)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (_usm.uuid4().hex, step_up_id, guardian_name, guardian_email, guardian_phone,
+             customer_id, card_id, brand, last4))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'card_brand': brand, 'card_last4': last4, 'updated': bool(existing)})
+
+
+@app.route('/api/public/step-up-members/lookup', methods=['POST'])
+def step_up_member_lookup():
+    """Look up a family's saved card by their Step Up Awards ID (used at registration
+    time so they don't have to re-enter card details every show)."""
+    d = request.json or {}
+    step_up_id = (d.get('step_up_id') or '').strip()
+    if not step_up_id:
+        return jsonify({'found': False})
+    conn = get_db()
+    m = fetchone(conn, '''SELECT guardian_name, card_brand, card_last4
+        FROM step_up_members WHERE step_up_id=%s''', (step_up_id,))
+    conn.close()
+    if not m or not m.get('card_brand'):
+        return jsonify({'found': False})
+    return jsonify({'found': True, 'guardian_name': m['guardian_name'],
+                    'card_brand': m['card_brand'], 'card_last4': m['card_last4']})
+
+
+def find_step_up_member_card(step_up_id):
+    """Look up a previously-enrolled Step Up member's saved card by rewards ID.
+    Returns (customer_id, card_id, error_message)."""
+    step_up_id = (step_up_id or '').strip()
+    if not step_up_id:
+        return None, None, 'Please enter your Step Up Awards ID.'
+    conn = get_db()
+    m = fetchone(conn, '''SELECT square_customer_id, square_card_id FROM step_up_members
+        WHERE step_up_id=%s''', (step_up_id,))
+    conn.close()
+    if not m or not m.get('square_card_id'):
+        return None, None, "We couldn't find a saved card for that Step Up Awards ID. Please enroll your card first."
+    return m['square_customer_id'], m['square_card_id'], None
+
+
+def square_disable_card(card_id):
+    """Disable a card on file — used to clean up a card that failed verification
+    so it doesn't linger as a saved (but unverified) card on the customer."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return
+    try:
+        requests.post(f'{SQUARE_API_BASE}/v2/cards/{card_id}/disable', headers=square_headers(), timeout=15)
+    except Exception as e:
+        app.logger.warning(f'Square disable card failed for {card_id}: {e}')
 
 
 def get_program_by_slug(slug):
@@ -15485,8 +15630,7 @@ def public_submit_registration(slug):
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
     # if the subsidy payment hasn't shown up by the charge-by date.
     if d.get('payment_type') == 'step_up_hold' and p.get('step_up_hold_enabled') and effective_price > 0:
-        customer_id, card_id, hold_err = square_setup_card_hold(
-            email, d.get('guardian_name',''), d.get('guardian_phone',''), d.get('card_token'))
+        customer_id, card_id, hold_err = find_step_up_member_card(d.get('step_up_id'))
         if hold_err:
             conn.close()
             return jsonify({'error': hold_err}), 400
@@ -15679,6 +15823,19 @@ def list_step_up_holds():
         ORDER BY (pr.hold_status='pending') DESC, pr.hold_charge_by_date ASC NULLS LAST''') or []
     conn.close()
     return jsonify({'holds': rows})
+
+
+@app.route('/api/admin/step-up-members', methods=['GET'])
+def list_step_up_members():
+    """Every family who has enrolled a card on file for Step Up holds."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT step_up_id, guardian_name, guardian_email, guardian_phone,
+        card_brand, card_last4, created_at, updated_at
+        FROM step_up_members ORDER BY updated_at DESC''') or []
+    conn.close()
+    return jsonify({'members': rows})
 
 
 @app.route('/api/admin/step-up-holds/<rid>/charge', methods=['POST'])
@@ -15968,8 +16125,7 @@ def public_register_production(slug):
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
     # if the subsidy payment hasn't shown up by the charge-by date.
     if d.get('payment_type') == 'step_up_hold' and prod.get('step_up_hold_enabled') and effective_price > 0:
-        customer_id, card_id, hold_err = square_setup_card_hold(
-            guardian_email, d.get('guardian_name',''), d.get('guardian_phone',''), d.get('card_token'))
+        customer_id, card_id, hold_err = find_step_up_member_card(d.get('step_up_id'))
         if hold_err:
             conn.close()
             return jsonify({'error': hold_err}), 400
@@ -16403,6 +16559,13 @@ def rising_stars_live_page():
 @app.route('/step-up-holds')
 def step_up_holds_page():
     resp = send_from_directory('static', 'step-up-holds.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
+@app.route('/step-up-enroll')
+def step_up_enroll_page():
+    resp = send_from_directory('static', 'step-up-enroll.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 

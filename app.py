@@ -5419,6 +5419,38 @@ def delete_discount_code(pid, cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/programs/<pid>/discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/programs/<pid>/discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM discount_codes WHERE id=%s AND program_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
 def validate_discount(slug):
     d = request.json or {}
@@ -16010,6 +16042,38 @@ def delete_production_discount_code(pid, cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/productions/<pid>/discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/productions/<pid>/discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_production_discount_code(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM discount_codes WHERE id=%s AND production_id=%s', (cid, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/productions/<pid>/notify-interest-list', methods=['POST'])
 def notify_production_interest_list(pid):
     err = require_auth()
@@ -19810,6 +19874,40 @@ def delete_cart_discount_code(cid):
     if err: return err
     conn = get_db()
     execute(conn, 'UPDATE cart_discount_codes SET active=FALSE WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/marquee/cart-discount-codes/<cid>/toggle', methods=['POST'])
+def toggle_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT active FROM cart_discount_codes WHERE id=%s', (cid,))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    new_active = not dc['active']
+    execute(conn, 'UPDATE cart_discount_codes SET active=%s WHERE id=%s', (new_active, cid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'active': new_active})
+
+
+@app.route('/api/marquee/cart-discount-codes/<cid>/permanent', methods=['DELETE'])
+def permanently_delete_cart_discount_code(cid):
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    dc = fetchone(conn, 'SELECT uses FROM cart_discount_codes WHERE id=%s', (cid,))
+    if not dc:
+        conn.close()
+        return jsonify({'error': 'Code not found'}), 404
+    if (dc.get('uses') or 0) > 0:
+        conn.close()
+        return jsonify({'error': 'This code has been used and cannot be deleted. Deactivate it instead.'}), 400
+    execute(conn, 'DELETE FROM cart_discount_codes WHERE id=%s', (cid,))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

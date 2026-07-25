@@ -22804,7 +22804,7 @@ async function loadYouthProdMembers(prodId){
  return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
  +'<div style="width:36px;height:36px;border-radius:50%;background:var(--teal-light);color:var(--teal-dark);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
  +'<div style="flex:1;min-width:0">'
- +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+'</div>'
+ +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+(m.dob?' <span style="font-weight:400;font-size:12px;color:var(--text-muted)">(Age '+(calcAge(m.dob)||'?')+')</span>':'')+'</div>'
  +(m.role?'<div style="font-size:12px;color:var(--text-muted)">'+m.role+'</div>':'<div style="font-size:12px;color:var(--text-hint)">No role assigned</div>')
  +'</div>'
  +(isAdmin

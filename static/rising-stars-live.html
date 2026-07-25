@@ -325,7 +325,15 @@
     // Shows grid
     var grid = document.getElementById('shows-grid');
     if(!shows.length){
-      grid.innerHTML = '<div class="empty-state">No open Rising Stars shows right now.</div>';
+      var dbg = data.debug_productions || [];
+      if(dbg.length){
+        grid.innerHTML = '<div class="empty-state">Found '+dbg.length+' Rising Stars production'+(dbg.length===1?'':'s')+
+          ', but none have registration status "open" (or similar). Check Registration Settings:<br><br>' +
+          dbg.map(function(p){ return '<code style="background:var(--bg);padding:2px 6px;border-radius:4px">'+escHtml(p.name)+'</code> &middot; status: <b>'+escHtml(p.registration_status||'(none set)')+'</b>'; }).join('<br>') +
+          '</div>';
+      } else {
+        grid.innerHTML = '<div class="empty-state">No productions are tagged "Rising Stars" yet. Set a production\'s Stage to Rising Stars in Edit Production.</div>';
+      }
     } else {
       grid.innerHTML = shows.map(function(s){
         var accent = s.portal_color || accentFor(s.id);
@@ -381,8 +389,14 @@
 
   function poll(){
     fetch('/api/rising-stars/live-stats', {credentials:'same-origin'})
-      .then(function(res){ return res.json(); })
-      .then(function(data){ if(data) render(data); })
+      .then(function(res){ return res.json().then(function(data){ return {ok: res.ok, data: data}; }); })
+      .then(function(result){
+        if(!result.ok){
+          document.getElementById('shows-grid').innerHTML = '<div class="empty-state">Couldn\'t load: '+escHtml((result.data&&result.data.error)||'Unknown error')+'</div>';
+          return;
+        }
+        render(result.data);
+      })
       .catch(function(e){ console.warn('live-stats poll failed', e); });
   }
 

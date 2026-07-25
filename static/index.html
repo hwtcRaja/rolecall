@@ -1229,7 +1229,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- STEP UP HOLDS -->
  <section class="page" id="page-step-up-holds">
  <div class="page-header">
- <div><div class="page-title">💳 Step Up Holds</div><div class="page-subtitle">Cards saved on file, pending confirmation that Step Up (or another subsidy) has paid</div></div>
+ <div><div class="page-title">Step Up Holds</div><div class="page-subtitle">Cards saved on file, pending confirmation that Step Up (or another subsidy) has paid</div></div>
  <div class="page-actions">
  <a href="/step-up-enroll" target="_blank" class="btn btn-secondary">Open Family Enrollment Page ↗</a>
  </div>
@@ -2349,6 +2349,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('cast-signin',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-show-contracts">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Show Contracts</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-show-contracts" placeholder="file-signature" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('show-contracts',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-youth">
  <span style="font-size:16px"></span>
  </div>
@@ -2377,6 +2387,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-rising-stars" placeholder="star" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('rising-stars',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-step-up-holds">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Step Up Holds</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-step-up-holds" placeholder="credit-card" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('step-up-holds',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-portal-admin">
@@ -3579,6 +3599,7 @@ let interestTypes = []
 let waiverTypes = []
 let emailTemplates = []
 let allYouth = []
+let _stepUpMemberEmails = new Set()
 let allPrograms = []
 let allProductions = []
 let currentProdId = null
@@ -4032,6 +4053,11 @@ async function loadAllData(){
   if(navBadge){ navBadge.textContent=pending; navBadge.style.display=pending?'':'none' }
   const tabBadge = document.getElementById('app-pending-badge')
   if(tabBadge){ tabBadge.textContent=pending; tabBadge.style.display=pending?'':'none' }
+ }).catch(()=>{})
+ api('/api/admin/step-up-members').then(res=>{
+  if(!res || !res.members) return
+  _stepUpMemberEmails = new Set(res.members.map(m=>(m.guardian_email||'').toLowerCase()).filter(Boolean))
+  if(document.getElementById('page-youth')?.classList.contains('active')) renderYouth()
  }).catch(()=>{})
  refreshRentalPendingBadge()
  refreshUnreadMessageBadge()
@@ -6107,7 +6133,7 @@ function renderYouth(){
  <div style="display:flex;align-items:center;gap:10px">
  <div class="volunteer-avatar" style="width:32px;height:32px;flex-shrink:0;background:${bg};color:${col};font-size:12px">${initials(y.first_name+' '+y.last_name)}</div>
  <div>
- <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(y.first_name)} ${escHtml(y.last_name)}</div>
+ <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(y.first_name)} ${escHtml(y.last_name)}${primary&&_stepUpMemberEmails.has((primary.email||'').toLowerCase())?` <img src="/static/images/stepup_icon.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Step Up Enrolled"/>`:''}</div>
  <div style="font-size:11px;color:var(--text-muted)">${age?'Age '+age:''}${age&&y.status!=='active'?' · ':''}${y.status!=='active'?'<span style="color:var(--amber-600)">Inactive</span>':''}</div>
  </div>
  </div>
@@ -6174,6 +6200,7 @@ async function openYouthProfile(yid){
  badges:[
  y.status==='active'?{label:' Active',bg:'rgba(255,255,255,0.25)'}:{label:' Inactive',bg:'rgba(255,255,255,0.12)'},
  y.linked_volunteer_id?(()=>{ const v=volunteers.find(v=>v.id===y.linked_volunteer_id); return v?{label:' Volunteer: '+v.name,bg:'rgba(139,92,246,0.35)'}:null })():null,
+ (()=>{ const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]; return primary&&_stepUpMemberEmails.has((primary.email||'').toLowerCase())?{label:'<img src="/static/images/stepup_icon.png" style="width:12px;height:12px;vertical-align:middle;margin-right:3px"/>Step Up Enrolled',bg:'rgba(230,57,70,0.35)'}:null })(),
  y.photo_consent?{label:' Photo OK',bg:'rgba(255,255,255,0.15)'}:{label:' No Photo',bg:'rgba(255,80,80,0.3)'},
  y.medical_consent?{label:' Medical OK',bg:'rgba(255,255,255,0.15)'}:{label:' No Medical',bg:'rgba(255,80,80,0.3)'},
  y.allergies&&y.allergies!=='None'?{label:' '+y.allergies,bg:'rgba(255,180,0,0.35)'}:null
@@ -7945,6 +7972,7 @@ const NAV_ICON_DEFAULTS = {
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
+ 'step-up-holds':'',
  oncall:'📞', 'hours-store':'🏪'
 }
 
@@ -22842,7 +22870,7 @@ function suhRender(){
 
   if(!holds.length){
     list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">'
-      + (_suhFilter==='pending' ? 'No pending holds — nice and clear! 🎉' : 'No Step Up holds yet.') + '</div>'
+      + (_suhFilter==='pending' ? 'No pending holds — nice and clear!' : 'No Step Up holds yet.') + '</div>'
     return
   }
 

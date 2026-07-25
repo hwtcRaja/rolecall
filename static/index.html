@@ -13685,7 +13685,10 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
  s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
  s += '<div style="font-size:15px;font-weight:600">Cast Members</div>'
- if(isAdmin) s += '<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Enroll Youth</button>'
+ if(isAdmin) s += '<div style="display:flex;gap:8px">'
+   + '<button class="btn btn-secondary btn-sm" onclick="syncCastFromRegistrations(\'' + p.id + '\')">Sync from Registrations</button>'
+   + '<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Enroll Youth</button>'
+   + '</div>'
  s += '</div>'
  s += '<div id="youth-prod-members-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
  s += '</div>'
@@ -22753,6 +22756,18 @@ async function submitYouthProdEnrollment(prodId){
 async function loadAndShowYouthProdEnroll(prodId){
  const prod = allProductions.find(p=>p.id===prodId)
  await openEnrollYouthInProduction(prodId, prod?.name||'Production')
+}
+
+async function syncCastFromRegistrations(prodId){
+  const btn = event && event.target
+  if(btn){ btn.disabled = true; btn.textContent = 'Syncing…' }
+  const res = await api('/api/productions/'+prodId+'/youth-members/sync-from-registrations', 'POST')
+  if(btn){ btn.disabled = false; btn.textContent = 'Sync from Registrations' }
+  if(!res || res.error){ toast((res&&res.error)||'Sync failed','error'); return }
+  var msg = res.added > 0 ? 'Added '+res.added+' cast member'+(res.added===1?'':'s')+' from confirmed registrations.' : 'Already up to date — nothing new to add.'
+  if(res.skipped_no_match > 0) msg += ' ('+res.skipped_no_match+' registration'+(res.skipped_no_match===1?'':'s')+' could not be matched to a participant profile.)'
+  toast(msg, 'success')
+  loadYouthProdMembers(prodId)
 }
 
 async function loadYouthProdMembers(prodId){

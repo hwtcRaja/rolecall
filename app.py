@@ -5489,6 +5489,20 @@ def permanently_delete_discount_code(pid, cid):
     return jsonify({'ok': True})
 
 
+def find_discount_code(conn, code, scope_column, scope_id):
+    """Look up a discount code — first scoped to this specific program/production,
+    then fall back to cart-wide codes (managed from Marquee) which work across any
+    program, class, or Rising Stars show. Returns (dc_dict, table_name) or (None, None).
+    table_name is 'discount_codes' or 'cart_discount_codes', used for the uses+=1 update."""
+    dc = fetchone(conn, f'SELECT * FROM discount_codes WHERE {scope_column}=%s AND code=%s AND active=TRUE', (scope_id, code))
+    if dc:
+        return dc, 'discount_codes'
+    dc = fetchone(conn, 'SELECT * FROM cart_discount_codes WHERE code=%s AND active=TRUE', (code,))
+    if dc:
+        return dc, 'cart_discount_codes'
+    return None, None
+
+
 @app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
 def validate_discount(slug):
     d = request.json or {}
@@ -5500,7 +5514,7 @@ def validate_discount(slug):
     if not prog:
         conn.close()
         return jsonify({'valid': False, 'error': 'Program not found'})
-    dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], code))
+    dc, dc_table = find_discount_code(conn, code, 'program_id', prog['id'])
     conn.close()
     if not dc:
         return jsonify({'valid': False, 'error': 'Invalid or expired code'})
@@ -8541,6 +8555,52 @@ def portal_instructor_login():
 # ─────────────────────────────────────────────
 #  PRODUCTIONS (additional routes)
 # ─────────────────────────────────────────────
+
+@app.route('/api/admin/backfill-participant-dobs', methods=['POST'])
+def backfill_participant_dobs():
+    """Recover birthdays that were correctly captured on a registration but never copied
+    to the participant's profile — caused by a bug where updating an EXISTING participant
+    (a returning family) never touched the dob field, only new-participant creation did.
+    Safe to re-run anytime; only fills in participants that currently have no dob on file."""
+    err = require_permission('youth')
+    if err:
+        err = require_permission('rising_stars')
+        if err:
+            err = require_permission('productions')
+            if err: return err
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT id, youth_id, child_first_name, child_last_name, child_dob, guardian_email
+        FROM program_registrations
+        WHERE child_dob IS NOT NULL AND child_dob != '' AND status != 'cancelled' ''') or []
+    fixed, already_had_dob, no_dob_on_reg, no_match = 0, 0, 0, 0
+    for r in regs:
+        youth_id = r.get('youth_id')
+        yp = None
+        if youth_id:
+            yp = fetchone(conn, 'SELECT id, dob FROM youth_participants WHERE id=%s', (youth_id,))
+        if not yp:
+            yp = fetchone(conn, '''SELECT yp.id, yp.dob FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yg.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+                (r.get('guardian_email') or '', r.get('child_first_name') or '', r.get('child_last_name') or ''))
+        if not yp:
+            no_match += 1
+            continue
+        if yp.get('dob'):
+            already_had_dob += 1
+            continue
+        execute(conn, 'UPDATE youth_participants SET dob=%s WHERE id=%s', (r['child_dob'], yp['id']))
+        fixed += 1
+    # Separately count registrations that never had a dob captured at all (a genuine gap,
+    # not something this backfill can recover)
+    missing = fetchone(conn, '''SELECT COUNT(*) AS c FROM program_registrations
+        WHERE (child_dob IS NULL OR child_dob = '') AND status != 'cancelled' ''')
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'fixed': fixed, 'already_had_dob': already_had_dob,
+                    'no_match': no_match, 'registrations_with_no_dob_at_all': (missing or {}).get('c', 0),
+                    'total_registrations_checked': len(regs)})
+
 
 @app.route('/api/productions/<pid>/youth-members/sync-from-registrations', methods=['POST'])
 def sync_prod_cast_from_registrations(pid):
@@ -14959,12 +15019,13 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             try:
                 execute(conn, '''UPDATE youth_participants SET
                     shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
+                    dob=COALESCE(dob, %s),
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
                     allergies=COALESCE(NULLIF(%s,''), allergies),
                     pronouns=COALESCE(NULLIF(%s,''), pronouns),
                     photo_consent=GREATEST(photo_consent, %s)
                     WHERE id=%s''',
-                    (shirt or '', medical_notes, allergies, pronouns, photo_consent, existing['id']))
+                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent, existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
             # Add emergency contact if not already present
@@ -15739,8 +15800,7 @@ def public_submit_registration(slug):
     discount_amount = 0
     discount_code = (d.get('discount_code') or '').strip().upper()
     if discount_code and price > 0:
-        dc = fetchone(conn, '''SELECT * FROM discount_codes
-            WHERE program_id=%s AND code=%s AND active=TRUE''', (p['id'], discount_code))
+        dc, dc_table = find_discount_code(conn, discount_code, 'program_id', p['id'])
         if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
             min_spend = dc.get('min_spend') or 0
             if not (min_spend > 0 and basket < min_spend):
@@ -15753,7 +15813,7 @@ def public_submit_registration(slug):
                         discount_amount = int(basket * dc['discount_value'] / 100)
                     else:
                         discount_amount = min(dc['discount_value'] * participant_count, basket)
-                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+                execute(conn, f'UPDATE {dc_table} SET uses=uses+1 WHERE id=%s', (dc['id'],))
         else:
             discount_code = ''  # invalid, ignore
 
@@ -16147,7 +16207,7 @@ def validate_production_discount(slug):
     if not prod:
         conn.close()
         return jsonify({'valid': False, 'error': 'Production not found'})
-    dc = fetchone(conn, "SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE", (prod['id'], code))
+    dc, dc_table = find_discount_code(conn, code, 'production_id', prod['id'])
     conn.close()
     if not dc:
         return jsonify({'valid': False, 'error': 'Invalid or expired code'})
@@ -16273,7 +16333,7 @@ def public_register_production(slug):
     sibling_discount_amount = 0
     square_discount_id = None
     if discount_code_used and price > 0:
-        dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE', (prod['id'], discount_code_used))
+        dc, dc_table = find_discount_code(conn, discount_code_used, 'production_id', prod['id'])
         if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
             min_spend = dc.get('min_spend') or 0
             if not (min_spend > 0 and basket < min_spend):
@@ -16284,7 +16344,7 @@ def public_register_production(slug):
                 elif not is_sib_code:
                     discount_amount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
                 square_discount_id = dc.get('square_discount_id')
-                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+                execute(conn, f'UPDATE {dc_table} SET uses=uses+1 WHERE id=%s', (dc['id'],))
         else:
             discount_code_used = ''
 
@@ -16414,7 +16474,7 @@ def update_production_registration(pid, rid):
     execute(conn, '''UPDATE program_registrations SET
         status=%s, guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        shirt_size=%s, notes=%s, updated_at=NOW()
+        shirt_size=%s, notes=%s, child_dob=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
         (d.get('status'), (d.get('guardian_name') or '').strip(),
          (d.get('guardian_email') or '').strip().lower(),
@@ -16423,6 +16483,7 @@ def update_production_registration(pid, rid):
          (d.get('emergency_contact_phone') or '').strip() or None,
          d.get('shirt_size') or None,
          (d.get('notes') or '').strip() or None,
+         d.get('child_dob') or None,
          rid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -21112,13 +21173,14 @@ def update_registration(pid, rid):
         status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        session_ids=%s,
+        session_ids=%s, child_dob=%s,
         updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
          d.get('emergency_contact_phone',''),
          _jur.dumps(d.get('session_ids') or []),
+         d.get('child_dob') or None,
          rid, pid))
     conn.commit()
     conn.close()

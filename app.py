@@ -5846,10 +5846,10 @@ def get_youth():
         y['waivers'] = fetchall(conn,
             'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (y['id'],))
         y['enrollments'] = fetchall(conn, '''
-            SELECT e.*, p.name as program_name, NULL as program_status FROM youth_program_enrollments e
+            SELECT e.*, p.name as program_name, NULL as program_status, p.status as show_status, NULL as show_stage FROM youth_program_enrollments e
                 JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
             UNION ALL
-            SELECT e.*, prod.name as program_name, NULL as program_status FROM youth_program_enrollments e
+            SELECT e.*, prod.name as program_name, NULL as program_status, prod.status as show_status, prod.stage as show_stage FROM youth_program_enrollments e
                 JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
             ORDER BY enrolled_date DESC''', (y['id'], y['id']))
     conn.close()

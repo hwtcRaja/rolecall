@@ -21120,6 +21120,15 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Deposit Amount (USD)</label>'
     + '<input type="number" id="rs-deposit" value="'+(prog.deposit_amount?(prog.deposit_amount/100).toFixed(2):'')+'" placeholder="Leave blank — no deposit option" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
 
+    // Step Up hold (card on file, charge later)
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:8px">Step Up Hold</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Families using Step Up (or a similar third-party subsidy) can save a card with nothing charged today. If the subsidy payment hasn\'t come through by the charge-by date, staff can charge that saved card from the <a href="/step-up-holds" target="_blank" style="color:var(--teal)">Step Up Holds</a> queue.</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">'
+    + '<input type="checkbox" id="rs-step-up-enabled" '+(prog.step_up_hold_enabled?'checked':'')+' style="accent-color:var(--teal)"/> Allow Step Up hold as a payment option</label>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Days until charge-by date</label>'
+    + '<input type="number" id="rs-step-up-days" value="'+(prog.step_up_hold_days || 14)+'" min="1" step="1" style="width:120px;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Charge-by date is set automatically at registration: today + this many days.</div></div>'
+
     // Hours Store
     + (_saveEndpoint.indexOf('/productions/')===-1 ?
       '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px"> Hours Store</div>'
@@ -21763,6 +21772,8 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     capacity: parseInt(document.getElementById('rs-capacity').value) || null,
     price_cents: Math.round((parseFloat(document.getElementById('rs-price').value)||0)*100),
     deposit_amount: Math.round((parseFloat((document.getElementById('rs-deposit')||{}).value)||0)*100),
+    step_up_hold_enabled: (document.getElementById('rs-step-up-enabled')||{}).checked||false,
+    step_up_hold_days: parseInt((document.getElementById('rs-step-up-days')||{}).value)||14,
     sibling_discount_enabled: (document.getElementById('rs-sib-enabled')||{}).checked||false,
     sibling_discount_type: (document.getElementById('rs-sib-type')||{}).value||'percent',
     sibling_discount_value: parseInt((document.getElementById('rs-sib-value')||{}).value)||0,

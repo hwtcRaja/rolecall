@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Step Up Holds — RoleCall</title>
+<style>
+  :root{
+    --teal-dark:#0d3d4d; --teal:#145466; --teal-light:#1b708d;
+    --bg:#f4f6f7; --card:#ffffff; --border:#e5e7eb; --text:#1f2937; --text-muted:#6b7280;
+    --danger:#dc2626; --danger-bg:#fee2e2; --success:#166534; --success-bg:#dcfce7;
+    --warn:#92400e; --warn-bg:#fef3c7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text)}
+  .header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:22px 20px;color:#fff}
+  .header h1{margin:0;font-size:19px;font-weight:700}
+  .header p{margin:4px 0 0;font-size:13px;color:rgba(255,255,255,0.8)}
+  .wrap{max-width:960px;margin:0 auto;padding:20px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--card);color:var(--text-muted)}
+  .tab.active{background:var(--teal);border-color:var(--teal);color:#fff}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .hold-row{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .hold-row:last-child{border-bottom:none}
+  .hold-main{flex:1;min-width:0}
+  .hold-name{font-weight:700;font-size:14px;color:var(--teal-dark)}
+  .hold-sub{font-size:12.5px;color:var(--text-muted);margin-top:2px}
+  .hold-amount{font-size:15px;font-weight:700;color:var(--teal-dark);white-space:nowrap}
+  .hold-date{font-size:12px;white-space:nowrap;padding:3px 9px;border-radius:20px;font-weight:600}
+  .hold-date.overdue{background:var(--danger-bg);color:var(--danger)}
+  .hold-date.upcoming{background:var(--warn-bg);color:var(--warn)}
+  .status-badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;white-space:nowrap}
+  .status-badge.pending{background:var(--warn-bg);color:var(--warn)}
+  .status-badge.charged{background:var(--success-bg);color:var(--success)}
+  .status-badge.released{background:#e0f2fe;color:#0369a1}
+  .actions{display:flex;gap:6px;flex-shrink:0}
+  .btn{padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;border:none;white-space:nowrap}
+  .btn-charge{background:var(--teal);color:#fff}
+  .btn-charge:hover{background:var(--teal-dark)}
+  .btn-release{background:#f3f4f6;color:var(--text);border:1.5px solid var(--border)}
+  .btn-release:hover{background:#e5e7eb}
+  .btn:disabled{opacity:0.55;cursor:not-allowed}
+  .empty{padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px}
+  .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
+  .gate a{background:var(--teal);color:#fff;font-weight:700;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--teal-dark);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1}
+  .toast.error{background:var(--danger)}
+  @media (max-width:600px){
+    .hold-row{flex-wrap:wrap}
+    .hold-main{width:100%}
+    .actions{width:100%;justify-content:flex-end}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💳 Step Up Holds</h1>
+  <p>Cards saved on file, pending confirmation that Step Up (or another subsidy) has paid.</p>
+</div>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-filter="pending">Pending</div>
+    <div class="tab" data-filter="all">All</div>
+  </div>
+  <div class="card" id="holds-list">
+    <div class="empty">Loading…</div>
+  </div>
+</div>
+
+<div class="gate" id="gate" style="display:none">
+  <div>
+    <h2 style="font-family:inherit;color:var(--teal-dark)">Staff login needed</h2>
+    <p style="color:var(--text-muted);margin-bottom:18px">Log in to RoleCall, then come back to this page.</p>
+    <a href="/">Go to login</a>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var currentFilter = 'pending';
+  var allHolds = [];
+
+  function escHtml(s){
+    return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function fmtMoney(cents){ return '$' + ((cents||0)/100).toFixed(2) }
+
+  function fmtDate(iso){
+    if(!iso) return '';
+    try{
+      var d = new Date(iso + 'T00:00:00');
+      return d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+    }catch(e){ return iso }
+  }
+
+  function daysUntil(iso){
+    if(!iso) return null;
+    var d = new Date(iso + 'T00:00:00');
+    var today = new Date(); today.setHours(0,0,0,0);
+    return Math.round((d - today) / 86400000);
+  }
+
+  function showToast(msg, isError){
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(function(){ t.className = 'toast'; }, 2600);
+  }
+
+  function render(){
+    var list = document.getElementById('holds-list');
+    var holds = currentFilter === 'pending' ? allHolds.filter(function(h){ return h.hold_status === 'pending' }) : allHolds;
+
+    if(!holds.length){
+      list.innerHTML = '<div class="empty">' + (currentFilter === 'pending' ? 'No pending holds — nice and clear! 🎉' : 'No Step Up holds yet.') + '</div>';
+      return;
+    }
+
+    list.innerHTML = holds.map(function(h){
+      var name = (h.child_first_name || '') + ' ' + (h.child_last_name || '');
+      var days = daysUntil(h.hold_charge_by_date);
+      var dateClass = '';
+      var dateLabel = fmtDate(h.hold_charge_by_date);
+      if(h.hold_status === 'pending' && days != null){
+        if(days < 0){ dateClass = 'overdue'; dateLabel = Math.abs(days) + 'd overdue'; }
+        else if(days <= 3){ dateClass = 'upcoming'; dateLabel += ' (' + days + 'd)'; }
+      }
+      var actions = '';
+      if(h.hold_status === 'pending'){
+        actions = '<button class="btn btn-release" data-action="release" data-id="'+h.id+'">Mark Received</button>'
+          + '<button class="btn btn-charge" data-action="charge" data-id="'+h.id+'" data-name="'+escHtml(name.trim())+'" data-amount="'+fmtMoney(h.balance_due)+'">Charge Now</button>';
+      }
+      return '<div class="hold-row" data-row="'+h.id+'">'
+        + '<div class="hold-main">'
+        + '<div class="hold-name">'+escHtml(name.trim() || 'Unnamed')+'</div>'
+        + '<div class="hold-sub">'+escHtml(h.show_name||'')+' &middot; '+escHtml(h.guardian_name||h.guardian_email||'')+' &middot; '+escHtml(h.guardian_email||'')+'</div>'
+        + '</div>'
+        + '<span class="hold-date '+dateClass+'">'+(h.hold_status==='pending' ? dateLabel : 'was '+fmtDate(h.hold_charge_by_date))+'</span>'
+        + '<span class="hold-amount">'+fmtMoney(h.balance_due)+'</span>'
+        + '<span class="status-badge '+h.hold_status+'">'+h.hold_status+'</span>'
+        + (actions ? '<div class="actions">'+actions+'</div>' : '')
+        + '</div>';
+    }).join('');
+
+    list.querySelectorAll('[data-action="release"]').forEach(function(btn){
+      btn.addEventListener('click', function(){ handleRelease(btn.dataset.id, btn); });
+    });
+    list.querySelectorAll('[data-action="charge"]').forEach(function(btn){
+      btn.addEventListener('click', function(){ handleCharge(btn.dataset.id, btn); });
+    });
+  }
+
+  function handleRelease(id, btn){
+    if(!confirm('Mark this as received? This means Step Up (or the family) already paid — the card on file will NOT be charged.')) return;
+    btn.disabled = true;
+    fetch('/api/admin/step-up-holds/'+id+'/release', {method:'POST', credentials:'same-origin'})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d} }) })
+      .then(function(res){
+        if(!res.ok){ showToast(res.data.error || 'Error', true); btn.disabled=false; return; }
+        showToast('Marked as received');
+        load();
+      })
+      .catch(function(){ showToast('Network error', true); btn.disabled=false; });
+  }
+
+  function handleCharge(id, btn){
+    var name = btn.dataset.name || 'this family';
+    var amount = btn.dataset.amount;
+    if(!confirm('Charge the card on file for ' + name + ' — ' + amount + '?\n\nThis will actually run the charge through Square right now. Only do this if Step Up has NOT paid.')) return;
+    btn.disabled = true;
+    btn.textContent = 'Charging…';
+    fetch('/api/admin/step-up-holds/'+id+'/charge', {method:'POST', credentials:'same-origin'})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d} }) })
+      .then(function(res){
+        if(!res.ok){ showToast(res.data.error || 'Charge failed', true); btn.disabled=false; btn.textContent='Charge Now'; return; }
+        showToast('Charged successfully');
+        load();
+      })
+      .catch(function(){ showToast('Network error', true); btn.disabled=false; btn.textContent='Charge Now'; });
+  }
+
+  document.querySelectorAll('.tab').forEach(function(tab){
+    tab.addEventListener('click', function(){
+      document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active') });
+      tab.classList.add('active');
+      currentFilter = tab.dataset.filter;
+      render();
+    });
+  });
+
+  function load(){
+    fetch('/api/admin/step-up-holds', {credentials:'same-origin'})
+      .then(function(res){
+        if(res.status === 401 || res.status === 403){
+          document.getElementById('gate').style.display = 'flex';
+          return null;
+        }
+        document.getElementById('gate').style.display = 'none';
+        return res.json();
+      })
+      .then(function(data){
+        if(!data) return;
+        allHolds = data.holds || [];
+        render();
+      })
+      .catch(function(e){ console.warn('load failed', e); });
+  }
+
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

@@ -670,10 +670,48 @@ function buildInterestForm(){
 var _promoResult = null   // last validated promo {valid, discount_amount, label, _code, ...}
 var _siblingCount = 0
 
+// ── Step Up hold (Square card-on-file, no charge today) ────────
+var _squareConfig = null
+var _squarePayments = null
+var _squareCard = null
+var _squareCardReady = null  // promise
+
+function loadSquareSdk(env){
+  return new Promise(function(resolve, reject){
+    if(window.Square){ resolve(); return }
+    var s = document.createElement('script')
+    s.src = env === 'production' ? 'https://web.squarecdn.com/v1/square.js' : 'https://sandbox.web.squarecdn.com/v1/square.js'
+    s.onload = resolve
+    s.onerror = function(){ reject(new Error('Could not load Square payment form.')) }
+    document.head.appendChild(s)
+  })
+}
+
+async function ensureSquareCardForm(){
+  if(_squareCardReady) return _squareCardReady
+  _squareCardReady = (async function(){
+    if(!_squareConfig){
+      _squareConfig = await apiFetch('/api/public/square-config','GET')
+    }
+    if(!_squareConfig || !_squareConfig.configured){
+      throw new Error('Card-on-file payment is not set up yet. Please contact us to register with a Step Up hold.')
+    }
+    await loadSquareSdk(_squareConfig.environment)
+    _squarePayments = window.Square.payments(_squareConfig.application_id, _squareConfig.location_id)
+    _squareCard = await _squarePayments.card()
+    var mount = document.getElementById('square-card-container')
+    if(mount){ await _squareCard.attach('#square-card-container') }
+    return _squareCard
+  })()
+  return _squareCardReady
+}
+
 function buildPaymentOptions(prog){
   const price = prog.price || 0
   const deposit = prog.deposit_amount || 0
   const hasDeposit = deposit > 0 && deposit < price
+  const stepUpEnabled = !!prog.step_up_hold_enabled
+  const stepUpDays = prog.step_up_hold_days || 14
   const sibCount = document.querySelectorAll('.sibling-block').length
   const numParticipants = 1 + sibCount
   const hasSibDiscount = prog.sibling_discount_enabled && sibCount > 0
@@ -801,19 +839,42 @@ function buildPaymentOptions(prog){
   }
 
   // Payment plan
-  if(hasDeposit && finalPrice > 0){
+  if((hasDeposit || stepUpEnabled) && finalPrice > 0){
     const balance = finalPrice - deposit
+    var chargeByPreview = new Date(Date.now() + stepUpDays*86400000)
+    var chargeByStr = chargeByPreview.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
     html += '<div class="form-group" style="margin-top:4px"><label>Payment Option</label>'
       + '<div style="display:flex;flex-direction:column;gap:8px">'
       + '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
-      + '<input type="radio" name="payment-type" value="full" checked style="margin-top:2px;accent-color:#145466"/>'
+      + '<input type="radio" name="payment-type" value="full" checked onchange="onPaymentTypeChange()" style="margin-top:2px;accent-color:#145466"/>'
       + '<div><div style="font-weight:600;font-size:14px">Pay in full — $'+(finalPrice/100).toFixed(2)+'</div>'
       + '<div style="font-size:12px;color:#6b7280">One payment today</div></div></label>'
-      + '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
-      + '<input type="radio" name="payment-type" value="deposit" style="margin-top:2px;accent-color:#145466"/>'
-      + '<div><div style="font-weight:600;font-size:14px">Pay deposit — $'+(deposit/100).toFixed(2)+' today</div>'
-      + '<div style="font-size:12px;color:#6b7280">Remaining $'+(balance/100).toFixed(2)+' due before program starts</div></div></label>'
+      + (hasDeposit ?
+        '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
+        + '<input type="radio" name="payment-type" value="deposit" onchange="onPaymentTypeChange()" style="margin-top:2px;accent-color:#145466"/>'
+        + '<div><div style="font-weight:600;font-size:14px">Pay deposit — $'+(deposit/100).toFixed(2)+' today</div>'
+        + '<div style="font-size:12px;color:#6b7280">Remaining $'+(balance/100).toFixed(2)+' due before program starts</div></div></label>'
+        : '')
+      + (stepUpEnabled ?
+        '<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer">'
+        + '<input type="radio" name="payment-type" value="step_up_hold" onchange="onPaymentTypeChange()" style="margin-top:2px;accent-color:#145466"/>'
+        + '<div><div style="font-weight:600;font-size:14px">Pay via Step Up — $0 today</div>'
+        + '<div style="font-size:12px;color:#6b7280">We\'ll hold your card and only charge it if we haven\'t received your Step Up payment by '+chargeByStr+'</div></div></label>'
+        : '')
       + '</div></div>'
+
+    if(stepUpEnabled){
+      html += '<div id="step-up-panel" style="display:none;border:1.5px solid #145466;border-radius:10px;padding:14px;margin-top:8px;background:#f0f9fb">'
+        + '<div style="font-size:13px;color:#374151;margin-bottom:10px">Enter a card below. <strong>It will not be charged today.</strong> '
+        + 'If we haven\'t received your Step Up payment by <strong>'+chargeByStr+'</strong>, we will charge this card for $'+(finalPrice/100).toFixed(2)+'.</div>'
+        + '<div id="square-card-container" style="background:#fff;border:1.5px solid #d1d5db;border-radius:8px;padding:10px;min-height:40px"></div>'
+        + '<div id="square-card-errors" style="color:#dc2626;font-size:12px;margin-top:6px"></div>'
+        + '<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;cursor:pointer">'
+        + '<input type="checkbox" id="f-step-up-consent" style="margin-top:2px;accent-color:#145466"/>'
+        + '<span style="font-size:12.5px;color:#374151;line-height:1.5">I understand my card will be charged $'+(finalPrice/100).toFixed(2)+' on or after <strong>'+chargeByStr+'</strong> if HWTC has not received a Step Up payment for this registration by then.</span>'
+        + '</label>'
+        + '</div>'
+    }
   }
 
   html += '</div>'
@@ -833,6 +894,23 @@ function summaryLine(label, cents, color, bold){
 function refreshCheckout(){
   var po = document.getElementById('payment-options-section')
   if(po && program) po.innerHTML = buildPaymentOptions(program)
+}
+
+async function onPaymentTypeChange(){
+  var type = (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full'
+  var panel = document.getElementById('step-up-panel')
+  if(!panel) return
+  if(type === 'step_up_hold'){
+    panel.style.display = ''
+    var errEl = document.getElementById('square-card-errors')
+    try{
+      await ensureSquareCardForm()
+    }catch(e){
+      if(errEl) errEl.textContent = e.message || 'Could not load the card form. Please contact us to register.'
+    }
+  } else {
+    panel.style.display = 'none'
+  }
 }
 
 document.addEventListener('change', function(e){
@@ -989,6 +1067,30 @@ async function submitRegistration(){
   if(refundCheckbox && !refundCheckbox.checked){
     show('Please read and agree to the HWTC Cancellation & Refund Policy to continue.','error'); return
   }
+
+  const paymentType = (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full'
+  var cardToken = null
+  if(paymentType === 'step_up_hold'){
+    const consentCheckbox = document.getElementById('f-step-up-consent')
+    if(!consentCheckbox || !consentCheckbox.checked){
+      show('Please confirm you understand the Step Up hold terms to continue.','error'); return
+    }
+    if(!_squareCard){
+      show('Please enter your card details for the Step Up hold.','error'); return
+    }
+    btn.disabled=true; btn.textContent='Verifying card...'
+    try{
+      const tokenResult = await _squareCard.tokenize()
+      if(tokenResult.status !== 'OK'){
+        const msg = (tokenResult.errors && tokenResult.errors[0] && tokenResult.errors[0].message) || 'Could not verify card details.'
+        show(msg,'error'); btn.disabled=false; btn.textContent='Continue to Payment \u2192'; return
+      }
+      cardToken = tokenResult.token
+    }catch(e){
+      show('Could not verify card details. Please try again.','error'); btn.disabled=false; btn.textContent='Continue to Payment \u2192'; return
+    }
+  }
+
   btn.disabled=true; btn.textContent='Submitting...'
   document.getElementById('form-alert').innerHTML=''
 
@@ -1017,7 +1119,8 @@ async function submitRegistration(){
     is_bundle: bundleSelected && !!(program.bundle_enabled),
     bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
     discount_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
-    payment_type: (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full',
+    payment_type: paymentType,
+    card_token: cardToken,
   }
 
   const res = await apiFetch(apiBase+slug+'/register','POST',payload)
@@ -1029,6 +1132,8 @@ async function submitRegistration(){
       btn.textContent = 'Redirecting to pay deposit...'
     }
     window.location.href = res.payment_url
+  } else if(res.type==='step_up_hold'){
+    document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\ud83d\udcb3</div><h2 style="color:#166534;margin-bottom:8px">You\'re registered!</h2><p style="color:#6b7280;font-size:14px">Your card is on file and will <strong>not</strong> be charged today. If we haven\'t received your Step Up payment by <strong>'+fmtDate(res.charge_by_date)+'</strong>, we\'ll charge the card on file. A confirmation will be sent to '+escHtml(email)+'.</p></div></div>'
   } else if(res.type==='waitlisted'){
     document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u23f3</div><h2 style="color:#92400e;margin-bottom:8px">You\'re on the waitlist!</h2><p style="color:#6b7280;font-size:14px">You are <strong>#'+res.position+'</strong> on the waitlist. We will email you at '+escHtml(email)+' if a spot opens up.</p></div></div>'
   } else {

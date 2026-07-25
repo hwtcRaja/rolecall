@@ -64,7 +64,8 @@
 <div class="wrap">
   <div class="tabs">
     <div class="tab active" data-filter="pending">Pending</div>
-    <div class="tab" data-filter="all">All</div>
+    <div class="tab" data-filter="all">All Holds</div>
+    <div class="tab" data-filter="members">Enrolled Members</div>
   </div>
   <div class="card" id="holds-list">
     <div class="empty">Loading…</div>
@@ -85,6 +86,7 @@
 (function(){
   var currentFilter = 'pending';
   var allHolds = [];
+  var allMembers = [];
 
   function escHtml(s){
     return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){
@@ -118,6 +120,7 @@
 
   function render(){
     var list = document.getElementById('holds-list');
+    if(currentFilter === 'members'){ renderMembers(list); return; }
     var holds = currentFilter === 'pending' ? allHolds.filter(function(h){ return h.hold_status === 'pending' }) : allHolds;
 
     if(!holds.length){
@@ -159,6 +162,23 @@
     });
   }
 
+  function renderMembers(list){
+    if(!allMembers.length){
+      list.innerHTML = '<div class="empty">No families have enrolled a card yet.</div>';
+      return;
+    }
+    list.innerHTML = allMembers.map(function(m){
+      return '<div class="hold-row">'
+        + '<div class="hold-main">'
+        + '<div class="hold-name">'+escHtml(m.guardian_name||'Unnamed')+'</div>'
+        + '<div class="hold-sub">ID: <strong>'+escHtml(m.step_up_id||'')+'</strong> &middot; '+escHtml(m.guardian_email||'')+(m.guardian_phone?' &middot; '+escHtml(m.guardian_phone):'')+'</div>'
+        + '</div>'
+        + '<span class="hold-date">enrolled '+fmtDate((m.created_at||'').slice(0,10))+'</span>'
+        + '<span class="status-badge charged">'+escHtml(m.card_brand||'Card')+' &middot;&middot;'+escHtml(m.card_last4||'····')+'</span>'
+        + '</div>';
+    }).join('');
+  }
+
   function handleRelease(id, btn){
     if(!confirm('Mark this as received? This means Step Up (or the family) already paid — the card on file will NOT be charged.')) return;
     btn.disabled = true;
@@ -198,21 +218,23 @@
   });
 
   function load(){
-    fetch('/api/admin/step-up-holds', {credentials:'same-origin'})
-      .then(function(res){
-        if(res.status === 401 || res.status === 403){
-          document.getElementById('gate').style.display = 'flex';
-          return null;
-        }
-        document.getElementById('gate').style.display = 'none';
-        return res.json();
-      })
-      .then(function(data){
-        if(!data) return;
-        allHolds = data.holds || [];
-        render();
-      })
-      .catch(function(e){ console.warn('load failed', e); });
+    Promise.all([
+      fetch('/api/admin/step-up-holds', {credentials:'same-origin'}),
+      fetch('/api/admin/step-up-members', {credentials:'same-origin'})
+    ]).then(function(responses){
+      var holdsRes = responses[0], membersRes = responses[1];
+      if(holdsRes.status === 401 || holdsRes.status === 403){
+        document.getElementById('gate').style.display = 'flex';
+        return null;
+      }
+      document.getElementById('gate').style.display = 'none';
+      return Promise.all([holdsRes.json(), membersRes.json()]);
+    }).then(function(results){
+      if(!results) return;
+      allHolds = results[0].holds || [];
+      allMembers = results[1].members || [];
+      render();
+    }).catch(function(e){ console.warn('load failed', e); });
   }
 
   load();

@@ -670,40 +670,37 @@ function buildInterestForm(){
 var _promoResult = null   // last validated promo {valid, discount_amount, label, _code, ...}
 var _siblingCount = 0
 
-// ── Step Up hold (Square card-on-file, no charge today) ────────
-var _squareConfig = null
-var _squarePayments = null
-var _squareCard = null
-var _squareCardReady = null  // promise
+// ── Step Up hold (look up a previously-enrolled family's card by rewards ID) ──
+var _stepUpMatch = null   // {found, guardian_name, card_brand, card_last4} for the last looked-up ID
+var _stepUpLookupTimer = null
 
-function loadSquareSdk(env){
-  return new Promise(function(resolve, reject){
-    if(window.Square){ resolve(); return }
-    var s = document.createElement('script')
-    s.src = env === 'production' ? 'https://web.squarecdn.com/v1/square.js' : 'https://sandbox.web.squarecdn.com/v1/square.js'
-    s.onload = resolve
-    s.onerror = function(){ reject(new Error('Could not load Square payment form.')) }
-    document.head.appendChild(s)
-  })
+async function lookupStepUpMember(){
+  var input = document.getElementById('f-step-up-id')
+  var resultEl = document.getElementById('step-up-lookup-result')
+  var consentWrap = document.getElementById('step-up-consent-wrap')
+  if(!input || !resultEl) return
+  var id = (input.value||'').trim()
+  _stepUpMatch = null
+  if(consentWrap) consentWrap.style.display = 'none'
+  if(!id){ resultEl.innerHTML = ''; return }
+  resultEl.innerHTML = '<span style="color:#6b7280">Looking up your card…</span>'
+  try{
+    var res = await apiFetch('/api/public/step-up-members/lookup','POST',{step_up_id:id})
+    if(res && res.found){
+      _stepUpMatch = res
+      resultEl.innerHTML = '<span style="color:#166534;font-weight:600">&#10003; Found — '+escHtml(res.card_brand||'Card')+' ending in '+escHtml(res.card_last4||'····')+'</span>'
+      if(consentWrap) consentWrap.style.display = ''
+    } else {
+      resultEl.innerHTML = '<span style="color:#dc2626">No saved card found for that ID. <a href="/step-up-enroll" target="_blank" style="color:#145466;font-weight:600">Enroll your card here</a> first, then come back.</span>'
+    }
+  }catch(e){
+    resultEl.innerHTML = '<span style="color:#dc2626">Could not look that up right now. Please try again.</span>'
+  }
 }
 
-async function ensureSquareCardForm(){
-  if(_squareCardReady) return _squareCardReady
-  _squareCardReady = (async function(){
-    if(!_squareConfig){
-      _squareConfig = await apiFetch('/api/public/square-config','GET')
-    }
-    if(!_squareConfig || !_squareConfig.configured){
-      throw new Error('Card-on-file payment is not set up yet. Please contact us to register with a Step Up hold.')
-    }
-    await loadSquareSdk(_squareConfig.environment)
-    _squarePayments = window.Square.payments(_squareConfig.application_id, _squareConfig.location_id)
-    _squareCard = await _squarePayments.card()
-    var mount = document.getElementById('square-card-container')
-    if(mount){ await _squareCard.attach('#square-card-container') }
-    return _squareCard
-  })()
-  return _squareCardReady
+function onStepUpIdInput(){
+  clearTimeout(_stepUpLookupTimer)
+  _stepUpLookupTimer = setTimeout(lookupStepUpMember, 450)
 }
 
 function buildPaymentOptions(prog){
@@ -865,14 +862,18 @@ function buildPaymentOptions(prog){
 
     if(stepUpEnabled){
       html += '<div id="step-up-panel" style="display:none;border:1.5px solid #145466;border-radius:10px;padding:14px;margin-top:8px;background:#f0f9fb">'
-        + '<div style="font-size:13px;color:#374151;margin-bottom:10px">Enter a card below. <strong>It will not be charged today.</strong> '
-        + 'If we haven\'t received your Step Up payment by <strong>'+chargeByStr+'</strong>, we will charge this card for $'+(finalPrice/100).toFixed(2)+'.</div>'
-        + '<div id="square-card-container" style="background:#fff;border:1.5px solid #d1d5db;border-radius:8px;padding:10px;min-height:40px"></div>'
-        + '<div id="square-card-errors" style="color:#dc2626;font-size:12px;margin-top:6px"></div>'
+        + '<div style="font-size:13px;color:#374151;margin-bottom:10px">Already saved a card with us? Enter your Step Up Awards ID below and we\'ll find it — <strong>nothing is charged today.</strong> '
+        + 'If we haven\'t received your Step Up payment by <strong>'+chargeByStr+'</strong>, we\'ll charge that card for $'+(finalPrice/100).toFixed(2)+'.</div>'
+        + '<label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Step Up Awards ID</label>'
+        + '<input id="f-step-up-id" placeholder="Enter your Awards ID" oninput="onStepUpIdInput()" style="width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>'
+        + '<div id="step-up-lookup-result" style="margin-top:8px;font-size:13px"></div>'
+        + '<div style="font-size:12px;color:#6b7280;margin-top:8px">Haven\'t saved a card with us yet? <a href="/step-up-enroll" target="_blank" style="color:#145466;font-weight:600">Enroll here first</a>, then come back and enter your Awards ID above.</div>'
+        + '<div id="step-up-consent-wrap" style="display:none">'
         + '<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;cursor:pointer">'
         + '<input type="checkbox" id="f-step-up-consent" style="margin-top:2px;accent-color:#145466"/>'
-        + '<span style="font-size:12.5px;color:#374151;line-height:1.5">I understand my card will be charged $'+(finalPrice/100).toFixed(2)+' on or after <strong>'+chargeByStr+'</strong> if HWTC has not received a Step Up payment for this registration by then.</span>'
+        + '<span style="font-size:12.5px;color:#374151;line-height:1.5">I understand my card on file will be charged $'+(finalPrice/100).toFixed(2)+' on or after <strong>'+chargeByStr+'</strong> if HWTC has not received a Step Up payment for this registration by then.</span>'
         + '</label>'
+        + '</div>'
         + '</div>'
     }
   }
@@ -896,21 +897,11 @@ function refreshCheckout(){
   if(po && program) po.innerHTML = buildPaymentOptions(program)
 }
 
-async function onPaymentTypeChange(){
+function onPaymentTypeChange(){
   var type = (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full'
   var panel = document.getElementById('step-up-panel')
   if(!panel) return
-  if(type === 'step_up_hold'){
-    panel.style.display = ''
-    var errEl = document.getElementById('square-card-errors')
-    try{
-      await ensureSquareCardForm()
-    }catch(e){
-      if(errEl) errEl.textContent = e.message || 'Could not load the card form. Please contact us to register.'
-    }
-  } else {
-    panel.style.display = 'none'
-  }
+  panel.style.display = type === 'step_up_hold' ? '' : 'none'
 }
 
 document.addEventListener('change', function(e){
@@ -1069,25 +1060,15 @@ async function submitRegistration(){
   }
 
   const paymentType = (document.querySelector('input[name="payment-type"]:checked')||{}).value||'full'
-  var cardToken = null
+  var stepUpId = null
   if(paymentType === 'step_up_hold'){
+    stepUpId = ((document.getElementById('f-step-up-id')||{}).value||'').trim()
+    if(!stepUpId || !_stepUpMatch || !_stepUpMatch.found){
+      show('Please enter your Step Up Awards ID and wait for us to find your saved card.','error'); return
+    }
     const consentCheckbox = document.getElementById('f-step-up-consent')
     if(!consentCheckbox || !consentCheckbox.checked){
       show('Please confirm you understand the Step Up hold terms to continue.','error'); return
-    }
-    if(!_squareCard){
-      show('Please enter your card details for the Step Up hold.','error'); return
-    }
-    btn.disabled=true; btn.textContent='Verifying card...'
-    try{
-      const tokenResult = await _squareCard.tokenize()
-      if(tokenResult.status !== 'OK'){
-        const msg = (tokenResult.errors && tokenResult.errors[0] && tokenResult.errors[0].message) || 'Could not verify card details.'
-        show(msg,'error'); btn.disabled=false; btn.textContent='Continue to Payment \u2192'; return
-      }
-      cardToken = tokenResult.token
-    }catch(e){
-      show('Could not verify card details. Please try again.','error'); btn.disabled=false; btn.textContent='Continue to Payment \u2192'; return
     }
   }
 
@@ -1120,7 +1101,7 @@ async function submitRegistration(){
     bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
     discount_code: (_promoResult && _promoResult.valid) ? (_promoResult._code||'') : '',
     payment_type: paymentType,
-    card_token: cardToken,
+    step_up_id: stepUpId,
   }
 
   const res = await apiFetch(apiBase+slug+'/register','POST',payload)

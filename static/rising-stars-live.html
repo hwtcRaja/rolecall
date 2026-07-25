@@ -171,16 +171,6 @@
   .ticker-text span{ color:var(--ink-dim) }
   .ticker-time{ margin-left:auto; font-size:10.5px; color:var(--ink-dim); white-space:nowrap; flex-shrink:0 }
 
-  /* ── Login gate ────────────────────────────── */
-  .gate{
-    position:fixed; inset:0; background:var(--bg-deep); display:flex; align-items:center;
-    justify-content:center; text-align:center; padding:24px; z-index:100;
-  }
-  .gate-card{ max-width:360px }
-  .gate-card h1{ font-family:'Fraunces',serif; font-size:22px; margin-bottom:8px }
-  .gate-card p{ color:var(--ink-dim); font-size:14px; margin-bottom:18px }
-  .gate-card a{ background:var(--gold); color:#1b1400; font-weight:700; text-decoration:none; padding:10px 20px; border-radius:10px; font-size:14px }
-
   .footer-note{ text-align:center; color:var(--ink-dim); font-size:11px; padding:0 20px 30px }
 </style>
 </head>
@@ -226,14 +216,6 @@
 </div>
 
 <div class="footer-note">Updates every few seconds — leave this open on a tablet or monitor and watch the seats fill up.</div>
-
-<div class="gate" id="gate" style="display:none">
-  <div class="gate-card">
-    <h1>Staff login needed</h1>
-    <p>This live tracker uses your RoleCall staff account. Log in, then come back to this page.</p>
-    <a href="/">Go to login</a>
-  </div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 <script>
@@ -397,18 +379,9 @@
     seenIds = newSeenIds;
   }
 
-  var gateShown = false;
   function poll(){
     fetch('/api/rising-stars/live-stats', {credentials:'same-origin'})
-      .then(function(res){
-        if(res.status === 401 || res.status === 403){
-          if(!gateShown){ document.getElementById('gate').style.display='flex'; gateShown = true; }
-          return null;
-        }
-        document.getElementById('gate').style.display='none';
-        gateShown = false;
-        return res.json();
-      })
+      .then(function(res){ return res.json(); })
       .then(function(data){ if(data) render(data); })
       .catch(function(e){ console.warn('live-stats poll failed', e); });
   }

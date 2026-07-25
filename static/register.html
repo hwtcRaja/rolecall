@@ -843,19 +843,19 @@ function buildPaymentOptions(prog){
     html += '<div class="form-group" style="margin-top:4px"><label>Payment Option</label>'
       + '<div style="display:flex;flex-direction:column;gap:8px">'
       + '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer;text-transform:none;letter-spacing:normal;margin:0">'
-      + '<input type="radio" name="payment-type" value="full" checked onchange="onPaymentTypeChange()" style="accent-color:#145466;flex-shrink:0"/>'
+      + '<input type="radio" name="payment-type" value="full" checked onchange="onPaymentTypeChange()" style="width:18px;height:18px;min-width:18px;padding:0;border-radius:50%;accent-color:#145466;flex-shrink:0"/>'
       + '<div><div style="font-weight:600;font-size:14px;color:#1f2937">Pay in full — $'+(finalPrice/100).toFixed(2)+'</div>'
       + '<div style="font-size:12px;color:#6b7280;font-weight:400">One payment today</div></div></label>'
       + (hasDeposit ?
         '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;cursor:pointer;text-transform:none;letter-spacing:normal;margin:0">'
-        + '<input type="radio" name="payment-type" value="deposit" onchange="onPaymentTypeChange()" style="accent-color:#145466;flex-shrink:0"/>'
+        + '<input type="radio" name="payment-type" value="deposit" onchange="onPaymentTypeChange()" style="width:18px;height:18px;min-width:18px;padding:0;border-radius:50%;accent-color:#145466;flex-shrink:0"/>'
         + '<div><div style="font-weight:600;font-size:14px;color:#1f2937">Pay deposit — $'+(deposit/100).toFixed(2)+' today</div>'
         + '<div style="font-size:12px;color:#6b7280;font-weight:400">Remaining $'+(balance/100).toFixed(2)+' due before program starts</div></div></label>'
         : '')
       + '</div>'
       + (stepUpEnabled ?
         '<label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:10px;padding-left:2px;text-transform:none;letter-spacing:normal">'
-        + '<input type="radio" name="payment-type" value="step_up_hold" onchange="onPaymentTypeChange()" style="accent-color:#9ca3af;width:13px;height:13px;flex-shrink:0"/>'
+        + '<input type="radio" name="payment-type" value="step_up_hold" onchange="onPaymentTypeChange()" style="width:13px;height:13px;min-width:13px;padding:0;border-radius:50%;accent-color:#9ca3af;flex-shrink:0"/>'
         + '<span style="font-size:12px;color:#9ca3af;font-weight:400">Registered Step Up member? <span style="text-decoration:underline">Pay with your Awards ID</span></span>'
         + '</label>'
         : '')

@@ -21650,7 +21650,10 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     + '<button id="er-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
     + '</div>'
     + '<div style="padding:20px;display:flex;flex-direction:column;gap:14px">'
-    + '<div style="font-size:14px;font-weight:600">'+(reg.child_first_name||'')+(reg.child_last_name?' '+reg.child_last_name:'')+'</div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Participant First Name</label>'
+    + '<input id="er-first-name" value="'+escHtml(reg.child_first_name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Participant Last Name</label>'
+    + '<input id="er-last-name" value="'+escHtml(reg.child_last_name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Date of Birth</label>'
     + '<input id="er-dob" type="date" value="'+escHtml((reg.child_dob||'').slice(0,10))+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
@@ -21708,6 +21711,8 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     const url = saveEndpoint || ('/api/programs/'+pid+'/registrations/'+rid)
     const payload = {
       status: document.getElementById('er-status').value,
+      child_first_name: document.getElementById('er-first-name').value,
+      child_last_name: document.getElementById('er-last-name').value,
       guardian_name: document.getElementById('er-guardian-name').value,
       guardian_email: document.getElementById('er-email').value,
       guardian_phone: document.getElementById('er-phone').value,

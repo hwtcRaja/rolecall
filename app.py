@@ -16474,11 +16474,15 @@ def update_production_registration(pid, rid):
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE program_registrations SET
-        status=%s, guardian_name=%s, guardian_email=%s, guardian_phone=%s,
+        status=%s, child_first_name=%s, child_last_name=%s,
+        guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
         shirt_size=%s, notes=%s, child_dob=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
-        (d.get('status'), (d.get('guardian_name') or '').strip(),
+        (d.get('status'),
+         (d.get('child_first_name') or '').strip(),
+         (d.get('child_last_name') or '').strip(),
+         (d.get('guardian_name') or '').strip(),
          (d.get('guardian_email') or '').strip().lower(),
          (d.get('guardian_phone') or '').strip() or None,
          (d.get('emergency_contact_name') or '').strip() or None,
@@ -21175,7 +21179,7 @@ def update_registration(pid, rid):
         status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        session_ids=%s, child_dob=%s,
+        session_ids=%s, child_dob=%s, child_first_name=%s, child_last_name=%s,
         updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
@@ -21183,6 +21187,8 @@ def update_registration(pid, rid):
          d.get('emergency_contact_phone',''),
          _jur.dumps(d.get('session_ids') or []),
          d.get('child_dob') or None,
+         (d.get('child_first_name') or '').strip(),
+         (d.get('child_last_name') or '').strip(),
          rid, pid))
     conn.commit()
     conn.close()
@@ -21331,13 +21337,22 @@ def send_registration_payment_link(pid, rid):
     if reg['status'] != 'pending_payment':
         conn.close()
         return jsonify({'error': 'This registration is not awaiting payment'}), 400
-    # Look up the original order's actual total rather than the flat program price —
-    # this correctly reflects sessions, participant count, and any discounts applied
-    # at the time they registered, instead of risking an incorrect recalculation.
-    amount = square_get_order_amount(reg.get('square_order_id'))
-    if not amount:
-        amount = prog.get('price') or 0
-        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
+    d = request.json or {}
+    custom_amount = d.get('amount_cents')
+    if custom_amount is not None:
+        try:
+            amount = max(0, int(custom_amount))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({'error': 'Invalid amount'}), 400
+    else:
+        # Look up the original order's actual total rather than the flat program price —
+        # this correctly reflects sessions, participant count, and any discounts applied
+        # at the time they registered, instead of risking an incorrect recalculation.
+        amount = square_get_order_amount(reg.get('square_order_id'))
+        if not amount:
+            amount = prog.get('price') or 0
+            app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
     pay_url, link_id, order_id = square_create_payment_link(
         prog, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
         note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
@@ -21440,10 +21455,19 @@ def send_production_registration_payment_link(pid, rid):
     if reg['status'] != 'pending_payment':
         conn.close()
         return jsonify({'error': 'This registration is not awaiting payment'}), 400
-    amount = square_get_order_amount(reg.get('square_order_id'))
-    if not amount:
-        amount = prod.get('price') or 0
-        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
+    d = request.json or {}
+    custom_amount = d.get('amount_cents')
+    if custom_amount is not None:
+        try:
+            amount = max(0, int(custom_amount))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({'error': 'Invalid amount'}), 400
+    else:
+        amount = square_get_order_amount(reg.get('square_order_id'))
+        if not amount:
+            amount = prod.get('price') or 0
+            app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
     redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
     pay_url, link_id, order_id = square_create_payment_link(
         prod, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,

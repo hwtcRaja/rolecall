@@ -2121,6 +2121,58 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
 </body></html>'''
 
 
+def build_waitlist_promoted_email_html(guardian_name, child_name, program_name, pay_url=None, hold_hours=None):
+    """Sent when someone is promoted off the waitlist — either straight to confirmed (free
+    program) or with a payment link to lock in the spot (paid program)."""
+    who = f' for <strong>{child_name}</strong>' if child_name else ''
+    if pay_url:
+        hold_html = (
+            f'<div style="background:#fef3c7;border:1.5px solid #d97706;border-radius:10px;padding:16px 20px;text-align:center;margin:0 0 22px">'
+            f'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#92400e;margin-bottom:4px">Time-Sensitive</div>'
+            f'<div style="font-size:17px;font-weight:800;color:#92400e">Your spot is held for {hold_hours} hours</div>'
+            f'<div style="font-size:12.5px;color:#92400e;margin-top:2px">After that, it may be offered to the next family in line.</div>'
+            f'</div>'
+        ) if hold_hours else (
+            f'<div style="background:#fef3c7;border:1.5px solid #d97706;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 22px">'
+            f'<div style="font-size:14px;font-weight:700;color:#92400e">Please complete your registration as soon as possible to keep this spot.</div>'
+            f'</div>'
+        )
+        cta = (
+            f'<div style="text-align:center;margin:0 0 20px">'
+            f'<a href="{pay_url}" style="background:#145466;color:#fff;padding:14px 32px;border-radius:8px;'
+            f'text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Secure My Spot</a></div>'
+            f'<p style="font-size:12px;color:#9ca3af;text-align:center;word-break:break-all;margin:0 0 22px">Or copy this link: {pay_url}</p>'
+        )
+        heading = 'A Spot Has Opened Up!'
+        body_line = f'Great news — a spot just became available in <strong>{program_name}</strong>{who}, and you\'re next in line off the waitlist.'
+    else:
+        hold_html = (
+            f'<div style="background:#dcfce7;border:1.5px solid #16a34a;border-radius:10px;padding:16px 20px;text-align:center;margin:0 0 22px">'
+            f'<div style="font-size:17px;font-weight:800;color:#166534">You\'re confirmed — no further action needed!</div>'
+            f'</div>'
+        )
+        cta = ''
+        heading = "You're Confirmed!"
+        body_line = f'Great news — a spot opened up in <strong>{program_name}</strong>{who}, and you\'ve been moved from the waitlist straight to confirmed.'
+    return f'''
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">{heading}</h1>
+    <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
+  </div>
+  <div style="background:#fff;padding:32px 28px;border:1px solid #e5e7eb;border-top:none">
+    <p style="font-size:15px;color:#1f2937;margin:0 0 16px">Hi {guardian_name or 'there'},</p>
+    <p style="font-size:14.5px;color:#374151;line-height:1.6;margin:0 0 20px">{body_line}</p>
+    {hold_html}
+    {cta}
+    <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0">Questions? Just reply to this email and we're happy to help.</p>
+  </div>
+  <div style="background:#f9fafb;padding:18px 28px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;text-align:center">
+    <p style="font-size:12.5px;color:#6b7280;margin:0">With gratitude,<br/><strong style="color:#374151">Horizon West Theater Company</strong></p>
+  </div>
+</div>'''
+
+
 def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plural=False):
     """A properly branded waitlist confirmation email, matching HWTC's teal house style."""
     they = 'They' if is_plural else 'You'
@@ -16561,8 +16613,9 @@ def promote_production_waitlist(pid, rid):
         conn.commit()
         try:
             name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
             send_email([reg['guardian_email']], f'You\'re confirmed — {prod["name"]}',
-                f'<p>Hi {name},</p><p>A spot has opened in <strong>{prod["name"]}</strong> and you\'ve been confirmed!</p><p>Horizon West Theater Company</p>')
+                build_waitlist_promoted_email_html(name, child, prod['name']))
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'confirmed_free'})
@@ -16579,11 +16632,9 @@ def promote_production_waitlist(pid, rid):
     conn.commit()
     try:
         name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
-        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
+        child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
         send_email([reg['guardian_email']], f'A spot opened up — {prod["name"]}',
-            f'<p>Hi {name},</p><p>A spot is available in <strong>{prod["name"]}</strong>! {hold_msg}</p>'
-            + (f'<p><a href="{pay_url}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Secure My Spot</a></p>' if pay_url else '')
-            + '<p>Horizon West Theater Company</p>')
+            build_waitlist_promoted_email_html(name, child, prod['name'], pay_url=pay_url, hold_hours=hold_hours))
     except Exception: pass
     conn.close()
     return jsonify({'ok': True, 'type': 'payment_link_sent', 'hold_hours': hold_hours})
@@ -21253,12 +21304,9 @@ def promote_waitlist(pid, rid):
         conn.commit()
         try:
             name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
+            child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
             send_email([reg['guardian_email']], f'Great news — you\'re in! {prog["name"]}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
-                f'<h2 style="color:#145466">You\'re Confirmed!</h2>'
-                f'<p>Hi {name},</p>'
-                f'<p>Great news — a spot has opened up in <strong>{prog["name"]}</strong> and you\'ve been confirmed!</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                build_waitlist_promoted_email_html(name, child, prog['name']))
         except Exception as e:
             app.logger.warning(f'Waitlist confirm email failed: {e}')
         conn.close()
@@ -21276,20 +21324,8 @@ def promote_waitlist(pid, rid):
     try:
         name = reg.get('guardian_name') or reg.get('child_first_name') or 'there'
         child = ((reg.get('child_first_name') or '') + ' ' + (reg.get('child_last_name') or '')).strip()
-        hold_msg = f'Your spot will be held for <strong>{hold_hours} hours</strong>.' if hold_hours else 'Please complete your registration as soon as possible.'
         send_email([reg['guardian_email']], f'A spot opened up for you — {prog["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
-            f'<h2 style="color:#145466">A Spot Has Opened Up!</h2>'
-            f'<p>Hi {name},</p>'
-            f'<p>Great news — a spot has become available in <strong>{prog["name"]}</strong>'
-            f'{" for " + child if child else ""}. You are next on the waitlist!</p>'
-            f'<p>{hold_msg} After that, the spot may be offered to the next person on the waitlist.</p>'
-            + (f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
-               f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-               f'Secure My Spot</a></p>'
-               f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-               if pay_url else '')
-            + f'<p>Horizon West Theater Company</p></div>')
+            build_waitlist_promoted_email_html(name, child, prog['name'], pay_url=pay_url, hold_hours=hold_hours))
     except Exception as e:
         app.logger.warning(f'Waitlist promote email failed: {e}')
     conn.close()

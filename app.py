@@ -16558,9 +16558,10 @@ def rising_stars_live_page():
 
 @app.route('/step-up-holds')
 def step_up_holds_page():
-    resp = send_from_directory('static', 'step-up-holds.html')
-    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    return resp
+    # Step Up Holds now lives inside RoleCall itself (staff nav → Step Up Holds)
+    # rather than as a standalone page — redirect any old bookmarks there.
+    from flask import redirect
+    return redirect('/')
 
 
 @app.route('/step-up-enroll')

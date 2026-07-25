@@ -6045,7 +6045,11 @@ function openSaveTemplateModal(){
 function populateYouthFilters(){
  const sel=document.getElementById('youth-filter-program')
  if(!sel) return
- sel.innerHTML='<option value="">All Programs</option>'+allPrograms.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
+ const activePrograms = allPrograms.filter(p=>p.status==='active'||p.status==='upcoming'||!p.status)
+ const activeShows = (allProductions||[]).filter(p=>p.stage==='rising_stars' && (p.status==='active'||p.status==='upcoming'||!p.status))
+ sel.innerHTML='<option value="">All Programs</option>'
+   + (activePrograms.length ? activePrograms.map(p=>`<option value="program:${p.id}">${escHtml(p.name)}</option>`).join('') : '')
+   + (activeShows.length ? `<optgroup label="Rising Stars">` + activeShows.map(p=>`<option value="production:${p.id}">${escHtml(p.name)}</option>`).join('') + `</optgroup>` : '')
 }
 
 function buildYouthProgramCheckboxes(selectedIds=[]){
@@ -6075,7 +6079,11 @@ function renderYouth(){
  const programNames=(y.enrollments||[]).map(e=>e.program_name||'').join(' ').toLowerCase()
  if(search&&!name.includes(search)&&!programNames.includes(search)) return false
  if(fs&&y.status!==fs) return false
- if(fp&&!(y.enrollments||[]).find(e=>e.program_id===fp)) return false
+ if(fp){
+   const [fpType,fpId]=fp.split(':')
+   const matchField = fpType==='production' ? 'production_id' : 'program_id'
+   if(!(y.enrollments||[]).find(e=>e[matchField]===fpId)) return false
+ }
  return true
  }).sort((a,b)=>{
  const la=a.last_name||'', lb=b.last_name||''
@@ -6121,7 +6129,7 @@ function renderYouth(){
  const age=calcAge(y.dob)
  const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]
  const [bg,col]=avatarColors(y.first_name+y.last_name)
- const enrolledPrograms=(y.enrollments||[]).filter(e=>!e.program_status||e.program_status==='active').map(e=>e.program_name).filter(Boolean)
+ const enrolledPrograms=(y.enrollments||[]).filter(e=>e.show_status==='active'||e.show_status==='upcoming').map(e=>e.program_name).filter(Boolean)
  const hasAllergy=y.allergies&&y.allergies.toLowerCase()!=='none'&&y.allergies.toLowerCase()!=='no'&&y.allergies.trim()!==''
  const loginBadge =!y.passphrase
  ? '<span style="font-size:11px;color:var(--text-hint)">No passphrase</span>'
@@ -18799,7 +18807,7 @@ function navToYouthFiltered(programId){
  navTo('youth')
  setTimeout(()=>{
  const sel=document.getElementById('youth-filter-program')
- if(sel){ sel.value=programId; renderYouth() }
+ if(sel){ sel.value='program:'+programId; renderYouth() }
  }, 100)
 }
 

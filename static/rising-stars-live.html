@@ -59,6 +59,13 @@
   .live-dot{width:7px;height:7px;border-radius:50%;background:var(--spotlight); box-shadow:0 0 8px var(--spotlight); animation:pulse 1.6s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1; transform:scale(1)} 50%{opacity:0.4; transform:scale(0.75)}}
   .clock{font-size:12px; color:var(--ink-dim); font-variant-numeric:tabular-nums}
+  .sound-btn{
+    background:var(--surface); border:1px solid var(--hairline); color:var(--ink);
+    width:32px; height:32px; border-radius:50%; font-size:14px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:background 0.15s ease;
+  }
+  .sound-btn:hover{ background:var(--surface-2) }
+  .sound-btn.muted{ color:var(--ink-dim) }
 
   /* ── Hero ──────────────────────────────────── */
   .hero{ padding:34px 20px 20px; text-align:center }
@@ -182,6 +189,7 @@
     <span class="brand-text">Rising Stars — <b>Live Enrollment</b></span>
   </div>
   <div style="display:flex;align-items:center;gap:12px">
+    <button id="sound-toggle" class="sound-btn" title="Toggle sound effects">🔈</button>
     <span class="clock" id="clock"></span>
     <span class="live-pill"><span class="live-dot"></span>LIVE</span>
   </div>
@@ -293,16 +301,71 @@
     requestAnimationFrame(step);
   }
 
-  function burstConfetti(){
+  function burstConfetti(big){
     if(typeof confetti !== 'function') return;
     confetti({
-      particleCount: 70,
-      spread: 65,
-      startVelocity: 32,
+      particleCount: big ? 140 : 70,
+      spread: big ? 90 : 65,
+      startVelocity: big ? 42 : 32,
       origin: { x: Math.random()*0.4+0.3, y: 0.15 },
       colors: ['#f2b705','#34d399','#e8756a','#f5f0e6']
     });
   }
+
+  // ── Sound effects (synthesized — no audio files needed) ─────
+  var soundEnabled = (localStorage.getItem('rsLiveSound') !== 'off');
+  var audioCtx = null;
+  function getAudioCtx(){
+    if(!audioCtx){
+      try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null }
+    }
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function tone(ctx, freq, startTime, dur, type, peakGain){
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(peakGain || 0.18, startTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(startTime); osc.stop(startTime + dur + 0.05);
+  }
+  function playChime(kind){
+    if(!soundEnabled) return;
+    var ctx = getAudioCtx();
+    if(!ctx) return;
+    var t = ctx.currentTime;
+    if(kind === 'enrolled'){
+      // cheerful ascending triad
+      tone(ctx, 523.25, t, 0.35, 'sine');       // C5
+      tone(ctx, 659.25, t + 0.08, 0.35, 'sine'); // E5
+      tone(ctx, 783.99, t + 0.16, 0.5, 'sine');  // G5
+    } else if(kind === 'waitlisted'){
+      // soft single pop
+      tone(ctx, 392.00, t, 0.25, 'sine', 0.12); // G4
+    } else if(kind === 'milestone'){
+      // little fanfare
+      [523.25,659.25,783.99,1046.5].forEach(function(f,i){ tone(ctx, f, t + i*0.09, 0.45, 'triangle', 0.16) });
+    }
+  }
+  function updateSoundBtn(){
+    var btn = document.getElementById('sound-toggle');
+    if(!btn) return;
+    btn.textContent = soundEnabled ? '🔊' : '🔇';
+    btn.classList.toggle('muted', !soundEnabled);
+  }
+  document.getElementById('sound-toggle').addEventListener('click', function(){
+    soundEnabled = !soundEnabled;
+    localStorage.setItem('rsLiveSound', soundEnabled ? 'on' : 'off');
+    updateSoundBtn();
+    if(soundEnabled){ getAudioCtx(); playChime('enrolled'); }
+  });
+  updateSoundBtn();
+  // Try to warm up audio on any first tap/click (helps autoplay policies), harmless if it fails
+  document.addEventListener('click', function warmUp(){ getAudioCtx(); document.removeEventListener('click', warmUp); }, {once:true});
 
   function render(data){
     var shows = data.shows || [];
@@ -378,11 +441,22 @@
     }
 
     if(!isFirstLoad && freshOnes.length){
-      burstConfetti();
+      var freshConfirmed = freshOnes.some(function(r){ return r.status !== 'waitlisted' });
+      burstConfetti(false);
+      playChime(freshConfirmed ? 'enrolled' : 'waitlisted');
       freshOnes.forEach(function(r){
         var card = grid.querySelector('[data-show-id="'+r.production_id+'"]');
         if(card){ card.classList.remove('just-bumped'); void card.offsetWidth; card.classList.add('just-bumped'); }
       });
+    }
+
+    // Milestone fanfare — every 10th confirmed enrollment
+    if(!isFirstLoad && prevTotal!=null && newTotal>prevTotal){
+      var prevMilestone = Math.floor(prevTotal/10);
+      var newMilestone = Math.floor(newTotal/10);
+      if(newMilestone > prevMilestone && newTotal >= 10){
+        setTimeout(function(){ burstConfetti(true); playChime('milestone'); }, 350);
+      }
     }
     seenIds = newSeenIds;
   }

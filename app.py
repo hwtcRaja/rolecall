@@ -2121,6 +2121,46 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
 </body></html>'''
 
 
+def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plural=False):
+    """A properly branded waitlist confirmation email, matching HWTC's teal house style."""
+    they = 'They' if is_plural else 'You'
+    are = 'are' if is_plural else 'are'
+    return f'''
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">You're on the Waitlist</h1>
+    <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
+  </div>
+  <div style="background:#fff;padding:32px 28px;border:1px solid #e5e7eb;border-top:none">
+    <p style="font-size:15px;color:#1f2937;margin:0 0 16px">Hi {guardian_name or 'there'},</p>
+    <p style="font-size:14.5px;color:#374151;line-height:1.6;margin:0 0 20px">Thanks for your interest in <strong>{program_name}</strong>! The program is currently full, but {'they were' if is_plural else 'you were'} added to the waitlist at:</p>
+    <div style="background:#f0f9fb;border:1.5px solid #145466;border-radius:10px;padding:18px 20px;text-align:center;margin:0 0 22px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#145466;margin-bottom:4px">Waitlist Position</div>
+      <div style="font-size:28px;font-weight:800;color:#0d3d4d">{position_desc}</div>
+    </div>
+    <div style="margin:0 0 22px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#6b7280;margin-bottom:10px">What Happens Next</div>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:22px;height:22px;min-width:22px;line-height:22px;text-align:center;font-size:11px;font-weight:700">1</div>
+        <div style="font-size:13.5px;color:#374151;line-height:1.5">If a spot opens up, we'll reach out to you directly by email.</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:22px;height:22px;min-width:22px;line-height:22px;text-align:center;font-size:11px;font-weight:700">2</div>
+        <div style="font-size:13.5px;color:#374151;line-height:1.5">You'll receive a secure payment link to confirm and pay for the spot.</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="background:#145466;color:#fff;border-radius:50%;width:22px;height:22px;min-width:22px;line-height:22px;text-align:center;font-size:11px;font-weight:700">3</div>
+        <div style="font-size:13.5px;color:#374151;line-height:1.5">Spots are typically held for a limited time, so keep an eye on your inbox.</div>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0 0 4px">No action is needed from you right now — we'll be in touch the moment a spot becomes available. If you have any questions in the meantime, just reply to this email.</p>
+  </div>
+  <div style="background:#f9fafb;padding:18px 28px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;text-align:center">
+    <p style="font-size:12.5px;color:#6b7280;margin:0">With gratitude,<br/><strong style="color:#374151">Horizon West Theater Company</strong></p>
+  </div>
+</div>'''
+
+
 def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source=''):
     """Send via Resend API. from_email/from_name override settings default."""
     settings = get_email_settings()
@@ -14720,9 +14760,6 @@ def square_create_payment_link(program, registration_id, guardian_email, guardia
             'location_id': SQUARE_LOCATION_ID,
             'line_items': [
                 {
-                    'catalog_object_id': program.get('square_catalog_item_id'),
-                    'quantity': '1',
-                } if program.get('square_catalog_item_id') else {
                     'name': program['name'][:191],
                     'quantity': '1',
                     'base_price_money': {'amount': amount_cents, 'currency': 'USD'},
@@ -15742,10 +15779,7 @@ def public_submit_registration(slug):
         try:
             pos_desc = f'#{wl_positions[0]}' if len(wl_positions) == 1 else ', '.join(f'#{wp}' for wp in wl_positions)
             send_email([email], f'You\'re on the waitlist — {p["name"]}',
-                f'<p>Hi {d.get("guardian_name","")},</p>'
-                f'<p>You are {pos_desc} on the waitlist for <strong>{p["name"]}</strong>. '
-                f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
-                f'<p>Horizon West Theater Company</p>')
+                build_waitlist_email_html(d.get('guardian_name',''), p['name'], pos_desc, is_plural=len(wl_positions) > 1))
         except Exception: pass
         conn.close()
         return jsonify({'ok': True, 'type': 'waitlisted', 'position': wl_positions[0], 'registration_id': wl_ids[0]})
@@ -16308,6 +16342,10 @@ def public_register_production(slug):
              (d.get('notes') or '').strip(),
              position))
         conn.commit(); conn.close()
+        try:
+            send_email([guardian_email], f'You\'re on the waitlist — {prod["name"]}',
+                build_waitlist_email_html(d.get('guardian_name',''), prod['name'], f'#{position}'))
+        except Exception: pass
         return jsonify({'ok': True, 'type': 'waitlisted', 'position': position})
 
     # Full registration
@@ -17023,7 +17061,7 @@ def cart_checkout():
         if is_full:
             try:
                 send_email([guardian_email], f'You\'re on the waitlist — {it["program_name"]}',
-                    f'<p>Hi {guardian_name},</p><p>You are #{wpos} on the waitlist for <strong>{it["program_name"]}</strong>. We will contact you if a spot opens up.</p><p>Horizon West Theater Company</p>')
+                    build_waitlist_email_html(guardian_name, it['program_name'], f'#{wpos}'))
             except Exception: pass
 
     # Save cart order

@@ -1295,6 +1295,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_due INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_customer_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_group_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_charge_by_date TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_status TEXT""",
@@ -14787,14 +14788,16 @@ def resolve_step_up_children(children, total_amount_cents):
     return resolved, None
 
 
-def insert_step_up_child_holds(conn, registration_id, resolved_children, charge_by_date):
+def insert_step_up_child_holds(conn, registration_ids, resolved_children, charge_by_date):
+    """registration_ids and resolved_children must be the same length and in the same
+    order — each child's hold links to THEIR OWN registration row."""
     import uuid as _uschc
-    for c in resolved_children:
+    for rid, c in zip(registration_ids, resolved_children):
         execute(conn, '''INSERT INTO step_up_child_holds
             (id, registration_id, child_name, step_up_id, amount,
              square_customer_id, square_card_id, hold_charge_by_date, hold_status)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
-            (_uschc.uuid4().hex, registration_id, c['name'], c['step_up_id'], c['amount'],
+            (_uschc.uuid4().hex, rid, c['name'], c['step_up_id'], c['amount'],
              c['square_customer_id'], c['square_card_id'], charge_by_date))
 
 
@@ -14818,6 +14821,70 @@ def get_waitlist_count(conn, program_id):
 def next_waitlist_position(conn, program_id):
     r = fetchone(conn, 'SELECT MAX(waitlist_position) as m FROM program_registrations WHERE program_id=%s AND status=%s', (program_id,'waitlisted'))
     return (r['m'] or 0) + 1 if r else 1
+
+
+def even_split(total_cents, n):
+    """Split total_cents evenly across n shares; any leftover pennies go to the first share."""
+    n = max(1, n)
+    base = total_cents // n
+    remainder = total_cents - base * n
+    return [base + (1 if i < remainder else 0) for i in range(n)]
+
+
+def insert_registration_row(conn, cols):
+    """Generic parameterized INSERT into program_registrations from a dict of column->value.
+    Used to create one row per child when a registration includes siblings, so each child
+    is an independent, individually editable/deletable registration."""
+    keys = list(cols.keys())
+    placeholders = ','.join(['%s'] * len(keys))
+    col_list = ','.join(keys)
+    execute(conn, f'INSERT INTO program_registrations ({col_list}) VALUES ({placeholders})',
+            tuple(cols[k] for k in keys))
+
+
+def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
+    """Create one program_registrations row per child (primary + each sibling), all sharing
+    a registration_group_id so a single payment/hold can confirm or reference the whole group,
+    while each row remains an independent registration for Edit/Delete/Resend purposes.
+    shared_fields: dict of columns common to every row (program_id/production_id, guardian info,
+    discount_code, etc.) — must NOT include id, child_first_name/last_name/dob/shirt_size, status,
+    payment_type, balance_due, participant_count, siblings_json, registration_group_id
+    (those are set per-row below). If shared_fields contains 'discount_amount' and/or
+    'sibling_discount_amount', those GROUP TOTALS are prorated evenly across children rather
+    than duplicated on every row — otherwise summing per-row amounts would double-count them.
+    amounts: optional pre-computed list of per-child balance_due values (e.g. from
+    resolve_step_up_children) to use instead of auto-splitting total_amount_cents.
+    Returns (list_of_registration_ids, group_id) in the same order as `children`.
+    """
+    import uuid as _ugr
+    group_id = str(_ugr.uuid4())
+    n = len(children)
+    shares = amounts if amounts is not None else even_split(total_amount_cents, n)
+    discount_shares = even_split(shared_fields.get('discount_amount') or 0, n)
+    sib_discount_shares = even_split(shared_fields.get('sibling_discount_amount') or 0, n)
+    ids = []
+    for i, child in enumerate(children):
+        rid = str(_ugr.uuid4())
+        ids.append(rid)
+        row = dict(shared_fields)
+        row.update({
+            'id': rid,
+            'registration_group_id': group_id,
+            'registration_type': 'registration',
+            'child_first_name': (child.get('first_name') or '').strip(),
+            'child_last_name': (child.get('last_name') or '').strip(),
+            'child_dob': child.get('dob') or None,
+            'shirt_size': child.get('shirt_size') or None,
+            'status': status,
+            'payment_type': payment_type,
+            'discount_amount': discount_shares[i],
+            'sibling_discount_amount': sib_discount_shares[i],
+            'balance_due': shares[i],
+            'participant_count': 1,
+            'siblings_json': '[]',
+        })
+        insert_registration_row(conn, row)
+    return ids, group_id
 
 
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
@@ -15528,36 +15595,49 @@ def public_submit_registration(slug):
     cap = p.get('capacity')
     is_full = cap and reg_count >= cap
 
-    import uuid as _u2
-    rid = _u2.uuid4().hex
-
     if is_full:
-        # Waitlist
-        wpos = next_waitlist_position(conn, p['id'])
-        execute(conn, '''INSERT INTO program_registrations
-            (id, program_id, registration_type, status, waitlist_position,
-             child_first_name, child_last_name, child_dob, shirt_size,
-             guardian_name, guardian_email, guardian_phone,
-             emergency_contact_name, emergency_contact_phone, notes)
-            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (rid, p['id'], wpos,
-             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
-             d.get('child_dob') or None, d.get('shirt_size') or None,
-             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
-             d.get('emergency_contact_name','').strip() or None,
-             d.get('emergency_contact_phone','').strip() or None,
-             d.get('notes','').strip() or None))
+        # Waitlist — each child (primary + siblings) gets their own independent
+        # waitlist entry and position, sharing a registration_group_id.
+        siblings_wl = d.get('siblings') or []
+        if not isinstance(siblings_wl, list): siblings_wl = []
+        wl_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                         'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+        for s in siblings_wl:
+            wl_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                                 'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+        import uuid as _uwl
+        wl_group_id = str(_uwl.uuid4())
+        wl_ids = []
+        wl_positions = []
+        for child in wl_children:
+            wpos = next_waitlist_position(conn, p['id'])
+            wrid = str(_uwl.uuid4())
+            wl_ids.append(wrid)
+            wl_positions.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, program_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob, shirt_size,
+                 guardian_name, guardian_email, guardian_phone,
+                 emergency_contact_name, emergency_contact_phone, notes, participant_count, siblings_json)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'[]')''',
+                (wrid, p['id'], wpos, wl_group_id,
+                 child['first_name'], child['last_name'], child['dob'] or None, child['shirt_size'] or None,
+                 d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+                 d.get('emergency_contact_name','').strip() or None,
+                 d.get('emergency_contact_phone','').strip() or None,
+                 d.get('notes','').strip() or None))
         conn.commit()
         # Email confirmation
         try:
+            pos_desc = f'#{wl_positions[0]}' if len(wl_positions) == 1 else ', '.join(f'#{wp}' for wp in wl_positions)
             send_email([email], f'You\'re on the waitlist — {p["name"]}',
                 f'<p>Hi {d.get("guardian_name","")},</p>'
-                f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
+                f'<p>You are {pos_desc} on the waitlist for <strong>{p["name"]}</strong>. '
                 f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
                 f'<p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
-        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wl_positions[0], 'registration_id': wl_ids[0]})
 
     # Available spot
     price = p.get('price') or 0
@@ -15647,34 +15727,31 @@ def public_submit_registration(slug):
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
-    def insert_reg(status, extra_cols='', extra_vals=(), payment_type_override=None, balance_due_override=None):
-        execute(conn, f'''INSERT INTO program_registrations
-            (id, program_id, registration_type, status,
-             registration_form_type,
-             child_first_name, child_last_name, child_dob, shirt_size,
-             guardian_name, guardian_email, guardian_phone,
-             emergency_contact_name, emergency_contact_phone, notes,
-             allergies, pickup_contacts, photo_consent, pronouns,
-             discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json, session_ids,
-             payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
-            (rid, p['id'], status,
-             d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
-             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
-             d.get('child_dob') or None, d.get('shirt_size') or None,
-             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
-             d.get('emergency_contact_name','').strip() or None,
-             d.get('emergency_contact_phone','').strip() or None,
-             d.get('notes','').strip() or None,
-             d.get('allergies','').strip() or None,
-             d.get('pickup_contacts','').strip() or None,
-             bool(d.get('photo_consent')),
-             d.get('pronouns','').strip() or None,
-             discount_code or None, discount_amount, sibling_discount_amount,
-             participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
-             payment_type_override or ('deposit' if use_deposit else 'full'),
-             balance_due if balance_due_override is None else balance_due_override) + extra_vals)
+    # Build the list of children (primary + siblings) and the fields shared by every
+    # row in the group — each child becomes their own independent registration row.
+    reg_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+    for s in siblings:
+        reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+    shared_fields = {
+        'program_id': p['id'],
+        'registration_form_type': d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
+        'guardian_name': d.get('guardian_name','').strip(),
+        'guardian_email': email,
+        'guardian_phone': d.get('guardian_phone','').strip() or None,
+        'emergency_contact_name': d.get('emergency_contact_name','').strip() or None,
+        'emergency_contact_phone': d.get('emergency_contact_phone','').strip() or None,
+        'notes': d.get('notes','').strip() or None,
+        'allergies': d.get('allergies','').strip() or None,
+        'pickup_contacts': d.get('pickup_contacts','').strip() or None,
+        'photo_consent': bool(d.get('photo_consent')),
+        'pronouns': d.get('pronouns','').strip() or None,
+        'discount_code': discount_code or None,
+        'discount_amount': discount_amount,
+        'sibling_discount_amount': sibling_discount_amount,
+        'session_ids': _json2.dumps(session_ids),
+    }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
@@ -15686,23 +15763,27 @@ def public_submit_registration(slug):
             return jsonify({'error': hold_err}), 400
         from datetime import timedelta as _tdsu
         charge_by = (date.today() + _tdsu(days=int(p.get('step_up_hold_days') or 14))).isoformat()
-        insert_reg('confirmed',
-            payment_type_override='step_up_hold', balance_due_override=effective_price)
-        insert_step_up_child_holds(conn, rid, resolved_children, charge_by)
-        finalize_registration(conn, rid)
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, effective_price,
+            'confirmed', 'step_up_hold', amounts=[c['amount'] for c in resolved_children])
+        insert_step_up_child_holds(conn, reg_ids, resolved_children, charge_by)
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': rid,
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': reg_ids[0],
                         'charge_by_date': charge_by, 'amount_held': effective_price})
 
     if charge_now == 0:
-        insert_reg('confirmed')
-        finalize_registration(conn, rid)
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, 0, 'confirmed', 'full')
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': reg_ids[0]})
 
-    insert_reg('pending_payment')
+    pending_amount = balance_due if use_deposit else 0
+    reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, pending_amount,
+        'pending_payment', 'deposit' if use_deposit else 'full')
     conn.commit()
 
     note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}'
@@ -15713,18 +15794,19 @@ def public_submit_registration(slug):
     if use_deposit:
         note += f' (deposit ${deposit/100:.2f})'
     pay_url, link_id, order_id = square_create_payment_link(
-        p, rid, email, d.get('guardian_name',''), charge_now, note=note)
+        p, reg_ids[0], email, d.get('guardian_name',''), charge_now, note=note)
 
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
 
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
-        (link_id, order_id, rid))
+    for gid in reg_ids:
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, gid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': pay_url,
-                    'registration_id': rid, 'charge_now': charge_now,
+                    'registration_id': reg_ids[0], 'charge_now': charge_now,
                     'balance_due': balance_due, 'use_deposit': use_deposit})
 
 
@@ -15757,15 +15839,21 @@ def square_webhook():
             amount_cents = obj.get('amount_money', {}).get('amount', 0)
             if status == 'COMPLETED' and order_id:
                 conn = get_db()
-                # Check registrations first
-                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
-                    (order_id, order_id))
-                if reg and reg['status'] == 'pending_payment':
-                    finalize_registration(conn, reg['id'], payment_id, order_id)
-                elif reg and reg['status'] == 'waitlisted':
-                    execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
-                        (payment_id, reg['id']))
-                    finalize_registration(conn, reg['id'], payment_id, order_id)
+                # Check registrations first — a group registration (siblings) has multiple
+                # rows sharing the same square_order_id/checkout_id, so confirm all of them.
+                regs = fetchall(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                    (order_id, order_id)) or []
+                reg = regs[0] if regs else None
+                if regs and any(r['status'] == 'pending_payment' for r in regs):
+                    for r in regs:
+                        if r['status'] == 'pending_payment':
+                            finalize_registration(conn, r['id'], payment_id, order_id)
+                elif regs and any(r['status'] == 'waitlisted' for r in regs):
+                    for r in regs:
+                        if r['status'] == 'waitlisted':
+                            execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                                (payment_id, r['id']))
+                            finalize_registration(conn, r['id'], payment_id, order_id)
                     conn.commit()
                 else:
                     # Check hours store balance payments
@@ -16167,7 +16255,27 @@ def public_register_production(slug):
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
-    rid = str(_uc2.uuid4())
+    reg_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(),
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+    for s in siblings:
+        reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+    shared_fields = {
+        'production_id': prod['id'],
+        'guardian_name': (d.get('guardian_name') or '').strip(),
+        'guardian_email': guardian_email,
+        'guardian_phone': (d.get('guardian_phone') or '').strip() or None,
+        'emergency_contact_name': (d.get('emergency_contact_name') or '').strip() or None,
+        'emergency_contact_phone': (d.get('emergency_contact_phone') or '').strip() or None,
+        'notes': (d.get('notes') or '').strip() or None,
+        'allergies': (d.get('allergies') or '').strip() or None,
+        'pickup_contacts': (d.get('pickup_contacts') or '').strip() or None,
+        'photo_consent': bool(d.get('photo_consent')),
+        'pronouns': (d.get('pronouns') or '').strip() or None,
+        'discount_code': discount_code_used or None,
+        'discount_amount': discount_amount,
+        'sibling_discount_amount': sibling_discount_amount,
+    }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
@@ -16179,87 +16287,42 @@ def public_register_production(slug):
             return jsonify({'error': hold_err}), 400
         from datetime import timedelta as _tdsu2
         charge_by = (date.today() + _tdsu2(days=int(prod.get('step_up_hold_days') or 14))).isoformat()
-        execute(conn, '''INSERT INTO program_registrations
-            (id, production_id, registration_type, status,
-             child_first_name, child_last_name, child_dob, shirt_size,
-             guardian_name, guardian_email, guardian_phone,
-             emergency_contact_name, emergency_contact_phone, notes,
-             allergies, pickup_contacts, photo_consent, pronouns,
-             discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json, payment_type, balance_due)
-            VALUES (%s,%s,'registration','confirmed',
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,'step_up_hold',%s)''',
-            (rid, prod['id'],
-             (d.get('child_first_name') or '').strip(),
-             (d.get('child_last_name') or '').strip(),
-             d.get('child_dob') or None, d.get('shirt_size') or None,
-             (d.get('guardian_name') or '').strip(),
-             guardian_email, (d.get('guardian_phone') or '').strip() or None,
-             (d.get('emergency_contact_name') or '').strip() or None,
-             (d.get('emergency_contact_phone') or '').strip() or None,
-             (d.get('notes') or '').strip() or None,
-             (d.get('allergies') or '').strip() or None,
-             (d.get('pickup_contacts') or '').strip() or None,
-             bool(d.get('photo_consent')),
-             (d.get('pronouns') or '').strip() or None,
-             discount_code_used or None, discount_amount, sibling_discount_amount,
-             participant_count, _jc2.dumps(siblings), effective_price))
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, effective_price,
+            'confirmed', 'step_up_hold', amounts=[c['amount'] for c in resolved_children])
         conn.commit()
-        insert_step_up_child_holds(conn, rid, resolved_children, charge_by)
+        insert_step_up_child_holds(conn, reg_ids, resolved_children, charge_by)
         conn.commit()
-        finalize_registration(conn, rid)
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': rid,
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': reg_ids[0],
                         'charge_by_date': charge_by, 'amount_held': effective_price})
 
-    execute(conn, '''INSERT INTO program_registrations
-        (id, production_id, registration_type, status,
-         child_first_name, child_last_name, child_dob, shirt_size,
-         guardian_name, guardian_email, guardian_phone,
-         emergency_contact_name, emergency_contact_phone, notes,
-         allergies, pickup_contacts, photo_consent, pronouns,
-         discount_code, discount_amount, sibling_discount_amount,
-         participant_count, siblings_json, payment_type, balance_due)
-        VALUES (%s,%s,'registration',%s,
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s,%s)''',
-        (rid, prod['id'],
-         'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed',
-         (d.get('child_first_name') or '').strip(),
-         (d.get('child_last_name') or '').strip(),
-         d.get('child_dob') or None, d.get('shirt_size') or None,
-         (d.get('guardian_name') or '').strip(),
-         guardian_email, (d.get('guardian_phone') or '').strip() or None,
-         (d.get('emergency_contact_name') or '').strip() or None,
-         (d.get('emergency_contact_phone') or '').strip() or None,
-         (d.get('notes') or '').strip() or None,
-         (d.get('allergies') or '').strip() or None,
-         (d.get('pickup_contacts') or '').strip() or None,
-         bool(d.get('photo_consent')),
-         (d.get('pronouns') or '').strip() or None,
-         discount_code_used or None, discount_amount, sibling_discount_amount,
-         participant_count, _jc2.dumps(siblings),
-         'deposit' if use_deposit else 'full', balance_due))
+    pending_amount = balance_due if use_deposit else 0
+    reg_status = 'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed'
+    reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, pending_amount,
+        reg_status, 'deposit' if use_deposit else 'full')
     conn.commit()
 
     if price == 0 or charge_now == 0:
-        finalize_registration(conn, rid)
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.close()
-        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': reg_ids[0]})
 
     try:
         note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {prod["name"]}'
         if use_deposit: note += ' (Deposit)'
         pay_url, link_id, order_id = square_create_payment_link(
-            prod, rid, guardian_email,
+            prod, reg_ids[0], guardian_email,
             d.get('guardian_name', ''), charge_now, note=note)
-        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
-            (link_id, order_id, rid))
+        for gid in reg_ids:
+            execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+                (link_id, order_id, gid))
         conn.commit(); conn.close()
         return jsonify({'ok': True, 'type': 'payment_required',
-                        'payment_url': pay_url, 'registration_id': rid, 'use_deposit': use_deposit})
+                        'payment_url': pay_url, 'registration_id': reg_ids[0], 'use_deposit': use_deposit})
     except Exception as e:
         conn.close()
         return jsonify({'error': f'Registration saved but payment link failed: {str(e)}'}), 500

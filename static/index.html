@@ -451,6 +451,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars"></span>Rising Stars</div>
+        <div class="nav-item" onclick="navTo('step-up-holds',this)"><span class="nav-icon" id="ni-step-up-holds"></span>Step Up Holds<span class="nav-badge" id="step-up-pending-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
         <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools"></span>Carpools</div>
@@ -1222,6 +1223,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  </div>
  <div id="rs-page-grid"></div>
+ </div>
+ </section>
+
+ <!-- STEP UP HOLDS -->
+ <section class="page" id="page-step-up-holds">
+ <div class="page-header">
+ <div><div class="page-title">💳 Step Up Holds</div><div class="page-subtitle">Cards saved on file, pending confirmation that Step Up (or another subsidy) has paid</div></div>
+ <div class="page-actions">
+ <a href="/step-up-enroll" target="_blank" class="btn btn-secondary">Open Family Enrollment Page ↗</a>
+ </div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:8px;margin-bottom:16px" id="suh-tabs">
+ <div class="suh-tab active" data-filter="pending" onclick="suhSwitchTab(this)" style="padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border-md);background:var(--teal);color:#fff">Pending</div>
+ <div class="suh-tab" data-filter="all" onclick="suhSwitchTab(this)" style="padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border-md);background:var(--surface);color:var(--text-muted)">All Holds</div>
+ <div class="suh-tab" data-filter="members" onclick="suhSwitchTab(this)" style="padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border-md);background:var(--surface);color:var(--text-muted)">Enrolled Members</div>
+ </div>
+ <div id="suh-list" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden">
+ <div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">Loading…</div>
+ </div>
  </div>
  </section>
 
@@ -3933,6 +3954,7 @@ function navTo(page,el){
  if(page==='youth') renderYouth()
  if(page==='youth-programs-page') renderYouthProgramsPage()
  if(page==='rising-stars-page') renderRisingStarsPage()
+ if(page==='step-up-holds') renderStepUpHoldsPage()
  if(page==='program-detail') {} // populated by openProgramDetail
  if(page==='youth-signin') initYouthSignIn()
  if(page==='carpools') loadCarpoolsPage()
@@ -4047,6 +4069,11 @@ async function renderDashboard(){
  const badge = document.getElementById('waiver-badge')
  const bc = d.expiring_waivers + d.expired_waivers
  if(badge){ badge.textContent=bc; badge.style.display=bc>0?'':'none' }
+
+ // Step Up Holds badge
+ api('/api/admin/step-up-holds').then(res=>{
+   if(res && res.holds){ _suhHolds = res.holds; suhUpdateBadge() }
+ }).catch(()=>{})
 
  // Today label
  const todayEl = document.getElementById('dash-today-date')
@@ -22747,6 +22774,151 @@ async function updateYouthCastRole(prodId, memberId, role){
 // ═══════════════════════════════════════════════════════════════
 // RISING STARS PAGE
 // ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// STEP UP HOLDS
+// ═══════════════════════════════════════════════════════════════
+var _suhHolds = []
+var _suhMembers = []
+var _suhFilter = 'pending'
+
+function suhFmtMoney(cents){ return '$' + ((cents||0)/100).toFixed(2) }
+function suhFmtDate(iso){
+  if(!iso) return ''
+  try{ return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) }
+  catch(e){ return iso }
+}
+function suhDaysUntil(iso){
+  if(!iso) return null
+  var d = new Date(iso+'T00:00:00'); var today = new Date(); today.setHours(0,0,0,0)
+  return Math.round((d-today)/86400000)
+}
+
+function suhSwitchTab(el){
+  document.querySelectorAll('.suh-tab').forEach(t=>{
+    t.classList.remove('active'); t.style.background='var(--surface)'; t.style.color='var(--text-muted)'
+  })
+  el.classList.add('active'); el.style.background='var(--teal)'; el.style.color='#fff'
+  _suhFilter = el.dataset.filter
+  suhRender()
+}
+
+async function renderStepUpHoldsPage(){
+  const list = document.getElementById('suh-list')
+  list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">Loading…</div>'
+  const [holdsRes, membersRes] = await Promise.all([
+    api('/api/admin/step-up-holds'),
+    api('/api/admin/step-up-members')
+  ])
+  _suhHolds = (holdsRes && holdsRes.holds) || []
+  _suhMembers = (membersRes && membersRes.members) || []
+  suhUpdateBadge()
+  suhRender()
+}
+
+function suhUpdateBadge(){
+  const pending = _suhHolds.filter(h=>h.hold_status==='pending')
+  const overdue = pending.filter(h=>{
+    const days = suhDaysUntil(h.hold_charge_by_date)
+    return days!=null && days<0
+  })
+  const badge = document.getElementById('step-up-pending-badge')
+  if(!badge) return
+  if(overdue.length>0){
+    badge.style.display=''; badge.textContent=overdue.length
+    badge.style.background='#dc2626'
+  } else if(pending.length>0){
+    badge.style.display=''; badge.textContent=pending.length
+    badge.style.background=''
+  } else {
+    badge.style.display='none'
+  }
+}
+
+function suhRender(){
+  const list = document.getElementById('suh-list')
+  if(_suhFilter==='members'){ suhRenderMembers(list); return }
+  const holds = _suhFilter==='pending' ? _suhHolds.filter(h=>h.hold_status==='pending') : _suhHolds
+
+  if(!holds.length){
+    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">'
+      + (_suhFilter==='pending' ? 'No pending holds — nice and clear! 🎉' : 'No Step Up holds yet.') + '</div>'
+    return
+  }
+
+  list.innerHTML = holds.map(h=>{
+    const name = ((h.child_first_name||'')+' '+(h.child_last_name||'')).trim() || 'Unnamed'
+    const days = suhDaysUntil(h.hold_charge_by_date)
+    let dateClass='', dateLabel=suhFmtDate(h.hold_charge_by_date), dateColor='var(--text-muted)', dateBg='var(--bg)'
+    if(h.hold_status==='pending' && days!=null){
+      if(days<0){ dateLabel=Math.abs(days)+'d overdue'; dateColor='#dc2626'; dateBg='#fee2e2' }
+      else if(days<=3){ dateLabel+=' ('+days+'d)'; dateColor='#92400e'; dateBg='#fef3c7' }
+    } else if(h.hold_status!=='pending'){
+      dateLabel = 'was '+dateLabel
+    }
+    const statusColors = {pending:['#92400e','#fef3c7'], charged:['#166534','#dcfce7'], released:['#0369a1','#e0f2fe']}
+    const sc = statusColors[h.hold_status] || ['var(--text-muted)','var(--bg)']
+    let actions = ''
+    if(h.hold_status==='pending'){
+      actions = '<button class="btn btn-secondary btn-sm suh-release-btn" data-id="'+h.id+'" style="font-size:12px">Mark Received</button>'
+        + '<button class="btn btn-primary btn-sm suh-charge-btn" data-id="'+h.id+'" data-name="'+escHtml(name)+'" data-amount="'+suhFmtMoney(h.balance_due)+'" style="font-size:12px">Charge Now</button>'
+    }
+    return '<div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:180px">'
+      + '<div style="font-weight:700;font-size:14px;color:var(--teal-dark)">'+escHtml(name)+'</div>'
+      + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">'+escHtml(h.show_name||'')+' &middot; '+escHtml(h.guardian_name||h.guardian_email||'')+' &middot; '+escHtml(h.guardian_email||'')+'</div>'
+      + '</div>'
+      + '<span style="font-size:12px;white-space:nowrap;padding:3px 9px;border-radius:20px;font-weight:600;color:'+dateColor+';background:'+dateBg+'">'+dateLabel+'</span>'
+      + '<span style="font-size:15px;font-weight:700;color:var(--teal-dark);white-space:nowrap">'+suhFmtMoney(h.balance_due)+'</span>'
+      + '<span style="font-size:11px;padding:3px 9px;border-radius:20px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;white-space:nowrap;color:'+sc[0]+';background:'+sc[1]+'">'+h.hold_status+'</span>'
+      + (actions ? '<div style="display:flex;gap:6px;flex-shrink:0">'+actions+'</div>' : '')
+      + '</div>'
+  }).join('')
+
+  list.querySelectorAll('.suh-release-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>suhRelease(btn.dataset.id, btn))
+  })
+  list.querySelectorAll('.suh-charge-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>suhCharge(btn.dataset.id, btn))
+  })
+}
+
+function suhRenderMembers(list){
+  if(!_suhMembers.length){
+    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">No families have enrolled a card yet.</div>'
+    return
+  }
+  list.innerHTML = _suhMembers.map(m=>{
+    return '<div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:180px">'
+      + '<div style="font-weight:700;font-size:14px;color:var(--teal-dark)">'+escHtml(m.guardian_name||'Unnamed')+'</div>'
+      + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">ID: <strong>'+escHtml(m.step_up_id||'')+'</strong> &middot; '+escHtml(m.guardian_email||'')+(m.guardian_phone?' &middot; '+escHtml(m.guardian_phone):'')+'</div>'
+      + '</div>'
+      + '<span style="font-size:12px;white-space:nowrap;color:var(--text-muted)">enrolled '+suhFmtDate((m.created_at||'').slice(0,10))+'</span>'
+      + '<span style="font-size:11px;padding:3px 9px;border-radius:20px;font-weight:700;color:#166534;background:#dcfce7;white-space:nowrap">'+escHtml(m.card_brand||'Card')+' &middot;&middot;'+escHtml(m.card_last4||'····')+'</span>'
+      + '</div>'
+  }).join('')
+}
+
+async function suhRelease(id, btn){
+  if(!confirm('Mark this as received? This means Step Up (or the family) already paid — the card on file will NOT be charged.')) return
+  btn.disabled = true
+  const res = await api('/api/admin/step-up-holds/'+id+'/release','POST')
+  if(!res || res.error){ toast((res&&res.error)||'Error','error'); btn.disabled=false; return }
+  toast('Marked as received','success')
+  renderStepUpHoldsPage()
+}
+
+async function suhCharge(id, btn){
+  const name = btn.dataset.name || 'this family'
+  const amount = btn.dataset.amount
+  if(!confirm('Charge the card on file for '+name+' — '+amount+'?\n\nThis will actually run the charge through Square right now. Only do this if Step Up has NOT paid.')) return
+  btn.disabled = true; btn.textContent = 'Charging…'
+  const res = await api('/api/admin/step-up-holds/'+id+'/charge','POST')
+  if(!res || res.error){ toast((res&&res.error)||'Charge failed','error'); btn.disabled=false; btn.textContent='Charge Now'; return }
+  toast('Charged successfully','success')
+  renderStepUpHoldsPage()
+}
 
 function renderRisingStarsPage(){
  const search = document.getElementById('rs-search')?.value.toLowerCase()||''

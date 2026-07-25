@@ -1251,6 +1251,19 @@ def init_db():
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
+        """CREATE TABLE IF NOT EXISTS step_up_child_holds (
+            id TEXT PRIMARY KEY,
+            registration_id TEXT REFERENCES program_registrations(id) ON DELETE CASCADE,
+            child_name TEXT DEFAULT '',
+            step_up_id TEXT DEFAULT '',
+            amount INTEGER DEFAULT 0,
+            square_customer_id TEXT,
+            square_card_id TEXT,
+            hold_charge_by_date TEXT,
+            hold_status TEXT DEFAULT 'pending',
+            hold_source_label TEXT DEFAULT 'Step Up',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS step_up_members (
             id TEXT PRIMARY KEY,
             step_up_id TEXT NOT NULL UNIQUE,
@@ -14748,6 +14761,43 @@ def square_disable_card(card_id):
         app.logger.warning(f'Square disable card failed for {card_id}: {e}')
 
 
+def resolve_step_up_children(children, total_amount_cents):
+    """Validate a list of {name, step_up_id} entries against enrolled Step Up members,
+    and prorate total_amount_cents evenly across them (remainder to the first child).
+    Returns (resolved_list, error_message). resolved_list items have:
+    name, step_up_id, amount, square_customer_id, square_card_id.
+    Fails atomically — if any child's ID doesn't resolve, nothing is returned as valid."""
+    if not children or not isinstance(children, list):
+        return None, 'Please enter a Step Up Awards ID for each participant.'
+    n = len(children)
+    base = total_amount_cents // n
+    remainder = total_amount_cents - base * n
+    resolved = []
+    for i, c in enumerate(children):
+        name = (c.get('name') or '').strip() or f'Participant {i+1}'
+        step_up_id = (c.get('step_up_id') or '').strip()
+        customer_id, card_id, err = find_step_up_member_card(step_up_id)
+        if err:
+            return None, f'{name}: {err}'
+        amount = base + (1 if i < remainder else 0)
+        resolved.append({
+            'name': name, 'step_up_id': step_up_id, 'amount': amount,
+            'square_customer_id': customer_id, 'square_card_id': card_id,
+        })
+    return resolved, None
+
+
+def insert_step_up_child_holds(conn, registration_id, resolved_children, charge_by_date):
+    import uuid as _uschc
+    for c in resolved_children:
+        execute(conn, '''INSERT INTO step_up_child_holds
+            (id, registration_id, child_name, step_up_id, amount,
+             square_customer_id, square_card_id, hold_charge_by_date, hold_status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+            (_uschc.uuid4().hex, registration_id, c['name'], c['step_up_id'], c['amount'],
+             c['square_customer_id'], c['square_card_id'], charge_by_date))
+
+
 def get_program_by_slug(slug):
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
@@ -15630,16 +15680,15 @@ def public_submit_registration(slug):
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
     # if the subsidy payment hasn't shown up by the charge-by date.
     if d.get('payment_type') == 'step_up_hold' and p.get('step_up_hold_enabled') and effective_price > 0:
-        customer_id, card_id, hold_err = find_step_up_member_card(d.get('step_up_id'))
+        resolved_children, hold_err = resolve_step_up_children(d.get('step_up_children'), effective_price)
         if hold_err:
             conn.close()
             return jsonify({'error': hold_err}), 400
         from datetime import timedelta as _tdsu
         charge_by = (date.today() + _tdsu(days=int(p.get('step_up_hold_days') or 14))).isoformat()
         insert_reg('confirmed',
-            extra_cols='square_customer_id, square_card_id, hold_charge_by_date, hold_status, hold_source_label',
-            extra_vals=(customer_id, card_id, charge_by, 'pending', 'Step Up'),
             payment_type_override='step_up_hold', balance_due_override=effective_price)
+        insert_step_up_child_holds(conn, rid, resolved_children, charge_by)
         finalize_registration(conn, rid)
         conn.commit()
         conn.close()
@@ -15806,21 +15855,21 @@ def _step_up_hold_auth():
 
 @app.route('/api/admin/step-up-holds', methods=['GET'])
 def list_step_up_holds():
-    """Every registration on a Step Up (or similar) card-on-file hold, newest charge-by first."""
+    """Every per-child Step Up hold, newest charge-by first."""
     err = _step_up_hold_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT pr.id, pr.child_first_name, pr.child_last_name,
+    rows = fetchall(conn, '''SELECT h.id, h.child_name, h.step_up_id, h.amount AS balance_due,
+        h.hold_charge_by_date, h.hold_status, h.hold_source_label,
+        h.square_customer_id, h.square_card_id, h.created_at,
         pr.guardian_name, pr.guardian_email, pr.guardian_phone,
-        pr.balance_due, pr.hold_charge_by_date, pr.hold_status, pr.hold_source_label,
-        pr.square_customer_id, pr.square_card_id, pr.created_at,
         COALESCE(yp.name, prod.name) AS show_name,
         CASE WHEN pr.program_id IS NOT NULL THEN 'program' ELSE 'production' END AS context_type
-        FROM program_registrations pr
+        FROM step_up_child_holds h
+        JOIN program_registrations pr ON pr.id = h.registration_id
         LEFT JOIN youth_programs yp ON yp.id = pr.program_id
         LEFT JOIN productions prod ON prod.id = pr.production_id
-        WHERE pr.payment_type='step_up_hold'
-        ORDER BY (pr.hold_status='pending') DESC, pr.hold_charge_by_date ASC NULLS LAST''') or []
+        ORDER BY (h.hold_status='pending') DESC, h.hold_charge_by_date ASC NULLS LAST''') or []
     conn.close()
     return jsonify({'holds': rows})
 
@@ -15838,51 +15887,50 @@ def list_step_up_members():
     return jsonify({'members': rows})
 
 
-@app.route('/api/admin/step-up-holds/<rid>/charge', methods=['POST'])
-def charge_step_up_hold(rid):
-    """Staff-triggered charge of the saved card for an overdue (or any) Step Up hold."""
+@app.route('/api/admin/step-up-holds/<hid>/charge', methods=['POST'])
+def charge_step_up_hold(hid):
+    """Staff-triggered charge of the saved card for one child's overdue (or any) Step Up hold."""
     err = _step_up_hold_auth()
     if err: return err
     conn = get_db()
-    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (rid,))
-    if not reg or reg.get('payment_type') != 'step_up_hold':
+    hold = fetchone(conn, 'SELECT * FROM step_up_child_holds WHERE id=%s', (hid,))
+    if not hold:
         conn.close()
-        return jsonify({'error': 'Not a Step Up hold'}), 404
-    if reg.get('hold_status') == 'charged':
+        return jsonify({'error': 'Hold not found'}), 404
+    if hold.get('hold_status') == 'charged':
         conn.close()
         return jsonify({'error': 'This hold has already been charged'}), 400
-    amount = reg.get('balance_due') or 0
-    if amount <= 0 or not reg.get('square_card_id'):
+    amount = hold.get('amount') or 0
+    if amount <= 0 or not hold.get('square_card_id'):
         conn.close()
         return jsonify({'error': 'No saved card or amount on this hold'}), 400
-    name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
-    note = f'Step Up hold charge — {name}'
-    ok, result = square_charge_saved_card(reg.get('square_customer_id'), reg['square_card_id'], amount, note=note)
+    note = f'Step Up hold charge — {hold.get("child_name","")}'
+    ok, result = square_charge_saved_card(hold.get('square_customer_id'), hold['square_card_id'], amount, note=note)
     if not ok:
         conn.close()
         return jsonify({'error': f'Charge failed: {result}'}), 400
-    execute(conn, '''UPDATE program_registrations SET hold_status='charged',
-        square_payment_id=%s, balance_due=0, updated_at=NOW() WHERE id=%s''', (result, rid))
+    execute(conn, '''UPDATE step_up_child_holds SET hold_status='charged',
+        updated_at=NOW() WHERE id=%s''', (hid,))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'payment_id': result})
 
 
-@app.route('/api/admin/step-up-holds/<rid>/release', methods=['POST'])
-def release_step_up_hold(rid):
-    """Mark a hold as released — the subsidy payment came through, don't charge the card."""
+@app.route('/api/admin/step-up-holds/<hid>/release', methods=['POST'])
+def release_step_up_hold(hid):
+    """Mark one child's hold as released — the subsidy payment came through, don't charge the card."""
     err = _step_up_hold_auth()
     if err: return err
     conn = get_db()
-    reg = fetchone(conn, 'SELECT id, payment_type, hold_status FROM program_registrations WHERE id=%s', (rid,))
-    if not reg or reg.get('payment_type') != 'step_up_hold':
+    hold = fetchone(conn, 'SELECT id, hold_status FROM step_up_child_holds WHERE id=%s', (hid,))
+    if not hold:
         conn.close()
-        return jsonify({'error': 'Not a Step Up hold'}), 404
-    if reg.get('hold_status') == 'charged':
+        return jsonify({'error': 'Hold not found'}), 404
+    if hold.get('hold_status') == 'charged':
         conn.close()
         return jsonify({'error': 'This hold has already been charged'}), 400
-    execute(conn, '''UPDATE program_registrations SET hold_status='released', balance_due=0,
-        updated_at=NOW() WHERE id=%s''', (rid,))
+    execute(conn, '''UPDATE step_up_child_holds SET hold_status='released',
+        updated_at=NOW() WHERE id=%s''', (hid,))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -16125,7 +16173,7 @@ def public_register_production(slug):
     # charge nothing. Staff reviews and charges later from the Step Up Holds queue
     # if the subsidy payment hasn't shown up by the charge-by date.
     if d.get('payment_type') == 'step_up_hold' and prod.get('step_up_hold_enabled') and effective_price > 0:
-        customer_id, card_id, hold_err = find_step_up_member_card(d.get('step_up_id'))
+        resolved_children, hold_err = resolve_step_up_children(d.get('step_up_children'), effective_price)
         if hold_err:
             conn.close()
             return jsonify({'error': hold_err}), 400
@@ -16138,12 +16186,10 @@ def public_register_production(slug):
              emergency_contact_name, emergency_contact_phone, notes,
              allergies, pickup_contacts, photo_consent, pronouns,
              discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json, payment_type, balance_due,
-             square_customer_id, square_card_id, hold_charge_by_date, hold_status, hold_source_label)
+             participant_count, siblings_json, payment_type, balance_due)
             VALUES (%s,%s,'registration','confirmed',
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,'step_up_hold',%s,
-                    %s,%s,%s,'pending','Step Up')''',
+                    %s,%s,%s,%s,%s,'step_up_hold',%s)''',
             (rid, prod['id'],
              (d.get('child_first_name') or '').strip(),
              (d.get('child_last_name') or '').strip(),
@@ -16158,8 +16204,9 @@ def public_register_production(slug):
              bool(d.get('photo_consent')),
              (d.get('pronouns') or '').strip() or None,
              discount_code_used or None, discount_amount, sibling_discount_amount,
-             participant_count, _jc2.dumps(siblings), effective_price,
-             customer_id, card_id, charge_by))
+             participant_count, _jc2.dumps(siblings), effective_price))
+        conn.commit()
+        insert_step_up_child_holds(conn, rid, resolved_children, charge_by)
         conn.commit()
         finalize_registration(conn, rid)
         conn.commit()

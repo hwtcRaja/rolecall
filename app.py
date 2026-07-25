@@ -20334,9 +20334,8 @@ def marquee_all_registrations():
 
 @app.route('/api/rising-stars/live-stats', methods=['GET'])
 def rising_stars_live_stats():
-    """Real-time Rising Stars enrollment snapshot for the live tracker screen."""
-    err = require_permission('marquee', 'view')
-    if err: return err
+    """Real-time Rising Stars enrollment snapshot for the live tracker screen.
+    Intentionally public (no login) so it can run unattended on a lobby TV/tablet."""
     conn = get_db()
     shows = fetchall(conn, '''SELECT
         prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
@@ -20350,6 +20349,11 @@ def rising_stars_live_stats():
         GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status, prod.image_url,
                  prod.portal_color, prod.registration_open_date, prod.registration_open_time
         ORDER BY prod.name''') or []
+
+    # Diagnostic: list every production tagged Rising Stars regardless of status,
+    # so we can tell "wrong status" apart from "not tagged rising_stars" at a glance.
+    debug_all_rs = fetchall(conn, '''SELECT id, name, stage, registration_status
+        FROM productions WHERE stage='rising_stars' ORDER BY name''') or []
 
     from zoneinfo import ZoneInfo as _ZIls
     for s in shows:
@@ -20397,6 +20401,7 @@ def rising_stars_live_stats():
             'waitlisted': total_waitlisted,
             'capacity': total_capacity or None,
         },
+        'debug_productions': debug_all_rs,
         'server_time': datetime.utcnow().isoformat(),
     })
 

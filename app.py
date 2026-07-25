@@ -16122,6 +16122,13 @@ def cart_page():
     return send_from_directory('static', 'cart.html')
 
 
+@app.route('/rising-stars-live')
+def rising_stars_live_page():
+    resp = send_from_directory('static', 'rising-stars-live.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
 @app.route('/api/public/programs')
 def public_programs_list():
     """All open programs for the browse/add-more experience."""
@@ -20323,6 +20330,75 @@ def marquee_all_registrations():
     productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
+
+
+@app.route('/api/rising-stars/live-stats', methods=['GET'])
+def rising_stars_live_stats():
+    """Real-time Rising Stars enrollment snapshot for the live tracker screen."""
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    shows = fetchall(conn, '''SELECT
+        prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
+        prod.image_url, prod.portal_color, prod.registration_open_date, prod.registration_open_time,
+        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count
+        FROM productions prod
+        LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != 'cancelled'
+        WHERE prod.stage='rising_stars' AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
+        GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status, prod.image_url,
+                 prod.portal_color, prod.registration_open_date, prod.registration_open_time
+        ORDER BY prod.name''') or []
+
+    from zoneinfo import ZoneInfo as _ZIls
+    for s in shows:
+        s['opened_at'] = None
+        s['opens_at'] = None
+        open_date = (s.pop('registration_open_date', None) or '').strip()
+        open_time = (s.pop('registration_open_time', None) or '').strip()
+        if open_date:
+            try:
+                open_dt = datetime.fromisoformat(f'{open_date}T{(open_time or "00:00")[:5]}:00').replace(tzinfo=_ZIls('America/New_York'))
+                open_utc_iso = open_dt.astimezone(_ZIls('UTC')).isoformat()
+                if datetime.now(_ZIls('America/New_York')) >= open_dt:
+                    s['opened_at'] = open_utc_iso
+                else:
+                    s['opens_at'] = open_utc_iso
+            except Exception:
+                pass
+
+    recent = fetchall(conn, '''SELECT pr.id, pr.child_first_name, pr.child_last_name, pr.status,
+        pr.created_at, pr.production_id, p.name AS production_name
+        FROM program_registrations pr
+        JOIN productions p ON p.id = pr.production_id
+        WHERE p.stage='rising_stars' AND pr.status != 'cancelled'
+        ORDER BY pr.created_at DESC LIMIT 25''') or []
+    conn.close()
+
+    for r in recent:
+        first = (r.get('child_first_name') or '').strip()
+        last = (r.get('child_last_name') or '').strip()
+        r['display_name'] = (first + (' ' + last[0] + '.' if last else '')).strip() or 'A new star'
+        r.pop('child_first_name', None)
+        r.pop('child_last_name', None)
+
+    total_confirmed = sum(s.get('confirmed_count') or 0 for s in shows)
+    total_pending = sum(s.get('pending_count') or 0 for s in shows)
+    total_waitlisted = sum(s.get('waitlisted_count') or 0 for s in shows)
+    total_capacity = sum(s.get('capacity') or 0 for s in shows if s.get('capacity'))
+
+    return jsonify({
+        'shows': shows,
+        'recent': recent,
+        'totals': {
+            'confirmed': total_confirmed,
+            'pending': total_pending,
+            'waitlisted': total_waitlisted,
+            'capacity': total_capacity or None,
+        },
+        'server_time': datetime.utcnow().isoformat(),
+    })
 
 
 @app.route('/api/programs/<pid>/sessions/summary', methods=['GET'])

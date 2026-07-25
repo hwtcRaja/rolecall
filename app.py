@@ -8646,7 +8646,7 @@ def get_prod_youth_members(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name,
+    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name, y.dob,
         y.first_name||' '||y.last_name as name
         FROM youth_production_members ypm
         JOIN youth_participants y ON ypm.youth_id=y.id

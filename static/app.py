@@ -1249,6 +1249,33 @@ def init_db():
             created_by TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
+        """CREATE TABLE IF NOT EXISTS step_up_child_holds (
+            id TEXT PRIMARY KEY,
+            registration_id TEXT REFERENCES program_registrations(id) ON DELETE CASCADE,
+            child_name TEXT DEFAULT '',
+            step_up_id TEXT DEFAULT '',
+            amount INTEGER DEFAULT 0,
+            square_customer_id TEXT,
+            square_card_id TEXT,
+            hold_charge_by_date TEXT,
+            hold_status TEXT DEFAULT 'pending',
+            hold_source_label TEXT DEFAULT 'Step Up',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS step_up_members (
+            id TEXT PRIMARY KEY,
+            step_up_id TEXT NOT NULL UNIQUE,
+            guardian_name TEXT DEFAULT '',
+            guardian_email TEXT DEFAULT '',
+            guardian_phone TEXT DEFAULT '',
+            square_customer_id TEXT,
+            square_card_id TEXT,
+            card_brand TEXT DEFAULT '',
+            card_last4 TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS discount_codes (
             id TEXT PRIMARY KEY,
             program_id TEXT REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -1267,6 +1294,14 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_type TEXT DEFAULT 'full'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_due INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS balance_payment_link TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_customer_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_group_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_charge_by_date TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_status TEXT""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS hold_source_label TEXT DEFAULT ''""",
         """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS min_spend INTEGER DEFAULT 0""",
         """ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_sibling_discount BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_enabled BOOLEAN DEFAULT FALSE""",
@@ -1815,6 +1850,8 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS price INTEGER DEFAULT 0",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS deposit_amount INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS step_up_hold_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS step_up_hold_days INTEGER DEFAULT 14",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS capacity INTEGER",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_open_date TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS registration_close_date TEXT",
@@ -5313,7 +5350,8 @@ def save_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s
+        start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s,
+        step_up_hold_enabled=%s, step_up_hold_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -5350,6 +5388,8 @@ def save_registration_settings(pid):
          d.get('end_date') or None,
          _json.dumps(d.get('form_fields') or {}),
          bool(d.get('hours_store_enabled', False)),
+         bool(d.get('step_up_hold_enabled', False)),
+         int(d.get('step_up_hold_days') or 14),
          pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -5451,6 +5491,20 @@ def permanently_delete_discount_code(pid, cid):
     return jsonify({'ok': True})
 
 
+def find_discount_code(conn, code, scope_column, scope_id):
+    """Look up a discount code — first scoped to this specific program/production,
+    then fall back to cart-wide codes (managed from Marquee) which work across any
+    program, class, or Rising Stars show. Returns (dc_dict, table_name) or (None, None).
+    table_name is 'discount_codes' or 'cart_discount_codes', used for the uses+=1 update."""
+    dc = fetchone(conn, f'SELECT * FROM discount_codes WHERE {scope_column}=%s AND code=%s AND active=TRUE', (scope_id, code))
+    if dc:
+        return dc, 'discount_codes'
+    dc = fetchone(conn, 'SELECT * FROM cart_discount_codes WHERE code=%s AND active=TRUE', (code,))
+    if dc:
+        return dc, 'cart_discount_codes'
+    return None, None
+
+
 @app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
 def validate_discount(slug):
     d = request.json or {}
@@ -5462,7 +5516,7 @@ def validate_discount(slug):
     if not prog:
         conn.close()
         return jsonify({'valid': False, 'error': 'Program not found'})
-    dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE program_id=%s AND code=%s AND active=TRUE', (prog['id'], code))
+    dc, dc_table = find_discount_code(conn, code, 'program_id', prog['id'])
     conn.close()
     if not dc:
         return jsonify({'valid': False, 'error': 'Invalid or expired code'})
@@ -5703,7 +5757,7 @@ def get_youth():
             SELECT e.*, p.name as program_name, NULL as program_status FROM youth_program_enrollments e
                 JOIN youth_programs p ON e.program_id=p.id WHERE e.youth_id=%s
             UNION ALL
-            SELECT e.*, prod.name as program_name, prod.registration_status as program_status FROM youth_program_enrollments e
+            SELECT e.*, prod.name as program_name, NULL as program_status FROM youth_program_enrollments e
                 JOIN productions prod ON e.production_id=prod.id WHERE e.youth_id=%s
             ORDER BY enrolled_date DESC''', (y['id'], y['id']))
     conn.close()
@@ -8504,12 +8558,97 @@ def portal_instructor_login():
 #  PRODUCTIONS (additional routes)
 # ─────────────────────────────────────────────
 
+@app.route('/api/admin/backfill-participant-dobs', methods=['POST'])
+def backfill_participant_dobs():
+    """Recover birthdays that were correctly captured on a registration but never copied
+    to the participant's profile — caused by a bug where updating an EXISTING participant
+    (a returning family) never touched the dob field, only new-participant creation did.
+    Safe to re-run anytime; only fills in participants that currently have no dob on file."""
+    err = require_permission('youth')
+    if err:
+        err = require_permission('rising_stars')
+        if err:
+            err = require_permission('productions')
+            if err: return err
+    conn = get_db()
+    regs = fetchall(conn, '''SELECT id, youth_id, child_first_name, child_last_name, child_dob, guardian_email
+        FROM program_registrations
+        WHERE child_dob IS NOT NULL AND child_dob != '' AND status != 'cancelled' ''') or []
+    fixed, already_had_dob, no_dob_on_reg, no_match = 0, 0, 0, 0
+    for r in regs:
+        youth_id = r.get('youth_id')
+        yp = None
+        if youth_id:
+            yp = fetchone(conn, 'SELECT id, dob FROM youth_participants WHERE id=%s', (youth_id,))
+        if not yp:
+            yp = fetchone(conn, '''SELECT yp.id, yp.dob FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yg.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+                (r.get('guardian_email') or '', r.get('child_first_name') or '', r.get('child_last_name') or ''))
+        if not yp:
+            no_match += 1
+            continue
+        if yp.get('dob'):
+            already_had_dob += 1
+            continue
+        execute(conn, 'UPDATE youth_participants SET dob=%s WHERE id=%s', (r['child_dob'], yp['id']))
+        fixed += 1
+    # Separately count registrations that never had a dob captured at all (a genuine gap,
+    # not something this backfill can recover)
+    missing = fetchone(conn, '''SELECT COUNT(*) AS c FROM program_registrations
+        WHERE (child_dob IS NULL OR child_dob = '') AND status != 'cancelled' ''')
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'fixed': fixed, 'already_had_dob': already_had_dob,
+                    'no_match': no_match, 'registrations_with_no_dob_at_all': (missing or {}).get('c', 0),
+                    'total_registrations_checked': len(regs)})
+
+
+@app.route('/api/productions/<pid>/youth-members/sync-from-registrations', methods=['POST'])
+def sync_prod_cast_from_registrations(pid):
+    """Catch up youth_production_members from confirmed registrations — for the initial
+    backlog, and safe to re-run anytime afterward as a manual sync/safety net."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT id, stage FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    regs = fetchall(conn, '''SELECT id, youth_id, child_first_name, child_last_name, guardian_email
+        FROM program_registrations WHERE production_id=%s AND status='confirmed' ''', (pid,)) or []
+    added, already_member, skipped_no_match = 0, 0, 0
+    import uuid as _bfu
+    for r in regs:
+        youth_id = r.get('youth_id')
+        if not youth_id:
+            yp = fetchone(conn, '''SELECT yp.id FROM youth_participants yp
+                JOIN youth_guardians yg ON yg.youth_id=yp.id
+                WHERE LOWER(yg.email)=LOWER(%s) AND LOWER(yp.first_name)=LOWER(%s) AND LOWER(yp.last_name)=LOWER(%s)''',
+                (r.get('guardian_email') or '', r.get('child_first_name') or '', r.get('child_last_name') or ''))
+            youth_id = yp['id'] if yp else None
+        if not youth_id:
+            skipped_no_match += 1
+            continue
+        existing = fetchone(conn, 'SELECT id FROM youth_production_members WHERE production_id=%s AND youth_id=%s', (pid, youth_id))
+        if existing:
+            already_member += 1
+            continue
+        execute(conn, 'INSERT INTO youth_production_members (id,production_id,youth_id,role) VALUES (%s,%s,%s,%s)',
+            (str(_bfu.uuid4()), pid, youth_id, ''))
+        added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'added': added, 'already_member': already_member,
+                    'skipped_no_match': skipped_no_match, 'total_checked': len(regs)})
+
+
 @app.route('/api/productions/<pid>/youth-members')
 def get_prod_youth_members(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name,
+    rows = fetchall(conn, '''SELECT ypm.*, y.first_name, y.last_name, y.dob,
         y.first_name||' '||y.last_name as name
         FROM youth_production_members ypm
         JOIN youth_participants y ON ypm.youth_id=y.id
@@ -14431,6 +14570,7 @@ if __name__ == '__main__':
 
 SQUARE_ACCESS_TOKEN = os.environ.get('SQUARE_ACCESS_TOKEN', '')
 SQUARE_LOCATION_ID  = os.environ.get('SQUARE_LOCATION_ID', '')
+SQUARE_APPLICATION_ID = os.environ.get('SQUARE_APPLICATION_ID', '')
 SQUARE_WEBHOOK_SIG  = os.environ.get('SQUARE_WEBHOOK_SIGNATURE_KEY', '')
 SQUARE_ENV          = os.environ.get('SQUARE_ENV', 'sandbox')  # 'sandbox' or 'production'
 SQUARE_API_BASE     = 'https://connect.squareup.com' if SQUARE_ENV == 'production' else 'https://connect.squareupsandbox.com'
@@ -14438,6 +14578,133 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+
+def square_find_or_create_customer(email, name='', phone=''):
+    """Find a Square customer by email, or create one. Used for card-on-file holds.
+    Returns customer_id or None."""
+    if not SQUARE_ACCESS_TOKEN or not email:
+        return None
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/customers/search',
+            json={'query': {'filter': {'email_address': {'exact': email}}}},
+            headers=square_headers(), timeout=15)
+        data = r.json()
+        customers = data.get('customers') or []
+        if customers:
+            return customers[0]['id']
+    except Exception as e:
+        app.logger.warning(f'Square customer search failed: {e}')
+    try:
+        import uuid as _uuidc
+        parts = (name or '').strip().split(' ', 1)
+        payload = {'idempotency_key': str(_uuidc.uuid4()), 'email_address': email}
+        if parts and parts[0]:
+            payload['given_name'] = parts[0]
+            if len(parts) > 1: payload['family_name'] = parts[1]
+        if phone: payload['phone_number'] = phone
+        r = requests.post(f'{SQUARE_API_BASE}/v2/customers', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('customer'):
+            return data['customer']['id']
+        app.logger.error(f'Square customer create failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.error(f'Square customer create exception: {e}')
+    return None
+
+
+def square_save_card(customer_id, source_id, cardholder_name=''):
+    """Save a tokenized card on file for a customer WITHOUT charging it.
+    source_id is the token produced client-side by Square's Web Payments SDK.
+    Returns (card_id, brand, last4) — all None on failure."""
+    if not SQUARE_ACCESS_TOKEN or not customer_id or not source_id:
+        return None, None, None
+    try:
+        import uuid as _uuidk
+        payload = {
+            'idempotency_key': str(_uuidk.uuid4()),
+            'source_id': source_id,
+            'card': {'customer_id': customer_id},
+        }
+        if cardholder_name:
+            payload['card']['cardholder_name'] = cardholder_name[:100]
+        r = requests.post(f'{SQUARE_API_BASE}/v2/cards', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('card'):
+            card = data['card']
+            return card['id'], card.get('card_brand'), card.get('last_4')
+        app.logger.error(f'Square save card failed {r.status_code}: {data}')
+        return None, None, None
+    except Exception as e:
+        app.logger.error(f'Square save card exception: {e}')
+        return None, None, None
+
+
+def square_charge_saved_card(customer_id, card_id, amount_cents, note=''):
+    """Charge a previously saved card on file (used when staff clicks 'Charge Now'
+    on an overdue Step Up hold). Returns (success, payment_id_or_error_message)."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return False, 'Square not configured'
+    try:
+        import uuid as _uuidp
+        payload = {
+            'idempotency_key': str(_uuidp.uuid4()),
+            'source_id': card_id,
+            'customer_id': customer_id,
+            'amount_money': {'amount': amount_cents, 'currency': 'USD'},
+            'location_id': SQUARE_LOCATION_ID,
+            'note': (note or '')[:500],
+            'autocomplete': True,
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/payments', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment'):
+            return True, data['payment']['id']
+        errors = data.get('errors') or []
+        msg = errors[0].get('detail') if errors else f'Square error {r.status_code}'
+        app.logger.error(f'Square charge saved card failed {r.status_code}: {data}')
+        return False, msg
+    except Exception as e:
+        app.logger.error(f'Square charge saved card exception: {e}')
+        return False, str(e)
+
+
+def square_verify_card(customer_id, card_id):
+    """Run a small $5 authorization on a freshly-saved card, then immediately void it,
+    to confirm the card is real and currently chargeable — without capturing any funds.
+    ($5 matches HWTC's standard minimum-charge policy; the hold is canceled before it
+    ever settles, so no processing fee applies — fees are only assessed on completed payments.)
+    Catches expired cards, closed accounts, and typos that pass basic format checks.
+    Returns (True, None) if the card checks out, else (False, error_message)."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return False, 'Square not configured'
+    try:
+        import uuid as _uuidv
+        payload = {
+            'idempotency_key': str(_uuidv.uuid4()),
+            'source_id': card_id,
+            'customer_id': customer_id,
+            'amount_money': {'amount': 500, 'currency': 'USD'},
+            'location_id': SQUARE_LOCATION_ID,
+            'autocomplete': False,
+            'note': 'Card verification (authorization voided immediately)',
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/payments', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code != 200 or not data.get('payment'):
+            errors = data.get('errors') or []
+            msg = errors[0].get('detail') if errors else 'This card could not be verified. Please double-check the details or try a different card.'
+            app.logger.warning(f'Square card verification declined {r.status_code}: {data}')
+            return False, msg
+        payment_id = data['payment']['id']
+        try:
+            requests.post(f'{SQUARE_API_BASE}/v2/payments/{payment_id}/cancel', headers=square_headers(), timeout=15)
+        except Exception as e:
+            app.logger.warning(f'Square card verification void failed for payment {payment_id}: {e}')
+        return True, None
+    except Exception as e:
+        app.logger.error(f'Square card verification exception: {e}')
+        return False, str(e)
 
 def square_create_payment_link(program, registration_id, guardian_email, guardian_name, amount_cents, note='', redirect_url=None):
     """Create a Square hosted checkout link for a registration."""
@@ -14488,6 +14755,153 @@ def square_create_payment_link(program, registration_id, guardian_email, guardia
         return None, None, None
 
 
+def square_setup_card_hold(guardian_email, guardian_name, guardian_phone, card_token):
+    """Save a card on file (no charge). Used by Step Up member enrollment.
+    Returns (customer_id, card_id, brand, last4, error_message). error_message is None on success."""
+    if not card_token:
+        return None, None, None, None, 'Card details are required.'
+    customer_id = square_find_or_create_customer(guardian_email, guardian_name, guardian_phone)
+    if not customer_id:
+        return None, None, None, None, 'Could not save your card. Please try again or contact us.'
+    card_id, brand, last4 = square_save_card(customer_id, card_token, guardian_name)
+    if not card_id:
+        return None, None, None, None, 'Could not save your card. Please double-check your card details and try again.'
+    return customer_id, card_id, brand, last4, None
+
+
+@app.route('/api/public/step-up-members/enroll', methods=['POST'])
+def step_up_member_enroll():
+    """One-time enrollment: save a card on file against a family's Step Up Awards ID.
+    Re-enrolling with the same ID replaces the saved card (e.g. their card expired)."""
+    d = request.json or {}
+    step_up_id = (d.get('step_up_id') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    card_token = d.get('card_token')
+    if not step_up_id:
+        return jsonify({'error': 'Step Up Awards ID is required.'}), 400
+    if not guardian_email or not guardian_name:
+        return jsonify({'error': 'Name and email are required.'}), 400
+    customer_id, card_id, brand, last4, err = square_setup_card_hold(
+        guardian_email, guardian_name, guardian_phone, card_token)
+    if err:
+        return jsonify({'error': err}), 400
+
+    # Verify the card is actually chargeable (catches expired/closed/declined cards
+    # that pass basic format checks) with a $1 authorization that's voided immediately —
+    # no funds are ever captured.
+    verified, verify_err = square_verify_card(customer_id, card_id)
+    if not verified:
+        square_disable_card(card_id)
+        return jsonify({'error': verify_err or "This card couldn't be verified. Please double-check the details or try a different card."}), 400
+
+    conn = get_db()
+    import uuid as _usm
+    existing = fetchone(conn, 'SELECT id, square_card_id FROM step_up_members WHERE step_up_id=%s', (step_up_id,))
+    if existing:
+        execute(conn, '''UPDATE step_up_members SET guardian_name=%s, guardian_email=%s, guardian_phone=%s,
+            square_customer_id=%s, square_card_id=%s, card_brand=%s, card_last4=%s, updated_at=NOW()
+            WHERE step_up_id=%s''',
+            (guardian_name, guardian_email, guardian_phone, customer_id, card_id, brand, last4, step_up_id))
+        old_card_id = existing.get('square_card_id')
+        if old_card_id and old_card_id != card_id:
+            square_disable_card(old_card_id)
+    else:
+        execute(conn, '''INSERT INTO step_up_members
+            (id, step_up_id, guardian_name, guardian_email, guardian_phone,
+             square_customer_id, square_card_id, card_brand, card_last4)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (_usm.uuid4().hex, step_up_id, guardian_name, guardian_email, guardian_phone,
+             customer_id, card_id, brand, last4))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'card_brand': brand, 'card_last4': last4, 'updated': bool(existing)})
+
+
+@app.route('/api/public/step-up-members/lookup', methods=['POST'])
+def step_up_member_lookup():
+    """Look up a family's saved card by their Step Up Awards ID (used at registration
+    time so they don't have to re-enter card details every show)."""
+    d = request.json or {}
+    step_up_id = (d.get('step_up_id') or '').strip()
+    if not step_up_id:
+        return jsonify({'found': False})
+    conn = get_db()
+    m = fetchone(conn, '''SELECT guardian_name, card_brand, card_last4
+        FROM step_up_members WHERE step_up_id=%s''', (step_up_id,))
+    conn.close()
+    if not m or not m.get('card_brand'):
+        return jsonify({'found': False})
+    return jsonify({'found': True, 'guardian_name': m['guardian_name'],
+                    'card_brand': m['card_brand'], 'card_last4': m['card_last4']})
+
+
+def find_step_up_member_card(step_up_id):
+    """Look up a previously-enrolled Step Up member's saved card by rewards ID.
+    Returns (customer_id, card_id, error_message)."""
+    step_up_id = (step_up_id or '').strip()
+    if not step_up_id:
+        return None, None, 'Please enter your Step Up Awards ID.'
+    conn = get_db()
+    m = fetchone(conn, '''SELECT square_customer_id, square_card_id FROM step_up_members
+        WHERE step_up_id=%s''', (step_up_id,))
+    conn.close()
+    if not m or not m.get('square_card_id'):
+        return None, None, "We couldn't find a saved card for that Step Up Awards ID. Please enroll your card first."
+    return m['square_customer_id'], m['square_card_id'], None
+
+
+def square_disable_card(card_id):
+    """Disable a card on file — used to clean up a card that failed verification
+    so it doesn't linger as a saved (but unverified) card on the customer."""
+    if not SQUARE_ACCESS_TOKEN or not card_id:
+        return
+    try:
+        requests.post(f'{SQUARE_API_BASE}/v2/cards/{card_id}/disable', headers=square_headers(), timeout=15)
+    except Exception as e:
+        app.logger.warning(f'Square disable card failed for {card_id}: {e}')
+
+
+def resolve_step_up_children(children, total_amount_cents):
+    """Validate a list of {name, step_up_id} entries against enrolled Step Up members,
+    and prorate total_amount_cents evenly across them (remainder to the first child).
+    Returns (resolved_list, error_message). resolved_list items have:
+    name, step_up_id, amount, square_customer_id, square_card_id.
+    Fails atomically — if any child's ID doesn't resolve, nothing is returned as valid."""
+    if not children or not isinstance(children, list):
+        return None, 'Please enter a Step Up Awards ID for each participant.'
+    n = len(children)
+    base = total_amount_cents // n
+    remainder = total_amount_cents - base * n
+    resolved = []
+    for i, c in enumerate(children):
+        name = (c.get('name') or '').strip() or f'Participant {i+1}'
+        step_up_id = (c.get('step_up_id') or '').strip()
+        customer_id, card_id, err = find_step_up_member_card(step_up_id)
+        if err:
+            return None, f'{name}: {err}'
+        amount = base + (1 if i < remainder else 0)
+        resolved.append({
+            'name': name, 'step_up_id': step_up_id, 'amount': amount,
+            'square_customer_id': customer_id, 'square_card_id': card_id,
+        })
+    return resolved, None
+
+
+def insert_step_up_child_holds(conn, registration_ids, resolved_children, charge_by_date):
+    """registration_ids and resolved_children must be the same length and in the same
+    order — each child's hold links to THEIR OWN registration row."""
+    import uuid as _uschc
+    for rid, c in zip(registration_ids, resolved_children):
+        execute(conn, '''INSERT INTO step_up_child_holds
+            (id, registration_id, child_name, step_up_id, amount,
+             square_customer_id, square_card_id, hold_charge_by_date, hold_status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+            (_uschc.uuid4().hex, rid, c['name'], c['step_up_id'], c['amount'],
+             c['square_customer_id'], c['square_card_id'], charge_by_date))
+
+
 def get_program_by_slug(slug):
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
@@ -14508,6 +14922,70 @@ def get_waitlist_count(conn, program_id):
 def next_waitlist_position(conn, program_id):
     r = fetchone(conn, 'SELECT MAX(waitlist_position) as m FROM program_registrations WHERE program_id=%s AND status=%s', (program_id,'waitlisted'))
     return (r['m'] or 0) + 1 if r else 1
+
+
+def even_split(total_cents, n):
+    """Split total_cents evenly across n shares; any leftover pennies go to the first share."""
+    n = max(1, n)
+    base = total_cents // n
+    remainder = total_cents - base * n
+    return [base + (1 if i < remainder else 0) for i in range(n)]
+
+
+def insert_registration_row(conn, cols):
+    """Generic parameterized INSERT into program_registrations from a dict of column->value.
+    Used to create one row per child when a registration includes siblings, so each child
+    is an independent, individually editable/deletable registration."""
+    keys = list(cols.keys())
+    placeholders = ','.join(['%s'] * len(keys))
+    col_list = ','.join(keys)
+    execute(conn, f'INSERT INTO program_registrations ({col_list}) VALUES ({placeholders})',
+            tuple(cols[k] for k in keys))
+
+
+def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
+    """Create one program_registrations row per child (primary + each sibling), all sharing
+    a registration_group_id so a single payment/hold can confirm or reference the whole group,
+    while each row remains an independent registration for Edit/Delete/Resend purposes.
+    shared_fields: dict of columns common to every row (program_id/production_id, guardian info,
+    discount_code, etc.) — must NOT include id, child_first_name/last_name/dob/shirt_size, status,
+    payment_type, balance_due, participant_count, siblings_json, registration_group_id
+    (those are set per-row below). If shared_fields contains 'discount_amount' and/or
+    'sibling_discount_amount', those GROUP TOTALS are prorated evenly across children rather
+    than duplicated on every row — otherwise summing per-row amounts would double-count them.
+    amounts: optional pre-computed list of per-child balance_due values (e.g. from
+    resolve_step_up_children) to use instead of auto-splitting total_amount_cents.
+    Returns (list_of_registration_ids, group_id) in the same order as `children`.
+    """
+    import uuid as _ugr
+    group_id = str(_ugr.uuid4())
+    n = len(children)
+    shares = amounts if amounts is not None else even_split(total_amount_cents, n)
+    discount_shares = even_split(shared_fields.get('discount_amount') or 0, n)
+    sib_discount_shares = even_split(shared_fields.get('sibling_discount_amount') or 0, n)
+    ids = []
+    for i, child in enumerate(children):
+        rid = str(_ugr.uuid4())
+        ids.append(rid)
+        row = dict(shared_fields)
+        row.update({
+            'id': rid,
+            'registration_group_id': group_id,
+            'registration_type': 'registration',
+            'child_first_name': (child.get('first_name') or '').strip(),
+            'child_last_name': (child.get('last_name') or '').strip(),
+            'child_dob': child.get('dob') or None,
+            'shirt_size': child.get('shirt_size') or None,
+            'status': status,
+            'payment_type': payment_type,
+            'discount_amount': discount_shares[i],
+            'sibling_discount_amount': sib_discount_shares[i],
+            'balance_due': shares[i],
+            'participant_count': 1,
+            'siblings_json': '[]',
+        })
+        insert_registration_row(conn, row)
+    return ids, group_id
 
 
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
@@ -14543,12 +15021,13 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             try:
                 execute(conn, '''UPDATE youth_participants SET
                     shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
+                    dob=COALESCE(dob, %s),
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
                     allergies=COALESCE(NULLIF(%s,''), allergies),
                     pronouns=COALESCE(NULLIF(%s,''), pronouns),
                     photo_consent=GREATEST(photo_consent, %s)
                     WHERE id=%s''',
-                    (shirt or '', medical_notes, allergies, pronouns, photo_consent, existing['id']))
+                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent, existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
             # Add emergency contact if not already present
@@ -14625,6 +15104,15 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     VALUES (%s,%s,%s,NOW()::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
+                # Rising Stars: the Cast tab is driven by youth_production_members,
+                # not youth_program_enrollments — auto-add confirmed registrants there
+                # too so staff don't have to manually "+ Enroll" everyone who registers.
+                if prod.get('stage') == 'rising_stars':
+                    existing_member = fetchone(conn, '''SELECT id FROM youth_production_members
+                        WHERE production_id=%s AND youth_id=%s''', (prod['id'], youth_id))
+                    if not existing_member:
+                        execute(conn, '''INSERT INTO youth_production_members (id, production_id, youth_id, role)
+                            VALUES (%s,%s,%s,%s)''', (str(_ue.uuid4()), prod['id'], youth_id, ''))
         except Exception as e:
             app.logger.warning(f'Enrollment insert: {e}')
 
@@ -15218,36 +15706,49 @@ def public_submit_registration(slug):
     cap = p.get('capacity')
     is_full = cap and reg_count >= cap
 
-    import uuid as _u2
-    rid = _u2.uuid4().hex
-
     if is_full:
-        # Waitlist
-        wpos = next_waitlist_position(conn, p['id'])
-        execute(conn, '''INSERT INTO program_registrations
-            (id, program_id, registration_type, status, waitlist_position,
-             child_first_name, child_last_name, child_dob, shirt_size,
-             guardian_name, guardian_email, guardian_phone,
-             emergency_contact_name, emergency_contact_phone, notes)
-            VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (rid, p['id'], wpos,
-             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
-             d.get('child_dob') or None, d.get('shirt_size') or None,
-             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
-             d.get('emergency_contact_name','').strip() or None,
-             d.get('emergency_contact_phone','').strip() or None,
-             d.get('notes','').strip() or None))
+        # Waitlist — each child (primary + siblings) gets their own independent
+        # waitlist entry and position, sharing a registration_group_id.
+        siblings_wl = d.get('siblings') or []
+        if not isinstance(siblings_wl, list): siblings_wl = []
+        wl_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                         'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+        for s in siblings_wl:
+            wl_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                                 'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+        import uuid as _uwl
+        wl_group_id = str(_uwl.uuid4())
+        wl_ids = []
+        wl_positions = []
+        for child in wl_children:
+            wpos = next_waitlist_position(conn, p['id'])
+            wrid = str(_uwl.uuid4())
+            wl_ids.append(wrid)
+            wl_positions.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, program_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob, shirt_size,
+                 guardian_name, guardian_email, guardian_phone,
+                 emergency_contact_name, emergency_contact_phone, notes, participant_count, siblings_json)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'[]')''',
+                (wrid, p['id'], wpos, wl_group_id,
+                 child['first_name'], child['last_name'], child['dob'] or None, child['shirt_size'] or None,
+                 d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+                 d.get('emergency_contact_name','').strip() or None,
+                 d.get('emergency_contact_phone','').strip() or None,
+                 d.get('notes','').strip() or None))
         conn.commit()
         # Email confirmation
         try:
+            pos_desc = f'#{wl_positions[0]}' if len(wl_positions) == 1 else ', '.join(f'#{wp}' for wp in wl_positions)
             send_email([email], f'You\'re on the waitlist — {p["name"]}',
                 f'<p>Hi {d.get("guardian_name","")},</p>'
-                f'<p>You are #{wpos} on the waitlist for <strong>{p["name"]}</strong>. '
+                f'<p>You are {pos_desc} on the waitlist for <strong>{p["name"]}</strong>. '
                 f'We will contact you if a spot opens up. If you are promoted, you will receive a payment link to secure your spot.</p>'
                 f'<p>Horizon West Theater Company</p>')
         except Exception: pass
         conn.close()
-        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wpos, 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': wl_positions[0], 'registration_id': wl_ids[0]})
 
     # Available spot
     price = p.get('price') or 0
@@ -15301,8 +15802,7 @@ def public_submit_registration(slug):
     discount_amount = 0
     discount_code = (d.get('discount_code') or '').strip().upper()
     if discount_code and price > 0:
-        dc = fetchone(conn, '''SELECT * FROM discount_codes
-            WHERE program_id=%s AND code=%s AND active=TRUE''', (p['id'], discount_code))
+        dc, dc_table = find_discount_code(conn, discount_code, 'program_id', p['id'])
         if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
             min_spend = dc.get('min_spend') or 0
             if not (min_spend > 0 and basket < min_spend):
@@ -15315,7 +15815,7 @@ def public_submit_registration(slug):
                         discount_amount = int(basket * dc['discount_value'] / 100)
                     else:
                         discount_amount = min(dc['discount_value'] * participant_count, basket)
-                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+                execute(conn, f'UPDATE {dc_table} SET uses=uses+1 WHERE id=%s', (dc['id'],))
         else:
             discount_code = ''  # invalid, ignore
 
@@ -15337,42 +15837,63 @@ def public_submit_registration(slug):
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
-    def insert_reg(status, extra_cols='', extra_vals=()):
-        execute(conn, f'''INSERT INTO program_registrations
-            (id, program_id, registration_type, status,
-             registration_form_type,
-             child_first_name, child_last_name, child_dob, shirt_size,
-             guardian_name, guardian_email, guardian_phone,
-             emergency_contact_name, emergency_contact_phone, notes,
-             allergies, pickup_contacts, photo_consent, pronouns,
-             discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json, session_ids,
-             payment_type, balance_due{', '+extra_cols if extra_cols else ''})
-            VALUES (%s,%s,'registration',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{', %s'*len(extra_vals)})''',
-            (rid, p['id'], status,
-             d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
-             d.get('child_first_name','').strip(), d.get('child_last_name','').strip(),
-             d.get('child_dob') or None, d.get('shirt_size') or None,
-             d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
-             d.get('emergency_contact_name','').strip() or None,
-             d.get('emergency_contact_phone','').strip() or None,
-             d.get('notes','').strip() or None,
-             d.get('allergies','').strip() or None,
-             d.get('pickup_contacts','').strip() or None,
-             bool(d.get('photo_consent')),
-             d.get('pronouns','').strip() or None,
-             discount_code or None, discount_amount, sibling_discount_amount,
-             participant_count, _json2.dumps(siblings), _json2.dumps(session_ids),
-             'deposit' if use_deposit else 'full', balance_due) + extra_vals)
+    # Build the list of children (primary + siblings) and the fields shared by every
+    # row in the group — each child becomes their own independent registration row.
+    reg_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+    for s in siblings:
+        reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+    shared_fields = {
+        'program_id': p['id'],
+        'registration_form_type': d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
+        'guardian_name': d.get('guardian_name','').strip(),
+        'guardian_email': email,
+        'guardian_phone': d.get('guardian_phone','').strip() or None,
+        'emergency_contact_name': d.get('emergency_contact_name','').strip() or None,
+        'emergency_contact_phone': d.get('emergency_contact_phone','').strip() or None,
+        'notes': d.get('notes','').strip() or None,
+        'allergies': d.get('allergies','').strip() or None,
+        'pickup_contacts': d.get('pickup_contacts','').strip() or None,
+        'photo_consent': bool(d.get('photo_consent')),
+        'pronouns': d.get('pronouns','').strip() or None,
+        'discount_code': discount_code or None,
+        'discount_amount': discount_amount,
+        'sibling_discount_amount': sibling_discount_amount,
+        'session_ids': _json2.dumps(session_ids),
+    }
 
-    if charge_now == 0:
-        insert_reg('confirmed')
-        finalize_registration(conn, rid)
+    # Step Up (or similar third-party subsidy) hold — save a card on file now,
+    # charge nothing. Staff reviews and charges later from the Step Up Holds queue
+    # if the subsidy payment hasn't shown up by the charge-by date.
+    if d.get('payment_type') == 'step_up_hold' and p.get('step_up_hold_enabled') and effective_price > 0:
+        resolved_children, hold_err = resolve_step_up_children(d.get('step_up_children'), effective_price)
+        if hold_err:
+            conn.close()
+            return jsonify({'error': hold_err}), 400
+        from datetime import timedelta as _tdsu
+        charge_by = (date.today() + _tdsu(days=int(p.get('step_up_hold_days') or 14))).isoformat()
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, effective_price,
+            'confirmed', 'step_up_hold', amounts=[c['amount'] for c in resolved_children])
+        insert_step_up_child_holds(conn, reg_ids, resolved_children, charge_by)
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.commit()
         conn.close()
-        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': reg_ids[0],
+                        'charge_by_date': charge_by, 'amount_held': effective_price})
 
-    insert_reg('pending_payment')
+    if charge_now == 0:
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, 0, 'confirmed', 'full')
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'registration_id': reg_ids[0]})
+
+    pending_amount = balance_due if use_deposit else 0
+    reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, pending_amount,
+        'pending_payment', 'deposit' if use_deposit else 'full')
     conn.commit()
 
     note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {p["name"]}'
@@ -15383,18 +15904,19 @@ def public_submit_registration(slug):
     if use_deposit:
         note += f' (deposit ${deposit/100:.2f})'
     pay_url, link_id, order_id = square_create_payment_link(
-        p, rid, email, d.get('guardian_name',''), charge_now, note=note)
+        p, reg_ids[0], email, d.get('guardian_name',''), charge_now, note=note)
 
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
 
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
-        (link_id, order_id, rid))
+    for gid in reg_ids:
+        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+            (link_id, order_id, gid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': pay_url,
-                    'registration_id': rid, 'charge_now': charge_now,
+                    'registration_id': reg_ids[0], 'charge_now': charge_now,
                     'balance_due': balance_due, 'use_deposit': use_deposit})
 
 
@@ -15427,15 +15949,21 @@ def square_webhook():
             amount_cents = obj.get('amount_money', {}).get('amount', 0)
             if status == 'COMPLETED' and order_id:
                 conn = get_db()
-                # Check registrations first
-                reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
-                    (order_id, order_id))
-                if reg and reg['status'] == 'pending_payment':
-                    finalize_registration(conn, reg['id'], payment_id, order_id)
-                elif reg and reg['status'] == 'waitlisted':
-                    execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
-                        (payment_id, reg['id']))
-                    finalize_registration(conn, reg['id'], payment_id, order_id)
+                # Check registrations first — a group registration (siblings) has multiple
+                # rows sharing the same square_order_id/checkout_id, so confirm all of them.
+                regs = fetchall(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
+                    (order_id, order_id)) or []
+                reg = regs[0] if regs else None
+                if regs and any(r['status'] == 'pending_payment' for r in regs):
+                    for r in regs:
+                        if r['status'] == 'pending_payment':
+                            finalize_registration(conn, r['id'], payment_id, order_id)
+                elif regs and any(r['status'] == 'waitlisted' for r in regs):
+                    for r in regs:
+                        if r['status'] == 'waitlisted':
+                            execute(conn, "UPDATE program_registrations SET status='confirmed', square_payment_id=%s, updated_at=NOW() WHERE id=%s",
+                                (payment_id, r['id']))
+                            finalize_registration(conn, r['id'], payment_id, order_id)
                     conn.commit()
                 else:
                     # Check hours store balance payments
@@ -15510,7 +16038,103 @@ def square_webhook():
     return jsonify({'ok': True})
 
 
-def finalize_donation(conn, pending_id, payment_id, amount_cents):
+# ─────────────────────────────────────────────
+#  STEP UP HOLDS (card-on-file, charge-later queue)
+# ─────────────────────────────────────────────
+
+def _step_up_hold_auth():
+    err = require_permission('rising_stars')
+    if err:
+        err = require_permission('youth')
+        if err:
+            return require_permission('productions')
+    return None
+
+
+@app.route('/api/admin/step-up-holds', methods=['GET'])
+def list_step_up_holds():
+    """Every per-child Step Up hold, newest charge-by first."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT h.id, h.child_name, h.step_up_id, h.amount AS balance_due,
+        h.hold_charge_by_date, h.hold_status, h.hold_source_label,
+        h.square_customer_id, h.square_card_id, h.created_at,
+        pr.guardian_name, pr.guardian_email, pr.guardian_phone,
+        COALESCE(yp.name, prod.name) AS show_name,
+        CASE WHEN pr.program_id IS NOT NULL THEN 'program' ELSE 'production' END AS context_type
+        FROM step_up_child_holds h
+        JOIN program_registrations pr ON pr.id = h.registration_id
+        LEFT JOIN youth_programs yp ON yp.id = pr.program_id
+        LEFT JOIN productions prod ON prod.id = pr.production_id
+        ORDER BY (h.hold_status='pending') DESC, h.hold_charge_by_date ASC NULLS LAST''') or []
+    conn.close()
+    return jsonify({'holds': rows})
+
+
+@app.route('/api/admin/step-up-members', methods=['GET'])
+def list_step_up_members():
+    """Every family who has enrolled a card on file for Step Up holds."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT step_up_id, guardian_name, guardian_email, guardian_phone,
+        card_brand, card_last4, created_at, updated_at
+        FROM step_up_members ORDER BY updated_at DESC''') or []
+    conn.close()
+    return jsonify({'members': rows})
+
+
+@app.route('/api/admin/step-up-holds/<hid>/charge', methods=['POST'])
+def charge_step_up_hold(hid):
+    """Staff-triggered charge of the saved card for one child's overdue (or any) Step Up hold."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    hold = fetchone(conn, 'SELECT * FROM step_up_child_holds WHERE id=%s', (hid,))
+    if not hold:
+        conn.close()
+        return jsonify({'error': 'Hold not found'}), 404
+    if hold.get('hold_status') == 'charged':
+        conn.close()
+        return jsonify({'error': 'This hold has already been charged'}), 400
+    amount = hold.get('amount') or 0
+    if amount <= 0 or not hold.get('square_card_id'):
+        conn.close()
+        return jsonify({'error': 'No saved card or amount on this hold'}), 400
+    note = f'Step Up hold charge — {hold.get("child_name","")}'
+    ok, result = square_charge_saved_card(hold.get('square_customer_id'), hold['square_card_id'], amount, note=note)
+    if not ok:
+        conn.close()
+        return jsonify({'error': f'Charge failed: {result}'}), 400
+    execute(conn, '''UPDATE step_up_child_holds SET hold_status='charged',
+        updated_at=NOW() WHERE id=%s''', (hid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'payment_id': result})
+
+
+@app.route('/api/admin/step-up-holds/<hid>/release', methods=['POST'])
+def release_step_up_hold(hid):
+    """Mark one child's hold as released — the subsidy payment came through, don't charge the card."""
+    err = _step_up_hold_auth()
+    if err: return err
+    conn = get_db()
+    hold = fetchone(conn, 'SELECT id, hold_status FROM step_up_child_holds WHERE id=%s', (hid,))
+    if not hold:
+        conn.close()
+        return jsonify({'error': 'Hold not found'}), 404
+    if hold.get('hold_status') == 'charged':
+        conn.close()
+        return jsonify({'error': 'This hold has already been charged'}), 400
+    execute(conn, '''UPDATE step_up_child_holds SET hold_status='released',
+        updated_at=NOW() WHERE id=%s''', (hid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+
     """Convert a pending donation into a donor_donations record."""
     import uuid as _ud
     don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (pending_id,))
@@ -15585,7 +16209,7 @@ def validate_production_discount(slug):
     if not prod:
         conn.close()
         return jsonify({'valid': False, 'error': 'Production not found'})
-    dc = fetchone(conn, "SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE", (prod['id'], code))
+    dc, dc_table = find_discount_code(conn, code, 'production_id', prod['id'])
     conn.close()
     if not dc:
         return jsonify({'valid': False, 'error': 'Invalid or expired code'})
@@ -15711,7 +16335,7 @@ def public_register_production(slug):
     sibling_discount_amount = 0
     square_discount_id = None
     if discount_code_used and price > 0:
-        dc = fetchone(conn, 'SELECT * FROM discount_codes WHERE production_id=%s AND code=%s AND active=TRUE', (prod['id'], discount_code_used))
+        dc, dc_table = find_discount_code(conn, discount_code_used, 'production_id', prod['id'])
         if dc and (not dc.get('max_uses') or dc.get('uses', 0) < dc['max_uses']):
             min_spend = dc.get('min_spend') or 0
             if not (min_spend > 0 and basket < min_spend):
@@ -15722,7 +16346,7 @@ def public_register_production(slug):
                 elif not is_sib_code:
                     discount_amount = int(basket * dc['discount_value'] / 100) if dc['discount_type'] == 'percent' else min(dc['discount_value'] * participant_count, basket)
                 square_discount_id = dc.get('square_discount_id')
-                execute(conn, 'UPDATE discount_codes SET uses=uses+1 WHERE id=%s', (dc['id'],))
+                execute(conn, f'UPDATE {dc_table} SET uses=uses+1 WHERE id=%s', (dc['id'],))
         else:
             discount_code_used = ''
 
@@ -15741,53 +16365,74 @@ def public_register_production(slug):
     charge_now = deposit if use_deposit else effective_price
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
-    rid = str(_uc2.uuid4())
-    execute(conn, '''INSERT INTO program_registrations
-        (id, production_id, registration_type, status,
-         child_first_name, child_last_name, child_dob, shirt_size,
-         guardian_name, guardian_email, guardian_phone,
-         emergency_contact_name, emergency_contact_phone, notes,
-         allergies, pickup_contacts, photo_consent, pronouns,
-         discount_code, discount_amount, sibling_discount_amount,
-         participant_count, siblings_json, payment_type, balance_due)
-        VALUES (%s,%s,'registration',%s,
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s,%s)''',
-        (rid, prod['id'],
-         'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed',
-         (d.get('child_first_name') or '').strip(),
-         (d.get('child_last_name') or '').strip(),
-         d.get('child_dob') or None, d.get('shirt_size') or None,
-         (d.get('guardian_name') or '').strip(),
-         guardian_email, (d.get('guardian_phone') or '').strip() or None,
-         (d.get('emergency_contact_name') or '').strip() or None,
-         (d.get('emergency_contact_phone') or '').strip() or None,
-         (d.get('notes') or '').strip() or None,
-         (d.get('allergies') or '').strip() or None,
-         (d.get('pickup_contacts') or '').strip() or None,
-         bool(d.get('photo_consent')),
-         (d.get('pronouns') or '').strip() or None,
-         discount_code_used or None, discount_amount, sibling_discount_amount,
-         participant_count, _jc2.dumps(siblings),
-         'deposit' if use_deposit else 'full', balance_due))
+    reg_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(),
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+    for s in siblings:
+        reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+    shared_fields = {
+        'production_id': prod['id'],
+        'guardian_name': (d.get('guardian_name') or '').strip(),
+        'guardian_email': guardian_email,
+        'guardian_phone': (d.get('guardian_phone') or '').strip() or None,
+        'emergency_contact_name': (d.get('emergency_contact_name') or '').strip() or None,
+        'emergency_contact_phone': (d.get('emergency_contact_phone') or '').strip() or None,
+        'notes': (d.get('notes') or '').strip() or None,
+        'allergies': (d.get('allergies') or '').strip() or None,
+        'pickup_contacts': (d.get('pickup_contacts') or '').strip() or None,
+        'photo_consent': bool(d.get('photo_consent')),
+        'pronouns': (d.get('pronouns') or '').strip() or None,
+        'discount_code': discount_code_used or None,
+        'discount_amount': discount_amount,
+        'sibling_discount_amount': sibling_discount_amount,
+    }
+
+    # Step Up (or similar third-party subsidy) hold — save a card on file now,
+    # charge nothing. Staff reviews and charges later from the Step Up Holds queue
+    # if the subsidy payment hasn't shown up by the charge-by date.
+    if d.get('payment_type') == 'step_up_hold' and prod.get('step_up_hold_enabled') and effective_price > 0:
+        resolved_children, hold_err = resolve_step_up_children(d.get('step_up_children'), effective_price)
+        if hold_err:
+            conn.close()
+            return jsonify({'error': hold_err}), 400
+        from datetime import timedelta as _tdsu2
+        charge_by = (date.today() + _tdsu2(days=int(prod.get('step_up_hold_days') or 14))).isoformat()
+        reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, effective_price,
+            'confirmed', 'step_up_hold', amounts=[c['amount'] for c in resolved_children])
+        conn.commit()
+        insert_step_up_child_holds(conn, reg_ids, resolved_children, charge_by)
+        conn.commit()
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'type': 'step_up_hold', 'registration_id': reg_ids[0],
+                        'charge_by_date': charge_by, 'amount_held': effective_price})
+
+    pending_amount = balance_due if use_deposit else 0
+    reg_status = 'pending_payment' if (price > 0 and charge_now > 0) else 'confirmed'
+    reg_ids, group_id = create_grouped_registrations(conn, shared_fields, reg_children, pending_amount,
+        reg_status, 'deposit' if use_deposit else 'full')
     conn.commit()
 
     if price == 0 or charge_now == 0:
-        finalize_registration(conn, rid)
+        for gid in reg_ids:
+            finalize_registration(conn, gid)
         conn.close()
-        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': rid})
+        return jsonify({'ok': True, 'type': 'confirmed', 'registration_id': reg_ids[0]})
 
     try:
         note = f'{d.get("child_first_name","")} {d.get("child_last_name","")} — {prod["name"]}'
         if use_deposit: note += ' (Deposit)'
         pay_url, link_id, order_id = square_create_payment_link(
-            prod, rid, guardian_email,
+            prod, reg_ids[0], guardian_email,
             d.get('guardian_name', ''), charge_now, note=note)
-        execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
-            (link_id, order_id, rid))
+        for gid in reg_ids:
+            execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+                (link_id, order_id, gid))
         conn.commit(); conn.close()
         return jsonify({'ok': True, 'type': 'payment_required',
-                        'payment_url': pay_url, 'registration_id': rid, 'use_deposit': use_deposit})
+                        'payment_url': pay_url, 'registration_id': reg_ids[0], 'use_deposit': use_deposit})
     except Exception as e:
         conn.close()
         return jsonify({'error': f'Registration saved but payment link failed: {str(e)}'}), 500
@@ -15831,7 +16476,7 @@ def update_production_registration(pid, rid):
     execute(conn, '''UPDATE program_registrations SET
         status=%s, guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        shirt_size=%s, notes=%s, updated_at=NOW()
+        shirt_size=%s, notes=%s, child_dob=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
         (d.get('status'), (d.get('guardian_name') or '').strip(),
          (d.get('guardian_email') or '').strip().lower(),
@@ -15840,6 +16485,7 @@ def update_production_registration(pid, rid):
          (d.get('emergency_contact_phone') or '').strip() or None,
          d.get('shirt_size') or None,
          (d.get('notes') or '').strip() or None,
+         d.get('child_dob') or None,
          rid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -15919,7 +16565,7 @@ def save_production_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s
+        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -15949,6 +16595,8 @@ def save_production_registration_settings(pid):
          (d.get('schedule_notes') or '').strip(),
          d.get('start_date') or None,
          d.get('end_date') or None,
+         bool(d.get('step_up_hold_enabled', False)),
+         int(d.get('step_up_hold_days') or 14),
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -16127,6 +16775,33 @@ def rising_stars_live_page():
     resp = send_from_directory('static', 'rising-stars-live.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
+
+
+@app.route('/step-up-holds')
+def step_up_holds_page():
+    # Step Up Holds now lives inside RoleCall itself (staff nav → Step Up Holds)
+    # rather than as a standalone page — redirect any old bookmarks there.
+    from flask import redirect
+    return redirect('/')
+
+
+@app.route('/step-up-enroll')
+def step_up_enroll_page():
+    resp = send_from_directory('static', 'step-up-enroll.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
+
+
+@app.route('/api/public/square-config')
+def public_square_config():
+    """Public, safe-to-expose values needed to init Square's Web Payments SDK
+    (card-on-file entry for Step Up holds). Never expose SQUARE_ACCESS_TOKEN here."""
+    return jsonify({
+        'application_id': SQUARE_APPLICATION_ID,
+        'location_id': SQUARE_LOCATION_ID,
+        'environment': SQUARE_ENV,
+        'configured': bool(SQUARE_APPLICATION_ID and SQUARE_LOCATION_ID),
+    })
 
 
 @app.route('/api/public/programs')
@@ -20350,6 +21025,11 @@ def rising_stars_live_stats():
                  prod.portal_color, prod.registration_open_date, prod.registration_open_time
         ORDER BY prod.name''') or []
 
+    # Diagnostic: list every production tagged Rising Stars regardless of status,
+    # so we can tell "wrong status" apart from "not tagged rising_stars" at a glance.
+    debug_all_rs = fetchall(conn, '''SELECT id, name, stage, registration_status
+        FROM productions WHERE stage='rising_stars' ORDER BY name''') or []
+
     from zoneinfo import ZoneInfo as _ZIls
     for s in shows:
         s['opened_at'] = None
@@ -20396,6 +21076,7 @@ def rising_stars_live_stats():
             'waitlisted': total_waitlisted,
             'capacity': total_capacity or None,
         },
+        'debug_productions': debug_all_rs,
         'server_time': datetime.utcnow().isoformat(),
     })
 
@@ -20494,13 +21175,14 @@ def update_registration(pid, rid):
         status=%s, notes=%s, shirt_size=%s, guardian_name=%s,
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        session_ids=%s,
+        session_ids=%s, child_dob=%s,
         updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
          d.get('emergency_contact_phone',''),
          _jur.dumps(d.get('session_ids') or []),
+         d.get('child_dob') or None,
          rid, pid))
     conn.commit()
     conn.close()
@@ -20649,20 +21331,30 @@ def send_registration_payment_link(pid, rid):
     if reg['status'] != 'pending_payment':
         conn.close()
         return jsonify({'error': 'This registration is not awaiting payment'}), 400
-    # Look up the original order's actual total rather than the flat program price —
-    # this correctly reflects sessions, participant count, and any discounts applied
-    # at the time they registered, instead of risking an incorrect recalculation.
-    amount = square_get_order_amount(reg.get('square_order_id'))
-    if not amount:
-        amount = prog.get('price') or 0
-        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
+    d = request.json or {}
+    custom_amount = d.get('amount_cents')
+    if custom_amount is not None:
+        try:
+            amount = max(0, int(custom_amount))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({'error': 'Invalid amount'}), 400
+    else:
+        # Look up the original order's actual total rather than the flat program price —
+        # this correctly reflects sessions, participant count, and any discounts applied
+        # at the time they registered, instead of risking an incorrect recalculation.
+        amount = square_get_order_amount(reg.get('square_order_id'))
+        if not amount:
+            amount = prog.get('price') or 0
+            app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat program price')
     pay_url, link_id, order_id = square_create_payment_link(
         prog, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
         note=f'{reg.get("child_first_name","")} {reg.get("child_last_name","")} — {prog["name"]}')
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link'}), 500
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+    execute(conn, '''UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s,
+        last_resent_at=NOW(), resend_count=COALESCE(resend_count,0)+1 WHERE id=%s''',
         (link_id, order_id, rid))
     conn.commit()
     # Email the family
@@ -20685,7 +21377,7 @@ def send_registration_payment_link(pid, rid):
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'payment_url': pay_url})
+    return jsonify({'ok': True, 'payment_url': pay_url, 'last_resent_at': datetime.utcnow().isoformat(), 'resend_count': (reg.get('resend_count') or 0) + 1})
 
 
 def square_get_order_amount(order_id):
@@ -20757,10 +21449,19 @@ def send_production_registration_payment_link(pid, rid):
     if reg['status'] != 'pending_payment':
         conn.close()
         return jsonify({'error': 'This registration is not awaiting payment'}), 400
-    amount = square_get_order_amount(reg.get('square_order_id'))
-    if not amount:
-        amount = prod.get('price') or 0
-        app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
+    d = request.json or {}
+    custom_amount = d.get('amount_cents')
+    if custom_amount is not None:
+        try:
+            amount = max(0, int(custom_amount))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({'error': 'Invalid amount'}), 400
+    else:
+        amount = square_get_order_amount(reg.get('square_order_id'))
+        if not amount:
+            amount = prod.get('price') or 0
+            app.logger.warning(f'Could not look up original order total for reg {rid}; falling back to flat production price')
     redirect_url = f"{APP_BASE_URL}/register/production/{prod.get('slug') or prod['id']}/confirmation?reg={rid}"
     pay_url, link_id, order_id = square_create_payment_link(
         prod, rid, reg['guardian_email'], reg.get('guardian_name',''), amount,
@@ -20769,7 +21470,8 @@ def send_production_registration_payment_link(pid, rid):
     if not pay_url:
         conn.close()
         return jsonify({'error': 'Could not create payment link'}), 500
-    execute(conn, 'UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s WHERE id=%s',
+    execute(conn, '''UPDATE program_registrations SET square_checkout_id=%s, square_order_id=%s,
+        last_resent_at=NOW(), resend_count=COALESCE(resend_count,0)+1 WHERE id=%s''',
         (link_id, order_id, rid))
     conn.commit()
     try:
@@ -20791,7 +21493,7 @@ def send_production_registration_payment_link(pid, rid):
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'payment_url': pay_url})
+    return jsonify({'ok': True, 'payment_url': pay_url, 'last_resent_at': datetime.utcnow().isoformat(), 'resend_count': (reg.get('resend_count') or 0) + 1})
 
 
 @app.route('/api/productions/<pid>/registrations/<rid>/send-balance-link', methods=['POST'])

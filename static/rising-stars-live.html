@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Rising Stars — Live Enrollment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0b0f1a;
+    --bg-deep: #060a12;
+    --surface: #141c2e;
+    --surface-2: #1b2438;
+    --gold: #f2b705;
+    --gold-dim: #a67e0a;
+    --curtain: #c0392b;
+    --spotlight: #34d399;
+    --ink: #f5f0e6;
+    --ink-dim: #9aa4bd;
+    --hairline: rgba(245,240,230,0.10);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(242,183,5,0.10), transparent 60%),
+      radial-gradient(ellipse 900px 500px at 100% 100%, rgba(192,57,43,0.08), transparent 60%),
+      var(--bg-deep);
+    color:var(--ink);
+    font-family:'Work Sans',system-ui,sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important}
+  }
+
+  /* ── Top bar ───────────────────────────────── */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 20px; border-bottom:1px solid var(--hairline);
+    background:linear-gradient(180deg, rgba(20,28,46,0.9), rgba(20,28,46,0.4));
+    position:sticky; top:0; z-index:20; backdrop-filter:blur(8px);
+    flex-wrap:wrap; gap:8px;
+  }
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand-mark{font-size:22px}
+  .brand-text{font-family:'Fraunces',serif; font-weight:600; font-size:15px; letter-spacing:0.02em; color:var(--ink)}
+  .brand-text b{color:var(--gold); font-weight:600}
+  .live-pill{
+    display:flex; align-items:center; gap:6px;
+    font-family:'Work Sans',sans-serif; font-weight:700; font-size:11px; letter-spacing:0.12em;
+    color:var(--spotlight); padding:5px 10px; border-radius:20px;
+    border:1px solid rgba(52,211,153,0.35); background:rgba(52,211,153,0.08);
+  }
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--spotlight); box-shadow:0 0 8px var(--spotlight); animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1; transform:scale(1)} 50%{opacity:0.4; transform:scale(0.75)}}
+  .clock{font-size:12px; color:var(--ink-dim); font-variant-numeric:tabular-nums}
+
+  /* ── Hero ──────────────────────────────────── */
+  .hero{ padding:34px 20px 20px; text-align:center }
+  .hero-eyebrow{
+    font-size:11px; letter-spacing:0.22em; text-transform:uppercase; color:var(--ink-dim);
+    margin-bottom:14px; font-weight:600;
+  }
+  .marquee-frame{
+    display:inline-block; position:relative; padding:26px 44px;
+    border-radius:18px; background:var(--surface);
+    border:1px solid var(--hairline);
+    box-shadow:0 30px 60px -30px rgba(0,0,0,0.7);
+  }
+  .marquee-frame::before, .marquee-frame::after{
+    content:''; position:absolute; left:14px; right:14px; height:2px;
+    background-image:radial-gradient(circle, var(--gold) 0 2.5px, transparent 3px);
+    background-size:22px 100%; background-repeat:repeat-x;
+    opacity:0.85;
+  }
+  .marquee-frame::before{ top:8px; animation:twinkleA 2.4s steps(2) infinite }
+  .marquee-frame::after{ bottom:8px; animation:twinkleB 2.4s steps(2) infinite }
+  @keyframes twinkleA{ 0%,100%{opacity:0.9} 50%{opacity:0.35} }
+  @keyframes twinkleB{ 0%,100%{opacity:0.35} 50%{opacity:0.9} }
+  .hero-number{
+    font-family:'Bebas Neue',sans-serif; font-size:clamp(64px,16vw,132px); line-height:0.9;
+    color:var(--gold); letter-spacing:0.01em;
+    text-shadow:0 0 30px rgba(242,183,5,0.35);
+  }
+  .hero-label{ font-size:14px; color:var(--ink-dim); margin-top:6px; font-weight:500 }
+  .hero-sub{ font-size:12px; color:var(--ink-dim); margin-top:14px }
+  .hero-sub b{ color:var(--ink) }
+
+  .mini-stats{
+    display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:18px;
+  }
+  .mini-stat{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:12px;
+    padding:8px 16px; min-width:100px;
+  }
+  .mini-stat .n{ font-family:'Fraunces',serif; font-size:22px; font-weight:600 }
+  .mini-stat .l{ font-size:10px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.1em; margin-top:2px }
+  .mini-stat.pending .n{ color:#e8c766 }
+  .mini-stat.waitlist .n{ color:var(--curtain) }
+
+  /* ── Layout ────────────────────────────────── */
+  .layout{
+    display:grid; grid-template-columns:1fr 340px; gap:20px;
+    max-width:1280px; margin:24px auto 60px; padding:0 20px;
+    align-items:start;
+  }
+  @media (max-width:880px){
+    .layout{ grid-template-columns:1fr; }
+  }
+
+  .section-title{
+    font-family:'Fraunces',serif; font-weight:600; font-size:16px; margin:0 0 12px;
+    display:flex; align-items:center; gap:8px;
+  }
+
+  /* ── Show cards ────────────────────────────── */
+  .shows{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px }
+  .show-card{
+    position:relative; background:var(--surface); border:1px solid var(--hairline);
+    border-radius:14px; padding:18px 18px 16px; overflow:hidden;
+    transition:transform 0.25s ease;
+  }
+  .show-card.just-bumped{ animation:bump 0.6s ease }
+  @keyframes bump{ 0%{transform:scale(1)} 30%{transform:scale(1.025)} 100%{transform:scale(1)} }
+  .show-card::before{
+    content:''; position:absolute; left:0; top:0; bottom:0; width:5px;
+    background:var(--accent, var(--gold));
+  }
+  .show-card::after{
+    /* ticket stub perforation */
+    content:''; position:absolute; right:64px; top:0; bottom:0; width:0;
+    border-left:2px dashed rgba(245,240,230,0.10);
+  }
+  .show-name{ font-family:'Fraunces',serif; font-weight:600; font-size:16px; margin-bottom:2px; padding-right:56px }
+  .show-status{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-dim); margin-bottom:12px }
+  .open-since{ color:var(--spotlight); text-transform:none; letter-spacing:0.02em; font-weight:600 }
+  .open-soon{ color:#e8c766; text-transform:none; letter-spacing:0.02em; font-weight:600 }
+  .show-count-row{ display:flex; align-items:baseline; gap:6px; margin-bottom:8px }
+  .show-count{ font-family:'Bebas Neue',sans-serif; font-size:34px; color:var(--ink) }
+  .show-count-of{ font-size:13px; color:var(--ink-dim) }
+  .bar-track{ height:8px; border-radius:6px; background:rgba(245,240,230,0.08); overflow:hidden; margin-bottom:10px }
+  .bar-fill{ height:100%; border-radius:6px; background:linear-gradient(90deg, var(--accent, var(--gold)), var(--spotlight)); transition:width 0.6s cubic-bezier(.2,.9,.3,1) }
+  .badge-row{ display:flex; gap:6px; flex-wrap:wrap }
+  .badge{ font-size:10.5px; padding:3px 8px; border-radius:20px; font-weight:600; letter-spacing:0.02em }
+  .badge.pending{ background:rgba(232,199,102,0.12); color:#e8c766 }
+  .badge.waitlist{ background:rgba(192,57,43,0.14); color:#e8756a }
+  .badge.full{ background:rgba(52,211,153,0.14); color:var(--spotlight) }
+  .empty-state{ color:var(--ink-dim); font-size:13px; padding:20px; text-align:center; border:1px dashed var(--hairline); border-radius:12px }
+
+  /* ── Live ticker ───────────────────────────── */
+  .ticker-panel{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+    padding:16px; max-height:640px; display:flex; flex-direction:column;
+  }
+  .ticker-list{ display:flex; flex-direction:column; gap:8px; overflow-y:auto; padding-right:2px }
+  .ticker-item{
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:10px;
+    background:var(--surface-2); border:1px solid transparent;
+  }
+  .ticker-item.fresh{ animation:slideIn 0.5s ease, glow 1.8s ease; border-color:rgba(242,183,5,0.4) }
+  @keyframes slideIn{ from{opacity:0; transform:translateY(-8px)} to{opacity:1; transform:translateY(0)} }
+  @keyframes glow{ 0%{box-shadow:0 0 0 rgba(242,183,5,0)} 25%{box-shadow:0 0 18px rgba(242,183,5,0.35)} 100%{box-shadow:0 0 0 rgba(242,183,5,0)} }
+  .ticker-emoji{ font-size:18px; flex-shrink:0 }
+  .ticker-text{ font-size:12.5px; line-height:1.35 }
+  .ticker-text b{ color:var(--ink) }
+  .ticker-text span{ color:var(--ink-dim) }
+  .ticker-time{ margin-left:auto; font-size:10.5px; color:var(--ink-dim); white-space:nowrap; flex-shrink:0 }
+
+  /* ── Login gate ────────────────────────────── */
+  .gate{
+    position:fixed; inset:0; background:var(--bg-deep); display:flex; align-items:center;
+    justify-content:center; text-align:center; padding:24px; z-index:100;
+  }
+  .gate-card{ max-width:360px }
+  .gate-card h1{ font-family:'Fraunces',serif; font-size:22px; margin-bottom:8px }
+  .gate-card p{ color:var(--ink-dim); font-size:14px; margin-bottom:18px }
+  .gate-card a{ background:var(--gold); color:#1b1400; font-weight:700; text-decoration:none; padding:10px 20px; border-radius:10px; font-size:14px }
+
+  .footer-note{ text-align:center; color:var(--ink-dim); font-size:11px; padding:0 20px 30px }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="brand-mark">🎭</span>
+    <span class="brand-text">Rising Stars — <b>Live Enrollment</b></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="clock" id="clock"></span>
+    <span class="live-pill"><span class="live-dot"></span>LIVE</span>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-eyebrow">Seats filled across all Rising Stars shows</div>
+  <div class="marquee-frame">
+    <div class="hero-number" id="hero-total">0</div>
+    <div class="hero-label" id="hero-label">enrolled</div>
+  </div>
+  <div class="hero-sub" id="hero-sub">&nbsp;</div>
+  <div class="mini-stats">
+    <div class="mini-stat pending"><div class="n" id="mini-pending">0</div><div class="l">Pending</div></div>
+    <div class="mini-stat waitlist"><div class="n" id="mini-waitlist">0</div><div class="l">Waitlisted</div></div>
+  </div>
+</div>
+
+<div class="layout">
+  <div>
+    <div class="section-title">🎟️ Shows</div>
+    <div class="shows" id="shows-grid">
+      <div class="empty-state">Loading shows…</div>
+    </div>
+  </div>
+  <div class="ticker-panel">
+    <div class="section-title">🎉 Just enrolled</div>
+    <div class="ticker-list" id="ticker-list">
+      <div class="empty-state">Waiting for the first sign-up…</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">Updates every few seconds — leave this open on a tablet or monitor and watch the seats fill up.</div>
+
+<div class="gate" id="gate" style="display:none">
+  <div class="gate-card">
+    <h1>Staff login needed</h1>
+    <p>This live tracker uses your RoleCall staff account. Log in, then come back to this page.</p>
+    <a href="/">Go to login</a>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+<script>
+(function(){
+  var ACCENTS = ['#f2b705','#34d399','#e8756a','#7dd3fc','#c084fc','#fb923c'];
+  var seenIds = null; // null = first load, don't celebrate anything already on screen
+  var totalKnown = null;
+
+  function accentFor(id){
+    var sum = 0;
+    for(var i=0;i<id.length;i++) sum += id.charCodeAt(i);
+    return ACCENTS[sum % ACCENTS.length];
+  }
+
+  function escHtml(s){
+    return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function fmtTime(iso){
+    try{
+      var d = new Date(iso + (iso.endsWith('Z')?'':'Z'));
+      var diff = (Date.now() - d.getTime())/1000;
+      if(diff < 60) return 'just now';
+      if(diff < 3600) return Math.floor(diff/60)+'m ago';
+      if(diff < 86400) return Math.floor(diff/3600)+'h ago';
+      return d.toLocaleDateString();
+    }catch(e){ return '' }
+  }
+
+  function fmtDuration(totalSeconds){
+    totalSeconds = Math.max(0, Math.floor(totalSeconds));
+    var days = Math.floor(totalSeconds/86400);
+    var hours = Math.floor((totalSeconds%86400)/3600);
+    var mins = Math.floor((totalSeconds%3600)/60);
+    if(days > 0) return days+'d '+hours+'h';
+    if(hours > 0) return hours+'h '+mins+'m';
+    if(mins > 0) return mins+'m';
+    return totalSeconds+'s';
+  }
+
+  function openStatusLine(s){
+    try{
+      if(s.opened_at){
+        var openedMs = new Date(s.opened_at).getTime();
+        return '<span class="open-since">🕒 Open '+fmtDuration((Date.now()-openedMs)/1000)+'</span>';
+      }
+      if(s.opens_at){
+        var opensMs = new Date(s.opens_at).getTime();
+        var diff = (opensMs-Date.now())/1000;
+        if(diff <= 0) return '<span class="open-since">🕒 Opening now</span>';
+        return '<span class="open-soon">⏰ Opens in '+fmtDuration(diff)+'</span>';
+      }
+    }catch(e){}
+    return '';
+  }
+
+  function updateClock(){
+    var el = document.getElementById('clock');
+    if(el) el.textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }
+  updateClock(); setInterval(updateClock, 1000);
+
+  function animateCount(el, from, to, ms){
+    if(from === to){ el.textContent = to; return }
+    var start = performance.now();
+    function step(now){
+      var p = Math.min(1, (now-start)/ms);
+      var eased = 1 - Math.pow(1-p, 3);
+      var val = Math.round(from + (to-from)*eased);
+      el.textContent = val;
+      if(p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function burstConfetti(){
+    if(typeof confetti !== 'function') return;
+    confetti({
+      particleCount: 70,
+      spread: 65,
+      startVelocity: 32,
+      origin: { x: Math.random()*0.4+0.3, y: 0.15 },
+      colors: ['#f2b705','#34d399','#e8756a','#f5f0e6']
+    });
+  }
+
+  function render(data){
+    var shows = data.shows || [];
+    var recent = data.recent || [];
+    var totals = data.totals || {};
+
+    // Hero total
+    var heroEl = document.getElementById('hero-total');
+    var prevTotal = totalKnown;
+    var newTotal = totals.confirmed || 0;
+    animateCount(heroEl, prevTotal==null ? newTotal : prevTotal, newTotal, 900);
+    totalKnown = newTotal;
+
+    document.getElementById('hero-sub').innerHTML = totals.capacity
+      ? '<b>' + newTotal + '</b> of <b>' + totals.capacity + '</b> total seats across all shows'
+      : '';
+    document.getElementById('mini-pending').textContent = totals.pending || 0;
+    document.getElementById('mini-waitlist').textContent = totals.waitlisted || 0;
+
+    // Shows grid
+    var grid = document.getElementById('shows-grid');
+    if(!shows.length){
+      grid.innerHTML = '<div class="empty-state">No open Rising Stars shows right now.</div>';
+    } else {
+      grid.innerHTML = shows.map(function(s){
+        var accent = s.portal_color || accentFor(s.id);
+        var confirmed = s.confirmed_count || 0;
+        var cap = s.capacity;
+        var pct = cap ? Math.min(100, Math.round(confirmed/cap*100)) : (confirmed>0 ? 100 : 0);
+        var isFull = cap && confirmed >= cap;
+        var badges = '';
+        if(s.pending_count) badges += '<span class="badge pending">'+s.pending_count+' pending</span>';
+        if(s.waitlisted_count) badges += '<span class="badge waitlist">'+s.waitlisted_count+' waitlisted</span>';
+        if(isFull) badges += '<span class="badge full">FULL</span>';
+        return '<div class="show-card" data-show-id="'+s.id+'" style="--accent:'+accent+'">'
+          + '<div class="show-name">'+escHtml(s.name)+'</div>'
+          + '<div class="show-status">'+escHtml((s.registration_status||'').replace('_',' '))+(openStatusLine(s) ? ' &middot; ' : '')+openStatusLine(s)+'</div>'
+          + '<div class="show-count-row"><span class="show-count">'+confirmed+'</span>'
+          + '<span class="show-count-of">'+(cap ? 'of '+cap+' enrolled' : 'enrolled')+'</span></div>'
+          + '<div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div>'
+          + (badges ? '<div class="badge-row">'+badges+'</div>' : '')
+          + '</div>';
+      }).join('');
+    }
+
+    // Ticker
+    var list = document.getElementById('ticker-list');
+    var isFirstLoad = (seenIds === null);
+    var newSeenIds = new Set();
+    var freshOnes = [];
+    recent.forEach(function(r){ newSeenIds.add(r.id); if(!isFirstLoad && seenIds && !seenIds.has(r.id)) freshOnes.push(r); });
+
+    if(!recent.length){
+      list.innerHTML = '<div class="empty-state">Waiting for the first sign-up…</div>';
+    } else {
+      list.innerHTML = recent.map(function(r){
+        var isFresh = freshOnes.indexOf(r) !== -1;
+        var statusWord = r.status === 'waitlisted' ? 'joined the waitlist for' : (r.status==='pending_payment' ? 'started registering for' : 'enrolled in');
+        return '<div class="ticker-item'+(isFresh?' fresh':'')+'">'
+          + '<span class="ticker-emoji">'+(r.status==='waitlisted' ? '⏳' : '🌟')+'</span>'
+          + '<span class="ticker-text"><b>'+escHtml(r.display_name)+'</b> <span>'+statusWord+'</span> <b>'+escHtml(r.production_name)+'</b></span>'
+          + '<span class="ticker-time">'+fmtTime(r.created_at)+'</span>'
+          + '</div>';
+      }).join('');
+    }
+
+    if(!isFirstLoad && freshOnes.length){
+      burstConfetti();
+      freshOnes.forEach(function(r){
+        var card = grid.querySelector('[data-show-id="'+r.production_id+'"]');
+        if(card){ card.classList.remove('just-bumped'); void card.offsetWidth; card.classList.add('just-bumped'); }
+      });
+    }
+    seenIds = newSeenIds;
+  }
+
+  var gateShown = false;
+  function poll(){
+    fetch('/api/rising-stars/live-stats', {credentials:'same-origin'})
+      .then(function(res){
+        if(res.status === 401 || res.status === 403){
+          if(!gateShown){ document.getElementById('gate').style.display='flex'; gateShown = true; }
+          return null;
+        }
+        document.getElementById('gate').style.display='none';
+        gateShown = false;
+        return res.json();
+      })
+      .then(function(data){ if(data) render(data); })
+      .catch(function(e){ console.warn('live-stats poll failed', e); });
+  }
+
+  poll();
+  setInterval(poll, 6000);
+})();
+</script>
+</body>
+</html>

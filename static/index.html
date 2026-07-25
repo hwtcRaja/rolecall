@@ -19793,7 +19793,7 @@ async function loadProductionRegistrations(pid){
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -19814,7 +19814,7 @@ async function loadProductionRegistrations(pid){
   el.querySelectorAll('.prod-resend-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
       var res = await api('/api/productions/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res&&res.ok) toast('Payment link resent','success')
+      if(res&&res.ok){ toast('Payment link resent','success'); loadProductionRegistrations(pid) }
       else toast((res&&res.error)||'Error','error')
     })
   })
@@ -20814,7 +20814,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -20864,7 +20864,7 @@ async function loadProgramRegistrations(pid){
   el.querySelectorAll('.resend-btn').forEach(function(btn){
     btn.addEventListener('click', async function(){
       const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res && res.ok) toast('Payment link resent','success')
+      if(res && res.ok){ toast('Payment link resent','success'); loadProgramRegistrations(pid) }
       else toast((res&&res.error)||'Error','error')
     })
   })
@@ -25023,7 +25023,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
             + '<td style="padding:8px;font-size:11px">'+escHtml(r.program_name||'')+'</td>'
             + sessionCell
             + '<td style="padding:8px;font-size:12px;font-weight:700;color:#145466">'+amountStr+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span></td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted);font-size:11px">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -25056,7 +25056,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
     btn.addEventListener('click', async function(){
       var base = (btn.dataset.type==='production'?'/api/productions/':'/api/programs/')+btn.dataset.pid
       var res = await api(base+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res&&res.ok) toast('Payment link resent','success')
+      if(res&&res.ok){ toast('Payment link resent','success'); loadMarqueeRegistrations() }
       else toast((res&&res.error)||'Error','error')
     })
   })

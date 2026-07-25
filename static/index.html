@@ -19765,6 +19765,7 @@ async function loadProductionRegistrations(pid){
       .map(x=>'<div style="background:'+x[2]+';border-radius:10px;padding:10px 14px;text-align:center"><div style="font-size:20px;font-weight:800;color:'+x[3]+'">'+x[1]+'</div><div style="font-size:11px;font-weight:600;color:'+x[3]+'">'+x[0]+'</div></div>').join('')
     + '</div>'
     + (prod && prod.slug ? '<a href="/register/production/'+escHtml(prod.slug||'')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px">View Reg Page</a>' : '')
+    + '<button class="btn btn-secondary btn-sm" style="font-size:12px" onclick="loadProductionRegistrations(\''+pid+'\')">Refresh</button>'
     + '</div>'
   if(!regs.length){
     html += '<div style="text-align:center;padding:30px;color:var(--text-muted)">No registrations yet.</div>'
@@ -19793,7 +19794,7 @@ async function loadProductionRegistrations(pid){
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==="waitlisted"&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -20720,6 +20721,7 @@ async function loadProgramRegistrations(pid){
     + '<button class="btn btn-secondary btn-sm" id="reg-settings-btn">Settings</button>'
     + (prog.slug ? '<a href="/register/'+prog.slug+'" target="_blank" class="btn btn-secondary btn-sm">View Public Page</a>' : '')
     + (regStatus==='open' && interest.length ? '<button class="btn btn-primary btn-sm" id="reg-notify-btn">Notify Interest List ('+interest.length+')</button>' : '')
+    + '<button class="btn btn-secondary btn-sm" onclick="loadProgramRegistrations(\''+pid+'\')">Refresh</button>'
     + '</div></div>'
     + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
     + [['Confirmed',counts.confirmed||0,'#dcfce7','#166534'],['Pending Payment',counts.pending_payment||0,'#fef3c7','#92400e'],['Waitlisted',counts.waitlisted||0,'#ede9fe','#6d28d9'],['Interest List',counts.interest||0,'#f0f8fa','#145466']]
@@ -21642,6 +21644,11 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
       + '<div id="er-sessions-list" style="font-size:12px;color:var(--text-muted)">Loading sessions...</div></div>'
   }
 
+  // Compute this registration's chronological order among all registrations for this show
+  var sortedRegs = regs.slice().sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at) })
+  var orderIdx = sortedRegs.findIndex(function(r){ return r.id===rid })
+  var orderLabel = orderIdx > -1 ? '#'+(orderIdx+1)+' of '+sortedRegs.length : ''
+
   var form = document.createElement('div')
   form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
   form.innerHTML =
@@ -21650,6 +21657,10 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     + '<button id="er-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
     + '</div>'
     + '<div style="padding:20px;display:flex;flex-direction:column;gap:14px">'
+    + (orderLabel || reg.status==='waitlisted' ? '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        + (orderLabel ? '<div style="background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11.5px;font-weight:600;color:var(--text-muted)">Registered '+orderLabel+'</div>' : '')
+        + (reg.status==='waitlisted' && reg.waitlist_position ? '<div style="background:#ede9fe;border-radius:20px;padding:4px 12px;font-size:11.5px;font-weight:700;color:#6d28d9">Waitlist Position #'+reg.waitlist_position+'</div>' : '')
+        + '</div>' : '')
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Participant First Name</label>'
     + '<input id="er-first-name" value="'+escHtml(reg.child_first_name||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Participant Last Name</label>'
@@ -25075,7 +25086,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
             + '<td style="padding:8px;font-size:11px">'+escHtml(r.program_name||'')+'</td>'
             + sessionCell
             + '<td style="padding:8px;font-size:12px;font-weight:700;color:#145466">'+amountStr+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted);font-size:11px">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'

@@ -19812,10 +19812,9 @@ async function loadProductionRegistrations(pid){
     btn.addEventListener('click', function(){ promoteProductionWaitlist(pid, btn.dataset.rid) })
   })
   el.querySelectorAll('.prod-resend-btn').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      var res = await api('/api/productions/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res&&res.ok){ toast('Payment link resent','success'); loadProductionRegistrations(pid) }
-      else toast((res&&res.error)||'Error','error')
+    btn.addEventListener('click', function(){
+      openResendPaymentModal('/api/productions/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link',
+        function(){ loadProductionRegistrations(pid) })
     })
   })
   el.querySelectorAll('.prod-del-btn').forEach(function(btn){
@@ -20862,10 +20861,9 @@ async function loadProgramRegistrations(pid){
   })
 
   el.querySelectorAll('.resend-btn').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      const res = await api('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res && res.ok){ toast('Payment link resent','success'); loadProgramRegistrations(pid) }
-      else toast((res&&res.error)||'Error','error')
+    btn.addEventListener('click', function(){
+      openResendPaymentModal('/api/programs/'+pid+'/registrations/'+btn.dataset.rid+'/send-payment-link',
+        function(){ loadProgramRegistrations(pid) })
     })
   })
 
@@ -21570,6 +21568,55 @@ async function sendBalanceLink(pid, rid){
   const res = await api('/api/programs/'+pid+'/registrations/'+rid+'/send-balance-link','POST')
   if(res && res.ok) toast('Balance payment link sent!', 'success')
   else toast((res && res.error)||'Error', 'error')
+}
+
+function openResendPaymentModal(sendUrl, onSent){
+  const existing = document.getElementById('resend-pay-overlay')
+  if(existing) existing.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'resend-pay-overlay'
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  const form = document.createElement('div')
+  form.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:380px;box-shadow:var(--shadow-lg)'
+  form.innerHTML =
+    '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+    + '<div style="font-size:15px;font-weight:700">Resend Payment Link</div>'
+    + '<button id="rp-close" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+    + '</div>'
+    + '<div style="padding:20px;display:flex;flex-direction:column;gap:10px">'
+    + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Amount (optional)</label>'
+    + '<input id="rp-amount" type="number" step="0.01" min="0" placeholder="Leave blank to use original amount" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div style="font-size:12px;color:var(--text-muted)">By default this resends at the amount they originally owed. Enter a dollar amount above to override it — useful for a partial waiver, correction, or adjusted price.</div>'
+    + '</div>'
+    + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">'
+    + '<button id="rp-cancel" class="btn btn-secondary">Cancel</button>'
+    + '<button id="rp-send" class="btn btn-primary">Send</button>'
+    + '</div>'
+  overlay.appendChild(form)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  document.getElementById('rp-close').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('rp-cancel').addEventListener('click', function(){ overlay.remove() })
+  document.getElementById('rp-send').addEventListener('click', async function(){
+    var btn = this
+    var raw = (document.getElementById('rp-amount').value||'').trim()
+    var payload = {}
+    if(raw !== ''){
+      var dollars = parseFloat(raw)
+      if(isNaN(dollars) || dollars < 0){ toast('Enter a valid amount','error'); return }
+      payload.amount_cents = Math.round(dollars * 100)
+    }
+    btn.disabled = true; btn.textContent = 'Sending...'
+    const res = await api(sendUrl, 'POST', payload)
+    if(res && res.ok){
+      toast('Payment link resent', 'success')
+      overlay.remove()
+      if(onSent) onSent()
+    } else {
+      toast((res && res.error) || 'Error', 'error')
+      btn.disabled = false; btn.textContent = 'Send'
+    }
+  })
 }
 
 function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
@@ -25053,11 +25100,10 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
     })
   })
   el.querySelectorAll('.mq-resend-btn').forEach(function(btn){
-    btn.addEventListener('click', async function(){
+    btn.addEventListener('click', function(){
       var base = (btn.dataset.type==='production'?'/api/productions/':'/api/programs/')+btn.dataset.pid
-      var res = await api(base+'/registrations/'+btn.dataset.rid+'/send-payment-link','POST')
-      if(res&&res.ok){ toast('Payment link resent','success'); loadMarqueeRegistrations() }
-      else toast((res&&res.error)||'Error','error')
+      openResendPaymentModal(base+'/registrations/'+btn.dataset.rid+'/send-payment-link',
+        function(){ loadMarqueeRegistrations() })
     })
   })
   el.querySelectorAll('.mq-balance-btn').forEach(function(btn){

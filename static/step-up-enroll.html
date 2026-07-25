@@ -7,19 +7,42 @@
 <style>
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f6f7;color:#1f2937}
-  .header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 60%,#1b708d 100%);padding:28px 20px;text-align:center;color:#fff}
-  .header h1{margin:0;font-size:19px;font-weight:700}
-  .header p{margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.85);max-width:420px;margin-left:auto;margin-right:auto}
-  .wrap{max-width:460px;margin:0 auto;padding:24px 20px 60px}
-  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:22px}
+
+  .header{background:linear-gradient(135deg,#0d3d4d 0%,#145466 55%,#1b708d 100%);padding:34px 20px 30px;text-align:center;color:#fff;position:relative;overflow:hidden}
+  .header::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 500px 220px at 50% -20%, rgba(255,255,255,0.10), transparent 60%);pointer-events:none}
+
+  .logo-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px;position:relative}
+  .hwtc-logo{height:46px;width:auto}
+  .logo-divider{font-size:16px;color:rgba(255,255,255,0.45);font-weight:300}
+  .stepup-chip{background:#fff;border-radius:12px;padding:8px 14px;box-shadow:0 4px 14px rgba(0,0,0,0.15)}
+  .stepup-logo{height:34px;width:auto;display:block}
+
+  .partner-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.28);color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;padding:5px 14px;border-radius:20px;margin-bottom:14px}
+
+  .header h1{margin:0;font-size:20px;font-weight:700;position:relative}
+  .header p{margin:8px auto 0;font-size:13.5px;line-height:1.55;color:rgba(255,255,255,0.88);max-width:400px;position:relative}
+  .header p strong{color:#fff}
+
+  .wrap{max-width:460px;margin:0 auto;padding:22px 20px 60px}
+
+  .intro-strip{display:flex;gap:12px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin-bottom:16px}
+  .intro-step{flex:1;text-align:center}
+  .intro-step .n{width:24px;height:24px;border-radius:50%;background:#f0f9fb;color:#145466;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 6px}
+  .intro-step .t{font-size:11.5px;color:#4b5563;line-height:1.4}
+  .intro-arrow{align-self:center;color:#d1d5db;font-size:16px}
+
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,0.03)}
+  .card-eyebrow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#145466;margin-bottom:4px}
+  .card-title{font-size:16px;font-weight:700;color:#0d3d4d;margin-bottom:16px}
+
   .form-group{margin-bottom:14px}
   label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:5px}
-  input{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box}
-  input:focus{border-color:#145466}
-  .btn{width:100%;padding:12px;border-radius:10px;font-weight:700;font-size:15px;border:none;cursor:pointer;background:#145466;color:#fff;margin-top:6px}
+  input{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;outline:none;box-sizing:border-box;transition:border-color 0.15s ease}
+  input:focus{border-color:#145466;box-shadow:0 0 0 3px rgba(20,84,102,0.08)}
+  .btn{width:100%;padding:13px;border-radius:10px;font-weight:700;font-size:15px;border:none;cursor:pointer;background:#145466;color:#fff;margin-top:8px;transition:background 0.15s ease}
   .btn:hover{background:#0d3d4d}
   .btn:disabled{opacity:0.6;cursor:not-allowed}
-  .note{font-size:12.5px;color:#6b7280;line-height:1.5;margin-bottom:16px}
+  .note{font-size:12.5px;color:#6b7280;line-height:1.55;margin-bottom:18px;background:#f9fafb;border-radius:8px;padding:10px 12px}
   .alert{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:14px}
   .alert-error{background:#fee2e2;color:#991b1b}
   .alert-success{background:#dcfce7;color:#166534}
@@ -27,17 +50,36 @@
   .success-screen{text-align:center;padding:20px 4px}
   .success-screen .icon{font-size:44px;margin-bottom:10px}
   .success-screen .id-chip{display:inline-block;background:#f0f9fb;border:1.5px solid #145466;color:#0d3d4d;font-weight:700;padding:6px 14px;border-radius:8px;margin:10px 0;font-size:15px}
+
+  .footer-note{text-align:center;font-size:12px;color:#9ca3af;margin-top:22px;line-height:1.6}
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>🎭 Enroll Your Card — Step Up</h1>
-  <p>Save your card once. From then on, just enter your Step Up Awards ID when registering — no need to re-enter your card every time.</p>
+  <div class="logo-row">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" class="hwtc-logo" alt="Horizon West Theater Company"/>
+    <span class="logo-divider">×</span>
+    <div class="stepup-chip"><img src="https://rolecall.hwtco.org/static/images/stepup_logo.png" class="stepup-logo" alt="Step Up For Students"/></div>
+  </div>
+  <div class="partner-badge">🤝 Proud Partner</div>
+  <h1>Enroll Your Card for Step Up</h1>
+  <p>Horizon West Theater Company is proud to partner with <strong>Step Up For Students</strong> and to serve <strong>Central Florida's homeschool community</strong>. Save your card once — from then on, just enter your Awards ID when registering.</p>
 </div>
 
 <div class="wrap">
+
+  <div class="intro-strip">
+    <div class="intro-step"><div class="n">1</div><div class="t">Enter your info &amp; card below</div></div>
+    <div class="intro-arrow">→</div>
+    <div class="intro-step"><div class="n">2</div><div class="t">We save it — nothing is charged</div></div>
+    <div class="intro-arrow">→</div>
+    <div class="intro-step"><div class="n">3</div><div class="t">Use your Awards ID at registration</div></div>
+  </div>
+
   <div class="card" id="app">
+    <div class="card-eyebrow">Card Enrollment</div>
+    <div class="card-title">One-time setup for your family</div>
     <div id="form-alert"></div>
     <div class="note">We run a $5 verification hold on your card to confirm it's active — that hold is voided immediately and never actually charged. Beyond that, nothing is charged when you enroll. Your card is only ever charged for a program if we don't receive your Step Up payment by the date shown at registration.</div>
 
@@ -65,6 +107,8 @@
 
     <button class="btn" id="submit-btn">Save My Card</button>
   </div>
+
+  <div class="footer-note">Horizon West Theater Company is a proud partner of Step Up For Students and Central Florida's homeschool community.</div>
 </div>
 
 <script>

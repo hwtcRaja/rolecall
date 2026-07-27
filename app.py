@@ -1940,6 +1940,10 @@ def init_db():
         'CREATE INDEX IF NOT EXISTS ix_rc_raci_task ON rc_raci_assignments(task_id)',
         'CREATE INDEX IF NOT EXISTS ix_rc_steps_task ON rc_flow_steps(task_id)',
         'CREATE INDEX IF NOT EXISTS ix_rc_roles_reports_to ON rc_roles(reports_to_id)',
+
+        # ── Venue Rentals: specific-dates scheduling mode ──
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS date_mode TEXT DEFAULT 'range'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS specific_dates TEXT DEFAULT ''",
 ]:
         try:
             c.execute(col_sql)
@@ -19717,14 +19721,17 @@ def create_rental_request():
     err = require_permission('rentals')
     if err: return err
     import uuid as _urr
+    import json as _jcrr
     d = request.json or {}
     conn = get_db()
     rid = str(_urr.uuid4())
+    specific_dates = d.get('specific_dates') or []
     execute(conn, '''INSERT INTO rental_requests
         (id, partner_id, space_id, title, purpose, start_date, end_date,
          start_time, end_time, recurring, recurrence_pattern, recurrence_end_date,
+         date_mode, specific_dates,
          estimated_attendance, rate_type, rate_amount, total_amount, status, notes)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
         (rid, d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(),
          (d.get('purpose') or '').strip(),
@@ -19735,14 +19742,15 @@ def create_rental_request():
          bool(d.get('recurring')),
          (d.get('recurrence_pattern') or '').strip(),
          (d.get('recurrence_end_date') or '').strip(),
+         (d.get('date_mode') or 'range').strip(),
+         _jcrr.dumps(specific_dates),
          d.get('estimated_attendance') or None,
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip()))
-    # Generate occurrences so this shows up on the calendar right away —
-    # a single date, a contiguous multi-day span, or a recurring series.
-    _generate_rental_occurrences(conn, rid, d)
+    # Nothing is added to the calendar yet — occurrences are only generated
+    # once this request is fully approved (see approve_rental_request).
     conn.commit()
     # Send approval notification — use Level 1 emails from approval_levels, fallback to rental_approver_emails
     try:
@@ -19776,12 +19784,46 @@ def create_rental_request():
 
 def _generate_rental_occurrences(conn, request_id, d):
     """Create one rental_occurrences row per day this request covers, so it
-    always shows up on the calendar (via the synthetic-event merge in
-    get_events) as soon as it's created or edited — whether it's a single
-    date, a contiguous multi-day span (start_date..end_date), or a
-    recurring series (start_date stepping by pattern to recurrence_end_date)."""
+    shows up on the calendar (via the synthetic-event merge in get_events).
+    Only called once a request reaches 'approved' status — see
+    approve_rental_request — and re-run (after clearing old rows) whenever
+    an approved request's dates are edited, denied, or sent back.
+
+    Three scheduling modes, driven by date_mode:
+      'specific'  — an explicit list of individual dates (specific_dates,
+                    JSON-encoded), for irregular bookings like "every other
+                    Friday except spring break"
+      'recurring' — start_date stepping by recurrence_pattern to
+                    recurrence_end_date
+      'range' (default, or single date) — every day from start_date to
+                    end_date inclusive (same day for both = a single date)
+    """
     import uuid as _uro2
     import datetime as _dto2
+    import json as _jro2
+
+    def _insert(date_str, stime, etime):
+        execute(conn, '''INSERT INTO rental_occurrences
+            (id, request_id, occurrence_date, start_time, end_time, status)
+            VALUES (%s,%s,%s,%s,%s,'scheduled')''',
+            (str(_uro2.uuid4()), request_id, date_str, stime, etime))
+
+    mode = (d.get('date_mode') or '').strip()
+    stime, etime = d.get('start_time', ''), d.get('end_time', '')
+
+    if mode == 'specific':
+        try:
+            dates = _jro2.loads(d.get('specific_dates') or '[]')
+        except Exception:
+            dates = []
+        for date_str in dates:
+            try:
+                _dto2.date.fromisoformat(date_str)
+            except Exception:
+                continue
+            _insert(date_str, stime, etime)
+        return
+
     start_raw = (d.get('start_date') or '').strip()
     if not start_raw:
         return
@@ -19790,7 +19832,8 @@ def _generate_rental_occurrences(conn, request_id, d):
     except Exception:
         return
 
-    if d.get('recurring') and (d.get('recurrence_end_date') or '').strip():
+    is_recurring = (mode == 'recurring') or (not mode and d.get('recurring'))
+    if is_recurring and (d.get('recurrence_end_date') or '').strip():
         pattern = d.get('recurrence_pattern') or 'weekly'
         try:
             end = _dto2.date.fromisoformat(d.get('recurrence_end_date').strip())
@@ -19798,11 +19841,7 @@ def _generate_rental_occurrences(conn, request_id, d):
             return
         cur = start
         while cur <= end:
-            execute(conn, '''INSERT INTO rental_occurrences
-                (id, request_id, occurrence_date, start_time, end_time, status)
-                VALUES (%s,%s,%s,%s,%s,'scheduled')''',
-                (str(_uro2.uuid4()), request_id, cur.isoformat(),
-                 d.get('start_time', ''), d.get('end_time', '')))
+            _insert(cur.isoformat(), stime, etime)
             if pattern == 'weekly':
                 cur += _dto2.timedelta(days=7)
             elif pattern == 'biweekly':
@@ -19820,7 +19859,8 @@ def _generate_rental_occurrences(conn, request_id, d):
                 break
         return
 
-    # Non-recurring: a single date, or a contiguous multi-day span via end_date
+    # 'range' mode (or legacy rows with no date_mode set): a single date, or
+    # a contiguous multi-day span via end_date
     end_raw = (d.get('end_date') or '').strip()
     try:
         end = _dto2.date.fromisoformat(end_raw) if end_raw else start
@@ -19830,38 +19870,49 @@ def _generate_rental_occurrences(conn, request_id, d):
         end = start
     cur = start
     while cur <= end:
-        execute(conn, '''INSERT INTO rental_occurrences
-            (id, request_id, occurrence_date, start_time, end_time, status)
-            VALUES (%s,%s,%s,%s,%s,'scheduled')''',
-            (str(_uro2.uuid4()), request_id, cur.isoformat(),
-             d.get('start_time', ''), d.get('end_time', '')))
+        _insert(cur.isoformat(), stime, etime)
         cur += _dto2.timedelta(days=1)
 
 @app.route('/api/rental/requests/<rid>', methods=['PUT'])
 def update_rental_request(rid):
     err = require_auth()
     if err: return err
+    import json as _jurr
     d = request.json or {}
     conn = get_db()
+    existing = fetchone(conn, 'SELECT status FROM rental_requests WHERE id=%s', (rid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    specific_dates = d.get('specific_dates') or []
+    # Note: status is intentionally NOT updated here — it only changes
+    # through the approve/deny/sendback routes, so editing a request's
+    # details never silently reverts its approval progress.
     execute(conn, '''UPDATE rental_requests SET partner_id=%s, space_id=%s, title=%s,
         purpose=%s, start_date=%s, end_date=%s, start_time=%s, end_time=%s,
         recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
+        date_mode=%s, specific_dates=%s,
         estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
-        status=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
+        notes=%s, updated_at=NOW() WHERE id=%s''',
         (d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
          (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
          (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip(),
          bool(d.get('recurring')), (d.get('recurrence_pattern') or '').strip(),
          (d.get('recurrence_end_date') or '').strip(),
+         (d.get('date_mode') or 'range').strip(), _jurr.dumps(specific_dates),
          d.get('estimated_attendance') or None,
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
-         d.get('status') or 'pending', (d.get('notes') or '').strip(), rid))
-    # Dates/pattern may have changed — drop and regenerate this request's
-    # occurrences so the calendar reflects the edit rather than the original.
-    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
-    _generate_rental_occurrences(conn, rid, d)
+         (d.get('notes') or '').strip(), rid))
+    # Only an already-approved request has anything on the calendar to keep
+    # in sync — clear and regenerate its occurrences so an edited date/time
+    # is reflected rather than the original. A still-pending request has no
+    # occurrences yet (those aren't created until approval), so there's
+    # nothing to touch.
+    if existing.get('status') == 'approved':
+        execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+        _generate_rental_occurrences(conn, rid, d)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -19910,6 +19961,12 @@ def approve_rental_request(rid):
         approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
         (next_level, _jra.dumps(history), new_status,
          approver_name, rid))
+    # This is the point where a rental actually goes on the calendar —
+    # fully approved and awaiting the partner's signature. `req` still has
+    # this request's original dates/pattern/specific_dates since nothing
+    # here changed them.
+    if fully_approved:
+        _generate_rental_occurrences(conn, rid, req)
     # Notify next level approvers if not fully approved
     if not fully_approved and levels and next_level < len(levels):
         next_level_config = levels[next_level]
@@ -19952,6 +20009,8 @@ def deny_rental_request(rid):
     execute(conn, '''UPDATE rental_requests SET status='denied', denial_reason=%s,
         approval_history=%s, updated_at=NOW() WHERE id=%s''',
         (reason, _jrd.dumps(history), rid))
+    # If this had already been approved (and put on the calendar), take it back off.
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
     # Notify partner if we have their email
     partner = fetchone(conn, '''SELECT rp.contact_email, rp.contact_name, rp.name AS pname
         FROM rental_requests rr JOIN rental_partners rp ON rp.id=rr.partner_id
@@ -19993,6 +20052,8 @@ def sendback_rental_request(rid):
     execute(conn, '''UPDATE rental_requests SET status='pending', approval_level=0,
         denial_reason=%s, approval_history=%s, updated_at=NOW() WHERE id=%s''',
         (reason, _jrsb.dumps(history), rid))
+    # No longer approved — take it back off the calendar until re-approved.
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

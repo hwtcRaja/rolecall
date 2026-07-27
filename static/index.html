@@ -472,6 +472,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
+        <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
         <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
@@ -1510,6 +1511,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="btab-panel-officers" style="display:none"></div>
  <div id="btab-panel-meetings" style="display:none"></div>
  <div id="btab-panel-schedule" style="display:none"></div>
+ </div>
+ </section>
+
+ <section class="page" id="page-responsibility">
+ <div class="page-header">
+ <div><div class="page-title">Responsibility Grid</div><div class="page-subtitle" id="resp-subtitle">Loading…</div></div>
+ <div class="page-actions">
+ <button class="btn btn-secondary btn-sm" onclick="addRcRole()">+ Role</button>
+ <button class="btn btn-primary btn-sm" onclick="addRcTask()">+ Task</button>
+ </div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+ <button onclick="switchRespTab('grid')" id="rtab-grid" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Responsibility Grid</button>
+ <button onclick="switchRespTab('flow')" id="rtab-flow" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Process Flows</button>
+ <button onclick="switchRespTab('org')" id="rtab-org" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Org Chart</button>
+ </div>
+ <div id="rtab-panel-grid"></div>
+ <div id="rtab-panel-flow" style="display:none"></div>
+ <div id="rtab-panel-org" style="display:none"></div>
  </div>
  </section>
 
@@ -3888,6 +3909,7 @@ const NAV_PERM_MAP = {
  'donor-templates': 'donors',
  'oncall': 'oncall',
  'hours-store': 'hours_store',
+ 'responsibility': 'responsibility_grid',
 }
 
 function canView(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
@@ -3993,6 +4015,7 @@ function navTo(page,el){
  if(page==='marquee') loadMarqueePage()
  if(page==='my-time') loadMyTimePage()
  if(page==='rentals') loadRentalsPage()
+ if(page==='responsibility') loadResponsibilityPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7993,7 +8016,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'📞', 'hours-store':'🏪'
+ oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️'
 }
 
 let _currentNavIcons = {}
@@ -14302,6 +14325,7 @@ const PERM_SECTIONS = [
  {key:'rentals', label:'Venue Rentals', desc:'Create and manage rental requests & agreements'},
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
+ {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
 ]
 
 
@@ -26115,6 +26139,256 @@ async function tkDeleteType(tid){
 }
 </script>
 <!-- ═══════════════ END TICKETING UI ═══════════════ -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// RESPONSIBILITY GRID / PROCESS FLOWS / ORG CHART
+// ═══════════════════════════════════════════════════════════════
+var _rcData = {roles:[], tasks:[]};
+var _respTab = 'grid';
+var RC_PALETTE = ['#8B2A3D','#2F5D62','#3F4E7A','#B8892B','#3E7C4A','#A0522D','#5C6BC0','#00796B',
+  '#C2185B','#7B8C42','#8D6E63','#5D4E75','#455A64','#6B6456'];
+var RC_RACI_STYLE = {
+  R:{bg:'var(--gray-900)', fg:'#fff'},
+  A:{bg:'var(--teal-400)', fg:'#fff'},
+  C:{bg:'var(--amber-50)', fg:'var(--text)'},
+  I:{bg:'transparent', fg:'var(--text-muted)', border:'1px solid var(--text-hint)'}
+};
+var RC_CYCLE = [null,'R','A','C','I'];
+
+function rcRoleById(id){ return (_rcData.roles||[]).find(function(r){ return r.id===id }) }
+function rcTaskById(id){ return (_rcData.tasks||[]).find(function(t){ return t.id===id }) }
+
+async function loadResponsibilityPage(){
+  var res = await api('/api/responsibility/data')
+  if(res && res.error){ toast(res.error,'error'); return }
+  _rcData = res && !res.error ? res : {roles:[], tasks:[]}
+  document.getElementById('resp-subtitle').textContent =
+    (_rcData.roles||[]).length+' roles · '+(_rcData.tasks||[]).length+' tasks'
+  switchRespTab(_respTab)
+}
+
+function switchRespTab(tab){
+  _respTab = tab
+  ;['grid','flow','org'].forEach(function(t){
+    var btn=document.getElementById('rtab-'+t), panel=document.getElementById('rtab-panel-'+t)
+    if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
+    if(panel) panel.style.display=t===tab?'':'none'
+  })
+  if(tab==='grid') renderRespGrid()
+  else if(tab==='flow') renderRespFlows()
+  else if(tab==='org') renderRespOrgChart()
+}
+
+// ---------------- roles (shared add/rename/delete) ----------------
+
+async function addRcRole(){
+  var name = prompt('Role name:')
+  if(!name || !name.trim()) return
+  var res = await api('/api/responsibility/roles','POST',{name:name.trim(), color: RC_PALETTE[(_rcData.roles||[]).length % RC_PALETTE.length]})
+  if(res && res.error){ toast(res.error,'error'); return }
+  await loadResponsibilityPage()
+}
+async function renameRcRole(rid, newName){
+  if(!newName || !newName.trim()) return
+  await api('/api/responsibility/roles/'+rid,'PATCH',{name:newName.trim()})
+  await loadResponsibilityPage()
+}
+async function deleteRcRole(rid){
+  var role = rcRoleById(rid)
+  if(!confirm('Remove "'+(role?role.name:'this role')+'"? This clears them from every task and flow.')) return
+  await api('/api/responsibility/roles/'+rid,'DELETE')
+  await loadResponsibilityPage()
+}
+
+// ---------------- Responsibility Grid tab ----------------
+
+function rcMarkHtml(val){
+  if(!val) return ''
+  var s = RC_RACI_STYLE[val]
+  var border = s.border ? 'border:'+s.border+';' : ''
+  return '<div style="width:26px;height:26px;border-radius:6px;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:'+s.bg+';color:'+s.fg+';'+border+'">'+val+'</div>'
+}
+
+function renderRespGrid(){
+  var el = document.getElementById('rtab-panel-grid')
+  if(!el) return
+  var roles = _rcData.roles||[], tasks = _rcData.tasks||[]
+
+  var html = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;color:var(--text-muted);align-items:center">'
+    +'<b>Key:</b>'
+    +'<span><span style="display:inline-flex;width:16px;height:16px;border-radius:4px;background:var(--gray-900);color:#fff;font-size:9px;font-weight:700;align-items:center;justify-content:center;margin-right:4px">R</span>Responsible</span>'
+    +'<span><span style="display:inline-flex;width:16px;height:16px;border-radius:4px;background:var(--teal-400);color:#fff;font-size:9px;font-weight:700;align-items:center;justify-content:center;margin-right:4px">A</span>Accountable</span>'
+    +'<span><span style="display:inline-flex;width:16px;height:16px;border-radius:4px;background:var(--amber-50);color:var(--text);font-size:9px;font-weight:700;align-items:center;justify-content:center;margin-right:4px">C</span>Consulted</span>'
+    +'<span><span style="display:inline-flex;width:16px;height:16px;border-radius:4px;border:1px solid var(--text-hint);color:var(--text-muted);font-size:9px;font-weight:700;align-items:center;justify-content:center;margin-right:4px">I</span>Informed</span>'
+    +'</div>'
+
+  html += '<div class="card" style="overflow-x:auto"><table style="min-width:900px">'
+  html += '<thead><tr><th style="text-align:left;padding:8px 10px;background:var(--gray-50);font-size:11px;text-transform:uppercase;color:var(--text-muted);position:sticky;left:0">Task</th>'
+  roles.forEach(function(role){
+    html += '<th style="padding:8px 4px;height:100px;vertical-align:bottom;background:var(--gray-50);position:relative">'
+      +'<button onclick="deleteRcRole(\''+role.id+'\')" title="Remove role" style="position:absolute;top:2px;right:2px;background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:12px">×</button>'
+      +'<div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;font-weight:600;white-space:nowrap;margin:0 auto;color:'+role.color+'">'+escHtml(role.name)+'</div>'
+      +'</th>'
+  })
+  html += '</tr></thead><tbody>'
+
+  tasks.forEach(function(task){
+    html += '<tr><td style="text-align:left;padding:8px 10px;min-width:190px;max-width:260px;position:sticky;left:0;background:var(--surface);border-top:1px solid var(--border)">'
+      +'<button onclick="deleteRcTask(\''+task.id+'\')" title="Remove task" style="float:right;background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:14px">×</button>'
+      +'<div contenteditable="true" style="font-weight:600;outline:none" onblur="renameRcTask(\''+task.id+'\', this.innerText)">'+escHtml(task.name)+'</div>'
+      +'<button onclick="jumpToRcFlow(\''+task.id+'\')" style="display:block;margin-top:3px;background:none;border:none;color:var(--text-muted);font-size:10.5px;text-transform:uppercase;cursor:pointer;text-align:left;padding:0">'
+      +(task.steps && task.steps.length ? '\u2192 View flow' : '+ Make this a flow')+'</button>'
+      +'</td>'
+    roles.forEach(function(role){
+      var val = (task.assign||{})[role.id] || null
+      html += '<td style="width:44px;height:44px;text-align:center;cursor:pointer;border-top:1px solid var(--border)" onclick="cycleRcAssignment(\''+task.id+'\',\''+role.id+'\',this)">'+rcMarkHtml(val)+'</td>'
+    })
+    html += '</tr>'
+  })
+  html += '</tbody></table></div>'
+  html += '<div style="font-size:11px;color:var(--text-muted);margin-top:10px">Click a cell to cycle blank \u2192 R \u2192 A \u2192 C \u2192 I</div>'
+  el.innerHTML = html
+}
+
+async function cycleRcAssignment(taskId, roleId, cellEl){
+  var task = rcTaskById(taskId)
+  if(!task) return
+  var cur = (task.assign||{})[roleId] || null
+  var next = RC_CYCLE[(RC_CYCLE.indexOf(cur)+1) % RC_CYCLE.length]
+  if(next) task.assign[roleId] = next; else delete task.assign[roleId]
+  cellEl.innerHTML = rcMarkHtml(next)
+  await api('/api/responsibility/tasks/'+taskId+'/assign','PUT',{role_id:roleId, letter:next})
+}
+async function addRcTask(){
+  var res = await api('/api/responsibility/tasks','POST',{name:''})
+  if(res && res.error){ toast(res.error,'error'); return }
+  await loadResponsibilityPage()
+}
+async function renameRcTask(tid, newName){
+  newName = (newName||'').trim()
+  var task = rcTaskById(tid)
+  if(!task || newName===task.name) return
+  task.name = newName
+  await api('/api/responsibility/tasks/'+tid,'PATCH',{name:newName})
+}
+async function deleteRcTask(tid){
+  if(!confirm('Remove this task from the grid and any flow it\'s part of?')) return
+  await api('/api/responsibility/tasks/'+tid,'DELETE')
+  await loadResponsibilityPage()
+}
+
+// ---------------- Process Flows tab ----------------
+
+async function jumpToRcFlow(taskId){
+  var task = rcTaskById(taskId)
+  if(task && (!task.steps || !task.steps.length)){
+    var involved = Object.keys(task.assign||{})
+    var lanes = (involved.length ? involved : [_rcData.roles[0].id]).slice(0,2)
+    if(lanes.length<2 && _rcData.roles[1]) lanes.push(_rcData.roles[1].id)
+    for(var i=0;i<lanes.length;i++){
+      var step = await api('/api/responsibility/tasks/'+taskId+'/steps','POST',{role_id:lanes[i], label:''})
+      if(!step.error) task.steps.push(step)
+    }
+  }
+  document.getElementById('rtab-flow').click()
+  renderRespFlows()
+  setTimeout(function(){
+    var flowEl = document.getElementById('rcflow-'+taskId)
+    if(flowEl) flowEl.scrollIntoView({behavior:'smooth', block:'center'})
+  }, 30)
+}
+
+function renderRespFlows(){
+  var el = document.getElementById('rtab-panel-flow')
+  if(!el) return
+  var tasks = (_rcData.tasks||[]).filter(function(t){ return t.steps && t.steps.length>0 })
+
+  var html = ''
+  if(!tasks.length){
+    html += '<div class="empty-state"><p>No process flows yet. Pick a task from the Responsibility Grid tab and click "+ Make this a flow."</p></div>'
+  }
+  tasks.forEach(function(task){
+    var laneIds = []
+    task.steps.forEach(function(s){ if(s.role_id && laneIds.indexOf(s.role_id)===-1) laneIds.push(s.role_id) })
+    html += '<div class="card" id="rcflow-'+task.id+'" style="padding:16px 18px;margin-bottom:20px">'
+      +'<div contenteditable="true" style="font-weight:600;font-size:16px;outline:none;margin-bottom:12px" onblur="renameRcTask(\''+task.id+'\', this.innerText)">'+escHtml(task.name)+'</div>'
+    laneIds.forEach(function(rid){
+      var role = rcRoleById(rid)
+      if(!role) return
+      html += '<div style="display:flex;align-items:stretch;border-top:1px solid var(--border);min-height:70px">'
+        +'<div style="width:170px;flex-shrink:0;display:flex;align-items:center;padding:8px 10px;font-size:11.5px;font-weight:600;color:#fff;background:'+role.color+'">'+escHtml(role.name)+'</div>'
+        +'<div style="flex:1;display:flex;align-items:center;gap:24px;padding:14px 20px;overflow-x:auto">'
+      task.steps.forEach(function(step){
+        if(step.role_id!==rid) return
+        html += '<div style="background:var(--gray-50);border:2px solid '+role.color+';border-radius:6px;padding:8px 10px;font-size:12.5px;min-width:140px;max-width:180px;flex-shrink:0">'
+          +'<div contenteditable="true" style="outline:none" onblur="updateRcStepLabel(\''+step.id+'\', this.innerText)">'+escHtml(step.label)+'</div>'
+          +'<div style="display:flex;gap:4px;margin-top:5px">'
+          +'<select onchange="moveRcStepToRole(\''+step.id+'\', this.value)" style="font-size:9.5px;max-width:90px">'
+          +(_rcData.roles||[]).map(function(r){ return '<option value="'+r.id+'"'+(r.id===rid?' selected':'')+'>'+escHtml(r.name)+'</option>' }).join('')
+          +'</select>'
+          +'<button onclick="deleteRcStep(\''+task.id+'\',\''+step.id+'\')" title="Remove step" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:12px">×</button>'
+          +'</div></div>'
+      })
+      html += '</div></div>'
+    })
+    html += '<button onclick="addRcStepToTask(\''+task.id+'\')" style="margin:10px 0 0 170px;border:2px dashed var(--border-md);border-radius:6px;background:none;color:var(--text-muted);font-size:11px;padding:10px 14px;cursor:pointer">+ Add step</button>'
+    html += '</div>'
+  })
+  el.innerHTML = html
+}
+
+async function updateRcStepLabel(stepId, label){
+  await api('/api/responsibility/steps/'+stepId,'PATCH',{label:(label||'').trim()})
+}
+async function moveRcStepToRole(stepId, roleId){
+  await api('/api/responsibility/steps/'+stepId,'PATCH',{role_id:roleId})
+  await loadResponsibilityPage()
+}
+async function addRcStepToTask(taskId){
+  var task = rcTaskById(taskId)
+  var lastRole = (task && task.steps.length) ? task.steps[task.steps.length-1].role_id : _rcData.roles[0].id
+  var step = await api('/api/responsibility/tasks/'+taskId+'/steps','POST',{role_id:lastRole, label:''})
+  if(step && !step.error){ task.steps.push(step); renderRespFlows() }
+}
+async function deleteRcStep(taskId, stepId){
+  await api('/api/responsibility/steps/'+stepId,'DELETE')
+  var task = rcTaskById(taskId)
+  if(task) task.steps = task.steps.filter(function(s){ return s.id!==stepId })
+  renderRespFlows()
+}
+
+// ---------------- Org Chart tab ----------------
+
+function renderRespOrgChart(){
+  var el = document.getElementById('rtab-panel-org')
+  if(!el) return
+  var roles = _rcData.roles||[]
+  var html = '<div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;padding-top:10px">'
+  roles.forEach(function(role){
+    html += '<div class="card" style="border-top:5px solid '+role.color+';padding:12px 14px;width:210px">'
+      +'<div style="font-weight:600;font-size:14px">'+escHtml(role.name)+'</div>'
+      +(role.current_holder_name ? '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+escHtml(role.current_holder_name)+'</div>' : '')
+      +'<div style="font-size:10px;color:var(--text-muted);margin-top:8px">Reports to</div>'
+      +'<select onchange="setRcReportsTo(\''+role.id+'\', this.value)" style="width:100%;font-size:11px;margin-top:4px">'
+      +'<option value="">(Board of Directors)</option>'
+      +roles.filter(function(r){ return r.id!==role.id }).map(function(r){
+        return '<option value="'+r.id+'"'+(r.id===role.reports_to_id?' selected':'')+'>'+escHtml(r.name)+'</option>'
+      }).join('')
+      +'</select>'
+      +'</div>'
+  })
+  html += '</div>'
+  html += '<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:14px">Pick who each role reports to \u2014 exec/officer roles linked to an elected seat show the current holder\'s name automatically.</div>'
+  el.innerHTML = html
+}
+
+async function setRcReportsTo(roleId, reportsToId){
+  var role = rcRoleById(roleId)
+  if(role) role.reports_to_id = reportsToId || null
+  await api('/api/responsibility/roles/'+roleId,'PATCH',{reports_to_id: reportsToId || null})
+}
+</script>
 
 </body>
 </html>

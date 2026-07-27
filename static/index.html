@@ -456,9 +456,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
         <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools"></span>Carpools</div>
 
-        <!-- VENUE RENTALS -->
+        <!-- ARTISTIC PARTNERSHIP -->
         <div class="nav-section">Venue &amp; Partnerships</div>
-        <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Venue Rentals<span class="nav-badge" id="rental-pending-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Artistic Partnership<span class="nav-badge" id="rental-pending-badge" style="display:none">0</span></div>
 
         <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
@@ -498,7 +498,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- DASHBOARD -->
  <section class="page" id="page-rentals">
   <div class="page-header">
-    <div><div class="page-title">Venue Rentals</div><div class="page-subtitle" id="rentals-subtitle">Partners, spaces &amp; agreements</div></div>
+    <div><div class="page-title">Artistic Partnership</div><div class="page-subtitle" id="rentals-subtitle">Partners, spaces &amp; agreements</div></div>
     <div class="page-actions">
       <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
       <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
@@ -1716,8 +1716,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve rental requests and in what order. Leave empty to skip multi-level approval.</div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Artistic Partnership Approvals</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve Artistic Partnership requests and in what order. Leave empty to skip multi-level approval.</div>
  <div id="rental-approval-levels-list" style="margin-bottom:10px"></div>
  <button class="btn btn-secondary btn-sm" onclick="addRentalApprovalLevel()" style="margin-bottom:14px">+ Add Approval Level</button>
  <div class="form-group">
@@ -1829,8 +1829,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 
  <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Venue Rental Approvals</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve rental requests and in what order. Leave empty to skip multi-level approval.</div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">Artistic Partnership Approvals</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Configure who needs to approve Artistic Partnership requests and in what order. Leave empty to skip multi-level approval.</div>
  <div id="rental-approval-levels-list" style="margin-bottom:10px"></div>
  <button class="btn btn-secondary btn-sm" onclick="addRentalApprovalLevel()" style="margin-bottom:14px">+ Add Approval Level</button>
  <div class="form-group">
@@ -2578,7 +2578,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rentals">
  <span style="font-size:16px"></span>
  </div>
- <div style="flex:1;font-size:13px;font-weight:600">Venue Rentals</div>
+ <div style="flex:1;font-size:13px;font-weight:600">Artistic Partnership</div>
  <div style="display:flex;align-items:center;gap:8px">
  <input type="text" id="ni-input-rentals" placeholder="key" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
@@ -14322,7 +14322,7 @@ const PERM_SECTIONS = [
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
- {key:'rentals', label:'Venue Rentals', desc:'Create and manage rental requests & agreements'},
+ {key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
  {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
@@ -23724,7 +23724,7 @@ async function submitMyTime(){
   else toast((res&&res.error)||'Error submitting','error')
 }
 
-// ── Venue Rentals ────────────────────────────────────────────────────────────
+// ── Artistic Partnership ─────────────────────────────────────────────────────
 var _rentalData = {requests:[], partners:[], spaces:[]}
 
 const RENTAL_STATUS_COLORS = {
@@ -23752,9 +23752,9 @@ async function loadRentalsPage(){
     api('/api/email-settings'),
   ])
   if(requests && !Array.isArray(requests) && requests.error){
-    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red)">Could not load rental requests: '+escHtml(requests.error)+'<br><br>'
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red)">Could not load Artistic Partnership requests: '+escHtml(requests.error)+'<br><br>'
       + '<button class="btn btn-secondary btn-sm" onclick="loadRentalsPage()">Try again</button></div>'
-    toast('Could not load rental requests — see error above','error')
+    toast('Could not load Artistic Partnership requests — see error above','error')
     return
   }
   _rentalData = {
@@ -23817,7 +23817,7 @@ function renderRentalsPage(){
   html += `</div>`
 
   if(!requests.length){
-    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No rental requests yet. Click <strong>+ New Rental Request</strong> to get started.</div>'
+    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No Artistic Partnership requests yet. Click <strong>+ New Partnership Request</strong> to get started.</div>'
   } else {
     const levels = _rentalData.approvalLevels || []
     html += requests.map(function(r){
@@ -24174,7 +24174,7 @@ function openNewRentalModal(rid){
     })
   }catch(e){ _rmSpecificDates = [] }
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Rental Request</div>
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Partnership Request</div>
    ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title / Event Name</label>
@@ -24491,7 +24491,7 @@ function openPartnershipInterestLinkModal(){
   const link = window.location.origin + '/partnership-interest'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:10px"> Artistic Partnership Interest Form</div>
-   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Share this link with prospective partners. Submissions show up here as new pending rental requests, ready for you to review and follow up.</div>
+   <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Share this link with prospective partners. Submissions show up here as new pending Artistic Partnership requests, ready for you to review and follow up.</div>
    <div style="display:flex;gap:8px">
     <input readonly id="partnership-link-input" value="${link}" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--bg)"/>
     <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('partnership-link-input').value);toast('Link copied!','success')">Copy</button>
@@ -24604,7 +24604,7 @@ async function submitDenyAction(rid, action){
 }
 
 async function deleteRentalRequest(rid){
-  if(!confirm('Permanently delete this rental request? This cannot be undone.')) return
+  if(!confirm('Permanently delete this Artistic Partnership request? This cannot be undone.')) return
   const res = await api('/api/rental/requests/'+rid,'DELETE')
   if(res&&res.ok){ toast('Request deleted','success'); loadRentalsPage() }
   else toast((res&&res.error)||'Error','error')
@@ -24797,7 +24797,7 @@ async function deleteComplianceDoc(did){
   if(res&&res.ok) loadComplianceDocsList()
 }
 
-// ── End Venue Rentals ────────────────────────────────────────────────────────
+// ── End Artistic Partnership ─────────────────────────────────────────────────
 
 // ── Show Contracts Q&A ────────────────────────────────────────────────────
 function copyShowQuestionsLink(){

@@ -1462,6 +1462,16 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_type TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_multiplier REAL",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hours_store_bonus_flat_cents INTEGER",
+
+        # ── Hours Store: manual bonus/gift credits ──
+        """CREATE TABLE IF NOT EXISTS hour_store_bonus_credits (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            hours REAL NOT NULL,
+            reason TEXT DEFAULT '',
+            granted_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_hour_bonus_credits_vol ON hour_store_bonus_credits(volunteer_id)',
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'admin'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS desired_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
@@ -2951,6 +2961,8 @@ def get_volunteer(vol_id):
     vol['redemptions'] = fetchall(conn, '''SELECT hr.*, si.name as current_item_name FROM hour_redemptions hr
         LEFT JOIN store_items si ON si.id=hr.store_item_id
         WHERE hr.volunteer_id=%s ORDER BY hr.requested_at DESC''', (vol_id,))
+    vol['bonus_credits'] = fetchall(conn, '''SELECT * FROM hour_store_bonus_credits
+        WHERE volunteer_id=%s ORDER BY created_at DESC''', (vol_id,))
     # Board membership
     vol['board_member'] = fetchone(conn, '''SELECT bm.*, 
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
@@ -2958,6 +2970,46 @@ def get_volunteer(vol_id):
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
     conn.close()
     return jsonify(vol)
+
+@app.route('/api/volunteers/<vol_id>/bonus-credit', methods=['POST'])
+def add_hour_bonus_credit(vol_id):
+    """Grant a free/gift credit directly to someone's Hours Store balance —
+    doesn't touch their real logged-hours total, only what they have to spend."""
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    try:
+        hours = float(d.get('hours'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid number of hours'}), 400
+    if hours == 0:
+        return jsonify({'error': 'Enter a non-zero amount'}), 400
+    reason = (d.get('reason') or '').strip()
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT id FROM volunteers WHERE id=%s', (vol_id,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Volunteer not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    bid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO hour_store_bonus_credits (id, volunteer_id, hours, reason, granted_by)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (bid, vol_id, hours, reason, (user or {}).get('name', 'Admin')))
+    conn.commit()
+    new_balance = _get_store_eligible_hours(conn, vol_id)
+    conn.close()
+    return jsonify({'ok': True, 'id': bid, 'store_eligible_hours': new_balance})
+
+@app.route('/api/volunteers/<vol_id>/bonus-credit/<bid>', methods=['DELETE'])
+def delete_hour_bonus_credit(vol_id, bid):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM hour_store_bonus_credits WHERE id=%s AND volunteer_id=%s', (bid, vol_id))
+    conn.commit()
+    new_balance = _get_store_eligible_hours(conn, vol_id)
+    conn.close()
+    return jsonify({'ok': True, 'store_eligible_hours': new_balance})
 
 # ─────────────────────────────────────────────
 #  HOURS STORE
@@ -2975,8 +3027,10 @@ def _get_store_eligible_hours(conn, volunteer_id):
     Meeting event (excluded — see _get_store_eligible_hours docs elsewhere), plus any
     per-event Hours Store bonuses (a 'multiplier' event counts its hours at e.g. 2x for
     store credit only; a 'flat' event grants a one-time bonus, converted to hours at the
-    current rate, to anyone who logged any hours there). None of this touches the
-    volunteer's real total_hours — only what's available to spend in the store."""
+    current rate, to anyone who logged any hours there), plus any manually-granted bonus
+    credits (a free gift of hours an admin adds directly to someone's store balance —
+    see hour_store_bonus_credits). None of this touches the volunteer's real
+    total_hours — only what's available to spend in the store."""
     base_row = fetchone(conn, '''SELECT COALESCE(SUM(
             CASE WHEN e.hours_store_bonus_type='multiplier' AND e.hours_store_bonus_multiplier IS NOT NULL
                  THEN h.hours * e.hours_store_bonus_multiplier
@@ -2995,7 +3049,9 @@ def _get_store_eligible_hours(conn, volunteer_id):
     flat_bonus_cents = sum((r.get('hours_store_bonus_flat_cents') or 0) for r in flat_rows)
     rate = _get_hours_store_rate_cents(conn)
     flat_bonus_hours = (flat_bonus_cents / rate) if rate else 0
-    return (base or 0) + flat_bonus_hours
+    manual_bonus_row = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hour_store_bonus_credits WHERE volunteer_id=%s', (volunteer_id,))
+    manual_bonus = manual_bonus_row['t'] if manual_bonus_row else 0
+    return (base or 0) + flat_bonus_hours + (manual_bonus or 0)
 
 def sync_hours_store_for_program(conn, program_id):
     """Create/update/retire auto-synced store_items to match a program's current

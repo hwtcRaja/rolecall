@@ -24155,6 +24155,8 @@ function openNewRentalModal(rid){
   const spaces = _rentalData.spaces.filter(s=>s.active)
   const recurrencePatterns = [{v:'weekly',l:'Weekly'},{v:'biweekly',l:'Every 2 Weeks'},{v:'monthly',l:'Monthly'},{v:'daily',l:'Daily'}]
   const rateTypes = [{v:'hourly',l:'Hourly'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
+  const initialMode = (req||{}).date_mode || ((req||{}).recurring ? 'recurring' : 'range')
+  try{ _rmSpecificDates = JSON.parse((req||{}).specific_dates||'[]') || [] }catch(e){ _rmSpecificDates = [] }
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Rental Request</div>
    ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
@@ -24171,18 +24173,30 @@ function openNewRentalModal(rid){
     <option value="">Select space...</option>
     ${spaces.map(s=>`<option value="${s.id}" ${(req||{}).space_id===s.id?'selected':''}>${escHtml(s.name)}</option>`).join('')}
     </select></div>
-    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>
+    <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Schedule Type</label>
+    <select id="rm-date-mode" onchange="toggleRentalDateMode()" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+     <option value="range" ${initialMode==='range'?'selected':''}>One-time (single date or date range)</option>
+     <option value="recurring" ${initialMode==='recurring'?'selected':''}>Recurring (weekly, biweekly, etc.)</option>
+     <option value="specific" ${initialMode==='specific'?'selected':''}>Specific dates (pick individual days)</option>
+    </select></div>
+    <div id="rm-start-date-wrap"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Date</label>
     <input type="date" id="rm-start-date" value="${escHtml((req||{}).start_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Date (if multi-day)</label>
+    <div id="rm-end-date-wrap"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Date (if multi-day)</label>
     <input type="date" id="rm-end-date" value="${escHtml((req||{}).end_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Start Time</label>
     <input type="time" id="rm-start-time" value="${escHtml((req||{}).start_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Time</label>
     <input type="time" id="rm-end-time" value="${escHtml((req||{}).end_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div id="rm-specific-dates-section" style="grid-column:1/-1;display:none">
+     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Dates</label>
+     <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input type="date" id="rm-specific-date-input" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addRmSpecificDate()">+ Add Date</button>
+     </div>
+     <div id="rm-specific-dates-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    </div>
    </div>
-   <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:12px">
-   <input type="checkbox" id="rm-recurring" ${(req||{}).recurring?'checked':''} style="accent-color:#145466" onchange="document.getElementById('rm-recurrence-opts').style.display=this.checked?'':'none'"/> Recurring rental</label>
-   <div id="rm-recurrence-opts" style="${(req||{}).recurring?'':'display:none'};display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+   <div id="rm-recurrence-opts" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Pattern</label>
     <select id="rm-pattern" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
     ${recurrencePatterns.map(p=>`<option value="${p.v}" ${(req||{}).recurrence_pattern===p.v?'selected':''}>${p.l}</option>`).join('')}
@@ -24204,7 +24218,7 @@ function openNewRentalModal(rid){
    <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
     <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')">📅 Preview on Calendar</button>
-    <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">See what these dates would look like against the real calendar — nothing is saved until you click Save Request.</div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">See what these dates would look like against the real calendar — nothing is saved here, and it won't go on the actual calendar until this request is fully approved.</div>
     <div id="rm-preview-results" style="margin-top:12px"></div>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -24214,6 +24228,8 @@ function openNewRentalModal(rid){
   </div>`
   overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+  toggleRentalDateMode()
+  renderRmSpecificDatesList()
 }
 
 function openEditRentalModal(rid){ openNewRentalModal(rid) }
@@ -24221,6 +24237,7 @@ function openEditRentalModal(rid){ openNewRentalModal(rid) }
 async function saveRentalRequest(rid){
   const rateVal = parseFloat((document.getElementById('rm-rate')||{}).value||0)
   const totalVal = parseFloat((document.getElementById('rm-total')||{}).value||0)
+  const dateMode = (document.getElementById('rm-date-mode')||{}).value||'range'
   const payload={
     title:(document.getElementById('rm-title')||{}).value||'',
     partner_id:(document.getElementById('rm-partner')||{}).value||null,
@@ -24229,16 +24246,19 @@ async function saveRentalRequest(rid){
     end_date:(document.getElementById('rm-end-date')||{}).value||'',
     start_time:(document.getElementById('rm-start-time')||{}).value||'',
     end_time:(document.getElementById('rm-end-time')||{}).value||'',
-    recurring:!!(document.getElementById('rm-recurring')||{}).checked,
+    date_mode:dateMode,
+    recurring:dateMode==='recurring',
     recurrence_pattern:(document.getElementById('rm-pattern')||{}).value||'weekly',
     recurrence_end_date:(document.getElementById('rm-recur-end')||{}).value||'',
+    specific_dates:_rmSpecificDates.slice().sort(),
     rate_type:(document.getElementById('rm-rate-type')||{}).value||'hourly',
     rate_amount:Math.round(rateVal*100),
     total_amount:Math.round(totalVal*100),
     purpose:(document.getElementById('rm-purpose')||{}).value||'',
   }
   if(!payload.title){ toast('Title is required','error'); return }
-  if(!payload.start_date){ toast('Start date is required','error'); return }
+  if(dateMode==='specific' && !payload.specific_dates.length){ toast('Add at least one date','error'); return }
+  if(dateMode!=='specific' && !payload.start_date){ toast('Start date is required','error'); return }
   const res = rid ? await api('/api/rental/requests/'+rid,'PUT',payload) : await api('/api/rental/requests','POST',payload)
   if(res&&res.ok){
     toast(rid?'Request updated':'Request created — board president/VP notified for approval','success')
@@ -24247,18 +24267,64 @@ async function saveRentalRequest(rid){
   } else toast((res&&res.error)||'Error','error')
 }
 
+let _rmSpecificDates = []
+
+function toggleRentalDateMode(){
+  const mode = (document.getElementById('rm-date-mode')||{}).value||'range'
+  const startWrap = document.getElementById('rm-start-date-wrap')
+  const endWrap = document.getElementById('rm-end-date-wrap')
+  const recurOpts = document.getElementById('rm-recurrence-opts')
+  const specSection = document.getElementById('rm-specific-dates-section')
+  if(startWrap) startWrap.style.display = mode==='specific' ? 'none' : ''
+  if(endWrap) endWrap.style.display = mode==='range' ? '' : 'none'
+  if(recurOpts) recurOpts.style.display = mode==='recurring' ? 'grid' : 'none'
+  if(specSection) specSection.style.display = mode==='specific' ? '' : 'none'
+}
+
+function renderRmSpecificDatesList(){
+  const wrap = document.getElementById('rm-specific-dates-list')
+  if(!wrap) return
+  const sorted = _rmSpecificDates.slice().sort()
+  wrap.innerHTML = sorted.length ? sorted.map(function(dt){
+    return '<span style="display:flex;align-items:center;gap:5px;background:var(--gray-50);border:1px solid var(--border);border-radius:14px;padding:4px 6px 4px 10px;font-size:12px">'
+      +escHtml(dt)+'<button type="button" onclick="removeRmSpecificDate(\''+dt+'\')" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:13px">×</button></span>'
+  }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No dates added yet.</div>'
+  // rm-start-date stays synced to the earliest picked date, since the
+  // backend still uses start_date for sorting/list display either way.
+  const startEl = document.getElementById('rm-start-date')
+  if(startEl && sorted.length) startEl.value = sorted[0]
+}
+
+function addRmSpecificDate(){
+  const input = document.getElementById('rm-specific-date-input')
+  const val = input ? input.value : ''
+  if(!val) return
+  if(_rmSpecificDates.indexOf(val)===-1) _rmSpecificDates.push(val)
+  if(input) input.value = ''
+  renderRmSpecificDatesList()
+}
+
+function removeRmSpecificDate(dt){
+  _rmSpecificDates = _rmSpecificDates.filter(function(x){ return x!==dt })
+  renderRmSpecificDatesList()
+}
+
 function _rcDateFromISO(s){ const parts=s.split('-').map(Number); return new Date(Date.UTC(parts[0],parts[1]-1,parts[2])) }
 function _rcISOFromDate(dt){ return dt.toISOString().slice(0,10) }
 
 function computeRentalCandidateDates(){
+  const mode = (document.getElementById('rm-date-mode')||{}).value||'range'
+  const stime = (document.getElementById('rm-start-time')||{}).value||''
+  const etime = (document.getElementById('rm-end-time')||{}).value||''
+  if(mode==='specific'){
+    return _rmSpecificDates.slice().sort().map(function(dt){ return {date:dt, start_time:stime, end_time:etime} })
+  }
   const startRaw = (document.getElementById('rm-start-date')||{}).value||''
   if(!startRaw) return []
-  const recurring = !!(document.getElementById('rm-recurring')||{}).checked
+  const recurring = mode==='recurring'
   const pattern = (document.getElementById('rm-pattern')||{}).value||'weekly'
   const recurEnd = (document.getElementById('rm-recur-end')||{}).value||''
   const endRaw = (document.getElementById('rm-end-date')||{}).value||''
-  const stime = (document.getElementById('rm-start-time')||{}).value||''
-  const etime = (document.getElementById('rm-end-time')||{}).value||''
   const start = _rcDateFromISO(startRaw)
   const dates = []
   if(recurring && recurEnd){

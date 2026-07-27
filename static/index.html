@@ -1724,16 +1724,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
  <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
  </div>
- <div class="form-group" style="margin-top:12px">
- <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Reply-To Domain <span style="font-weight:400;color:var(--text-muted)">(for two-way email in Messages)</span></label>
- <input id="es-rental-inbound-domain" placeholder="e.g. your-id.resend.app, or a custom subdomain you've enabled Receiving on" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Emails → Receiving. Replies from partners route back here so they show up in the request's Messages thread.</div>
- </div>
- <div class="form-group" style="margin-top:10px">
- <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Webhook Signing Secret</label>
- <input id="es-rental-webhook-secret" type="password" placeholder="whsec_..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Webhooks → the webhook subscribed to email.received, pointed at /api/rental/inbound-email.</div>
- </div>
  </div>
 
  <div style="display:flex;gap:10px">
@@ -1846,16 +1836,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group">
  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
  <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
- </div>
- <div class="form-group" style="margin-top:12px">
- <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Reply-To Domain <span style="font-weight:400;color:var(--text-muted)">(for two-way email in Messages)</span></label>
- <input id="es-rental-inbound-domain-2" placeholder="e.g. your-id.resend.app, or a custom subdomain you've enabled Receiving on" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Emails → Receiving. Replies from partners route back here so they show up in the request's Messages thread.</div>
- </div>
- <div class="form-group" style="margin-top:10px">
- <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Webhook Signing Secret</label>
- <input id="es-rental-webhook-secret-2" type="password" placeholder="whsec_..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Webhooks → the webhook subscribed to email.received, pointed at /api/rental/inbound-email.</div>
  </div>
  </div>
 
@@ -8151,8 +8131,6 @@ async function loadEmailSettings(){
  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
  chk('es-alert-role-filled', s.alert_role_filled!==false)
  set('es-rental-approver-emails', s.rental_approver_emails||'')
- set('es-rental-inbound-domain', s.rental_inbound_domain||'')
- set('es-rental-webhook-secret', s.rental_inbound_webhook_secret||'')
  const tmplEl = document.getElementById('es-rental-agreement-template')
  if(tmplEl) tmplEl.value = s.rental_agreement_template||''
  loadTwilioSettings(s)
@@ -9127,8 +9105,6 @@ async function saveEmailSettings(){
  alert_role_filled: chk('es-alert-role-filled'),
  alert_waiver_expiry: chk('es-alert-waivers'),
  rental_approver_emails: get('es-rental-approver-emails'),
- rental_inbound_domain: get('es-rental-inbound-domain'),
- rental_inbound_webhook_secret: get('es-rental-webhook-secret'),
  rental_approval_levels: JSON.stringify((window._rentalApprovalLevels||[])),
  rental_agreement_template: (document.getElementById('es-rental-agreement-template')||{}).value||''
  }

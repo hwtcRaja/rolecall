@@ -1941,12 +1941,12 @@ def init_db():
         'CREATE INDEX IF NOT EXISTS ix_rc_steps_task ON rc_flow_steps(task_id)',
         'CREATE INDEX IF NOT EXISTS ix_rc_roles_reports_to ON rc_roles(reports_to_id)',
 
-        # ── Venue Rentals: specific-dates scheduling mode ──
+        # ── Artistic Partnership: specific-dates scheduling mode ──
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS date_mode TEXT DEFAULT 'range'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS specific_dates TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS portal_token TEXT UNIQUE",
 
-        # ── Venue Rentals: message thread (self-service portal) ──
+        # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
             id TEXT PRIMARY KEY,
             request_id TEXT NOT NULL REFERENCES rental_requests(id) ON DELETE CASCADE,
@@ -2296,8 +2296,10 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
 </div>'''
 
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source=''):
-    """Send via Resend API. from_email/from_name override settings default."""
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None):
+    """Send via Resend API. from_email/from_name override settings default.
+    attachments: optional list of {'filename': str, 'content_b64': str} dicts —
+    content_b64 is the base64-encoded file content (e.g. a PDF)."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
@@ -2326,10 +2328,15 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
         return False, 'No recipients'
     try:
         import requests as _req
+        payload = {'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body}
+        if attachments:
+            payload['attachments'] = [
+                {'filename': a['filename'], 'content': a['content_b64']} for a in attachments
+            ]
         resp = _req.post('https://api.resend.com/emails',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-            json={'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body},
-            timeout=10)
+            json=payload,
+            timeout=20)
         if resp.status_code not in (200, 201, 202):
             err = f'Resend error {resp.status_code}: {resp.text[:200]}'
             app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
@@ -2668,7 +2675,7 @@ def get_events():
                 'event_date': r.get('occurrence_date',''),
                 'start_time': r.get('start_time') or r.get('req_start',''),
                 'end_time': r.get('end_time') or r.get('req_end',''),
-                'event_type_name': 'Venue Rental',
+                'event_type_name': 'Artistic Partnership',
                 'event_type_color': '#7c3aed',
                 'status': r.get('status','scheduled'),
                 'location': r.get('space_name',''),
@@ -19503,7 +19510,7 @@ def upload_lobby_image():
 
 # ── End My Time & Attendance ───────────────────────────────────────────────────
 
-# ── Venue Rentals ─────────────────────────────────────────────────────────────
+# ── Artistic Partnership ────────────────────────────────────────────────
 
 @app.route('/api/rental/spaces', methods=['GET'])
 def get_rental_spaces():
@@ -19729,7 +19736,7 @@ def public_partnership_interest_submit():
                 f'<strong>Wants to use the space for:</strong> {purpose}<br>'
                 f'<strong>How often:</strong> {(d.get("desired_frequency") or "Not specified")}<br>'
                 f'{dates_line}<br>'
-                f'Please log in to RoleCall → Venue Rentals to review and follow up.')
+                f'Please log in to RoleCall → Artistic Partnership to review and follow up.')
         for email_addr in approver_emails:
             try:
                 send_email(email_addr, subject, body)
@@ -19781,7 +19788,7 @@ def get_rental_requests():
         conn.rollback()
         conn.close()
         app.logger.error(f'get_rental_requests query failed: {e}')
-        return jsonify({'error': f'Could not load rental requests: {e}'}), 500
+        return jsonify({'error': f'Could not load Artistic Partnership requests: {e}'}), 500
     conn.close()
     return jsonify(requests_data)
 
@@ -19839,15 +19846,15 @@ def create_rental_request():
         if not approver_emails:
             raw = (es.get('rental_approver_emails') or '').strip()
             approver_emails = [e.strip() for e in raw.replace(',','\n').splitlines() if e.strip()]
-        subject = f'New Rental Request Pending Approval: {d.get("title","")}'
-        body = f'A new venue rental request has been submitted and requires approval.<br><br><strong>Title:</strong> {d.get("title","")}<br><strong>Start:</strong> {d.get("start_date","")}<br><strong>Purpose:</strong> {d.get("purpose","")}<br><br>Please log in to RoleCall → Venue Rentals to review and approve.'
+        subject = f'New Artistic Partnership Request Pending Approval: {d.get("title","")}'
+        body = f'A new Artistic Partnership request has been submitted and requires approval.<br><br><strong>Title:</strong> {d.get("title","")}<br><strong>Start:</strong> {d.get("start_date","")}<br><strong>Purpose:</strong> {d.get("purpose","")}<br><br>Please log in to RoleCall → Artistic Partnership to review and approve.'
         for email_addr in approver_emails:
             try:
                 send_email(email_addr, subject, body)
             except Exception as email_err:
                 app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
         if not approver_emails:
-            app.logger.warning('Rental request created but no approver emails configured — check Settings → Email Settings → Venue Rental Approvals')
+            app.logger.warning('Artistic Partnership request created but no approver emails configured — check Settings → Email Settings → Artistic Partnership Approvals')
     except Exception as e:
         app.logger.warning(f'Rental approval notification error: {e}')
     conn.close()
@@ -20055,7 +20062,7 @@ def approve_rental_request(rid):
         for em in emails:
             try:
                 send_email(em,
-                    f'Rental Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
+                    f'Artistic Partnership Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
                     f'{approver_name} has approved this request at Level {next_level}.<br><br>Title: {req.get("title","")}<br><br>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
             except Exception: pass
     conn.commit(); conn.close()
@@ -20098,8 +20105,8 @@ def deny_rental_request(rid):
     if partner and partner.get('contact_email'):
         try:
             send_email(partner['contact_email'],
-                f'Rental Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your venue rental request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
+                f'Artistic Partnership Request Update: {req.get("title","")}',
+                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your Artistic Partnership request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -20232,8 +20239,8 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>
 </div>
-<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP &amp; CO-PRODUCTION AGREEMENT</h2>
-<p>This Artistic Partnership and Co-Production Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP AND STUDIO USE AGREEMENT</h2>
+<p>This Artistic Partnership and Studio Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
 <p><strong>Horizon West Theater Company</strong> (&ldquo;HWTC&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
 <p><strong>{partner_name}</strong> (&ldquo;Partner Organization&rdquo;), represented by <strong>{contact_name}</strong>.</p>
@@ -20253,7 +20260,7 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 {poc_block}
 {terms_html}
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
-<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Co-Production Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
+<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Studio Use Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
@@ -20295,10 +20302,10 @@ def send_rental_agreement(aid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{agr["signing_token"]}'
     email_to = agr.get('contact_email','')
     if email_to:
-        subject = f'Venue Rental Agreement – {agr.get("title","")}'
+        subject = f'Artistic Partnership and Studio Use Agreement – {agr.get("title","")}'
         body = f'''Dear {agr.get("contact_name","") or agr.get("partner_name","")},
 
-Please review and digitally sign your venue rental agreement with Horizon West Theater Company.
+Please review and digitally sign your Artistic Partnership and Studio Use Agreement with Horizon West Theater Company.
 
 Click the link below to review and sign:
 {signing_url}
@@ -20333,7 +20340,7 @@ def rental_signing_page(token):
     contract = agr.get('contract_html','')
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign Rental Agreement – {agr.get("title","")}</title>
+<title>Sign Artistic Partnership and Studio Use Agreement – {agr.get("title","")}</title>
 <style>
 body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
 .contract-wrap{{max-width:860px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
@@ -20375,6 +20382,30 @@ async function signAgreement(){{
 }}
 </script></body></html>'''
 
+def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
+    """Render the contract HTML (plus a signature footer) to a PDF, returned
+    as base64-encoded bytes ready for an email attachment. Uses xhtml2pdf,
+    which is pure-Python — no system-level dependencies to install on
+    Railway, unlike wkhtmltopdf/WeasyPrint."""
+    import base64
+    from io import BytesIO
+    from xhtml2pdf import pisa
+    signature_block = (
+        '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
+        '<strong>Signed by:</strong> ' + signed_name + '<br>'
+        '<strong>Date:</strong> ' + signed_at_str + '</div>'
+    )
+    full_html = (
+        '<html><head><meta charset="utf-8"><style>'
+        'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#1a2332}'
+        '</style></head><body>' + contract_html + signature_block + '</body></html>'
+    )
+    buf = BytesIO()
+    result = pisa.CreatePDF(full_html, dest=buf)
+    if result.err:
+        return None
+    return base64.b64encode(buf.getvalue()).decode()
+
 @app.route('/rent/sign/<token>', methods=['POST'])
 def submit_rental_signature(token):
     d = request.json or {}
@@ -20396,16 +20427,36 @@ def submit_rental_signature(token):
     execute(conn, "UPDATE rental_requests SET status='signed', updated_at=NOW() WHERE id=%s",
         (agr['request_id'],))
     conn.commit()
-    # Notify admin
+    # Generate a signed PDF copy and send it to both the partner and staff.
     try:
-        req = fetchone(conn, '''SELECT rr.title, rp.name AS partner_name FROM rental_requests rr
-            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (agr['request_id'],))
+        req = fetchone(conn, '''SELECT rr.title, rp.name AS partner_name, rp.contact_email AS partner_email
+            FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            WHERE rr.id=%s''', (agr['request_id'],))
+        signed_at_str = datetime.now().strftime('%B %d, %Y at %I:%M %p')
+        pdf_b64 = _generate_contract_pdf(agr.get('contract_html', ''), name, signed_at_str)
+        attachments = [{'filename': 'Artistic Partnership and Studio Use Agreement — Signed.pdf', 'content_b64': pdf_b64}] if pdf_b64 else None
+        title = (req or {}).get('title', '')
+        partner_email = (req or {}).get('partner_email', '')
+
+        if partner_email:
+            send_email(partner_email,
+                f'Your Signed Agreement: {title}',
+                f'Hi {name},<br><br>Thanks for signing! Attached is a signed copy of your Artistic Partnership and '
+                f'Studio Use Agreement for "{title}" for your records.<br><br>We look forward to working with you.<br><br>'
+                f'Horizon West Theater Company',
+                attachments=attachments)
+        else:
+            app.logger.warning(f'Signed agreement for request {agr.get("request_id")} — no partner email on file, PDF not sent to partner')
+
         admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL")
         for admin in (admins or []):
             send_email(admin['email'],
-                f'Agreement Signed: {(req or {}).get("title","")}',
-                f'{name} has signed the rental agreement for {(req or {}).get("title","")}.<br><br>Log in to RoleCall to view the signed agreement.')
-    except Exception: pass
+                f'Agreement Signed: {title}',
+                f'{name} has signed the Artistic Partnership and Studio Use Agreement for {title}.<br><br>'
+                f'A signed PDF copy is attached. You can also view it anytime in RoleCall.',
+                attachments=attachments)
+    except Exception as e:
+        app.logger.warning(f'Signed agreement PDF/email error: {e}')
     conn.close()
     return jsonify({'ok': True})
 
@@ -20471,7 +20522,7 @@ def check_rental_availability():
     conn.close()
     return jsonify({'space_name': space['name'] if space else '', 'results': results})
 
-# ── Venue Rentals: customer self-service portal ──────────────────────────────
+# ── Artistic Partnership: customer self-service portal ──────────────────────
 # Rather than routing replies through inbound email (which needs DNS/MX
 # changes on a domain), the requester gets a link to a token-based page
 # where they can see their request status and read/reply to messages
@@ -20527,10 +20578,10 @@ def send_rental_message(rid):
     portal_url = _rental_portal_url(token)
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
     sender_name = (user or {}).get('name', 'Horizon West Theater Company')
-    subject = f'New message about your rental request: {req.get("title","")}'
+    subject = f'New message about your Artistic Partnership request: {req.get("title","")}'
     html_body = (
         f'Hi {req.get("partner_contact","") or ""},<br><br>'
-        f'You have a new message from {sender_name} about your rental request '
+        f'You have a new message from {sender_name} about your Artistic Partnership request '
         f'"{req.get("title","")}":<br><br>'
         f'<div style="background:#f8fafc;border-left:3px solid #145466;padding:12px 16px;margin:12px 0">{body.replace(chr(10), "<br>")}</div>'
         f'<a href="{portal_url}" style="display:inline-block;background:#145466;color:#fff;padding:10px 20px;'
@@ -20598,7 +20649,7 @@ def rental_portal_page(token):
     thread_html = _rental_portal_thread_html(msgs)
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Your Rental Request – {req.get("title","")}</title>
+<title>Your Artistic Partnership Request – {req.get("title","")}</title>
 <style>
 body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
 .wrap{{max-width:640px;margin:0 auto;padding:30px 20px 60px}}
@@ -20704,9 +20755,9 @@ def public_rental_message_submit(token):
             approver_emails = [e.strip() for e in raw_e.replace(',', '\n').splitlines() if e.strip()]
         for addr in approver_emails:
             try:
-                send_email(addr, f'New reply on rental request: {req.get("title","")}',
+                send_email(addr, f'New reply on Artistic Partnership request: {req.get("title","")}',
                     f'{req.get("partner_contact","") or req.get("partner_email","")} replied about "{req.get("title","")}".<br><br>'
-                    f'Log in to RoleCall → Venue Rentals to view and respond.')
+                    f'Log in to RoleCall → Artistic Partnership to view and respond.')
             except Exception:
                 pass
     except Exception as e:
@@ -21012,7 +21063,7 @@ def delete_compliance_check(cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-# ── End Venue Rentals ─────────────────────────────────────────────────────────
+# ── End Artistic Partnership ────────────────────────────────────────────
 
 # ── Show Contracts Q&A ────────────────────────────────────────────────────────
 # Lets staff upload licensing/venue/performance contracts for a specific

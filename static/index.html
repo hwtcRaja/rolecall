@@ -23751,6 +23751,12 @@ async function loadRentalsPage(){
     api('/api/rental/spaces'),
     api('/api/email-settings'),
   ])
+  if(requests && !Array.isArray(requests) && requests.error){
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red)">Could not load rental requests: '+escHtml(requests.error)+'<br><br>'
+      + '<button class="btn btn-secondary btn-sm" onclick="loadRentalsPage()">Try again</button></div>'
+    toast('Could not load rental requests — see error above','error')
+    return
+  }
   _rentalData = {
     requests: Array.isArray(requests) ? requests : [],
     partners: Array.isArray(partners) ? partners : [],

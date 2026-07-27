@@ -19740,9 +19740,9 @@ def create_rental_request():
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip()))
-    # Generate occurrences if recurring
-    if d.get('recurring') and d.get('start_date') and d.get('recurrence_end_date'):
-        _generate_rental_occurrences(conn, rid, d)
+    # Generate occurrences so this shows up on the calendar right away —
+    # a single date, a contiguous multi-day span, or a recurring series.
+    _generate_rental_occurrences(conn, rid, d)
     conn.commit()
     # Send approval notification — use Level 1 emails from approval_levels, fallback to rental_approver_emails
     try:
@@ -19775,34 +19775,67 @@ def create_rental_request():
     return jsonify({'ok': True, 'id': rid})
 
 def _generate_rental_occurrences(conn, request_id, d):
+    """Create one rental_occurrences row per day this request covers, so it
+    always shows up on the calendar (via the synthetic-event merge in
+    get_events) as soon as it's created or edited — whether it's a single
+    date, a contiguous multi-day span (start_date..end_date), or a
+    recurring series (start_date stepping by pattern to recurrence_end_date)."""
     import uuid as _uro2
     import datetime as _dto2
-    pattern = d.get('recurrence_pattern') or 'weekly'
+    start_raw = (d.get('start_date') or '').strip()
+    if not start_raw:
+        return
     try:
-        cur = _dto2.date.fromisoformat(d.get('start_date'))
-        end = _dto2.date.fromisoformat(d.get('recurrence_end_date'))
+        start = _dto2.date.fromisoformat(start_raw)
     except Exception:
         return
+
+    if d.get('recurring') and (d.get('recurrence_end_date') or '').strip():
+        pattern = d.get('recurrence_pattern') or 'weekly'
+        try:
+            end = _dto2.date.fromisoformat(d.get('recurrence_end_date').strip())
+        except Exception:
+            return
+        cur = start
+        while cur <= end:
+            execute(conn, '''INSERT INTO rental_occurrences
+                (id, request_id, occurrence_date, start_time, end_time, status)
+                VALUES (%s,%s,%s,%s,%s,'scheduled')''',
+                (str(_uro2.uuid4()), request_id, cur.isoformat(),
+                 d.get('start_time', ''), d.get('end_time', '')))
+            if pattern == 'weekly':
+                cur += _dto2.timedelta(days=7)
+            elif pattern == 'biweekly':
+                cur += _dto2.timedelta(days=14)
+            elif pattern == 'daily':
+                cur += _dto2.timedelta(days=1)
+            elif pattern == 'monthly':
+                month = cur.month + 1 if cur.month < 12 else 1
+                year = cur.year + (1 if cur.month == 12 else 0)
+                try:
+                    cur = cur.replace(year=year, month=month)
+                except Exception:
+                    break
+            else:
+                break
+        return
+
+    # Non-recurring: a single date, or a contiguous multi-day span via end_date
+    end_raw = (d.get('end_date') or '').strip()
+    try:
+        end = _dto2.date.fromisoformat(end_raw) if end_raw else start
+    except Exception:
+        end = start
+    if end < start:
+        end = start
+    cur = start
     while cur <= end:
         execute(conn, '''INSERT INTO rental_occurrences
             (id, request_id, occurrence_date, start_time, end_time, status)
             VALUES (%s,%s,%s,%s,%s,'scheduled')''',
             (str(_uro2.uuid4()), request_id, cur.isoformat(),
-             d.get('start_time',''), d.get('end_time','')))
-        if pattern == 'weekly':
-            cur += _dto2.timedelta(days=7)
-        elif pattern == 'biweekly':
-            cur += _dto2.timedelta(days=14)
-        elif pattern == 'monthly':
-            # Same day next month
-            month = cur.month + 1 if cur.month < 12 else 1
-            year = cur.year + (1 if cur.month == 12 else 0)
-            try: cur = cur.replace(year=year, month=month)
-            except Exception: break
-        elif pattern == 'daily':
-            cur += _dto2.timedelta(days=1)
-        else:
-            break
+             d.get('start_time', ''), d.get('end_time', '')))
+        cur += _dto2.timedelta(days=1)
 
 @app.route('/api/rental/requests/<rid>', methods=['PUT'])
 def update_rental_request(rid):
@@ -19825,6 +19858,10 @@ def update_rental_request(rid):
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
          d.get('status') or 'pending', (d.get('notes') or '').strip(), rid))
+    # Dates/pattern may have changed — drop and regenerate this request's
+    # occurrences so the calendar reflects the edit rather than the original.
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _generate_rental_occurrences(conn, rid, d)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -20239,6 +20276,59 @@ def get_rental_occurrences(request_id):
     occs = fetchall(conn, 'SELECT * FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (request_id,)) or []
     conn.close()
     return jsonify(occs)
+
+def _rc_times_overlap(s1, e1, s2, e2):
+    # Missing time info on either side means "treat as all day" — safer to
+    # flag a possible conflict than silently miss one.
+    if not s1 or not e1 or not s2 or not e2:
+        return True
+    return s1 < e2 and s2 < e1
+
+@app.route('/api/rental/check-availability', methods=['POST'])
+def check_rental_availability():
+    """Given a candidate space + list of {date, start_time, end_time}
+    occurrences (computed client-side from the request form before it's
+    ever saved), check each one against real calendar events and other
+    rentals' occurrences in the same space. Nothing here is written —
+    it's a pure preview so staff can see what a rental *would* look like
+    on the calendar before deciding to schedule it."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    d = request.json or {}
+    space_id = d.get('space_id')
+    occurrences = d.get('occurrences') or []
+    exclude_request_id = d.get('exclude_request_id')  # so editing a rental doesn't conflict with its own dates
+    conn = get_db()
+    space = fetchone(conn, 'SELECT * FROM rental_spaces WHERE id=%s', (space_id,)) if space_id else None
+    results = []
+    for occ in occurrences:
+        date = (occ.get('date') or '').strip()
+        stime = (occ.get('start_time') or '').strip()
+        etime = (occ.get('end_time') or '').strip()
+        conflicts = []
+        if date and space_id:
+            rental_rows = fetchall(conn, '''SELECT ro.start_time, ro.end_time, rr.title, rr.id as request_id
+                FROM rental_occurrences ro JOIN rental_requests rr ON rr.id=ro.request_id
+                WHERE rr.space_id=%s AND ro.occurrence_date=%s AND ro.status != 'cancelled' ''',
+                (space_id, date)) or []
+            for r in rental_rows:
+                if exclude_request_id and r.get('request_id') == exclude_request_id:
+                    continue
+                if _rc_times_overlap(stime, etime, r.get('start_time', ''), r.get('end_time', '')):
+                    conflicts.append({'type': 'rental', 'title': r.get('title', ''),
+                        'start_time': r.get('start_time', ''), 'end_time': r.get('end_time', '')})
+            if space:
+                event_rows = fetchall(conn, '''SELECT name, start_time, end_time FROM events
+                    WHERE (LOWER(room)=LOWER(%s) OR LOWER(location)=LOWER(%s))
+                    AND %s BETWEEN event_date AND COALESCE(NULLIF(end_date,''), event_date)''',
+                    (space['name'], space['name'], date)) or []
+                for ev in event_rows:
+                    if _rc_times_overlap(stime, etime, ev.get('start_time', ''), ev.get('end_time', '')):
+                        conflicts.append({'type': 'event', 'title': ev.get('name', ''),
+                            'start_time': ev.get('start_time', ''), 'end_time': ev.get('end_time', '')})
+        results.append({'date': date, 'conflicts': conflicts})
+    conn.close()
+    return jsonify({'space_name': space['name'] if space else '', 'results': results})
 
 @app.route('/api/rental/occurrences/<oid>', methods=['PUT'])
 def update_rental_occurrence(oid):

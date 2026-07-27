@@ -24202,6 +24202,11 @@ function openNewRentalModal(rid){
    </div>
    <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
    <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
+   <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
+    <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')">📅 Preview on Calendar</button>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">See what these dates would look like against the real calendar — nothing is saved until you click Save Request.</div>
+    <div id="rm-preview-results" style="margin-top:12px"></div>
+   </div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
     <button class="btn btn-primary" onclick="saveRentalRequest('${rid||''}')">Save Request</button>
@@ -24240,6 +24245,77 @@ async function saveRentalRequest(rid){
     document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
     loadRentalsPage()
   } else toast((res&&res.error)||'Error','error')
+}
+
+function _rcDateFromISO(s){ const parts=s.split('-').map(Number); return new Date(Date.UTC(parts[0],parts[1]-1,parts[2])) }
+function _rcISOFromDate(dt){ return dt.toISOString().slice(0,10) }
+
+function computeRentalCandidateDates(){
+  const startRaw = (document.getElementById('rm-start-date')||{}).value||''
+  if(!startRaw) return []
+  const recurring = !!(document.getElementById('rm-recurring')||{}).checked
+  const pattern = (document.getElementById('rm-pattern')||{}).value||'weekly'
+  const recurEnd = (document.getElementById('rm-recur-end')||{}).value||''
+  const endRaw = (document.getElementById('rm-end-date')||{}).value||''
+  const stime = (document.getElementById('rm-start-time')||{}).value||''
+  const etime = (document.getElementById('rm-end-time')||{}).value||''
+  const start = _rcDateFromISO(startRaw)
+  const dates = []
+  if(recurring && recurEnd){
+    const end = _rcDateFromISO(recurEnd)
+    let cur = new Date(start.getTime())
+    let guard = 0
+    while(cur <= end && guard < 500){
+      dates.push(_rcISOFromDate(cur))
+      if(pattern==='weekly') cur = new Date(cur.getTime() + 7*86400000)
+      else if(pattern==='biweekly') cur = new Date(cur.getTime() + 14*86400000)
+      else if(pattern==='daily') cur = new Date(cur.getTime() + 86400000)
+      else if(pattern==='monthly') cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth()+1, cur.getUTCDate()))
+      else break
+      guard++
+    }
+  } else {
+    const end = endRaw ? _rcDateFromISO(endRaw) : start
+    let cur = new Date(start.getTime())
+    let guard = 0
+    while(cur <= end && guard < 370){
+      dates.push(_rcISOFromDate(cur))
+      cur = new Date(cur.getTime() + 86400000)
+      guard++
+    }
+  }
+  return dates.map(function(dt){ return {date:dt, start_time:stime, end_time:etime} })
+}
+
+async function previewRentalAvailability(rid){
+  const spaceId = (document.getElementById('rm-space')||{}).value||''
+  const container = document.getElementById('rm-preview-results')
+  if(!container) return
+  if(!spaceId){ container.innerHTML = '<div style="font-size:12px;color:var(--red)">Pick a space first.</div>'; return }
+  const occurrences = computeRentalCandidateDates()
+  if(!occurrences.length){ container.innerHTML = '<div style="font-size:12px;color:var(--red)">Enter a start date first.</div>'; return }
+  container.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Checking '+occurrences.length+' date'+(occurrences.length===1?'':'s')+'…</div>'
+  const res = await api('/api/rental/check-availability','POST',{space_id:spaceId, occurrences:occurrences, exclude_request_id: rid||null})
+  if(!res || res.error){ container.innerHTML = '<div style="font-size:12px;color:var(--red)">'+((res&&res.error)||'Could not check availability')+'</div>'; return }
+  const results = res.results||[]
+  const conflictCount = results.filter(function(r){ return r.conflicts && r.conflicts.length }).length
+  let html = '<div style="font-size:12.5px;font-weight:700;margin-bottom:8px">'
+    + (conflictCount ? ('⚠ '+conflictCount+' of '+results.length+' date'+(results.length===1?'':'s')+' conflict in '+escHtml(res.space_name||'this space'))
+       : ('✅ All '+results.length+' date'+(results.length===1?'':'s')+' are clear in '+escHtml(res.space_name||'this space')))
+    + '</div>'
+  html += '<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">'
+  results.forEach(function(r, i){
+    const hasConflict = r.conflicts && r.conflicts.length
+    html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:7px 12px;font-size:12px;'+(i>0?'border-top:1px solid var(--border);':'')+(hasConflict?'background:#fef2f2':'')+'">'
+      + '<div style="font-weight:600">'+escHtml(r.date)+'</div>'
+      + '<div style="text-align:right;color:'+(hasConflict?'var(--red)':'var(--green)')+'">'
+      + (hasConflict
+          ? r.conflicts.map(function(c){ return '⚠ '+escHtml(c.title||(c.type==='event'?'Existing event':'Existing rental'))+(c.start_time?' ('+escHtml(c.start_time)+(c.end_time?'–'+escHtml(c.end_time):'')+')':'') }).join('<br>')
+          : '✅ Clear')
+      + '</div></div>'
+  })
+  html += '</div>'
+  container.innerHTML = html
 }
 
 function openPartnershipInterestLinkModal(){

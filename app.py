@@ -19641,6 +19641,7 @@ def public_partnership_interest_info():
 @app.route('/api/public/partnership-interest', methods=['POST'])
 def public_partnership_interest_submit():
     import uuid as _upi
+    import json as _jpi2
     d = request.json or {}
     org_name = (d.get('organization_name') or '').strip()
     contact_name = (d.get('contact_name') or '').strip()
@@ -19650,6 +19651,29 @@ def public_partnership_interest_submit():
         return jsonify({'error': 'Please fill in all required fields.'}), 400
     if not d.get('policy_agreed'):
         return jsonify({'error': 'Please confirm you have read and understand our general policy.'}), 400
+
+    # Specific dates are optional — a prospective partner may already know
+    # a date or two even without formal approval yet. Each entry is
+    # {date, start_time, end_time}, matching the admin-side format so staff
+    # can turn this straight into a scheduled request without re-entering
+    # anything.
+    raw_specific = d.get('specific_dates') or []
+    specific_dates = []
+    for item in raw_specific:
+        if not isinstance(item, dict) or not item.get('date'):
+            continue
+        try:
+            datetime.strptime(item['date'], '%Y-%m-%d')
+        except Exception:
+            continue
+        specific_dates.append({
+            'date': item['date'],
+            'start_time': (item.get('start_time') or '').strip(),
+            'end_time': (item.get('end_time') or '').strip(),
+        })
+    date_mode = 'specific' if specific_dates else 'range'
+    earliest_date = min((s['date'] for s in specific_dates), default='')
+
     conn = get_db()
     # Find existing partner by email, or create a new one
     partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE LOWER(contact_email)=LOWER(%s)', (contact_email,))
@@ -19668,11 +19692,13 @@ def public_partnership_interest_submit():
     rid = str(_upi.uuid4())
     portal_token = str(_upi.uuid4())
     execute(conn, '''INSERT INTO rental_requests
-        (id, partner_id, title, purpose, start_date, desired_frequency, source, status, notes, portal_token)
-        VALUES (%s,%s,%s,%s,%s,%s,'interest_form','pending',%s,%s)''',
-        (rid, partner_id, f'{org_name} — Partnership Interest', purpose, '',
+        (id, partner_id, title, purpose, start_date, desired_frequency, source, status, notes,
+         portal_token, date_mode, specific_dates)
+        VALUES (%s,%s,%s,%s,%s,%s,'interest_form','pending',%s,%s,%s,%s)''',
+        (rid, partner_id, f'{org_name} — Partnership Interest', purpose, earliest_date,
          (d.get('desired_frequency') or '').strip(),
-         (d.get('additional_notes') or '').strip(), portal_token))
+         (d.get('additional_notes') or '').strip(), portal_token, date_mode,
+         _jpi2.dumps(specific_dates)))
     conn.commit()
     try:
         es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
@@ -19687,12 +19713,22 @@ def public_partnership_interest_submit():
         if not approver_emails:
             raw = (es.get('rental_approver_emails') or '').strip()
             approver_emails = [e.strip() for e in raw.replace(',', '\n').splitlines() if e.strip()]
+        dates_line = ''
+        if specific_dates:
+            date_bits = []
+            for s in specific_dates:
+                bit = s['date']
+                if s['start_time']:
+                    bit += f' ({s["start_time"]}' + (f'–{s["end_time"]})' if s['end_time'] else ')')
+                date_bits.append(bit)
+            dates_line = f'<strong>Specific dates they have in mind:</strong> {", ".join(date_bits)}<br>'
         subject = f'New Artistic Partnership Interest — {org_name}'
         body = (f'A new partnership interest form has been submitted.<br><br>'
                 f'<strong>Organization:</strong> {org_name}<br>'
                 f'<strong>Contact:</strong> {contact_name} ({contact_email})<br>'
                 f'<strong>Wants to use the space for:</strong> {purpose}<br>'
-                f'<strong>How often:</strong> {(d.get("desired_frequency") or "Not specified")}<br><br>'
+                f'<strong>How often:</strong> {(d.get("desired_frequency") or "Not specified")}<br>'
+                f'{dates_line}<br>'
                 f'Please log in to RoleCall → Venue Rentals to review and follow up.')
         for email_addr in approver_emails:
             try:

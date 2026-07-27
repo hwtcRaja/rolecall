@@ -1945,6 +1945,24 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS date_mode TEXT DEFAULT 'range'",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS specific_dates TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS portal_token TEXT UNIQUE",
+
+        # ── Venue Rentals: message thread (self-service portal) ──
+        """CREATE TABLE IF NOT EXISTS rental_messages (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES rental_requests(id) ON DELETE CASCADE,
+            direction TEXT NOT NULL,
+            from_email TEXT DEFAULT '',
+            from_name TEXT DEFAULT '',
+            to_email TEXT DEFAULT '',
+            subject TEXT DEFAULT '',
+            body_html TEXT DEFAULT '',
+            body_text TEXT DEFAULT '',
+            resend_message_id TEXT DEFAULT '',
+            resend_email_id TEXT DEFAULT '',
+            sent_by TEXT DEFAULT '',
+            read_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_rental_messages_request ON rental_messages(request_id)',
 ]:
         try:
             c.execute(col_sql)
@@ -17698,22 +17716,6 @@ def run_migrations_manual():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
-        """CREATE TABLE IF NOT EXISTS rental_messages (
-            id TEXT PRIMARY KEY,
-            request_id TEXT NOT NULL REFERENCES rental_requests(id) ON DELETE CASCADE,
-            direction TEXT NOT NULL,
-            from_email TEXT DEFAULT '',
-            from_name TEXT DEFAULT '',
-            to_email TEXT DEFAULT '',
-            subject TEXT DEFAULT '',
-            body_html TEXT DEFAULT '',
-            body_text TEXT DEFAULT '',
-            resend_message_id TEXT DEFAULT '',
-            resend_email_id TEXT DEFAULT '',
-            sent_by TEXT DEFAULT '',
-            read_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW())""",
-        'CREATE INDEX IF NOT EXISTS ix_rental_messages_request ON rental_messages(request_id)',
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_agreement_template TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",

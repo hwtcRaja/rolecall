@@ -1724,6 +1724,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
  <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
  </div>
+ <div class="form-group" style="margin-top:12px">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Reply-To Domain <span style="font-weight:400;color:var(--text-muted)">(for two-way email in Messages)</span></label>
+ <input id="es-rental-inbound-domain" placeholder="e.g. your-id.resend.app, or a custom subdomain you've enabled Receiving on" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Emails → Receiving. Replies from partners route back here so they show up in the request's Messages thread.</div>
+ </div>
+ <div class="form-group" style="margin-top:10px">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Webhook Signing Secret</label>
+ <input id="es-rental-webhook-secret" type="password" placeholder="whsec_..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Webhooks → the webhook subscribed to email.received, pointed at /api/rental/inbound-email.</div>
+ </div>
  </div>
 
  <div style="display:flex;gap:10px">
@@ -1836,6 +1846,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group">
  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
  <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
+ </div>
+ <div class="form-group" style="margin-top:12px">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Reply-To Domain <span style="font-weight:400;color:var(--text-muted)">(for two-way email in Messages)</span></label>
+ <input id="es-rental-inbound-domain-2" placeholder="e.g. your-id.resend.app, or a custom subdomain you've enabled Receiving on" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Emails → Receiving. Replies from partners route back here so they show up in the request's Messages thread.</div>
+ </div>
+ <div class="form-group" style="margin-top:10px">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Rental Webhook Signing Secret</label>
+ <input id="es-rental-webhook-secret-2" type="password" placeholder="whsec_..." style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">From Resend: Dashboard → Webhooks → the webhook subscribed to email.received, pointed at /api/rental/inbound-email.</div>
  </div>
  </div>
 
@@ -8131,6 +8151,8 @@ async function loadEmailSettings(){
  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
  chk('es-alert-role-filled', s.alert_role_filled!==false)
  set('es-rental-approver-emails', s.rental_approver_emails||'')
+ set('es-rental-inbound-domain', s.rental_inbound_domain||'')
+ set('es-rental-webhook-secret', s.rental_inbound_webhook_secret||'')
  const tmplEl = document.getElementById('es-rental-agreement-template')
  if(tmplEl) tmplEl.value = s.rental_agreement_template||''
  loadTwilioSettings(s)
@@ -9105,6 +9127,8 @@ async function saveEmailSettings(){
  alert_role_filled: chk('es-alert-role-filled'),
  alert_waiver_expiry: chk('es-alert-waivers'),
  rental_approver_emails: get('es-rental-approver-emails'),
+ rental_inbound_domain: get('es-rental-inbound-domain'),
+ rental_inbound_webhook_secret: get('es-rental-webhook-secret'),
  rental_approval_levels: JSON.stringify((window._rentalApprovalLevels||[])),
  rental_agreement_template: (document.getElementById('es-rental-agreement-template')||{}).value||''
  }
@@ -23891,6 +23915,9 @@ function renderRentalsPage(){
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
+         <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
+          💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
+         </button>
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
          <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
@@ -24156,7 +24183,14 @@ function openNewRentalModal(rid){
   const recurrencePatterns = [{v:'weekly',l:'Weekly'},{v:'biweekly',l:'Every 2 Weeks'},{v:'monthly',l:'Monthly'},{v:'daily',l:'Daily'}]
   const rateTypes = [{v:'hourly',l:'Hourly'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
   const initialMode = (req||{}).date_mode || ((req||{}).recurring ? 'recurring' : 'range')
-  try{ _rmSpecificDates = JSON.parse((req||{}).specific_dates||'[]') || [] }catch(e){ _rmSpecificDates = [] }
+  try{
+    const parsedSpecific = JSON.parse((req||{}).specific_dates||'[]') || []
+    _rmSpecificDates = parsedSpecific.map(function(item){
+      return typeof item === 'string'
+        ? {date:item, start_time:(req||{}).start_time||'', end_time:(req||{}).end_time||''}
+        : {date:item.date, start_time:item.start_time||'', end_time:item.end_time||''}
+    })
+  }catch(e){ _rmSpecificDates = [] }
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Rental Request</div>
    ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
@@ -24193,7 +24227,9 @@ function openNewRentalModal(rid){
       <input type="date" id="rm-specific-date-input" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
       <button type="button" class="btn btn-secondary btn-sm" onclick="addRmSpecificDate()">+ Add Date</button>
      </div>
-     <div id="rm-specific-dates-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+     <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">Each date can have its own start/end time — or use Start Time/End Time above for all of them:</div>
+     <button type="button" class="btn btn-secondary btn-sm" onclick="applyRmSharedTimeToAll()" style="margin-bottom:8px">Use Start/End Time above for all dates</button>
+     <div id="rm-specific-dates-list" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
    </div>
    <div id="rm-recurrence-opts" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -24217,7 +24253,7 @@ function openNewRentalModal(rid){
    <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
    <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
-    <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')">📅 Preview on Calendar</button>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')">📅 Check Availability</button>
     <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">See what these dates would look like against the real calendar — nothing is saved here, and it won't go on the actual calendar until this request is fully approved.</div>
     <div id="rm-preview-results" style="margin-top:12px"></div>
    </div>
@@ -24250,7 +24286,7 @@ async function saveRentalRequest(rid){
     recurring:dateMode==='recurring',
     recurrence_pattern:(document.getElementById('rm-pattern')||{}).value||'weekly',
     recurrence_end_date:(document.getElementById('rm-recur-end')||{}).value||'',
-    specific_dates:_rmSpecificDates.slice().sort(),
+    specific_dates:_rmSpecificDates.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0 }),
     rate_type:(document.getElementById('rm-rate-type')||{}).value||'hourly',
     rate_amount:Math.round(rateVal*100),
     total_amount:Math.round(totalVal*100),
@@ -24284,28 +24320,48 @@ function toggleRentalDateMode(){
 function renderRmSpecificDatesList(){
   const wrap = document.getElementById('rm-specific-dates-list')
   if(!wrap) return
-  const sorted = _rmSpecificDates.slice().sort()
-  wrap.innerHTML = sorted.length ? sorted.map(function(dt){
-    return '<span style="display:flex;align-items:center;gap:5px;background:var(--gray-50);border:1px solid var(--border);border-radius:14px;padding:4px 6px 4px 10px;font-size:12px">'
-      +escHtml(dt)+'<button type="button" onclick="removeRmSpecificDate(\''+dt+'\')" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:13px">×</button></span>'
+  const sorted = _rmSpecificDates.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0 })
+  wrap.innerHTML = sorted.length ? sorted.map(function(row){
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--gray-50);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12.5px">'
+      + '<div style="min-width:100px;font-weight:600">'+escHtml(row.date)+'</div>'
+      + '<input type="time" value="'+escHtml(row.start_time||'')+'" onchange="updateRmSpecificDateTime(\''+row.date+'\',\'start_time\',this.value)" style="padding:5px 7px;border:1px solid var(--border-md);border-radius:5px;font-size:12px"/>'
+      + '<span style="color:var(--text-muted)">to</span>'
+      + '<input type="time" value="'+escHtml(row.end_time||'')+'" onchange="updateRmSpecificDateTime(\''+row.date+'\',\'end_time\',this.value)" style="padding:5px 7px;border:1px solid var(--border-md);border-radius:5px;font-size:12px"/>'
+      + '<button type="button" onclick="removeRmSpecificDate(\''+row.date+'\')" style="margin-left:auto;background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:14px">×</button></div>'
   }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No dates added yet.</div>'
   // rm-start-date stays synced to the earliest picked date, since the
   // backend still uses start_date for sorting/list display either way.
   const startEl = document.getElementById('rm-start-date')
-  if(startEl && sorted.length) startEl.value = sorted[0]
+  if(startEl && sorted.length) startEl.value = sorted[0].date
 }
 
 function addRmSpecificDate(){
   const input = document.getElementById('rm-specific-date-input')
   const val = input ? input.value : ''
   if(!val) return
-  if(_rmSpecificDates.indexOf(val)===-1) _rmSpecificDates.push(val)
+  if(!_rmSpecificDates.some(function(r){ return r.date===val })){
+    const stime = (document.getElementById('rm-start-time')||{}).value||''
+    const etime = (document.getElementById('rm-end-time')||{}).value||''
+    _rmSpecificDates.push({date:val, start_time:stime, end_time:etime})
+  }
   if(input) input.value = ''
   renderRmSpecificDatesList()
 }
 
 function removeRmSpecificDate(dt){
-  _rmSpecificDates = _rmSpecificDates.filter(function(x){ return x!==dt })
+  _rmSpecificDates = _rmSpecificDates.filter(function(x){ return x.date!==dt })
+  renderRmSpecificDatesList()
+}
+
+function updateRmSpecificDateTime(dt, field, value){
+  const row = _rmSpecificDates.find(function(r){ return r.date===dt })
+  if(row) row[field] = value
+}
+
+function applyRmSharedTimeToAll(){
+  const stime = (document.getElementById('rm-start-time')||{}).value||''
+  const etime = (document.getElementById('rm-end-time')||{}).value||''
+  _rmSpecificDates.forEach(function(row){ row.start_time = stime; row.end_time = etime })
   renderRmSpecificDatesList()
 }
 
@@ -24317,7 +24373,8 @@ function computeRentalCandidateDates(){
   const stime = (document.getElementById('rm-start-time')||{}).value||''
   const etime = (document.getElementById('rm-end-time')||{}).value||''
   if(mode==='specific'){
-    return _rmSpecificDates.slice().sort().map(function(dt){ return {date:dt, start_time:stime, end_time:etime} })
+    return _rmSpecificDates.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0 })
+      .map(function(row){ return {date:row.date, start_time:row.start_time||stime, end_time:row.end_time||etime} })
   }
   const startRaw = (document.getElementById('rm-start-date')||{}).value||''
   if(!startRaw) return []
@@ -24382,6 +24439,67 @@ async function previewRentalAvailability(rid){
   })
   html += '</div>'
   container.innerHTML = html
+}
+
+async function openRentalMessagesModal(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid) || {}
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;padding:20px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">Messages — ${escHtml(req.title||'')}</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${escHtml(req.partner_name||'')}${req.partner_email?' · '+escHtml(req.partner_email):''}</div>
+   <div id="rm-thread" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;min-height:200px;background:var(--gray-50)">
+    <div style="font-size:12px;color:var(--text-muted);text-align:center">Loading…</div>
+   </div>
+   <div style="display:flex;gap:8px;align-items:flex-end">
+    <textarea id="rm-reply-text" rows="2" placeholder="Write a reply or question…" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
+    <button class="btn btn-primary btn-sm" onclick="sendRentalMessage('${rid}')">Send</button>
+   </div>
+   <div style="display:flex;justify-content:flex-end;margin-top:12px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  await loadRentalThread(rid)
+}
+
+async function loadRentalThread(rid){
+  const wrap = document.getElementById('rm-thread')
+  if(!wrap) return
+  const msgs = await api('/api/rental/requests/'+rid+'/messages')
+  if(!Array.isArray(msgs)){ wrap.innerHTML = '<div style="font-size:12px;color:var(--red)">Could not load messages.</div>'; return }
+  if(!msgs.length){
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center">No messages yet — send the first one below.</div>'
+  } else {
+    wrap.innerHTML = msgs.map(function(m){
+      const isOut = m.direction==='outbound'
+      const body = m.body_html || (m.body_text||'').replace(/\n/g,'<br>')
+      const when = (m.created_at||'').replace('T',' ').slice(0,16)
+      return '<div style="display:flex;justify-content:'+(isOut?'flex-end':'flex-start')+';margin-bottom:10px">'
+        + '<div style="max-width:78%;background:'+(isOut?'var(--teal-400)':'var(--surface)')+';color:'+(isOut?'#fff':'var(--text)')+';border:1px solid '+(isOut?'transparent':'var(--border)')+';border-radius:10px;padding:8px 12px;font-size:13px">'
+        + '<div style="font-size:10.5px;opacity:0.75;margin-bottom:3px">'+(isOut?'You':escHtml(m.from_email||'Partner'))+' · '+escHtml(when)+'</div>'
+        + '<div>'+body+'</div></div></div>'
+    }).join('')
+  }
+  wrap.scrollTop = wrap.scrollHeight
+  // opening the thread marks inbound messages read server-side — refresh the
+  // rentals list in the background so the unread badge clears without
+  // interrupting whoever's reading the thread right now
+  loadRentalsPage(true)
+}
+
+async function sendRentalMessage(rid){
+  const ta = document.getElementById('rm-reply-text')
+  const body = ta ? ta.value.trim() : ''
+  if(!body) return
+  const res = await api('/api/rental/requests/'+rid+'/messages','POST',{body})
+  if(res && res.ok){
+    if(ta) ta.value = ''
+    await loadRentalThread(rid)
+  } else {
+    toast((res&&res.error)||'Could not send message','error')
+  }
 }
 
 function openPartnershipInterestLinkModal(){

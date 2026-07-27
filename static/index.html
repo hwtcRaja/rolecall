@@ -17450,6 +17450,12 @@ async function markRsvpConfirmed(eid, rid, confirm){
  loadEventRsvps(eid)
 }
 
+async function setRsvpStatus(eid, rid, status){
+ const res = await api(`/api/events/${eid}/rsvps/${rid}/status`,'POST',{status})
+ if(res?.error){toast(res.error,'error');return}
+ loadEventRsvps(eid)
+}
+
 async function addManualRsvp(eid){
  const sel = document.getElementById(`manual-rsvp-vol-${eid}`)
  const volId = sel?.value
@@ -17590,8 +17596,9 @@ function renderEventRsvps(eid, allRsvps, roles){
  ${statusLabel[r.status]||r.status}
  </span>
  ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Mark Coming</button>`:''}
- ${isAdmin&&(r.status==='confirmed')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
- ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
+ ${isAdmin&&(r.status==='confirmed'||r.status==='interested')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
+ ${isAdmin&&(r.status==='invited'||r.status==='confirmed'||r.status==='interested')?`<button title="Mark as not attending" onclick="setRsvpStatus('${eid}','${r.id}','declined')" style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Not Attending</button>`:''}
+ ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="setRsvpStatus('${eid}','${r.id}','invited')" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
  </div>`
  }

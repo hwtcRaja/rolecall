@@ -19717,22 +19717,33 @@ def get_rental_requests():
             execute(conn, f'ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS {col_def}')
             conn.commit()
         except Exception:
-            pass
-    requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
-        rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
-        rs.name AS space_name,
-        ra.id AS agreement_id, ra.status AS agreement_status,
-        ra.partner_signed_at, ra.signing_token,
-        COALESCE(rr.approval_level, 0) AS approval_level,
-        COALESCE(rr.approval_history, '[]') AS approval_history,
-        COALESCE(rr.denial_reason, '') AS denial_reason,
-        (SELECT COUNT(*) FROM rental_messages rm WHERE rm.request_id=rr.id
-            AND rm.direction='inbound' AND rm.read_at IS NULL) AS unread_message_count
-        FROM rental_requests rr
-        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
-        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
-        LEFT JOIN rental_agreements ra ON ra.request_id=rr.id
-        ORDER BY rr.start_date DESC, rr.created_at DESC''') or []
+            # Without this rollback, a failed statement here leaves the
+            # connection's transaction aborted — Postgres then refuses to
+            # run the SELECT below at all, and the route would raise on a
+            # perfectly good request. Roll back so one bad statement can't
+            # take down everything that follows on this connection.
+            conn.rollback()
+    try:
+        requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
+            rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
+            rs.name AS space_name,
+            ra.id AS agreement_id, ra.status AS agreement_status,
+            ra.partner_signed_at, ra.signing_token,
+            COALESCE(rr.approval_level, 0) AS approval_level,
+            COALESCE(rr.approval_history, '[]') AS approval_history,
+            COALESCE(rr.denial_reason, '') AS denial_reason,
+            (SELECT COUNT(*) FROM rental_messages rm WHERE rm.request_id=rr.id
+                AND rm.direction='inbound' AND rm.read_at IS NULL) AS unread_message_count
+            FROM rental_requests rr
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+            LEFT JOIN rental_agreements ra ON ra.request_id=rr.id
+            ORDER BY rr.start_date DESC, rr.created_at DESC''') or []
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        app.logger.error(f'get_rental_requests query failed: {e}')
+        return jsonify({'error': f'Could not load rental requests: {e}'}), 500
     conn.close()
     return jsonify(requests_data)
 

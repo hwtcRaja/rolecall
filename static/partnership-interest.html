@@ -32,6 +32,14 @@ body{font-family:'DM Sans',system-ui,sans-serif;background:#f4f7f9;color:#1a1a17
 .submit-btn{width:100%;padding:16px;background:#145466;color:#fff;border:none;border-radius:12px;font-family:inherit;font-size:17px;font-weight:700;cursor:pointer;transition:background 0.15s;margin-top:8px}
 .submit-btn:hover{background:#0d3d4d}
 .submit-btn:disabled{background:#9b9b94;cursor:not-allowed}
+.secondary-btn{padding:11px 16px;background:#fff;color:#145466;border:1.5px solid #145466;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
+.secondary-btn:hover{background:#f0f6f8}
+.date-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#f8faf9;border:1.5px solid #e0e0db;border-radius:10px;padding:8px 12px;margin-bottom:6px;font-size:13px}
+.date-row .date-label{font-weight:700;min-width:96px}
+.date-row input[type=time]{padding:6px 8px;border:1.5px solid #e0e0db;border-radius:8px;font-family:inherit;font-size:13px}
+.date-row .remove-date{margin-left:auto;background:none;border:none;color:#9b9b94;cursor:pointer;font-size:16px;line-height:1}
+.date-row .remove-date:hover{color:#dc2626}
+.hint{font-size:12px;color:#9b9b94;margin:-8px 0 12px}
 .alert{border-radius:10px;padding:14px 18px;font-size:13px;line-height:1.5;margin-bottom:16px}
 .alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
 .alert-success{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
@@ -93,11 +101,55 @@ function render(){
       + '<option value="A few times a year">A few times a year</option>'
       + '<option value="Not sure yet">Not sure yet</option>'
       + '</select></div>'
+    + '<div class="form-group"><label>Do you already have specific date(s) in mind? <span>(optional)</span></label>'
+      + '<div class="hint">If you know exact dates, add them below — it helps us reply faster. If not, no problem, just leave this blank.</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:10px"><input type="date" id="f-date-input" style="flex:1"/><button type="button" class="secondary-btn" onclick="addInterestDate()">+ Add Date</button></div>'
+      + '<div id="f-dates-list"></div>'
+      + '</div>'
     + '<div class="form-group"><label>Anything else we should know? <span>(optional)</span></label><textarea id="f-notes" placeholder="Additional details, preferred dates/times, expected group size, etc."></textarea></div>'
     + '<label class="check-wrap"><input type="checkbox" id="f-policy-agree"/><span class="check-label">I have read and understand HWTC\'s general venue partnership policy above.</span></label>'
     + '<button class="submit-btn" id="submit-btn" onclick="submitInterest()">Submit Interest</button>'
     + '</div>'
   document.getElementById('app').innerHTML = html
+  renderInterestDatesList()
+}
+
+let _interestSpecificDates = []
+
+function renderInterestDatesList(){
+  const wrap = document.getElementById('f-dates-list')
+  if(!wrap) return
+  const sorted = _interestSpecificDates.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0 })
+  wrap.innerHTML = sorted.map(function(row){
+    return '<div class="date-row">'
+      + '<span class="date-label">'+escHtml(row.date)+'</span>'
+      + '<input type="time" value="'+escHtml(row.start_time||'')+'" placeholder="Start (optional)" onchange="updateInterestDateTime(\''+row.date+'\',\'start_time\',this.value)"/>'
+      + '<span style="color:#9b9b94">to</span>'
+      + '<input type="time" value="'+escHtml(row.end_time||'')+'" placeholder="End (optional)" onchange="updateInterestDateTime(\''+row.date+'\',\'end_time\',this.value)"/>'
+      + '<button type="button" class="remove-date" onclick="removeInterestDate(\''+row.date+'\')">×</button>'
+      + '</div>'
+  }).join('')
+}
+
+function addInterestDate(){
+  const input = document.getElementById('f-date-input')
+  const val = input ? input.value : ''
+  if(!val) return
+  if(!_interestSpecificDates.some(function(r){ return r.date===val })){
+    _interestSpecificDates.push({date:val, start_time:'', end_time:''})
+  }
+  if(input) input.value = ''
+  renderInterestDatesList()
+}
+
+function removeInterestDate(dt){
+  _interestSpecificDates = _interestSpecificDates.filter(function(r){ return r.date!==dt })
+  renderInterestDatesList()
+}
+
+function updateInterestDateTime(dt, field, value){
+  const row = _interestSpecificDates.find(function(r){ return r.date===dt })
+  if(row) row[field] = value
 }
 
 function show(msg, type){
@@ -131,6 +183,7 @@ async function submitInterest(){
     desired_frequency: frequency,
     additional_notes: document.getElementById('f-notes').value.trim(),
     policy_agreed: policyAgreed || !info.policy_text,
+    specific_dates: _interestSpecificDates.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0 }),
   })
   if(res.error){
     show(res.error,'error')

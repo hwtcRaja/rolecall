@@ -12441,7 +12441,7 @@ def set_rsvp_status(eid, rid):
     if err: return err
     d = request.json or {}
     status = d.get('status','').strip()
-    if status not in ('interested','confirmed','invited'):
+    if status not in ('interested','confirmed','invited','declined'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = get_db()
     execute(conn, 'UPDATE event_rsvps SET status=%s WHERE id=%s AND event_id=%s', (status, rid, eid))
@@ -13033,9 +13033,11 @@ def rsvp_page(token):
               <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Please check off everyone who will be joining:</p>
               <form method="POST" action="/rsvp/{token}" onsubmit="return document.querySelectorAll('input[type=checkbox]:checked').length>=0">
                 {guests_html}
-                <input type="hidden" name="rsvp_action" value="party_confirm"/>
-                <button type="submit" class="gi-btn" style="margin-top:14px">
+                <button type="submit" name="rsvp_action" value="party_confirm" class="gi-btn" style="margin-top:14px">
                   Save My RSVP
+                </button>
+                <button type="submit" name="rsvp_action" value="decline" formnovalidate class="gi-btn-secondary" style="margin-top:10px">
+                  We Can't Make It
                 </button>
               </form>
             </div>
@@ -13283,7 +13285,17 @@ def rsvp_submit(token):
 
     # ── Decline ──
     if rsvp_action == 'decline':
-        execute(conn, "UPDATE event_rsvps SET status='declined' WHERE token=%s", (token,))
+        try:
+            existing_party = json.loads(rsvp.get('party_members') or '[]')
+        except Exception:
+            existing_party = []
+        if existing_party:
+            for m in existing_party:
+                m['attending'] = False
+            execute(conn, "UPDATE event_rsvps SET status='declined', party_members=%s WHERE token=%s",
+                (json.dumps(existing_party), token))
+        else:
+            execute(conn, "UPDATE event_rsvps SET status='declined' WHERE token=%s", (token,))
         conn.commit()
         try:
             s = get_email_settings()

@@ -4872,6 +4872,7 @@ async function openProfile(volId){
  <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
  <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
  </div>
+ ${isAdmin?`<div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" onclick="openBonusCreditModal('${v.id}')">🎁 Add Bonus Credit</button></div>`:''}
  ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${(v.total_hours-v.store_eligible_hours).toFixed(2)}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
  ${v.store_eligible_hours > v.total_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#f0fdf4;border-color:#bbf7d0"><div style="font-size:12px;color:#166534">Includes ${(v.store_eligible_hours-v.total_hours).toFixed(2)}h in Hours Store bonus credit from promotional events (${v.store_eligible_hours}h store-eligible vs ${v.total_hours}h actually logged).</div></div>` : ''}
  <div class="card" style="padding:16px;margin-bottom:16px">
@@ -4892,6 +4893,15 @@ async function openProfile(volId){
    + '</div>'
  }).join('')}
  </div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin:20px 0 8px">Bonus Credits</div>
+ ${!(v.bonus_credits||[]).length ? '<div style="color:var(--text-muted);font-size:13px">No bonus credits granted yet</div>' :
+ (v.bonus_credits||[]).map(function(b){
+  return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'
+   + '<div><div style="font-weight:600;font-size:13px">'+(b.hours>0?'+':'')+b.hours+'h'+(b.reason?' &mdash; '+escHtml(b.reason):'')+'</div>'
+   + '<div style="font-size:11px;color:var(--text-muted)">Granted by '+escHtml(b.granted_by||'Admin')+' &middot; '+(b.created_at?b.created_at.slice(0,10):'')+'</div></div>'
+   + (isAdmin?'<button class="btn btn-sm" onclick="removeBonusCredit(\''+v.id+'\',\''+b.id+'\')" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Remove</button>':'')
+   + '</div>'
+ }).join('')}
  </div>
  </div>
  </div>
@@ -4899,6 +4909,54 @@ async function openProfile(volId){
  navTo('profile')
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
  } catch(err) { console.error('openProfile error:', err); toast('Error: '+err.message+' — check console for details','error') }
+}
+
+function openBonusCreditModal(volId){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">🎁 Add Bonus Credit</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Gives store credit directly — this does not add to their real logged volunteer hours, only what they have to spend in the Hours Store. Use a negative number to correct a credit granted by mistake.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Hours</label>
+    <input type="number" id="bc-hours" step="0.25" placeholder="e.g. 5" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Reason <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(optional, but shows in their history)</span></label>
+    <input id="bc-reason" placeholder="e.g. Thank-you gift, holiday bonus" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveBonusCredit('${volId}')">Grant Credit</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveBonusCredit(volId){
+  const hoursVal = parseFloat((document.getElementById('bc-hours')||{}).value)
+  const reason = (document.getElementById('bc-reason')||{}).value || ''
+  if(!hoursVal || isNaN(hoursVal)){ toast('Enter a non-zero number of hours','error'); return }
+  const res = await api('/api/volunteers/'+volId+'/bonus-credit','POST',{hours:hoursVal, reason:reason.trim()})
+  if(res && res.ok){
+    toast('Bonus credit granted','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    openProfile(volId)
+  } else {
+    toast((res&&res.error)||'Could not grant credit','error')
+  }
+}
+
+async function removeBonusCredit(volId, bid){
+  if(!confirm('Remove this bonus credit? This cannot be undone.')) return
+  const res = await api('/api/volunteers/'+volId+'/bonus-credit/'+bid,'DELETE')
+  if(res && res.ok){
+    toast('Bonus credit removed','success')
+    openProfile(volId)
+  } else {
+    toast((res&&res.error)||'Could not remove credit','error')
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -19823,6 +19881,7 @@ async function loadProductionRegistrations(pid){
           var participantName = isAdult
             ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:''))
             : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+          if(!isAdult && r.child_dob) participantName += ' <span style="font-weight:400;font-size:11px;color:var(--text-muted)">(Age '+(calcAge(r.child_dob)||'?')+')</span>'
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
           var contactCell = isAdult ? '<span style="color:var(--text-muted);font-size:11px">—</span>'
             : escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
@@ -20802,6 +20861,7 @@ async function loadProgramRegistrations(pid){
                     + sessionRegs.map(function(r){
                         var isAdult = r.registration_form_type==='adult'
                         var nm = isAdult ? escHtml((r.guardian_name||r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) : escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))
+                        if(!isAdult && r.child_dob) nm += ' <span style="font-weight:400;font-size:10px;color:var(--text-muted)">(Age '+(calcAge(r.child_dob)||'?')+')</span>'
                         var ct = isAdult ? '—' : escHtml(r.guardian_name||'')+' <span style="color:var(--text-muted);font-size:11px">'+escHtml(r.guardian_email||'')+'</span>'
                         var stBg = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
                         return '<tr style="border-bottom:1px solid var(--border)">'
@@ -20841,6 +20901,7 @@ async function loadProgramRegistrations(pid){
             ? escHtml(r.guardian_name||'')
             : escHtml((r.child_first_name||'')+' '+(r.child_last_name||'')).trim()
           if(!participantName) participantName = escHtml(r.guardian_name||'')
+          if(!isAdult && r.child_dob) participantName += ' <span style="font-weight:400;font-size:11px;color:var(--text-muted)">(Age '+(calcAge(r.child_dob)||'?')+')</span>'
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
           // Contact: always show guardian name + email
           var contactCell = '<div style="font-size:12px;font-weight:600">'+escHtml(r.guardian_name||'')+'</div>'

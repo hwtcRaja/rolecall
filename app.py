@@ -1911,6 +1911,35 @@ def init_db():
         'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
         'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
         'CREATE INDEX IF NOT EXISTS ix_ticket_types_perf ON ticket_types(performance_id)',
+
+        # ── Responsibility Grid / Process Flows / Org Chart ──
+        """CREATE TABLE IF NOT EXISTS rc_roles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            color TEXT DEFAULT '#6B6456',
+            sort_order INTEGER DEFAULT 0,
+            officer_role_key TEXT DEFAULT '',
+            reports_to_id TEXT REFERENCES rc_roles(id) ON DELETE SET NULL)""",
+        """CREATE TABLE IF NOT EXISTS rc_tasks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS rc_raci_assignments (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL REFERENCES rc_tasks(id) ON DELETE CASCADE,
+            role_id TEXT NOT NULL REFERENCES rc_roles(id) ON DELETE CASCADE,
+            letter TEXT NOT NULL,
+            UNIQUE(task_id, role_id))""",
+        """CREATE TABLE IF NOT EXISTS rc_flow_steps (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL REFERENCES rc_tasks(id) ON DELETE CASCADE,
+            role_id TEXT NOT NULL REFERENCES rc_roles(id) ON DELETE CASCADE,
+            label TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0)""",
+        'CREATE INDEX IF NOT EXISTS ix_rc_raci_task ON rc_raci_assignments(task_id)',
+        'CREATE INDEX IF NOT EXISTS ix_rc_steps_task ON rc_flow_steps(task_id)',
+        'CREATE INDEX IF NOT EXISTS ix_rc_roles_reports_to ON rc_roles(reports_to_id)',
 ]:
         try:
             c.execute(col_sql)
@@ -1947,6 +1976,37 @@ def init_db():
                     "INSERT INTO donor_tiers (id,name,min_amount,max_amount,color,sort_order) VALUES (%s,%s,%s,%s,%s,%s)",
                     (str(_uuid2.uuid4()), name, min_a, max_a, color, sort)
                 )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # Seed default Responsibility Grid roles if none exist yet. The first six
+    # link to BOARD_OFFICER_ROLES/board_officer_terms via officer_role_key so
+    # the grid can show whoever currently holds that elected seat; the rest
+    # are operational roles with no election cycle, so officer_role_key is ''.
+    try:
+        existing_rc = fetchone(conn, 'SELECT COUNT(*) as c FROM rc_roles')
+        if existing_rc and existing_rc['c'] == 0:
+            rc_defaults = [
+                ('President', '#8B2A3D', 'president'),
+                ('Vice President', '#2F5D62', 'vice_president'),
+                ('Secretary', '#3F4E7A', 'secretary'),
+                ('Treasurer', '#B8892B', 'treasurer'),
+                ('Youth Education', '#3E7C4A', 'youth_ed_programming_officer'),
+                ('Marketing', '#A0522D', 'marketing_comms_chair'),
+                ('Volunteer Coordination', '#5C6BC0', ''),
+                ('Building Manager', '#00796B', ''),
+                ('Resident Producer', '#C2185B', ''),
+                ('Community Engagement', '#7B8C42', ''),
+                ('Asset Manager', '#8D6E63', ''),
+                ('Programming', '#5D4E75', ''),
+                ('Intern', '#455A64', ''),
+                ('Grant Management', '#6B6456', ''),
+            ]
+            for idx, role_def in enumerate(rc_defaults):
+                name, color, officer_key = role_def
+                execute(conn, '''INSERT INTO rc_roles (id, name, color, sort_order, officer_role_key)
+                    VALUES (%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), name, color, idx, officer_key))
             conn.commit()
     except Exception:
         conn.rollback()
@@ -14012,6 +14072,202 @@ def delete_board_officer_term(tid):
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM board_officer_terms WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Responsibility Grid / Process Flows / Org Chart ──────────────────────────
+# Shared role/task dataset behind three views: an RACI grid (who's
+# Responsible/Accountable/Consulted/Informed on each task), swimlane process
+# flows (step-by-step handoffs between roles), and an org chart (reports_to).
+# Roles here cover more ground than BOARD_OFFICER_ROLES/board_officer_terms,
+# which only track elected exec/officer seats — this also includes
+# operational roles like Building Manager, Asset Manager, and Intern. Where a
+# role does correspond to an elected seat, officer_role_key points at a
+# BOARD_OFFICER_ROLES key and the current holder's name is resolved live from
+# board_officer_terms rather than duplicated here.
+
+def _rc_current_officer_name(conn, officer_role_key):
+    if not officer_role_key:
+        return None
+    row = fetchone(conn, '''SELECT bm.name FROM board_officer_terms bot
+        JOIN board_members bm ON bm.id = bot.member_id
+        WHERE bot.role_key=%s AND (bot.term_end_date IS NULL OR bot.term_end_date='')
+        ORDER BY bot.election_date DESC LIMIT 1''', (officer_role_key,))
+    return row['name'] if row else None
+
+@app.route('/api/responsibility/data')
+def get_responsibility_data():
+    err = require_permission('responsibility_grid', 'view')
+    if err: return err
+    conn = get_db()
+    roles = fetchall(conn, 'SELECT * FROM rc_roles ORDER BY sort_order, name') or []
+    for r in roles:
+        r['current_holder_name'] = _rc_current_officer_name(conn, r.get('officer_role_key'))
+    tasks = fetchall(conn, 'SELECT * FROM rc_tasks ORDER BY created_at') or []
+    for t in tasks:
+        assigns = fetchall(conn, 'SELECT role_id, letter FROM rc_raci_assignments WHERE task_id=%s', (t['id'],)) or []
+        t['assign'] = {a['role_id']: a['letter'] for a in assigns}
+        t['steps'] = fetchall(conn, 'SELECT * FROM rc_flow_steps WHERE task_id=%s ORDER BY sort_order', (t['id'],)) or []
+    conn.close()
+    return jsonify({'roles': roles, 'tasks': tasks})
+
+@app.route('/api/responsibility/roles', methods=['POST'])
+def create_rc_role():
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    rid = str(uuid.uuid4())
+    conn = get_db()
+    max_order = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM rc_roles')
+    next_order = (max_order['m'] if max_order else 0) + 1
+    execute(conn, '''INSERT INTO rc_roles (id, name, color, sort_order)
+        VALUES (%s,%s,%s,%s)''',
+        (rid, (d.get('name') or 'New Role').strip(), d.get('color', '#6B6456'), next_order))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rc_roles WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row), 201
+
+@app.route('/api/responsibility/roles/<rid>', methods=['PATCH'])
+def update_rc_role(rid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    if 'reports_to_id' in d and d['reports_to_id'] == rid:
+        conn.close()
+        return jsonify({'error': 'A role cannot report to itself'}), 400
+    if 'name' in d:
+        execute(conn, 'UPDATE rc_roles SET name=%s WHERE id=%s', (d['name'].strip(), rid))
+    if 'color' in d:
+        execute(conn, 'UPDATE rc_roles SET color=%s WHERE id=%s', (d['color'], rid))
+    if 'reports_to_id' in d:
+        execute(conn, 'UPDATE rc_roles SET reports_to_id=%s WHERE id=%s', (d['reports_to_id'] or None, rid))
+    if 'officer_role_key' in d:
+        execute(conn, 'UPDATE rc_roles SET officer_role_key=%s WHERE id=%s', (d['officer_role_key'] or '', rid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rc_roles WHERE id=%s', (rid,))
+    row['current_holder_name'] = _rc_current_officer_name(conn, row.get('officer_role_key')) if row else None
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/responsibility/roles/<rid>', methods=['DELETE'])
+def delete_rc_role(rid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE rc_roles SET reports_to_id=NULL WHERE reports_to_id=%s', (rid,))
+    execute(conn, 'DELETE FROM rc_roles WHERE id=%s', (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/tasks', methods=['POST'])
+def create_rc_task():
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, 'INSERT INTO rc_tasks (id, name, description) VALUES (%s,%s,%s)',
+        (tid, (d.get('name') or '').strip(), d.get('description', '')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rc_tasks WHERE id=%s', (tid,))
+    row['assign'] = {}
+    row['steps'] = []
+    conn.close()
+    return jsonify(row), 201
+
+@app.route('/api/responsibility/tasks/<tid>', methods=['PATCH'])
+def update_rc_task(tid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    if 'name' in d:
+        execute(conn, 'UPDATE rc_tasks SET name=%s WHERE id=%s', (d['name'].strip(), tid))
+    if 'description' in d:
+        execute(conn, 'UPDATE rc_tasks SET description=%s WHERE id=%s', (d['description'], tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/tasks/<tid>', methods=['DELETE'])
+def delete_rc_task(tid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rc_tasks WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/tasks/<tid>/assign', methods=['PUT'])
+def set_rc_assignment(tid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    role_id = d.get('role_id')
+    letter = d.get('letter')
+    conn = get_db()
+    if not letter:
+        execute(conn, 'DELETE FROM rc_raci_assignments WHERE task_id=%s AND role_id=%s', (tid, role_id))
+    elif letter not in ('R', 'A', 'C', 'I'):
+        conn.close()
+        return jsonify({'error': 'letter must be R, A, C, or I'}), 400
+    else:
+        execute(conn, '''INSERT INTO rc_raci_assignments (id, task_id, role_id, letter)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (task_id, role_id) DO UPDATE SET letter=EXCLUDED.letter''',
+            (str(uuid.uuid4()), tid, role_id, letter))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/tasks/<tid>/steps', methods=['POST'])
+def add_rc_step(tid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    max_order = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),-1) as m FROM rc_flow_steps WHERE task_id=%s', (tid,))
+    next_order = (max_order['m'] if max_order else -1) + 1
+    sid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rc_flow_steps (id, task_id, role_id, label, sort_order)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (sid, tid, d.get('role_id'), d.get('label', ''), next_order))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rc_flow_steps WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row), 201
+
+@app.route('/api/responsibility/steps/<sid>', methods=['PATCH'])
+def update_rc_step(sid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    if 'label' in d:
+        execute(conn, 'UPDATE rc_flow_steps SET label=%s WHERE id=%s', (d['label'], sid))
+    if 'role_id' in d:
+        execute(conn, 'UPDATE rc_flow_steps SET role_id=%s WHERE id=%s', (d['role_id'], sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/steps/<sid>', methods=['DELETE'])
+def delete_rc_step(sid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rc_flow_steps WHERE id=%s', (sid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/responsibility/tasks/<tid>/steps/reorder', methods=['POST'])
+def reorder_rc_steps(tid):
+    err = require_permission('responsibility_grid')
+    if err: return err
+    d = request.json or {}
+    order = d.get('order', [])
+    conn = get_db()
+    for idx, step_id in enumerate(order):
+        execute(conn, 'UPDATE rc_flow_steps SET sort_order=%s WHERE id=%s AND task_id=%s', (idx, step_id, tid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

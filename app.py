@@ -8095,6 +8095,7 @@ def save_email_settings_route():
     conn = get_db()
     # Ensure rental columns exist
     for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
+                'rental_inbound_domain TEXT DEFAULT \'\'', 'rental_inbound_webhook_secret TEXT DEFAULT \'\'',
                 'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
                 'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
                 'twilio_voice_greeting TEXT DEFAULT \'\'',
@@ -8140,6 +8141,7 @@ def save_email_settings_route():
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
+        'rental_inbound_domain','rental_inbound_webhook_secret',
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
@@ -17697,6 +17699,24 @@ def run_migrations_manual():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approver_emails TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_approval_levels TEXT DEFAULT '[]'",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_inbound_domain TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_inbound_webhook_secret TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS rental_messages (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES rental_requests(id) ON DELETE CASCADE,
+            direction TEXT NOT NULL,
+            from_email TEXT DEFAULT '',
+            from_name TEXT DEFAULT '',
+            to_email TEXT DEFAULT '',
+            subject TEXT DEFAULT '',
+            body_html TEXT DEFAULT '',
+            body_text TEXT DEFAULT '',
+            resend_message_id TEXT DEFAULT '',
+            resend_email_id TEXT DEFAULT '',
+            sent_by TEXT DEFAULT '',
+            read_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_rental_messages_request ON rental_messages(request_id)',
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_agreement_template TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT DEFAULT ''",
@@ -19707,7 +19727,9 @@ def get_rental_requests():
         ra.partner_signed_at, ra.signing_token,
         COALESCE(rr.approval_level, 0) AS approval_level,
         COALESCE(rr.approval_history, '[]') AS approval_history,
-        COALESCE(rr.denial_reason, '') AS denial_reason
+        COALESCE(rr.denial_reason, '') AS denial_reason,
+        (SELECT COUNT(*) FROM rental_messages rm WHERE rm.request_id=rr.id
+            AND rm.direction='inbound' AND rm.read_at IS NULL) AS unread_message_count
         FROM rental_requests rr
         LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
         LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
@@ -19812,16 +19834,25 @@ def _generate_rental_occurrences(conn, request_id, d):
     stime, etime = d.get('start_time', ''), d.get('end_time', '')
 
     if mode == 'specific':
-        try:
-            dates = _jro2.loads(d.get('specific_dates') or '[]')
-        except Exception:
-            dates = []
-        for date_str in dates:
+        raw_dates = d.get('specific_dates') or []
+        if isinstance(raw_dates, str):
+            try:
+                raw_dates = _jro2.loads(raw_dates)
+            except Exception:
+                raw_dates = []
+        for item in raw_dates:
+            if isinstance(item, dict):
+                date_str = item.get('date', '')
+                row_stime = item.get('start_time') or stime
+                row_etime = item.get('end_time') or etime
+            else:
+                date_str = item
+                row_stime, row_etime = stime, etime
             try:
                 _dto2.date.fromisoformat(date_str)
             except Exception:
                 continue
-            _insert(date_str, stime, etime)
+            _insert(date_str, row_stime, row_etime)
         return
 
     start_raw = (d.get('start_date') or '').strip()
@@ -20390,6 +20421,201 @@ def check_rental_availability():
         results.append({'date': date, 'conflicts': conflicts})
     conn.close()
     return jsonify({'space_name': space['name'] if space else '', 'results': results})
+
+# ── Venue Rentals: two-way email thread with the requester ──────────────────
+# Staff sends a message from RoleCall (via Resend); the reply-to address is
+# unique per request (rental-<rid>@<inbound domain>), so when the partner
+# hits "Reply" in their email client, Resend's inbound webhook tells us
+# exactly which request it belongs to. Requires one-time setup in the Resend
+# dashboard: enable Receiving on a domain (their auto *.resend.app address
+# works with zero DNS changes, or a custom subdomain), then add a webhook
+# for the email.received event pointed at /api/rental/inbound-email, and
+# paste that domain + the webhook's signing secret into Settings → Email
+# Settings → Venue Rental Approvals.
+
+def _rental_reply_to(rid):
+    settings = get_email_settings()
+    domain = (settings.get('rental_inbound_domain') or '').strip()
+    if not domain:
+        return None
+    return f'rental-{rid}@{domain}'
+
+@app.route('/api/rental/requests/<rid>/messages', methods=['GET'])
+def get_rental_messages(rid):
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    msgs = fetchall(conn, '''SELECT * FROM rental_messages WHERE request_id=%s
+        ORDER BY created_at ASC''', (rid,)) or []
+    # Mark inbound messages as read now that staff have opened the thread
+    execute(conn, '''UPDATE rental_messages SET read_at=NOW()
+        WHERE request_id=%s AND direction='inbound' AND read_at IS NULL''', (rid,))
+    conn.commit(); conn.close()
+    return jsonify(msgs)
+
+@app.route('/api/rental/requests/<rid>/messages', methods=['POST'])
+def send_rental_message(rid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Message cannot be empty'}), 400
+    conn = get_db()
+    req = fetchone(conn, '''SELECT rr.*, rp.contact_email AS partner_email, rp.contact_name AS partner_contact
+        FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    to_email = (req.get('partner_email') or '').strip()
+    if not to_email:
+        conn.close()
+        return jsonify({'error': 'This partner has no contact email on file'}), 400
+    reply_to = _rental_reply_to(rid)
+    if not reply_to:
+        conn.close()
+        return jsonify({'error': 'Rental inbound domain is not configured yet — set it in Settings → Email Settings before sending, or the partner\'s reply won\'t come back to RoleCall'}), 400
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    sender_name = (user or {}).get('name', 'Horizon West Theater Company')
+    subject = f'Re: {req.get("title","")}'
+    html_body = body.replace('\n', '<br>')
+    mid = str(__import__('uuid').uuid4())
+    ok, err_msg = send_email(to_email, subject, html_body, from_name=sender_name)
+    if not ok:
+        conn.close()
+        return jsonify({'error': err_msg or 'Failed to send'}), 500
+    # Try to set Reply-To via Resend directly for proper threading; send_email()
+    # doesn't currently expose reply_to, so this is a best-effort second call
+    # using the same API rather than changing send_email()'s shared signature.
+    try:
+        settings = get_email_settings()
+        api_key = settings.get('resend_api_key', '').strip()
+        if api_key:
+            import requests as _reqrm
+            try:
+                identities = json.loads(settings.get('sender_identities') or '[]')
+            except Exception:
+                identities = []
+            base_email = identities[0].get('email', settings.get('from_email', 'info@hwtco.org')) if identities else settings.get('from_email', 'info@hwtco.org')
+            from_addr = f'{sender_name} <{base_email}>'
+            _reqrm.post('https://api.resend.com/emails',
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                json={'from': from_addr, 'to': [to_email], 'reply_to': [reply_to],
+                      'subject': subject, 'html': html_body},
+                timeout=10)
+    except Exception as e:
+        app.logger.warning(f'Rental message reply-to send error: {e}')
+    execute(conn, '''INSERT INTO rental_messages
+        (id, request_id, direction, from_email, from_name, to_email, subject, body_html, body_text, sent_by)
+        VALUES (%s,%s,'outbound',%s,%s,%s,%s,%s,%s,%s)''',
+        (mid, rid, reply_to or '', sender_name, to_email, subject, html_body, body, sender_name))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+def _verify_resend_webhook(secret, payload_bytes, svix_id, svix_timestamp, svix_signature):
+    """Resend delivers webhooks via Svix. Verify per the Svix spec: HMAC-SHA256
+    over "{id}.{timestamp}.{body}" using the secret (after stripping its
+    "whsec_" prefix and base64-decoding it), compared against each
+    space-separated "v1,<base64 sig>" entry in the svix-signature header."""
+    if not (secret and svix_id and svix_timestamp and svix_signature):
+        return False
+    try:
+        import base64
+        secret_bytes = base64.b64decode(secret[len('whsec_'):] if secret.startswith('whsec_') else secret)
+        signed_content = f'{svix_id}.{svix_timestamp}.'.encode() + payload_bytes
+        expected = base64.b64encode(hmac.new(secret_bytes, signed_content, hashlib.sha256).digest()).decode()
+        for part in svix_signature.split(' '):
+            candidate = part.split(',', 1)[1] if ',' in part else part
+            if hmac.compare_digest(candidate, expected):
+                return True
+    except Exception as e:
+        app.logger.warning(f'Resend webhook verification error: {e}')
+    return False
+
+@app.route('/api/rental/inbound-email', methods=['POST'])
+def rental_inbound_email():
+    """Resend's email.received webhook. The payload only carries metadata —
+    the actual body has to be fetched separately via the Received Emails API."""
+    settings = get_email_settings()
+    secret = (settings.get('rental_inbound_webhook_secret') or '').strip()
+    raw = request.get_data()
+    if secret:
+        verified = _verify_resend_webhook(secret, raw,
+            request.headers.get('svix-id', ''),
+            request.headers.get('svix-timestamp', ''),
+            request.headers.get('svix-signature', ''))
+        if not verified:
+            app.logger.warning('Rental inbound webhook: signature verification failed')
+            return jsonify({'error': 'Invalid signature'}), 401
+    event = request.json or {}
+    if event.get('type') != 'email.received':
+        return jsonify({'ok': True})
+    data = event.get('data') or {}
+    to_addrs = data.get('to') or []
+    rid = None
+    for addr in to_addrs:
+        local_part = addr.split('@')[0] if '@' in addr else addr
+        if local_part.startswith('rental-'):
+            rid = local_part[len('rental-'):]
+            break
+    if not rid:
+        app.logger.info(f'Rental inbound webhook: no rental- address in to={to_addrs}, ignoring')
+        return jsonify({'ok': True})
+    conn = get_db()
+    req = fetchone(conn, 'SELECT id, title FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'ok': True})
+    # The webhook payload is metadata-only; fetch the actual body content.
+    email_id = data.get('email_id', '')
+    body_html, body_text = '', ''
+    api_key = settings.get('resend_api_key', '').strip()
+    if api_key and email_id:
+        try:
+            import requests as _reqin
+            resp = _reqin.get(f'https://api.resend.com/emails/receiving/{email_id}',
+                headers={'Authorization': f'Bearer {api_key}'}, timeout=10)
+            if resp.status_code == 200:
+                full = resp.json()
+                # Field names for body content aren't fully nailed down from
+                # docs alone — check the common candidates defensively.
+                body_html = full.get('html') or full.get('body_html') or ''
+                body_text = full.get('text') or full.get('body_text') or full.get('body') or ''
+            else:
+                app.logger.warning(f'Resend receiving fetch failed: {resp.status_code} {resp.text[:200]}')
+        except Exception as e:
+            app.logger.warning(f'Resend receiving fetch error: {e}')
+    mid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_messages
+        (id, request_id, direction, from_email, to_email, subject, body_html, body_text, resend_email_id)
+        VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s)''',
+        (mid, rid, data.get('from', ''), ', '.join(to_addrs), data.get('subject', ''),
+         body_html, body_text, email_id))
+    conn.commit()
+    # Let staff know a reply came in — reuse the same approver list rentals already notify.
+    try:
+        es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
+        approver_emails = []
+        try:
+            levels = json.loads(es.get('rental_approval_levels') or '[]')
+            if levels and levels[0].get('emails'):
+                approver_emails = [e.strip() for e in levels[0]['emails'].replace(',', '\n').splitlines() if e.strip()]
+        except Exception:
+            pass
+        if not approver_emails:
+            raw_e = (es.get('rental_approver_emails') or '').strip()
+            approver_emails = [e.strip() for e in raw_e.replace(',', '\n').splitlines() if e.strip()]
+        for addr in approver_emails:
+            try:
+                send_email(addr, f'New reply on rental request: {req.get("title","")}',
+                    f'{data.get("from","")} replied about "{req.get("title","")}".<br><br>'
+                    f'Log in to RoleCall → Venue Rentals to view and respond.')
+            except Exception:
+                pass
+    except Exception as e:
+        app.logger.warning(f'Rental reply notify error: {e}')
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/rental/occurrences/<oid>', methods=['PUT'])
 def update_rental_occurrence(oid):

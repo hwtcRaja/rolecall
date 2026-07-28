@@ -23983,6 +23983,7 @@ function renderRentalsPage(){
          <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
           💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
          </button>
+         <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')">📝 Internal Notes</button>
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
          <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
@@ -24007,11 +24008,11 @@ function renderRentalsPage(){
       + partners.map(function(p){
           const partnerRentals = _rentalData.requests.filter(r=>r.partner_id===p.id).length
           return `<tr style="border-bottom:1px solid var(--border)">
-           <td style="padding:10px 14px;font-weight:700">${escHtml(p.name||'')}</td>
+           <td style="padding:10px 14px;font-weight:700"><a href="javascript:void(0)" onclick="openPartnerDetailModal('${p.id}')" style="color:var(--teal-dark);text-decoration:none">${escHtml(p.name||'')}</a></td>
            <td style="padding:10px 8px;font-size:12px"><div>${escHtml(p.contact_name||'')}</div><div style="color:var(--text-muted)">${escHtml(p.contact_email||'')}</div></td>
            <td style="padding:10px 8px;font-size:12px;color:var(--text-muted)">${escHtml(p.organization_type||'—')}</td>
            <td style="padding:10px 8px"><span style="background:#e0f2fe;color:#145466;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${partnerRentals}</span></td>
-           <td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" onclick="openPartnerModal('${p.id}')">Edit</button></td>
+           <td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" onclick="openPartnerDetailModal('${p.id}')">View</button></td>
           </tr>`
         }).join('')
       + '</tbody></table></div>'
@@ -24388,6 +24389,144 @@ async function savePartner(pid){
   else toast((res&&res.error)||'Error','error')
 }
 
+let _partnerDetailTab = 'details'
+const PARTNER_FILE_CATEGORIES = [{v:'insurance',l:'Certificate of Insurance'},{v:'w9',l:'W-9'},{v:'contract',l:'Contract/Agreement'},{v:'other',l:'Other'}]
+
+async function openPartnerDetailModal(pid){
+  const p = _rentalData.partners.find(x=>x.id===pid) || {}
+  _partnerDetailTab = 'details'
+  const overlay = document.createElement('div')
+  overlay.id = 'partner-detail-overlay'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">${escHtml(p.name||'')}</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${escHtml(p.contact_name||'')}${p.contact_email?' · '+escHtml(p.contact_email):''}</div>
+   <div style="display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:16px">
+    <button class="pd-tab-btn" data-tab="details" onclick="switchPartnerDetailTab('${pid}','details')" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid var(--teal-400);font-family:inherit;font-size:13px;font-weight:700;color:var(--teal-dark);cursor:pointer">Details</button>
+    <button class="pd-tab-btn" data-tab="files" onclick="switchPartnerDetailTab('${pid}','files')" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid transparent;font-family:inherit;font-size:13px;font-weight:700;color:var(--text-muted);cursor:pointer">Files</button>
+   </div>
+   <div id="pd-tab-content"></div>
+   <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  renderPartnerDetailsTab(p)
+}
+
+function switchPartnerDetailTab(pid, tab){
+  _partnerDetailTab = tab
+  document.querySelectorAll('.pd-tab-btn').forEach(function(b){
+    const active = b.dataset.tab === tab
+    b.style.borderBottomColor = active ? 'var(--teal-400)' : 'transparent'
+    b.style.color = active ? 'var(--teal-dark)' : 'var(--text-muted)'
+  })
+  if(tab === 'details'){
+    const p = _rentalData.partners.find(x=>x.id===pid) || {}
+    renderPartnerDetailsTab(p)
+  } else {
+    loadPartnerFilesTab(pid)
+  }
+}
+
+function renderPartnerDetailsTab(p){
+  const el = document.getElementById('pd-tab-content')
+  if(!el) return
+  const orgTypes = ['Dance Studio','Photography','Corporate/Private','School','Nonprofit','Community Group','Sports/Fitness','Other']
+  function fi(id,label,val,ph,type='text'){
+    return `<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">${label}</label><input type="${type}" id="pm-${id}" value="${escHtml(val||'')}" placeholder="${ph||''}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>`
+  }
+  el.innerHTML = `
+   ${fi('name','Organization Name',p.name,'e.g. Winter Garden Dance Academy')}
+   ${fi('contact','Contact Name',p.contact_name,'Primary contact person')}
+   ${fi('email','Email',p.contact_email,'contact@example.com','email')}
+   ${fi('phone','Phone',p.contact_phone,'(407) 555-0000')}
+   <div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Organization Type</label>
+   <select id="pm-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+   ${orgTypes.map(t=>`<option value="${t}" ${p.organization_type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+   <div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Notes</label>
+   <textarea id="pm-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml(p.notes||'')}</textarea></div>
+   <button class="btn btn-primary btn-sm" onclick="saveDetailPartner('${p.id||''}')">Save Changes</button>
+  `
+}
+
+async function saveDetailPartner(pid){
+  const payload={
+    name:(document.getElementById('pm-name')||{}).value||'',
+    contact_name:(document.getElementById('pm-contact')||{}).value||'',
+    contact_email:(document.getElementById('pm-email')||{}).value||'',
+    contact_phone:(document.getElementById('pm-phone')||{}).value||'',
+    organization_type:(document.getElementById('pm-type')||{}).value||'',
+    notes:(document.getElementById('pm-notes')||{}).value||'',
+  }
+  if(!payload.name){ toast('Name is required','error'); return }
+  const res = await api('/api/rental/partners/'+pid,'PUT',payload)
+  if(res&&res.ok){
+    toast('Partner updated','success')
+    const partners = await api('/api/rental/partners')
+    if(Array.isArray(partners)) _rentalData.partners = partners
+  } else toast((res&&res.error)||'Error','error')
+}
+
+async function loadPartnerFilesTab(pid){
+  const el = document.getElementById('pd-tab-content')
+  if(!el) return
+  el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:20px 0">Loading…</div>'
+  const files = await api('/api/rental/partners/'+pid+'/files')
+  const catLabel = function(v){ const f = PARTNER_FILE_CATEGORIES.find(c=>c.v===v); return f?f.l:'Other' }
+  let html = '<div style="display:flex;gap:8px;margin-bottom:14px;align-items:flex-end;flex-wrap:wrap">'
+    + '<div style="flex:1;min-width:140px"><label style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title</label>'
+    + '<input id="pf-title" placeholder="e.g. 2026 COI" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;box-sizing:border-box"/></div>'
+    + '<div style="min-width:150px"><label style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Category</label>'
+    + '<select id="pf-category" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px">'
+    + PARTNER_FILE_CATEGORIES.map(c=>'<option value="'+c.v+'">'+c.l+'</option>').join('') + '</select></div>'
+    + '<div><input type="file" id="pf-file" style="font-size:12px;max-width:160px"/></div>'
+    + '<button class="btn btn-primary btn-sm" onclick="uploadPartnerFile(\''+pid+'\')">Upload</button>'
+    + '</div>'
+  if(!Array.isArray(files) || !files.length){
+    html += '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px 0">No files uploaded yet.</div>'
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:8px">'
+    html += files.map(function(f){
+      return '<div class="card" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center">'
+        + '<div><div style="font-weight:600;font-size:13px">'+escHtml(f.title||f.original_name||'')+'</div>'
+        + '<div style="font-size:11px;color:var(--text-muted)">'+catLabel(f.category)+' · '+escHtml(f.file_size||'')+' · '+(f.created_at?f.created_at.slice(0,10):'')+' · '+escHtml(f.uploaded_by||'')+'</div></div>'
+        + '<div style="display:flex;gap:6px">'
+        + '<a class="btn btn-secondary btn-sm" href="/api/rental/partner-files/'+f.id+'/download" target="_blank">Download</a>'
+        + '<button class="btn btn-sm" onclick="deletePartnerFile(\''+pid+'\',\''+f.id+'\')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px">Delete</button>'
+        + '</div></div>'
+    }).join('')
+    html += '</div>'
+  }
+  el.innerHTML = html
+}
+
+async function uploadPartnerFile(pid){
+  const fileInput = document.getElementById('pf-file')
+  const file = fileInput && fileInput.files[0]
+  if(!file){ toast('Choose a file first','error'); return }
+  const title = (document.getElementById('pf-title')||{}).value || ''
+  const category = (document.getElementById('pf-category')||{}).value || 'other'
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('title', title)
+  fd.append('category', category)
+  try{
+    const r = await fetch('/api/rental/partners/'+pid+'/files', {method:'POST', credentials:'include', body:fd})
+    const data = await r.json()
+    if(r.ok){ toast('File uploaded','success'); loadPartnerFilesTab(pid) }
+    else toast(data.error||'Upload failed','error')
+  }catch(e){ toast('Upload failed','error') }
+}
+
+async function deletePartnerFile(pid, fid){
+  if(!confirm('Delete this file? This cannot be undone.')) return
+  const res = await api('/api/rental/partner-files/'+fid,'DELETE')
+  if(res && res.ok){ toast('File deleted','success'); loadPartnerFilesTab(pid) }
+  else toast((res&&res.error)||'Could not delete file','error')
+}
+
 function openNewRentalModal(rid){
   const req = rid ? _rentalData.requests.find(r=>r.id===rid) : {}
   const overlay = document.createElement('div')
@@ -24656,26 +24795,35 @@ async function previewRentalAvailability(rid){
   container.innerHTML = html
 }
 
+let _rentalMessageQuill = null
+
 async function openRentalMessagesModal(rid){
   const req = _rentalData.requests.find(r=>r.id===rid) || {}
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;padding:20px">
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:700px;max-height:88vh;display:flex;flex-direction:column;padding:20px">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">Messages — ${escHtml(req.title||'')}</div>
    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">${escHtml(req.partner_name||'')}${req.partner_email?' · '+escHtml(req.partner_email):''}</div>
    <div id="rm-thread" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;min-height:200px;background:var(--gray-50)">
     <div style="font-size:12px;color:var(--text-muted);text-align:center">Loading…</div>
    </div>
-   <div style="display:flex;gap:8px;align-items:flex-end">
-    <textarea id="rm-reply-text" rows="2" placeholder="Write a reply or question…" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
-    <button class="btn btn-primary btn-sm" onclick="sendRentalMessage('${rid}')">Send</button>
+   <div style="border:1.5px solid var(--border-md);border-radius:var(--radius);overflow:hidden">
+    <div id="rm-reply-editor" style="height:150px;background:var(--surface)"></div>
    </div>
-   <div style="display:flex;justify-content:flex-end;margin-top:12px">
+   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+    <button class="btn btn-primary" onclick="sendRentalMessage('${rid}')">Send</button>
    </div>
   </div>`
   overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+  if(window.Quill){
+    _rentalMessageQuill = new Quill('#rm-reply-editor', {
+      theme:'snow',
+      placeholder:'Write a reply or question…',
+      modules:{ toolbar:[['bold','italic','underline'],[{list:'ordered'},{list:'bullet'}],['link'],['clean']] }
+    })
+  }
   await loadRentalThread(rid)
 }
 
@@ -24689,7 +24837,7 @@ async function loadRentalThread(rid){
   } else {
     wrap.innerHTML = msgs.map(function(m){
       const isOut = m.direction==='outbound'
-      const body = m.body_html || (m.body_text||'').replace(/\n/g,'<br>')
+      const body = m.body_html || escHtml(m.body_text||'').replace(/\n/g,'<br>')
       const when = (m.created_at||'').replace('T',' ').slice(0,16)
       return '<div style="display:flex;justify-content:'+(isOut?'flex-end':'flex-start')+';margin-bottom:10px">'
         + '<div style="max-width:78%;background:'+(isOut?'var(--teal-400)':'var(--surface)')+';color:'+(isOut?'#fff':'var(--text)')+';border:1px solid '+(isOut?'transparent':'var(--border)')+';border-radius:10px;padding:8px 12px;font-size:13px">'
@@ -24705,16 +24853,83 @@ async function loadRentalThread(rid){
 }
 
 async function sendRentalMessage(rid){
-  const ta = document.getElementById('rm-reply-text')
-  const body = ta ? ta.value.trim() : ''
-  if(!body) return
+  if(!_rentalMessageQuill) return
+  const body = _rentalMessageQuill.root.innerHTML
+  const isEmpty = _rentalMessageQuill.getText().trim().length === 0
+  if(isEmpty) return
   const res = await api('/api/rental/requests/'+rid+'/messages','POST',{body})
   if(res && res.ok){
-    if(ta) ta.value = ''
+    _rentalMessageQuill.setContents([])
     await loadRentalThread(rid)
   } else {
     toast((res&&res.error)||'Could not send message','error')
   }
+}
+
+// ── Internal (staff-only) notes ──────────────────────────────────────────
+// Separate from the partner-facing Messages thread above — never emailed,
+// never shown to the partner. Just a private log of the process.
+
+async function openRentalInternalNotesModal(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid) || {}
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;padding:20px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">📝 Internal Notes — ${escHtml(req.title||'')}</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Staff-only — never sent to the partner or shown on their portal.</div>
+   <div id="rin-list" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;min-height:180px;background:#fffbeb">
+    <div style="font-size:12px;color:var(--text-muted);text-align:center">Loading…</div>
+   </div>
+   <div style="display:flex;gap:8px;align-items:flex-end">
+    <textarea id="rin-text" rows="2" placeholder="e.g. Messaged back asking for more info…" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
+    <button class="btn btn-primary btn-sm" onclick="addRentalInternalNote('${rid}')">Add</button>
+   </div>
+   <div style="display:flex;justify-content:flex-end;margin-top:12px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Close</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  await loadRentalInternalNotes(rid)
+}
+
+async function loadRentalInternalNotes(rid){
+  const wrap = document.getElementById('rin-list')
+  if(!wrap) return
+  const notes = await api('/api/rental/requests/'+rid+'/internal-notes')
+  if(!Array.isArray(notes)){ wrap.innerHTML = '<div style="font-size:12px;color:var(--red)">Could not load notes.</div>'; return }
+  if(!notes.length){
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center">No internal notes yet.</div>'
+  } else {
+    wrap.innerHTML = notes.map(function(n){
+      const when = (n.created_at||'').replace('T',' ').slice(0,16)
+      return '<div class="card" style="padding:8px 12px;margin-bottom:8px;background:var(--surface);border:1px solid #fde68a">'
+        + '<div style="font-size:10.5px;color:var(--text-muted);margin-bottom:3px;display:flex;justify-content:space-between">'
+        + '<span>'+escHtml(n.author_name||'Staff')+' · '+escHtml(when)+'</span>'
+        + '<button onclick="deleteRentalInternalNote(\''+rid+'\',\''+n.id+'\')" style="background:none;border:none;color:var(--text-hint);cursor:pointer;font-size:13px">×</button>'
+        + '</div>'
+        + '<div style="font-size:13px;white-space:pre-wrap">'+escHtml(n.body||'')+'</div></div>'
+    }).join('')
+  }
+}
+
+async function addRentalInternalNote(rid){
+  const ta = document.getElementById('rin-text')
+  const body = ta ? ta.value.trim() : ''
+  if(!body) return
+  const res = await api('/api/rental/requests/'+rid+'/internal-notes','POST',{body})
+  if(res && res.id){
+    if(ta) ta.value = ''
+    await loadRentalInternalNotes(rid)
+  } else {
+    toast((res&&res.error)||'Could not add note','error')
+  }
+}
+
+async function deleteRentalInternalNote(rid, nid){
+  const res = await api('/api/rental/internal-notes/'+nid,'DELETE')
+  if(res && res.ok) loadRentalInternalNotes(rid)
+  else toast((res&&res.error)||'Could not delete note','error')
 }
 
 function openPartnershipInterestLinkModal(){

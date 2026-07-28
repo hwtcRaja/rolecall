@@ -1298,6 +1298,25 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_group_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS welcome_email_sent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS reported_under_18 TEXT DEFAULT ''""",
+
+        # ── Artistic Partnership: deposit / final payment invoices ──
+        """CREATE TABLE IF NOT EXISTS rental_payments (
+            id TEXT PRIMARY KEY,
+            agreement_id TEXT NOT NULL REFERENCES rental_agreements(id) ON DELETE CASCADE,
+            payment_type TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            due_date TEXT DEFAULT '',
+            square_order_id TEXT DEFAULT '',
+            square_invoice_id TEXT DEFAULT '',
+            square_invoice_status TEXT DEFAULT '',
+            public_url TEXT DEFAULT '',
+            sent_at TIMESTAMP,
+            paid_at TIMESTAMP,
+            created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_rental_payments_agreement ON rental_payments(agreement_id)',
+        'CREATE INDEX IF NOT EXISTS ix_rental_payments_invoice ON rental_payments(square_invoice_id)',
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
@@ -15129,6 +15148,98 @@ def square_find_or_create_customer(email, name='', phone=''):
     return None
 
 
+def square_create_order(item_name, amount_cents, reference_id=''):
+    """Create a Square order with a single line item for the given amount.
+    Required before an invoice can be created — the Invoices API only
+    accepts an existing order_id, it can't build one inline like Payment
+    Links can. Returns order_id or None."""
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        return None
+    try:
+        import uuid as _uuido
+        payload = {
+            'idempotency_key': str(_uuido.uuid4()),
+            'order': {
+                'location_id': SQUARE_LOCATION_ID,
+                'line_items': [
+                    {'name': item_name[:191], 'quantity': '1',
+                     'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}
+                ],
+                'reference_id': (reference_id or '')[:40],
+            },
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/orders', json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('order'):
+            return data['order']['id']
+        app.logger.error(f'Square create order failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.error(f'Square create order exception: {e}')
+    return None
+
+
+def square_create_and_publish_invoice(order_id, customer_id, amount_cents, due_date, title, description):
+    """Create a draft invoice for the given order (single BALANCE payment
+    request for the full amount), then publish it so Square emails it to
+    the customer and hosts the payment page. Returns
+    (invoice_id, public_url, status, error) — error is None on success."""
+    if not SQUARE_ACCESS_TOKEN:
+        return None, None, None, 'Square is not configured'
+    try:
+        import uuid as _uuidi
+        create_payload = {
+            'idempotency_key': str(_uuidi.uuid4()),
+            'invoice': {
+                'location_id': SQUARE_LOCATION_ID,
+                'order_id': order_id,
+                'primary_recipient': {'customer_id': customer_id},
+                'payment_requests': [
+                    {'request_type': 'BALANCE', 'due_date': due_date, 'automatic_payment_source': 'NONE'}
+                ],
+                'delivery_method': 'EMAIL',
+                'title': title[:255],
+                'description': description[:2000] if description else '',
+                'accepted_payment_methods': {'card': True, 'square_gift_card': False, 'bank_transfer': False, 'buy_now_pay_later': False},
+            },
+        }
+        r = requests.post(f'{SQUARE_API_BASE}/v2/invoices', json=create_payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code != 200 or not data.get('invoice'):
+            app.logger.error(f'Square create invoice failed {r.status_code}: {data}')
+            return None, None, None, f'Could not create invoice: {data}'
+        invoice = data['invoice']
+        invoice_id = invoice['id']
+        version = invoice.get('version', 0)
+
+        publish_payload = {'version': version, 'idempotency_key': str(_uuidi.uuid4())}
+        r2 = requests.post(f'{SQUARE_API_BASE}/v2/invoices/{invoice_id}/publish', json=publish_payload, headers=square_headers(), timeout=15)
+        data2 = r2.json()
+        if r2.status_code != 200 or not data2.get('invoice'):
+            app.logger.error(f'Square publish invoice failed {r2.status_code}: {data2}')
+            return invoice_id, None, invoice.get('status', 'DRAFT'), f'Invoice created but could not be sent: {data2}'
+        published = data2['invoice']
+        return invoice_id, published.get('public_url'), published.get('status'), None
+    except Exception as e:
+        app.logger.error(f'Square create/publish invoice exception: {e}')
+        return None, None, None, str(e)
+
+
+def square_get_invoice(invoice_id):
+    """Fetch the current state of an invoice directly from Square — used for
+    the manual 'check status' action in case a webhook was missed."""
+    if not SQUARE_ACCESS_TOKEN or not invoice_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/invoices/{invoice_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('invoice'):
+            return data['invoice']
+        app.logger.warning(f'Square get invoice failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.warning(f'Square get invoice exception: {e}')
+    return None
+
+
 def square_save_card(customer_id, source_id, cardholder_name=''):
     """Save a tokenized card on file for a customer WITHOUT charging it.
     source_id is the token produced client-side by Square's Web Payments SDK.
@@ -16762,6 +16873,20 @@ def square_webhook():
                 conn.close()
         except Exception as e:
             app.logger.error(f'Webhook processing error: {e}', exc_info=True)
+
+    elif event_type == 'invoice.payment_made':
+        try:
+            invoice = event.get('data', {}).get('object', {}).get('invoice', {})
+            invoice_id = invoice.get('id')
+            if invoice_id:
+                conn = get_db()
+                payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE square_invoice_id=%s', (invoice_id,))
+                if payment:
+                    _apply_rental_invoice_update(conn, payment, invoice)
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            app.logger.error(f'Rental invoice webhook error: {e}', exc_info=True)
 
     return jsonify({'ok': True})
 
@@ -20123,7 +20248,19 @@ def get_rental_requests():
             COALESCE(rr.approval_history, '[]') AS approval_history,
             COALESCE(rr.denial_reason, '') AS denial_reason,
             (SELECT COUNT(*) FROM rental_messages rm WHERE rm.request_id=rr.id
-                AND rm.direction='inbound' AND rm.read_at IS NULL) AS unread_message_count
+                AND rm.direction='inbound' AND rm.read_at IS NULL) AS unread_message_count,
+            (SELECT id FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_payment_id,
+            (SELECT amount_cents FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_amount_cents,
+            (SELECT square_invoice_status FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_invoice_status,
+            (SELECT paid_at FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_paid_at,
+            (SELECT public_url FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_public_url,
+            (SELECT due_date FROM rental_payments WHERE agreement_id=ra.id AND payment_type='deposit' ORDER BY created_at DESC LIMIT 1) AS deposit_due_date,
+            (SELECT id FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_payment_id,
+            (SELECT amount_cents FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_amount_cents,
+            (SELECT square_invoice_status FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_invoice_status,
+            (SELECT paid_at FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_paid_at,
+            (SELECT public_url FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_public_url,
+            (SELECT due_date FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_due_date
             FROM rental_requests rr
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
             LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
@@ -20805,6 +20942,157 @@ def submit_rental_signature(token):
     conn.close()
     return jsonify({'ok': True})
 
+# ── Artistic Partnership: deposit / final payment invoices via Square ───────
+# Once an agreement is signed, staff can generate a Square invoice for the
+# deposit right from RoleCall. Square emails it and hosts the payment page;
+# we track status here (via the invoice.payment_made webhook, or a manual
+# "check status" refresh) so the rental request shows Deposit Paid → Active,
+# and later a Final Payment Due flag once staff generate that invoice too.
+
+def _generate_rental_invoice(conn, agreement_id, payment_type, amount_cents, due_date, created_by):
+    """Shared logic for both deposit and final invoices: create a Square
+    order + invoice, publish it, and record a rental_payments row."""
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (agreement_id,))
+    if not agr:
+        return None, 'Agreement not found'
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name AS partner_contact,
+        rp.contact_email AS partner_email, rp.contact_phone AS partner_phone
+        FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        return None, 'Rental request not found'
+    if not req.get('partner_email'):
+        return None, 'This partner has no contact email on file'
+    if amount_cents <= 0:
+        return None, 'Enter an amount greater than zero'
+
+    customer_id = square_find_or_create_customer(req['partner_email'], req.get('partner_contact') or req.get('partner_name') or '', req.get('partner_phone') or '')
+    if not customer_id:
+        return None, 'Could not create/find a Square customer for this partner'
+
+    label = 'Deposit' if payment_type == 'deposit' else 'Final Payment'
+    item_name = f'{label} — {req.get("title","")}'
+    order_id = square_create_order(item_name, amount_cents, reference_id=agreement_id)
+    if not order_id:
+        return None, 'Could not create the Square order for this invoice'
+
+    invoice_id, public_url, status, err = square_create_and_publish_invoice(
+        order_id, customer_id, amount_cents, due_date, item_name,
+        f'{label} for the Artistic Partnership and Studio Use Agreement — {req.get("title","")}')
+    if err and not invoice_id:
+        return None, err
+
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_payments
+        (id, agreement_id, payment_type, amount_cents, due_date, square_order_id,
+         square_invoice_id, square_invoice_status, public_url, sent_at, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)''',
+        (pid, agreement_id, payment_type, amount_cents, due_date, order_id,
+         invoice_id or '', status or 'DRAFT', public_url or '', created_by))
+    conn.commit()
+    return pid, err  # err may be a non-fatal warning (e.g. publish failed) even though a row was created
+
+@app.route('/api/rental/agreements/<aid>/deposit-invoice', methods=['POST'])
+def create_deposit_invoice(aid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    try:
+        amount_cents = int(round(float(d.get('amount') or 0) * 100))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid deposit amount'}), 400
+    due_date = (d.get('due_date') or '').strip() or date.today().isoformat()
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    pid, payment_err = _generate_rental_invoice(conn, aid, 'deposit', amount_cents, due_date, (user or {}).get('name', 'RoleCall'))
+    conn.close()
+    if not pid:
+        return jsonify({'error': payment_err or 'Could not generate the deposit invoice'}), 400
+    return jsonify({'ok': True, 'id': pid, 'warning': payment_err})
+
+@app.route('/api/rental/agreements/<aid>/final-invoice', methods=['POST'])
+def create_final_invoice(aid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    try:
+        amount_cents = int(round(float(d.get('amount') or 0) * 100))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid amount'}), 400
+    due_date = (d.get('due_date') or '').strip()
+    if not due_date:
+        return jsonify({'error': 'A due date is required for the final payment'}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    pid, payment_err = _generate_rental_invoice(conn, aid, 'final', amount_cents, due_date, (user or {}).get('name', 'RoleCall'))
+    conn.close()
+    if not pid:
+        return jsonify({'error': payment_err or 'Could not generate the final payment invoice'}), 400
+    return jsonify({'ok': True, 'id': pid, 'warning': payment_err})
+
+@app.route('/api/rental/agreements/<aid>/payments', methods=['GET'])
+def get_rental_payments(aid):
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY created_at', (aid,)) or []
+    conn.close()
+    return jsonify(payments)
+
+@app.route('/api/rental/payments/<pid>/check-status', methods=['POST'])
+def check_rental_payment_status(pid):
+    """Manually re-fetch an invoice's status from Square — in case a webhook
+    was missed or is delayed. Applies the same state transitions the webhook
+    would (deposit paid → request marked active, etc.)."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    if not payment:
+        conn.close()
+        return jsonify({'error': 'Payment not found'}), 404
+    if not payment.get('square_invoice_id'):
+        conn.close()
+        return jsonify({'error': 'No Square invoice on file for this payment'}), 400
+    invoice = square_get_invoice(payment['square_invoice_id'])
+    if not invoice:
+        conn.close()
+        return jsonify({'error': 'Could not reach Square to check this invoice'}), 502
+    _apply_rental_invoice_update(conn, payment, invoice)
+    conn.commit()
+    updated = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(updated)
+
+def _apply_rental_invoice_update(conn, payment, invoice):
+    """Shared by the webhook and the manual check-status route: given a
+    rental_payments row and the current Square invoice object, update our
+    stored status and, on first transition to paid, flip the rental request
+    to 'active' (deposit) and notify staff (either type)."""
+    new_status = invoice.get('status', payment.get('square_invoice_status'))
+    was_paid = bool(payment.get('paid_at'))
+    is_paid_now = new_status == 'PAID'
+    execute(conn, 'UPDATE rental_payments SET square_invoice_status=%s WHERE id=%s', (new_status, payment['id']))
+    if is_paid_now and not was_paid:
+        execute(conn, 'UPDATE rental_payments SET paid_at=NOW() WHERE id=%s', (payment['id'],))
+        agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
+        if agr:
+            req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_email AS partner_email
+                FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+                WHERE rr.id=%s''', (agr['request_id'],))
+            label = 'Deposit' if payment['payment_type'] == 'deposit' else 'Final Payment'
+            if payment['payment_type'] == 'deposit' and req:
+                execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (req['id'],))
+            try:
+                admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL") or []
+                for admin in admins:
+                    send_email(admin['email'], f'{label} Paid: {(req or {}).get("title","")}',
+                        f'The {label.lower()} for <strong>{(req or {}).get("title","")}</strong> has been paid.<br><br>'
+                        + ('The Artistic Partnership is now marked Active in RoleCall.' if payment['payment_type']=='deposit'
+                           else 'This agreement is now paid in full.'))
+            except Exception as e:
+                app.logger.warning(f'Rental payment-paid notify error: {e}')
+
 @app.route('/api/rental/occurrences/<request_id>', methods=['GET'])
 def get_rental_occurrences(request_id):
     err = require_auth()
@@ -20980,7 +21268,9 @@ def rental_portal_page(token):
     execute(conn, '''UPDATE rental_messages SET read_at=NOW()
         WHERE request_id=%s AND direction='outbound' ''', (req['id'],))
     conn.commit(); conn.close()
-    status_labels = {'pending': 'Pending Review', 'approved': 'Approved', 'denied': 'Not Approved', 'sent_back': 'Needs Revisions'}
+    status_labels = {'pending': 'Pending Review', 'approved': 'Approved', 'denied': 'Not Approved',
+        'sent_back': 'Needs Revisions', 'signed': 'Signed — Awaiting Deposit', 'active': 'Active',
+        'completed': 'Completed'}
     status_label = status_labels.get(req.get('status', ''), req.get('status', ''))
     date_line = req.get('start_date', '')
     if req.get('end_date') and req.get('end_date') != req.get('start_date'):

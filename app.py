@@ -1341,6 +1341,19 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS awaiting_feedback BOOLEAN DEFAULT FALSE",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS tour_scheduled_date TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS tour_scheduled_time TEXT DEFAULT ''",
+
+        # ── Paid instruction hours — separate bucket from volunteer hours ──
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS pay_type TEXT DEFAULT 'volunteer'",
+        "ALTER TABLE pending_hours ADD COLUMN IF NOT EXISTS pay_type TEXT DEFAULT 'volunteer'",
+        "ALTER TABLE kiosk_sessions ADD COLUMN IF NOT EXISTS pay_type TEXT DEFAULT 'volunteer'",
+
+        # ── BloomBooks contractor pay-cap visibility ──
+        # bb_contractor_id links a RoleCall volunteer/instructor to their
+        # BloomBooks contractor record (BloomBooks shares this same Postgres
+        # database, so we can query its bb_ tables directly — no API calls
+        # between the two apps needed).
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bb_contractor_id INTEGER",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_expected_pay REAL DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -3024,6 +3037,9 @@ def get_volunteer(vol_id):
         WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC NULLS LAST''', (vol_id,))
     vol['waiver_status'], vol['waivers'] = get_waiver_summary(conn, vol_id)
     vol['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    vol['volunteer_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND COALESCE(pay_type,'volunteer')='volunteer'", (vol_id,))['t']
+    vol['paid_instruction_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND pay_type='paid_instruction'", (vol_id,))['t']
+    vol['contractor_pay_status'] = get_contractor_pay_status(conn, vol_id)
     vol['store_eligible_hours'] = _get_store_eligible_hours(conn, vol_id)
     vol['redeemed_hours'] = fetchone(conn, "SELECT COALESCE(SUM(hours_spent),0) as t FROM hour_redemptions WHERE volunteer_id=%s AND status IN ('pending','awaiting_payment','approved','fulfilled')", (vol_id,))['t']
     vol['available_hours'] = max(0, (vol['store_eligible_hours'] or 0) - (vol['redeemed_hours'] or 0))
@@ -3086,6 +3102,82 @@ def delete_hour_bonus_credit(vol_id, bid):
     conn.close()
     return jsonify({'ok': True, 'store_eligible_hours': new_balance})
 
+# ── BloomBooks contractor pay-cap visibility ─────────────────────────────────
+# BloomBooks shares this exact Postgres database (its tables are all prefixed
+# bb_), so these routes just query it directly rather than calling out to a
+# separate service.
+
+@app.route('/api/bloombooks/contractors')
+def list_bloombooks_contractors():
+    err = require_permission('volunteers', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        contractors = fetchall(conn, '''SELECT id, name, business_name, status
+            FROM bb_contractors ORDER BY name''') or []
+    except Exception as e:
+        conn.close()
+        app.logger.warning(f'BloomBooks contractors query failed (is BloomBooks sharing this database?): {e}')
+        return jsonify({'error': 'Could not reach BloomBooks contractor data — is it sharing this same database?'}), 502
+    conn.close()
+    return jsonify(contractors)
+
+@app.route('/api/volunteers/<vol_id>/link-contractor', methods=['POST'])
+def link_volunteer_contractor(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    bb_id = d.get('bb_contractor_id') or None
+    conn = get_db()
+    vol = fetchone(conn, 'SELECT id FROM volunteers WHERE id=%s', (vol_id,))
+    if not vol:
+        conn.close()
+        return jsonify({'error': 'Volunteer not found'}), 404
+    if bb_id:
+        contractor = fetchone(conn, 'SELECT id FROM bb_contractors WHERE id=%s', (bb_id,))
+        if not contractor:
+            conn.close()
+            return jsonify({'error': 'BloomBooks contractor not found'}), 404
+    execute(conn, 'UPDATE volunteers SET bb_contractor_id=%s WHERE id=%s', (bb_id, vol_id))
+    conn.commit()
+    status = get_contractor_pay_status(conn, vol_id)
+    conn.close()
+    return jsonify({'ok': True, 'contractor_pay_status': status})
+
+@app.route('/api/volunteers/<vol_id>/contractor-pay-status')
+def get_volunteer_contractor_pay_status(vol_id):
+    err = require_permission('volunteers', 'view')
+    if err: return err
+    exclude_program_id = request.args.get('exclude_program_id') or None
+    conn = get_db()
+    status = get_contractor_pay_status(conn, vol_id, exclude_program_id)
+    conn.close()
+    return jsonify(status or {})
+
+@app.route('/api/settings/contractor-pay-cap', methods=['GET'])
+def get_contractor_pay_cap_setting():
+    err = require_permission('volunteers', 'view')
+    if err: return err
+    conn = get_db()
+    cap = get_contractor_pay_cap(conn)
+    conn.close()
+    return jsonify({'cap': cap})
+
+@app.route('/api/settings/contractor-pay-cap', methods=['PUT'])
+def save_contractor_pay_cap_setting():
+    err = require_permission('volunteers')
+    if err: return err
+    d = request.json or {}
+    try:
+        cap = float(d.get('cap'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a valid dollar amount'}), 400
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES ('contractor_pay_cap', %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (str(cap),))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'cap': cap})
+
 # ─────────────────────────────────────────────
 #  HOURS STORE
 # ─────────────────────────────────────────────
@@ -3099,13 +3191,15 @@ def _get_hours_store_rate_cents(conn):
 
 def _get_store_eligible_hours(conn, volunteer_id):
     """Store-credit-eligible hours: total logged hours, minus anything tied to a Board
-    Meeting event (excluded — see _get_store_eligible_hours docs elsewhere), plus any
-    per-event Hours Store bonuses (a 'multiplier' event counts its hours at e.g. 2x for
-    store credit only; a 'flat' event grants a one-time bonus, converted to hours at the
-    current rate, to anyone who logged any hours there), plus any manually-granted bonus
-    credits (a free gift of hours an admin adds directly to someone's store balance —
-    see hour_store_bonus_credits). None of this touches the volunteer's real
-    total_hours — only what's available to spend in the store."""
+    Meeting event (excluded — see _get_store_eligible_hours docs elsewhere) or logged
+    as paid instruction (contractors being paid in cash to teach shouldn't also earn
+    store credit for the same time), plus any per-event Hours Store bonuses (a
+    'multiplier' event counts its hours at e.g. 2x for store credit only; a 'flat'
+    event grants a one-time bonus, converted to hours at the current rate, to anyone
+    who logged any hours there), plus any manually-granted bonus credits (a free gift
+    of hours an admin adds directly to someone's store balance — see
+    hour_store_bonus_credits). None of this touches the volunteer's real total_hours
+    — only what's available to spend in the store."""
     base_row = fetchone(conn, '''SELECT COALESCE(SUM(
             CASE WHEN e.hours_store_bonus_type='multiplier' AND e.hours_store_bonus_multiplier IS NOT NULL
                  THEN h.hours * e.hours_store_bonus_multiplier
@@ -3115,7 +3209,8 @@ def _get_store_eligible_hours(conn, volunteer_id):
         LEFT JOIN events e ON e.id = h.event_id
         LEFT JOIN event_types et ON et.id = e.event_type_id
         WHERE h.volunteer_id=%s
-        AND (et.name IS NULL OR LOWER(et.name) != 'board meeting')''', (volunteer_id,))
+        AND (et.name IS NULL OR LOWER(et.name) != 'board meeting')
+        AND COALESCE(h.pay_type, 'volunteer') != 'paid_instruction' ''', (volunteer_id,))
     base = base_row['t'] if base_row else 0
     flat_rows = fetchall(conn, '''SELECT DISTINCT e.id, e.hours_store_bonus_flat_cents
         FROM hours h JOIN events e ON e.id = h.event_id
@@ -3690,9 +3785,10 @@ def create_hours():
     if err: return err
     d = request.json or {}
     hid = str(uuid.uuid4())
+    pay_type = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     conn = get_db()
-    execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-            (hid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), d.get('date',''), d.get('hours',0), d.get('role',''), d.get('notes','')))
+    execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+            (hid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), d.get('date',''), d.get('hours',0), d.get('role',''), d.get('notes',''), pay_type))
     conn.commit()
     row = fetchone(conn, 'SELECT h.*, v.name as volunteer_name FROM hours h JOIN volunteers v ON h.volunteer_id=v.id WHERE h.id=%s', (hid,))
     conn.close()
@@ -4044,7 +4140,7 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4052,7 +4148,8 @@ def create_youth_program():
                  bool(d.get('requires_guardian', False)),
                  bool(d.get('bundle_enabled', False)),
                  int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
-                 d.get('bundle_label') or 'Book All Sessions'))
+                 d.get('bundle_label') or 'Book All Sessions',
+                 float(d.get('instructor_expected_pay') or 0)))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4068,7 +4165,7 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4078,6 +4175,7 @@ def update_youth_program(pid):
              bool(d.get('bundle_enabled', False)),
              int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
              d.get('bundle_label') or 'Book All Sessions',
+             float(d.get('instructor_expected_pay') or 0),
              pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
@@ -6173,6 +6271,58 @@ def set_youth_family(yid):
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'family_id': family_id})
 
+def get_contractor_pay_cap(conn):
+    """The yearly cap on how much a contractor can be paid — editable in
+    Settings, defaults to $1,999 (the historical 1099 threshold this org
+    has used). Stored as plain text in the shared key/value settings table."""
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='contractor_pay_cap'")
+    try:
+        return float(row['value']) if row and row.get('value') else 1999.0
+    except (TypeError, ValueError):
+        return 1999.0
+
+def get_contractor_pay_status(conn, volunteer_id, exclude_program_id=None):
+    """Pulls a linked BloomBooks contractor's actual year-to-date paid amount
+    directly from bb_contractor_payments (BloomBooks shares this database),
+    plus the expected pay already committed to this same instructor across
+    other RoleCall programs — so assigning them to a *second* class shows
+    the real combined total, not just what BloomBooks has already paid out.
+    Returns None if this volunteer isn't linked to a BloomBooks contractor."""
+    vol = fetchone(conn, 'SELECT bb_contractor_id FROM volunteers WHERE id=%s', (volunteer_id,))
+    if not vol or not vol.get('bb_contractor_id'):
+        return None
+    bb_id = vol['bb_contractor_id']
+    contractor = fetchone(conn, 'SELECT id, name, business_name, status FROM bb_contractors WHERE id=%s', (bb_id,))
+    if not contractor:
+        return None
+    year = datetime.now().year
+    ytd_row = fetchone(conn, '''SELECT COALESCE(SUM(amount),0) as t FROM bb_contractor_payments
+        WHERE contractor_id=%s AND status != 'void'
+        AND payment_date >= %s AND payment_date <= %s''',
+        (bb_id, f'{year}-01-01', f'{year}-12-31'))
+    ytd_paid = float(ytd_row['t']) if ytd_row else 0.0
+    expected_query = '''SELECT COALESCE(SUM(instructor_expected_pay),0) as t FROM youth_programs
+        WHERE instructor_id=%s AND COALESCE(instructor_expected_pay,0) > 0'''
+    params = [volunteer_id]
+    if exclude_program_id:
+        expected_query += ' AND id != %s'
+        params.append(exclude_program_id)
+    expected_row = fetchone(conn, expected_query, tuple(params))
+    expected_pending = float(expected_row['t']) if expected_row else 0.0
+    cap = get_contractor_pay_cap(conn)
+    projected_total = ytd_paid + expected_pending
+    return {
+        'contractor_id': bb_id,
+        'contractor_name': contractor.get('business_name') or contractor.get('name'),
+        'contractor_status': contractor.get('status'),
+        'ytd_paid': round(ytd_paid, 2),
+        'expected_pending': round(expected_pending, 2),
+        'projected_total': round(projected_total, 2),
+        'cap': cap,
+        'remaining': round(cap - projected_total, 2),
+        'over_cap': projected_total > cap,
+    }
+
 def calc_age_from_dob(dob_str):
     """Age in whole years from a 'YYYY-MM-DD' string. Returns None if dob is
     missing/unparseable — callers should treat that as 'unknown, not confirmed
@@ -8182,10 +8332,10 @@ def approve_pending_hours(hid):
     if not ph: conn.close(); return jsonify({'error': 'Not found'}), 404
     pid = str(uuid.uuid4())
     try:
-        execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (pid, ph['volunteer_id'], ph['event'], ph.get('event_id'),
-             ph['date'], ph['hours'], ph.get('role',''), ph.get('notes','')))
+             ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer'))
     except Exception:
         # May already exist  -  just mark as approved
         pass
@@ -9542,6 +9692,7 @@ def kiosk_begin_session():
     event_id        = d.get('event_id') or None
     role            = (d.get('role') or '').strip()
     override_reason = (d.get('override_reason') or '').strip()
+    pay_type        = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
     # Require event or override reason
@@ -9563,8 +9714,8 @@ def kiosk_begin_session():
     if not event_name and override_reason:
         event_name = f'Override: {override_reason}'
     sid = str(uuid.uuid4())
-    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,status) VALUES (%s,%s,%s,%s,%s,'active')",
-        (sid, vol_id, event_id or None, event_name, role))
+    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,status,pay_type) VALUES (%s,%s,%s,%s,%s,'active',%s)",
+        (sid, vol_id, event_id or None, event_name, role, pay_type))
     conn.commit()
     session_row = fetchone(conn, 'SELECT * FROM kiosk_sessions WHERE id=%s', (sid,))
     conn.close()
@@ -9592,10 +9743,10 @@ def kiosk_stop_session():
         # Override sessions (no event) need admin review before approval
         hours_status = 'pending' if sess.get('event_id') else 'pending_review'
         override_note = ' [Override  -  no event selected]' if not sess.get('event_id') else ''
-        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
              today, elapsed_hours, role or sess['role'],
-             'Recorded via kiosk timer' + override_note, hours_status))
+             'Recorded via kiosk timer' + override_note, hours_status, sess.get('pay_type') or 'volunteer'))
         conn.commit()
         try:
             s = get_email_settings()
@@ -9658,6 +9809,7 @@ def kiosk_log_full_event():
     vol_id   = d.get('volunteer_id')
     event_id = d.get('event_id')
     role     = d.get('role','')
+    pay_type = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     if not vol_id or not event_id: return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
     conn = get_db()
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
@@ -9676,11 +9828,11 @@ def kiosk_log_full_event():
     today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
     sid = str(uuid.uuid4())
-    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,started_at,ended_at,hours,status) VALUES (%s,%s,%s,%s,%s,NOW(),NOW(),%s,'completed')",
-        (sid, vol_id, event_id, evt['name'], role, hours))
+    execute(conn, "INSERT INTO kiosk_sessions (id,volunteer_id,event_id,event_name,role,started_at,ended_at,hours,status,pay_type) VALUES (%s,%s,%s,%s,%s,NOW(),NOW(),%s,'completed',%s)",
+        (sid, vol_id, event_id, evt['name'], role, hours, pay_type))
     pid = str(uuid.uuid4())
-    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event  -  logged via kiosk'))
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
+        (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event  -  logged via kiosk', pay_type))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
 
@@ -10942,10 +11094,10 @@ def kiosk_close_event():
         for ph in pending:
             hid = str(uuid.uuid4())
             try:
-                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                     (hid, ph['volunteer_id'], ph['event'], ph['event_id'],
-                     ph['date'], ph['hours'], ph.get('role',''), ph.get('notes','')))
+                     ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer'))
             except Exception:
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
@@ -12547,6 +12699,7 @@ def internal_error(e):
 @app.errorhandler(404)
 def not_found(e):
     if request.path.startswith('/api/'):
+        app.logger.warning(f'404 Route not found: {request.method} {request.path}')
         return jsonify({'error': 'Route not found'}), 404
     return e
 

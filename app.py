@@ -1316,6 +1316,28 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_payments_agreement ON rental_payments(agreement_id)',
         'CREATE INDEX IF NOT EXISTS ix_rental_payments_invoice ON rental_payments(square_invoice_id)',
+
+        # ── Artistic Partnership: partner file attachments (insurance, W9, etc.) ──
+        """CREATE TABLE IF NOT EXISTS rental_partner_files (
+            id TEXT PRIMARY KEY,
+            partner_id TEXT NOT NULL REFERENCES rental_partners(id) ON DELETE CASCADE,
+            title TEXT DEFAULT '',
+            category TEXT DEFAULT 'other',
+            filename TEXT NOT NULL,
+            original_name TEXT DEFAULT '',
+            file_size TEXT DEFAULT '',
+            uploaded_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_rental_partner_files_partner ON rental_partner_files(partner_id)',
+
+        # ── Artistic Partnership: internal (staff-only) notes on a request ──
+        """CREATE TABLE IF NOT EXISTS rental_internal_notes (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES rental_requests(id) ON DELETE CASCADE,
+            body TEXT NOT NULL,
+            author_name TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_rental_internal_notes_request ON rental_internal_notes(request_id)',
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -20078,6 +20100,125 @@ def update_rental_partner(pid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+# ── Partner file attachments (insurance certificates, W9s, etc.) ────────────
+
+@app.route('/api/rental/partners/<pid>/files', methods=['GET'])
+def get_rental_partner_files(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    files = fetchall(conn, 'SELECT * FROM rental_partner_files WHERE partner_id=%s ORDER BY created_at DESC', (pid,)) or []
+    conn.close()
+    return jsonify(files)
+
+@app.route('/api/rental/partners/<pid>/files', methods=['POST'])
+def upload_rental_partner_file(pid):
+    err = require_auth()
+    if err: return err
+    title = request.form.get('title') or ''
+    category = request.form.get('category') or 'other'
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'No file provided'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx']:
+        return jsonify({'error': 'Invalid file type — use PDF, Word, or an image'}), 400
+    conn = get_db()
+    partner = fetchone(conn, 'SELECT id FROM rental_partners WHERE id=%s', (pid,))
+    if not partner:
+        conn.close()
+        return jsonify({'error': 'Partner not found'}), 404
+    filename = str(uuid.uuid4()) + ext
+    f.save(os.path.join(UPLOAD_FOLDER, filename))
+    size_bytes = os.path.getsize(os.path.join(UPLOAD_FOLDER, filename))
+    file_size = f'{size_bytes//1024} KB' if size_bytes >= 1024 else f'{size_bytes} B'
+    fid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_partner_files
+        (id, partner_id, title, category, filename, original_name, file_size, uploaded_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (fid, pid, title.strip() or f.filename, category, filename, f.filename, file_size,
+         session.get('user_name', '')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_partner_files WHERE id=%s', (fid,))
+    conn.close()
+    return jsonify(row), 201
+
+@app.route('/api/rental/partner-files/<fid>/download')
+def download_rental_partner_file(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    f = fetchone(conn, 'SELECT * FROM rental_partner_files WHERE id=%s', (fid,))
+    conn.close()
+    if not f or not f.get('filename'):
+        return jsonify({'error': 'No file attached'}), 404
+    filepath = os.path.join(UPLOAD_FOLDER, f['filename'])
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found on disk'}), 404
+    return send_file(filepath, as_attachment=True, download_name=f.get('original_name') or f['filename'])
+
+@app.route('/api/rental/partner-files/<fid>', methods=['DELETE'])
+def delete_rental_partner_file(fid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    f = fetchone(conn, 'SELECT * FROM rental_partner_files WHERE id=%s', (fid,))
+    if f and f.get('filename'):
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, f['filename']))
+        except Exception:
+            pass
+    execute(conn, 'DELETE FROM rental_partner_files WHERE id=%s', (fid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ── Internal (staff-only) notes on a rental request ─────────────────────────
+# Separate from the partner-facing Messages thread — never emailed or shown
+# on the customer portal, just a private log for things like "messaged back
+# asking for more info" or "called re: certificate of insurance."
+
+@app.route('/api/rental/requests/<rid>/internal-notes', methods=['GET'])
+def get_rental_internal_notes(rid):
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    notes = fetchall(conn, 'SELECT * FROM rental_internal_notes WHERE request_id=%s ORDER BY created_at DESC', (rid,)) or []
+    conn.close()
+    return jsonify(notes)
+
+@app.route('/api/rental/requests/<rid>/internal-notes', methods=['POST'])
+def add_rental_internal_note(rid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Note cannot be empty'}), 400
+    conn = get_db()
+    req = fetchone(conn, 'SELECT id FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    nid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_internal_notes (id, request_id, body, author_name)
+        VALUES (%s,%s,%s,%s)''', (nid, rid, body, (user or {}).get('name', 'Staff')))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_internal_notes WHERE id=%s', (nid,))
+    conn.close()
+    return jsonify(row), 201
+
+@app.route('/api/rental/internal-notes/<nid>', methods=['DELETE'])
+def delete_rental_internal_note(nid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_internal_notes WHERE id=%s', (nid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 # ─────────────────────────────────────────────
 #  ARTISTIC PARTNERSHIP INTEREST FORM (public)
 # ─────────────────────────────────────────────
@@ -21194,9 +21335,11 @@ def send_rental_message(rid):
     err = require_permission('rentals')
     if err: return err
     d = request.json or {}
-    body = (d.get('body') or '').strip()
-    if not body:
+    body_html = (d.get('body') or '').strip()
+    if not body_html or body_html == '<p><br></p>':
         return jsonify({'error': 'Message cannot be empty'}), 400
+    body_text = re.sub(r'<[^>]+>', ' ', body_html)
+    body_text = re.sub(r'\s+', ' ', body_text).strip()
     conn = get_db()
     req = fetchone(conn, '''SELECT rr.*, rp.contact_email AS partner_email, rp.contact_name AS partner_contact
         FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (rid,))
@@ -21212,24 +21355,24 @@ def send_rental_message(rid):
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
     sender_name = (user or {}).get('name', 'Horizon West Theater Company')
     subject = f'New message about your Artistic Partnership request: {req.get("title","")}'
-    html_body = (
+    email_body = (
         f'Hi {req.get("partner_contact","") or ""},<br><br>'
         f'You have a new message from {sender_name} about your Artistic Partnership request '
         f'"{req.get("title","")}":<br><br>'
-        f'<div style="background:#f8fafc;border-left:3px solid #145466;padding:12px 16px;margin:12px 0">{body.replace(chr(10), "<br>")}</div>'
+        f'<div style="background:#f8fafc;border-left:3px solid #145466;padding:12px 16px;margin:12px 0">{body_html}</div>'
         f'<a href="{portal_url}" style="display:inline-block;background:#145466;color:#fff;padding:10px 20px;'
         f'border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View &amp; Reply</a><br><br>'
         f'Or copy this link: {portal_url}'
     )
     mid = str(uuid.uuid4())
-    ok, err_msg = send_email(to_email, subject, html_body, from_name=sender_name)
+    ok, err_msg = send_email(to_email, subject, email_body, from_name=sender_name)
     if not ok:
         conn.close()
         return jsonify({'error': err_msg or 'Failed to send'}), 500
     execute(conn, '''INSERT INTO rental_messages
         (id, request_id, direction, from_email, from_name, to_email, subject, body_html, body_text, sent_by)
         VALUES (%s,%s,'outbound',%s,%s,%s,%s,%s,%s,%s)''',
-        (mid, rid, '', sender_name, to_email, subject, body.replace('\n', '<br>'), body, sender_name))
+        (mid, rid, '', sender_name, to_email, subject, body_html, body_text, sender_name))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

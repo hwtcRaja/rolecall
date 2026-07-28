@@ -23807,6 +23807,12 @@ async function submitMyTime(){
 
 // ── Artistic Partnership ─────────────────────────────────────────────────────
 var _rentalData = {requests:[], partners:[], spaces:[]}
+var _rentalFilter = 'needs_attention' // 'needs_attention' | 'awaiting_feedback' | 'all'
+
+function setRentalFilter(f){
+  _rentalFilter = f
+  renderRentalsPage()
+}
 
 const RENTAL_STATUS_COLORS = {
   pending:'#fef3c7;color:#92400e', approved:'#e0f2fe;color:#0369a1',
@@ -23897,11 +23903,32 @@ function renderRentalsPage(){
   })
   html += `</div>`
 
+  // ── Filter: which requests actually need your attention right now ──
+  const needsAttentionCount = requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status)).length
+  const awaitingFeedbackCount = requests.filter(r=>r.awaiting_feedback).length
+  const filters = [
+    {v:'needs_attention', l:'Needs Attention', c:needsAttentionCount},
+    {v:'awaiting_feedback', l:'⏳ Awaiting Feedback', c:awaitingFeedbackCount},
+    {v:'all', l:'All', c:requests.length},
+  ]
+  html += '<div style="display:flex;gap:6px;margin-bottom:14px">'
+    + filters.map(function(f){
+        const active = _rentalFilter === f.v
+        return '<button onclick="setRentalFilter(\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+' ('+f.c+')</button>'
+      }).join('')
+    + '</div>'
+
+  const filteredRequests = _rentalFilter === 'needs_attention' ? requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status))
+    : _rentalFilter === 'awaiting_feedback' ? requests.filter(r=>r.awaiting_feedback)
+    : requests
+
   if(!requests.length){
     html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No Artistic Partnership requests yet. Click <strong>+ New Partnership Request</strong> to get started.</div>'
+  } else if(!filteredRequests.length){
+    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now — try a different filter above.</div>'
   } else {
     const levels = _rentalData.approvalLevels || []
-    html += requests.map(function(r){
+    html += filteredRequests.map(function(r){
       const stColor = RENTAL_STATUS_COLORS[r.status]||'#f3f4f6;color:#6b7280'
       const stLabel = RENTAL_STATUS_LABELS[r.status]||r.status
       const rate = r.rate_amount ? '$'+(r.rate_amount/100).toFixed(2)+' / '+(r.rate_type||'').replace('_',' ') : '—'

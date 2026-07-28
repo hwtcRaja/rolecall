@@ -840,6 +840,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="font-size:11px">Role / Notes</label>
  <input type="text" id="qt-role" placeholder="e.g. Stage Crew, Usher…" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
  </div>
+ <div class="form-group" style="margin-bottom:14px">
+ <label style="font-size:11px">Type</label>
+ <select id="qt-pay-type" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <option value="volunteer">Volunteering</option>
+ <option value="paid_instruction">Paid Instruction</option>
+ </select>
+ </div>
  <button class="btn btn-primary" style="width:100%" onclick="quickAddTime()">+ Log Time</button>
  <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Recently Added</div>
@@ -2683,7 +2690,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  </div>
  <div class="form-group"><label>Instructor</label>
- <select id="program-instructor"><option value="">— Assign instructor —</option></select>
+ <select id="program-instructor" onchange="updateProgramInstructorPayCheck()"><option value="">— Assign instructor —</option></select>
+ </div>
+ </div>
+ <div id="program-instructor-pay-check" style="display:none;margin-bottom:14px"></div>
+ <div class="form-row" id="program-expected-pay-row" style="display:none">
+ <div class="form-group"><label>Expected Pay for This Class <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(what you actually expect to pay this instructor — not always price × sessions)</span></label>
+ <input type="number" id="program-instructor-expected-pay" step="0.01" min="0" placeholder="0.00" oninput="updateProgramInstructorPayCheck()" style="width:100%"/>
  </div>
  </div>
  <div class="form-row">
@@ -3061,6 +3074,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Hours *</label><input type="number" id="lt-hours" min="0.5" step="0.5" placeholder="e.g. 4"/></div>
  </div>
  <div class="form-group"><label>Role</label><input type="text" id="lt-role" placeholder="e.g. Stage Manager"/></div>
+ <div class="form-group"><label>Type</label>
+ <select id="lt-pay-type">
+ <option value="volunteer">Volunteering</option>
+ <option value="paid_instruction">Paid Instruction (contractor teaching time)</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Paid instruction hours are tracked separately and don't count toward Hours Store credit.</div>
+ </div>
  <div class="form-group"><label>Notes</label><textarea id="lt-notes" placeholder="Optional notes…"></textarea></div>
  </div>
  <div class="modal-footer">
@@ -4813,6 +4833,11 @@ async function openProfile(volId){
  </div>
  <hr class="divider"/>
  <div style="text-align:center"><div style="font-size:24px;font-weight:700;color:var(--teal-600)">${v.total_hours}h</div><div style="font-size:12px;color:var(--text-muted)">Total Hours</div></div>
+ ${(v.paid_instruction_hours>0)?`<div style="display:flex;gap:8px;margin-top:8px">
+  <div style="flex:1;text-align:center;background:var(--gray-50);border-radius:8px;padding:6px"><div style="font-size:15px;font-weight:700;color:var(--teal-dark)">${v.volunteer_hours}h</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Volunteering</div></div>
+  <div style="flex:1;text-align:center;background:#fff7ed;border-radius:8px;padding:6px"><div style="font-size:15px;font-weight:700;color:#9a3412">${v.paid_instruction_hours}h</div><div style="font-size:10px;color:#9a3412;text-transform:uppercase">Paid Instruction</div></div>
+ </div>`:''}
+ ${renderContractorPaySection(v, isAdmin)}
  ${isAdmin?`
  <hr class="divider"/>
  <div id="log-time-area-${v.id}">
@@ -4959,6 +4984,80 @@ async function removeBonusCredit(volId, bid){
   }
 }
 
+// ── BloomBooks contractor pay-cap visibility ──────────────────────────────
+
+function renderContractorPaySection(v, isAdmin){
+  const s = v.contractor_pay_status
+  let html = '<hr class="divider"/><div style="margin-top:4px">'
+  html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">BloomBooks Contractor Pay</div>'
+  if(!s){
+    html += '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Not linked to a BloomBooks contractor yet.</div>'
+  } else {
+    const pct = Math.min(100, Math.round((s.projected_total / s.cap) * 100))
+    const barColor = s.over_cap ? '#dc2626' : (pct >= 80 ? '#d97706' : '#16a34a')
+    html += '<div style="font-size:13px;font-weight:600;margin-bottom:2px">'+escHtml(s.contractor_name||'')+'</div>'
+    html += '<div style="background:var(--gray-50);border-radius:6px;height:8px;overflow:hidden;margin:6px 0">'
+      + '<div style="width:'+pct+'%;height:100%;background:'+barColor+'"></div></div>'
+    html += '<div style="font-size:12px;color:var(--text-muted)">$'+s.ytd_paid.toFixed(2)+' paid this year'
+      + (s.expected_pending>0 ? ' + $'+s.expected_pending.toFixed(2)+' expected from other assignments' : '')
+      + ' = <strong style="color:'+barColor+'">$'+s.projected_total.toFixed(2)+'</strong> of $'+s.cap.toFixed(2)+'</div>'
+    if(s.over_cap){
+      html += '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px">⚠ Over the contractor pay cap</div>'
+    } else {
+      html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">$'+s.remaining.toFixed(2)+' remaining before the cap</div>'
+    }
+  }
+  if(isAdmin){
+    html += '<button class="btn btn-secondary btn-sm btn-full" style="margin-top:8px" onclick="openLinkContractorModal(\''+v.id+'\')">'+(s?'Change Contractor Link':'Link to BloomBooks Contractor')+'</button>'
+  }
+  html += '</div>'
+  return html
+}
+
+async function openLinkContractorModal(volId){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Link to BloomBooks Contractor</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Lets RoleCall show real pay data from BloomBooks when deciding whether to assign this person to another class.</div>
+   <div id="lc-select-wrap"><div style="font-size:12px;color:var(--text-muted)">Loading contractors…</div></div>
+   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveContractorLink('${volId}')">Save</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  const contractors = await api('/api/bloombooks/contractors')
+  const wrap = document.getElementById('lc-select-wrap')
+  if(!Array.isArray(contractors)){
+    wrap.innerHTML = '<div style="font-size:12.5px;color:var(--red)">'+((contractors&&contractors.error)||'Could not load BloomBooks contractors.')+'</div>'
+    return
+  }
+  const v = volunteers.find(x=>x.id===volId)
+  const currentId = v ? v.bb_contractor_id : null
+  wrap.innerHTML = '<select id="lc-contractor-select" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px">'
+    + '<option value="">— Not linked —</option>'
+    + contractors.map(function(c){
+        const label = (c.business_name || c.name) + (c.status && c.status!=='active' ? ' ('+c.status+')' : '')
+        return '<option value="'+c.id+'"'+(currentId===c.id?' selected':'')+'>'+escHtml(label)+'</option>'
+      }).join('')
+    + '</select>'
+}
+
+async function saveContractorLink(volId){
+  const sel = document.getElementById('lc-contractor-select')
+  const bbId = sel ? sel.value : ''
+  const res = await api('/api/volunteers/'+volId+'/link-contractor','POST',{bb_contractor_id: bbId || null})
+  if(res && res.ok){
+    toast('Contractor link updated','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    openProfile(volId)
+  } else {
+    toast((res&&res.error)||'Could not update link','error')
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // LIVE TIMER (replaces punch in/out)
 // ═══════════════════════════════════════════════════════════════
@@ -5028,6 +5127,7 @@ function openLogTimeModal(volId,prefillHours=null){
  document.getElementById('lt-date').value=new Date().toISOString().split('T')[0]
  document.getElementById('lt-hours').value=prefillHours||''
  document.getElementById('lt-role').value=''
+ document.getElementById('lt-pay-type').value='volunteer'
  document.getElementById('lt-notes').value=''
  document.getElementById('lt-custom-event-wrap').style.display='none'
  const wrap=document.getElementById('lt-vol-select-wrap')
@@ -5051,7 +5151,7 @@ async function saveLogTime(){
  const date=document.getElementById('lt-date').value
  const hours=parseFloat(document.getElementById('lt-hours').value)
  if(!volId||!eventName||!date||!hours){toast('Please fill all required fields','error');return}
- const res=await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date,hours,role:document.getElementById('lt-role').value.trim(),notes:document.getElementById('lt-notes').value.trim()})
+ const res=await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date,hours,role:document.getElementById('lt-role').value.trim(),pay_type:(document.getElementById('lt-pay-type')||{}).value||'volunteer',notes:document.getElementById('lt-notes').value.trim()})
  if(res.error){toast(res.error,'error');return}
  toast('Time logged!','success')
  closeModal('modal-log-time')
@@ -5128,7 +5228,7 @@ async function quickAddTime(){
  eventId = null
  notes = desc
  }
- var res = await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date:dateVal,hours:hoursVal,role,notes})
+ var res = await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date:dateVal,hours:hoursVal,role,pay_type:(document.getElementById('qt-pay-type')||{}).value||'volunteer',notes})
  if(res&&res.error){ toast(res.error,'error'); return }
  // Add to recent list
  var volName = document.getElementById('qt-volunteer').options[document.getElementById('qt-volunteer').selectedIndex]?.text||'?'
@@ -18920,6 +19020,43 @@ function navToYouthFiltered(programId){
  }, 100)
 }
 
+async function updateProgramInstructorPayCheck(){
+  const instructorId = (document.getElementById('program-instructor')||{}).value || ''
+  const checkEl = document.getElementById('program-instructor-pay-check')
+  const payRowEl = document.getElementById('program-expected-pay-row')
+  if(!instructorId){
+    if(checkEl) checkEl.style.display = 'none'
+    if(payRowEl) payRowEl.style.display = 'none'
+    return
+  }
+  if(payRowEl) payRowEl.style.display = ''
+  const currentProgramId = (document.getElementById('program-edit-id')||{}).value || ''
+  const expectedPay = parseFloat((document.getElementById('program-instructor-expected-pay')||{}).value) || 0
+  const qs = currentProgramId ? ('?exclude_program_id='+encodeURIComponent(currentProgramId)) : ''
+  const status = await api('/api/volunteers/'+instructorId+'/contractor-pay-status'+qs)
+  if(!checkEl) return
+  if(!status || !status.contractor_id){
+    checkEl.style.display = 'none'
+    return
+  }
+  checkEl.style.display = ''
+  const combinedTotal = status.projected_total + expectedPay
+  const overCap = combinedTotal > status.cap
+  const pct = Math.min(100, Math.round((combinedTotal / status.cap) * 100))
+  const barColor = overCap ? '#dc2626' : (pct >= 80 ? '#d97706' : '#16a34a')
+  checkEl.innerHTML = '<div class="card" style="padding:12px 14px;background:var(--gray-50)">'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px">'+escHtml(status.contractor_name||'')+' — BloomBooks Contractor Pay</div>'
+    + '<div style="background:#fff;border-radius:6px;height:8px;overflow:hidden;margin:6px 0"><div style="width:'+pct+'%;height:100%;background:'+barColor+'"></div></div>'
+    + '<div style="font-size:12px;color:var(--text-muted)">$'+status.ytd_paid.toFixed(2)+' paid this year'
+    + (status.expected_pending>0 ? ' + $'+status.expected_pending.toFixed(2)+' expected from other classes' : '')
+    + (expectedPay>0 ? ' + $'+expectedPay.toFixed(2)+' for this class' : '')
+    + ' = <strong style="color:'+barColor+'">$'+combinedTotal.toFixed(2)+'</strong> of $'+status.cap.toFixed(2)+'</div>'
+    + (overCap
+        ? '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px">⚠ Assigning this class would put them over the contractor pay cap</div>'
+        : '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">$'+(status.cap-combinedTotal).toFixed(2)+' would remain before the cap</div>')
+    + '</div>'
+}
+
 function openNewProgramModal(){
  document.getElementById('program-modal-title').textContent='New Program'
  document.getElementById('program-edit-id').value=''
@@ -18929,9 +19066,11 @@ function openNewProgramModal(){
  const psel2=document.getElementById('program-status'); if(psel2) psel2.value='active'
  const isel=document.getElementById('program-instructor')
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+ document.getElementById('program-instructor-expected-pay').value=''
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
  openModal('modal-program')
+ updateProgramInstructorPayCheck()
 }
 
 function openEditProgramModal(pid){
@@ -18947,9 +19086,11 @@ function openEditProgramModal(pid){
  const psel=document.getElementById('program-status'); if(psel) psel.value=p.status||'active'
  const isel=document.getElementById('program-instructor')
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
+ document.getElementById('program-instructor-expected-pay').value=p.instructor_expected_pay||''
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
  openModal('modal-program')
+ updateProgramInstructorPayCheck()
 }
 
 function openProgramEmailModal(pid){
@@ -19247,6 +19388,7 @@ async function saveYouthProgram(){
  end_date:document.getElementById('program-end').value||null,
  description:document.getElementById('program-desc').value.trim(),
  instructor_id:document.getElementById('program-instructor').value||null,
+ instructor_expected_pay:parseFloat(document.getElementById('program-instructor-expected-pay').value)||0,
  default_elic_id:document.getElementById('program-default-elic')?.value||null
  }
  let res

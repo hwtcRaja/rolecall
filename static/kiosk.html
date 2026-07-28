@@ -386,13 +386,6 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
       <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">YOUR ROLE (optional)</div>
       <input type="text" id="bv-role" placeholder="e.g. Usher, Set Crew, Box Office…" style="width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
     </div>
-    <div style="margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg)">
-        <input type="checkbox" id="bv-paid-instruction" style="width:22px;height:22px;flex-shrink:0"/>
-        <span style="font-size:14px;font-weight:600;color:var(--muted)">I'm being paid to teach this — not volunteering</span>
-      </label>
-      <div style="font-size:11px;color:var(--text-hint);margin-top:6px;padding-left:4px">This logs your time separately as paid instruction. It won't count toward Hours Store credit.</div>
-    </div>
     <button id="bv-begin-btn" onclick="submitBeginVolunteering()" disabled
       style="width:100%;padding:16px;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;opacity:0.4"
       title="Please select an event to begin">🟢 Begin Volunteering</button>
@@ -599,7 +592,6 @@ let _bvSessionStart  = null
 async function goBeginVolunteering(){
   _bvSelectedEvent = null
   document.getElementById('bv-role').value = ''
-  document.getElementById('bv-paid-instruction').checked = false
   // Highlight "no specific event" as default
   document.getElementById('bv-no-event').style.background = 'var(--teal-light)'
   document.getElementById('bv-no-event').style.borderColor = 'var(--teal)'
@@ -714,7 +706,6 @@ async function submitBeginVolunteering(){
   const btn = document.getElementById('bv-begin-btn')
   btn.disabled = true; btn.textContent = 'Starting…'
   const role = document.getElementById('bv-role').value.trim()
-  const payType = document.getElementById('bv-paid-instruction').checked ? 'paid_instruction' : 'volunteer'
 
   // Block if neither event nor override reason
   if(!_bvSelectedEvent && !_bvOverrideReason){
@@ -728,7 +719,7 @@ async function submitBeginVolunteering(){
     try {
       const r = await fetch('/api/kiosk/log-full-event', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role, pay_type: payType})
+        body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role})
       })
       const d = await r.json()
       btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
@@ -750,7 +741,6 @@ async function submitBeginVolunteering(){
         event_id:   _bvSelectedEvent ? _bvSelectedEvent.id : null,
         event_name: _bvSelectedEvent ? _bvSelectedEvent.name : (_bvOverrideReason || 'General Volunteering'),
         role,
-        pay_type: payType,
         override_reason: _bvOverrideReason || null
       })
     })

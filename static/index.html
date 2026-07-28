@@ -2693,6 +2693,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select id="program-instructor" onchange="updateProgramInstructorPayCheck()"><option value="">— Assign instructor —</option></select>
  </div>
  </div>
+ <div class="form-group" style="margin-bottom:14px">
+ <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:400;text-transform:none;font-size:13px">
+ <input type="checkbox" id="program-is-paid-instruction" onchange="updateProgramInstructorPayCheck()" style="width:18px;height:18px;flex-shrink:0"/>
+ This is a paid instructional course
+ </label>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-left:28px">The assigned instructor's kiosk hours for this class are automatically logged as paid instruction, not volunteering — no need to ask them at the kiosk.</div>
+ </div>
  <div id="program-instructor-pay-check" style="display:none;margin-bottom:14px"></div>
  <div class="form-row" id="program-expected-pay-row" style="display:none">
  <div class="form-group"><label>Expected Pay for This Class <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(what you actually expect to pay this instructor — not always price × sessions)</span></label>
@@ -19022,9 +19029,10 @@ function navToYouthFiltered(programId){
 
 async function updateProgramInstructorPayCheck(){
   const instructorId = (document.getElementById('program-instructor')||{}).value || ''
+  const isPaidInstruction = (document.getElementById('program-is-paid-instruction')||{}).checked
   const checkEl = document.getElementById('program-instructor-pay-check')
   const payRowEl = document.getElementById('program-expected-pay-row')
-  if(!instructorId){
+  if(!instructorId || !isPaidInstruction){
     if(checkEl) checkEl.style.display = 'none'
     if(payRowEl) payRowEl.style.display = 'none'
     return
@@ -19067,6 +19075,7 @@ function openNewProgramModal(){
  const isel=document.getElementById('program-instructor')
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
  document.getElementById('program-instructor-expected-pay').value=''
+ document.getElementById('program-is-paid-instruction').checked=false
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
  openModal('modal-program')
@@ -19087,6 +19096,7 @@ function openEditProgramModal(pid){
  const isel=document.getElementById('program-instructor')
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
  document.getElementById('program-instructor-expected-pay').value=p.instructor_expected_pay||''
+ document.getElementById('program-is-paid-instruction').checked=!!p.is_paid_instruction
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
  openModal('modal-program')
@@ -19389,6 +19399,7 @@ async function saveYouthProgram(){
  description:document.getElementById('program-desc').value.trim(),
  instructor_id:document.getElementById('program-instructor').value||null,
  instructor_expected_pay:parseFloat(document.getElementById('program-instructor-expected-pay').value)||0,
+ is_paid_instruction:document.getElementById('program-is-paid-instruction').checked,
  default_elic_id:document.getElementById('program-default-elic')?.value||null
  }
  let res

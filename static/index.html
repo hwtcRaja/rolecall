@@ -3417,7 +3417,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Last Name *</label><input type="text" id="youth-last-name" placeholder="Smith"/></div>
  </div>
  <div class="form-row">
- <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob"/></div>
+ <div class="form-group"><label>Date of Birth</label><input type="date" id="youth-dob" onchange="autoDetectMinorFromDob()"/></div>
  <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply.</div></div>
  </div>
  <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
@@ -6785,6 +6785,21 @@ function toggleMinorSections(){
  if(sec) sec.style.display = isMinor ? '': 'none'
 }
 
+function autoDetectMinorFromDob(){
+ const dobVal = document.getElementById('youth-dob')?.value
+ if(!dobVal) return  // no DOB yet — leave whatever's currently selected as-is
+ const today = new Date()
+ const dob = new Date(dobVal)
+ let age = today.getFullYear() - dob.getFullYear()
+ const hadBirthdayThisYear = (today.getMonth() > dob.getMonth()) ||
+   (today.getMonth() === dob.getMonth() && today.getDate() >= dob.getDate())
+ if(!hadBirthdayThisYear) age--
+ const isMinor = age < 18
+ const minorEl=document.getElementById('youth-is-minor'); if(minorEl) minorEl.checked=isMinor
+ const adultEl=document.getElementById('youth-is-adult'); if(adultEl) adultEl.checked=!isMinor
+ toggleMinorSections()
+}
+
 
 // ── BOARD MANAGEMENT ─────────────────────────────────────────────
 
@@ -7682,12 +7697,16 @@ async function openEditYouthModal(yid){
  document.getElementById('youth-grade').value=y.grade||''
  document.getElementById('youth-photo-consent').checked=!!y.photo_consent
  document.getElementById('youth-medical-consent').checked=!!y.medical_consent
- // Determine minor based on DOB or presence of guardians
- const hasGuardians = y.guardians&&y.guardians.length>0
- const isMinor = y.dob ? (new Date().getFullYear()-new Date(y.dob).getFullYear()<18): hasGuardians
- const minorEl=document.getElementById('youth-is-minor'); if(minorEl) minorEl.checked=isMinor
- const adultEl=document.getElementById('youth-is-adult'); if(adultEl) adultEl.checked=!isMinor
- toggleMinorSections()
+ // Determine minor based on DOB (accounting for whether their birthday's
+ // passed yet this year) or, if DOB is missing, whether they already have guardians on file
+ if(y.dob){
+   autoDetectMinorFromDob()
+ } else {
+   const hasGuardians = y.guardians&&y.guardians.length>0
+   const minorEl=document.getElementById('youth-is-minor'); if(minorEl) minorEl.checked=hasGuardians
+   const adultEl=document.getElementById('youth-is-adult'); if(adultEl) adultEl.checked=!hasGuardians
+   toggleMinorSections()
+ }
  const primary=y.guardians?.find(g=>g.is_primary)||y.guardians?.[0]||{}
  document.getElementById('youth-guardian-name').value=primary.name||''
  document.getElementById('youth-guardian-rel').value=primary.relationship||''
@@ -7706,13 +7725,14 @@ async function saveYouth(){
  const editId=document.getElementById('youth-edit-id').value
  const first=document.getElementById('youth-first-name').value.trim()
  const last=document.getElementById('youth-last-name').value.trim()
+ const isMinor=document.getElementById('youth-is-minor')?.checked
  const guardianName=document.getElementById('youth-guardian-name').value.trim()
  const guardianPhone=document.getElementById('youth-guardian-phone').value.trim()
  const emergencyName=document.getElementById('youth-emergency-name').value.trim()
  const emergencyPhone=document.getElementById('youth-emergency-phone').value.trim()
  if(!first||!last){toast('First and last name are required','error');return}
- if(!guardianName||!guardianPhone){toast('Primary guardian name and phone are required','error');return}
- if(!emergencyName||!emergencyPhone){toast('Emergency contact name and phone are required','error');return}
+ if(isMinor && (!guardianName||!guardianPhone)){toast('Primary guardian name and phone are required','error');return}
+ if(isMinor && (!emergencyName||!emergencyPhone)){toast('Emergency contact name and phone are required','error');return}
  const selectedProgramIds=getCheckedYouthPrograms()
  const data={
  first_name:first, last_name:last,
@@ -23949,6 +23969,7 @@ function renderRentalsPage(){
           ${r.partner_signed_at?`<div style="font-size:11px;color:#166534;margin-top:2px">Signed on ${r.partner_signed_at.slice(0,10)}</div>`:''}
           ${r.agreement_status==='sent'&&!r.partner_signed_at?`<div style="font-size:11px;color:#6d28d9;margin-top:2px">Sent to ${escHtml(r.partner_email||'')} for signature</div>`:''}
          </div>`:''}
+         ${r.partner_signed_at?renderRentalPaymentStatus(r):''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
          ${(r.status==='pending'||r.status==='sent_back')?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">
@@ -23958,6 +23979,7 @@ function renderRentalsPage(){
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
+         ${renderRentalPaymentButtons(r)}
          <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
           💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
          </button>
@@ -24035,6 +24057,155 @@ function renderRentalsPage(){
   html += '</div>'
 
   body.innerHTML = html
+}
+
+// ── Deposit / Final Payment invoices (Square) ────────────────────────────
+
+function renderRentalPaymentStatus(r){
+  if(!r.deposit_payment_id) return ''
+  const depositPaid = r.deposit_invoice_status === 'PAID'
+  const depositAmt = '$'+((r.deposit_amount_cents||0)/100).toFixed(2)
+  let html = '<div style="margin-top:8px;padding:8px 12px;background:'+(depositPaid?'#f0fdf4':'#fffbeb')+';border-radius:8px;border:1px solid '+(depositPaid?'#86efac':'#fde68a')+'">'
+  html += '<div style="font-size:12px;font-weight:700;color:'+(depositPaid?'#166534':'#92400e')+'">'
+    + (depositPaid ? '✅ Deposit Paid — Contract Active' : '⏳ Deposit Invoice Sent — Awaiting Payment') + '</div>'
+  html += '<div style="font-size:11px;color:'+(depositPaid?'#166534':'#92400e')+';margin-top:2px">'
+    + depositAmt + (r.deposit_due_date?' · Due '+r.deposit_due_date:'')
+    + (depositPaid && r.deposit_paid_at ? ' · Paid '+r.deposit_paid_at.slice(0,10) : '')
+    + '</div>'
+  if(!depositPaid && r.deposit_public_url){
+    html += '<a href="'+r.deposit_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>'
+  }
+  html += '</div>'
+
+  if(depositPaid){
+    if(!r.final_payment_id){
+      // nothing to show yet — the "Generate Final Payment Invoice" button covers this
+    } else {
+      const finalPaid = r.final_invoice_status === 'PAID'
+      const finalAmt = '$'+((r.final_amount_cents||0)/100).toFixed(2)
+      const isOverdue = !finalPaid && r.final_due_date && r.final_due_date < new Date().toISOString().slice(0,10)
+      const bg = finalPaid ? '#f0fdf4' : (isOverdue ? '#fef2f2' : '#fffbeb')
+      const border = finalPaid ? '#86efac' : (isOverdue ? '#fecaca' : '#fde68a')
+      const color = finalPaid ? '#166534' : (isOverdue ? '#991b1b' : '#92400e')
+      html += '<div style="margin-top:8px;padding:8px 12px;background:'+bg+';border-radius:8px;border:1px solid '+border+'">'
+      html += '<div style="font-size:12px;font-weight:700;color:'+color+'">'
+        + (finalPaid ? '✅ Paid in Full' : (isOverdue ? '⚠ Final Payment Overdue' : '📅 Final Payment Due')) + '</div>'
+      html += '<div style="font-size:11px;color:'+color+';margin-top:2px">'
+        + finalAmt + (r.final_due_date?' · Due '+r.final_due_date:'')
+        + (finalPaid && r.final_paid_at ? ' · Paid '+r.final_paid_at.slice(0,10) : '')
+        + '</div>'
+      if(!finalPaid && r.final_public_url){
+        html += '<a href="'+r.final_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>'
+      }
+      html += '</div>'
+    }
+  }
+  return html
+}
+
+function renderRentalPaymentButtons(r){
+  if(!r.partner_signed_at) return ''
+  let html = ''
+  if(!r.deposit_payment_id){
+    html += '<button class="btn btn-primary btn-sm" onclick="openDepositInvoiceModal(\''+r.agreement_id+'\')">Generate Deposit Invoice</button>'
+  } else {
+    if(r.deposit_invoice_status !== 'PAID'){
+      html += '<button class="btn btn-secondary btn-sm" onclick="checkRentalPaymentStatus(\''+r.deposit_payment_id+'\')">Check Deposit Status</button>'
+    } else if(!r.final_payment_id){
+      html += '<button class="btn btn-primary btn-sm" onclick="openFinalInvoiceModal(\''+r.agreement_id+'\',\''+((r.total_amount||0)-(r.deposit_amount_cents||0))+'\')">Generate Final Payment Invoice</button>'
+    } else if(r.final_invoice_status !== 'PAID'){
+      html += '<button class="btn btn-secondary btn-sm" onclick="checkRentalPaymentStatus(\''+r.final_payment_id+'\')">Check Final Payment Status</button>'
+    }
+  }
+  return html
+}
+
+function openDepositInvoiceModal(agreementId){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Generate Deposit Invoice</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Square will email this invoice to the partner and host a payment page. RoleCall tracks the status automatically once it's paid.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Deposit Amount ($)</label>
+    <input type="number" id="dep-amount" step="0.01" min="0" placeholder="e.g. 250.00" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Due Date</label>
+    <input type="date" id="dep-due-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveDepositInvoice('${agreementId}')">Send Invoice</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveDepositInvoice(agreementId){
+  const amount = parseFloat((document.getElementById('dep-amount')||{}).value)
+  const dueDate = (document.getElementById('dep-due-date')||{}).value
+  if(!amount || amount<=0){ toast('Enter a valid deposit amount','error'); return }
+  const res = await api('/api/rental/agreements/'+agreementId+'/deposit-invoice','POST',{amount:amount, due_date:dueDate})
+  if(res && res.ok){
+    toast(res.warning ? 'Invoice created, but: '+res.warning : 'Deposit invoice sent','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else {
+    toast((res&&res.error)||'Could not generate invoice','error')
+  }
+}
+
+function openFinalInvoiceModal(agreementId, suggestedCents){
+  const suggested = suggestedCents>0 ? (suggestedCents/100).toFixed(2) : ''
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Generate Final Payment Invoice</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Set the amount and due date per your agreement with this partner. Square will email it and host the payment page.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Final Payment Amount ($)</label>
+    <input type="number" id="fin-amount" step="0.01" min="0" value="${suggested}" placeholder="e.g. 750.00" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+    ${suggested?'<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-filled as total minus deposit — adjust if needed.</div>':''}
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Due Date <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(per your agreement)</span></label>
+    <input type="date" id="fin-due-date" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveFinalInvoice('${agreementId}')">Send Invoice</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveFinalInvoice(agreementId){
+  const amount = parseFloat((document.getElementById('fin-amount')||{}).value)
+  const dueDate = (document.getElementById('fin-due-date')||{}).value
+  if(!amount || amount<=0){ toast('Enter a valid amount','error'); return }
+  if(!dueDate){ toast('Enter a due date','error'); return }
+  const res = await api('/api/rental/agreements/'+agreementId+'/final-invoice','POST',{amount:amount, due_date:dueDate})
+  if(res && res.ok){
+    toast(res.warning ? 'Invoice created, but: '+res.warning : 'Final payment invoice sent','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else {
+    toast((res&&res.error)||'Could not generate invoice','error')
+  }
+}
+
+async function checkRentalPaymentStatus(paymentId){
+  toast('Checking with Square...','')
+  const res = await api('/api/rental/payments/'+paymentId+'/check-status','POST')
+  if(res && res.id){
+    toast(res.square_invoice_status==='PAID' ? 'Paid! ✅' : 'Status: '+(res.square_invoice_status||'unknown'), 'success')
+    loadRentalsPage()
+  } else {
+    toast((res&&res.error)||'Could not check status','error')
+  }
 }
 
 function switchRentalTab(idx){

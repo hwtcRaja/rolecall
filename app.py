@@ -1339,6 +1339,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_internal_notes_request ON rental_internal_notes(request_id)',
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS awaiting_feedback BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS tour_scheduled_date TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS tour_scheduled_time TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -2738,6 +2740,35 @@ def get_events():
             })
     except Exception as e:
         app.logger.warning(f'Rental calendar merge error: {e}')
+    # Add scheduled venue tours as synthetic calendar events — distinct color
+    # from actual bookings, since a tour is just a prospective visit, not a
+    # confirmed rental of the space.
+    try:
+        conn3 = get_db()
+        tours = fetchall(conn3, '''SELECT rr.id, rr.title, rr.tour_scheduled_date, rr.tour_scheduled_time,
+            rp.name AS partner_name, rs.name AS space_name
+            FROM rental_requests rr
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+            WHERE rr.tour_scheduled_date IS NOT NULL AND rr.tour_scheduled_date != \'\'
+            AND rr.status NOT IN (\'denied\', \'cancelled\')''') or []
+        conn3.close()
+        for t in tours:
+            events.append({
+                'id': 'rental_tour_' + t['id'],
+                'name': f"Tour: {t.get('title','')} \u2013 {t.get('partner_name','')}",
+                'event_date': t.get('tour_scheduled_date', ''),
+                'start_time': t.get('tour_scheduled_time', ''),
+                'end_time': '',
+                'event_type_name': 'Venue Tour',
+                'event_type_color': '#ea580c',
+                'status': 'scheduled',
+                'location': t.get('space_name', ''),
+                'is_rental': True,
+                'required_waivers': [], 'elics': [], 'staff': [],
+            })
+    except Exception as e:
+        app.logger.warning(f'Rental tour calendar merge error: {e}')
     return jsonify(events)
 
 @app.route('/api/events', methods=['POST'])
@@ -20237,6 +20268,26 @@ def set_rental_awaiting_feedback(rid):
     execute(conn, 'UPDATE rental_requests SET awaiting_feedback=%s WHERE id=%s', (value, rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'awaiting_feedback': value})
+
+@app.route('/api/rental/requests/<rid>/schedule-tour', methods=['POST'])
+def schedule_rental_tour(rid):
+    """Set (or clear, by sending an empty date) a scheduled venue-tour date
+    for a prospective partner. Shows up as a distinct 'Venue Tour' event on
+    the main calendar via the synthetic-event merge in get_events()."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    tour_date = (d.get('date') or '').strip()
+    tour_time = (d.get('time') or '').strip()
+    conn = get_db()
+    req = fetchone(conn, 'SELECT id FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'UPDATE rental_requests SET tour_scheduled_date=%s, tour_scheduled_time=%s WHERE id=%s',
+        (tour_date, tour_time, rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'tour_scheduled_date': tour_date, 'tour_scheduled_time': tour_time})
 
 # ─────────────────────────────────────────────
 #  ARTISTIC PARTNERSHIP INTEREST FORM (public)

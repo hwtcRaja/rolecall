@@ -23904,7 +23904,13 @@ function renderRentalsPage(){
   html += `</div>`
 
   // ── Filter: which requests actually need your attention right now ──
-  const needsAttentionCount = requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status)).length
+  // A scheduled tour is itself an action already taken, so it comes out of
+  // the queue while upcoming — but once the tour date's passed, it goes
+  // back in, since there's presumably a follow-up decision to make.
+  const today = new Date().toISOString().slice(0,10)
+  const hasUpcomingTour = r => !!(r.tour_scheduled_date && r.tour_scheduled_date >= today)
+  const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled'].includes(r.status)
+  const needsAttentionCount = requests.filter(needsAttention).length
   const awaitingFeedbackCount = requests.filter(r=>r.awaiting_feedback).length
   const tourScheduledCount = requests.filter(r=>r.tour_scheduled_date).length
   const filters = [
@@ -23920,7 +23926,7 @@ function renderRentalsPage(){
       }).join('')
     + '</div>'
 
-  const filteredRequests = _rentalFilter === 'needs_attention' ? requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status))
+  const filteredRequests = _rentalFilter === 'needs_attention' ? requests.filter(needsAttention)
     : _rentalFilter === 'awaiting_feedback' ? requests.filter(r=>r.awaiting_feedback)
     : _rentalFilter === 'tour_scheduled' ? requests.filter(r=>r.tour_scheduled_date)
     : requests

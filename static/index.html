@@ -23906,9 +23906,11 @@ function renderRentalsPage(){
   // ── Filter: which requests actually need your attention right now ──
   const needsAttentionCount = requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status)).length
   const awaitingFeedbackCount = requests.filter(r=>r.awaiting_feedback).length
+  const tourScheduledCount = requests.filter(r=>r.tour_scheduled_date).length
   const filters = [
     {v:'needs_attention', l:'Needs Attention', c:needsAttentionCount},
     {v:'awaiting_feedback', l:'⏳ Awaiting Feedback', c:awaitingFeedbackCount},
+    {v:'tour_scheduled', l:'🚶 Tour Scheduled', c:tourScheduledCount},
     {v:'all', l:'All', c:requests.length},
   ]
   html += '<div style="display:flex;gap:6px;margin-bottom:14px">'
@@ -23920,6 +23922,7 @@ function renderRentalsPage(){
 
   const filteredRequests = _rentalFilter === 'needs_attention' ? requests.filter(r=>!r.awaiting_feedback && !['denied','cancelled'].includes(r.status))
     : _rentalFilter === 'awaiting_feedback' ? requests.filter(r=>r.awaiting_feedback)
+    : _rentalFilter === 'tour_scheduled' ? requests.filter(r=>r.tour_scheduled_date)
     : requests
 
   if(!requests.length){
@@ -23974,6 +23977,7 @@ function renderRentalsPage(){
           <div style="font-size:15px;font-weight:700">${escHtml(r.title||'')}</div>
           <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${stLabel}</span>
           ${r.awaiting_feedback?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af">⏳ Awaiting Feedback</span>':''}
+          ${r.tour_scheduled_date?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ffedd5;color:#9a3412">🚶 Tour: '+r.tour_scheduled_date+(r.tour_scheduled_time?' '+r.tour_scheduled_time:'')+'</span>':''}
           ${r.source==='interest_form'?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9"> Interest Form</span>':''}
          </div>
          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
@@ -24013,6 +24017,7 @@ function renderRentalsPage(){
          </button>
          <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')">📝 Internal Notes</button>
          <button class="btn btn-secondary btn-sm" onclick="toggleRentalAwaitingFeedback('${r.id}',${r.awaiting_feedback?'false':'true'})">${r.awaiting_feedback?'✓ Clear Awaiting Feedback':'⏳ Mark Awaiting Feedback'}</button>
+         <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')">🚶 ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
          <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
          ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
@@ -24965,6 +24970,52 @@ async function toggleRentalAwaitingFeedback(rid, value){
   const res = await api('/api/rental/requests/'+rid+'/awaiting-feedback','POST',{value})
   if(res && res.ok) loadRentalsPage()
   else toast((res&&res.error)||'Could not update','error')
+}
+
+function openScheduleTourModal(rid){
+  const r = _rentalData.requests.find(x=>x.id===rid) || {}
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:400px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">🚶 Schedule Venue Tour</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Shows up on the main calendar as a Venue Tour event, separate from an actual booking.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Tour Date</label>
+    <input type="date" id="tour-date" value="${r.tour_scheduled_date||''}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Time <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(optional)</span></label>
+    <input type="time" id="tour-time" value="${r.tour_scheduled_time||''}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    ${r.tour_scheduled_date?'<button class="btn btn-sm" onclick="clearTourSchedule(\''+rid+'\')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;margin-right:auto">Clear</button>':''}
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveTourSchedule('${rid}')">Save</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function saveTourSchedule(rid){
+  const date = (document.getElementById('tour-date')||{}).value || ''
+  const time = (document.getElementById('tour-time')||{}).value || ''
+  if(!date){ toast('Pick a date','error'); return }
+  const res = await api('/api/rental/requests/'+rid+'/schedule-tour','POST',{date, time})
+  if(res && res.ok){
+    toast('Tour scheduled','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Could not schedule tour','error')
+}
+
+async function clearTourSchedule(rid){
+  const res = await api('/api/rental/requests/'+rid+'/schedule-tour','POST',{date:'', time:''})
+  if(res && res.ok){
+    toast('Tour cleared','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Could not clear tour','error')
 }
 
 function openPartnershipInterestLinkModal(){

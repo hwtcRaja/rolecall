@@ -1354,6 +1354,7 @@ def init_db():
         # between the two apps needed).
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bb_contractor_id INTEGER",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_expected_pay REAL DEFAULT 0",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_paid_instruction BOOLEAN DEFAULT FALSE",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -4140,7 +4141,7 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4149,7 +4150,8 @@ def create_youth_program():
                  bool(d.get('bundle_enabled', False)),
                  int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
                  d.get('bundle_label') or 'Book All Sessions',
-                 float(d.get('instructor_expected_pay') or 0)))
+                 float(d.get('instructor_expected_pay') or 0),
+                 bool(d.get('is_paid_instruction', False))))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4165,7 +4167,7 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4176,6 +4178,7 @@ def update_youth_program(pid):
              int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
              d.get('bundle_label') or 'Book All Sessions',
              float(d.get('instructor_expected_pay') or 0),
+             bool(d.get('is_paid_instruction', False)),
              pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
@@ -6270,6 +6273,23 @@ def set_youth_family(yid):
     execute(conn, 'UPDATE youth_participants SET family_id=%s WHERE id=%s', (family_id, yid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'family_id': family_id})
+
+def determine_kiosk_pay_type(conn, volunteer_id, event_id):
+    """Whether this kiosk session should be logged as paid instruction is
+    determined automatically, never self-reported at the kiosk: it's
+    'paid_instruction' only when the event belongs to a program that's
+    flagged as a paid instructional course AND the person clocking in is
+    that program's actual designated instructor. Anyone else clocking in
+    for the same event (an ELIC, a helper, etc.) still logs as a regular
+    volunteer."""
+    if not event_id:
+        return 'volunteer'
+    row = fetchone(conn, '''SELECT yp.instructor_id, yp.is_paid_instruction
+        FROM events e JOIN youth_programs yp ON yp.id = e.program_id
+        WHERE e.id=%s''', (event_id,))
+    if row and row.get('is_paid_instruction') and row.get('instructor_id') == volunteer_id:
+        return 'paid_instruction'
+    return 'volunteer'
 
 def get_contractor_pay_cap(conn):
     """The yearly cap on how much a contractor can be paid — editable in
@@ -9692,9 +9712,9 @@ def kiosk_begin_session():
     event_id        = d.get('event_id') or None
     role            = (d.get('role') or '').strip()
     override_reason = (d.get('override_reason') or '').strip()
-    pay_type        = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
+    pay_type = determine_kiosk_pay_type(conn, vol_id, event_id)
     # Require event or override reason
     if not event_id and not override_reason:
         conn.close()
@@ -9809,9 +9829,9 @@ def kiosk_log_full_event():
     vol_id   = d.get('volunteer_id')
     event_id = d.get('event_id')
     role     = d.get('role','')
-    pay_type = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     if not vol_id or not event_id: return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
     conn = get_db()
+    pay_type = determine_kiosk_pay_type(conn, vol_id, event_id)
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
     hours = None

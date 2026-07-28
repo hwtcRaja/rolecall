@@ -1338,6 +1338,7 @@ def init_db():
             author_name TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_internal_notes_request ON rental_internal_notes(request_id)',
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS awaiting_feedback BOOLEAN DEFAULT FALSE",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -20219,6 +20220,24 @@ def delete_rental_internal_note(nid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/rental/requests/<rid>/awaiting-feedback', methods=['POST'])
+def set_rental_awaiting_feedback(rid):
+    """Manual toggle for cases outside the Messages flow — e.g. staff called
+    the partner on the phone and is now waiting to hear back. The flag also
+    gets set/cleared automatically whenever a message is sent/received."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    value = bool(d.get('value'))
+    conn = get_db()
+    req = fetchone(conn, 'SELECT id FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'UPDATE rental_requests SET awaiting_feedback=%s WHERE id=%s', (value, rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'awaiting_feedback': value})
+
 # ─────────────────────────────────────────────
 #  ARTISTIC PARTNERSHIP INTEREST FORM (public)
 # ─────────────────────────────────────────────
@@ -21373,6 +21392,7 @@ def send_rental_message(rid):
         (id, request_id, direction, from_email, from_name, to_email, subject, body_html, body_text, sent_by)
         VALUES (%s,%s,'outbound',%s,%s,%s,%s,%s,%s,%s)''',
         (mid, rid, '', sender_name, to_email, subject, body_html, body_text, sender_name))
+    execute(conn, 'UPDATE rental_requests SET awaiting_feedback=TRUE WHERE id=%s', (rid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -21518,6 +21538,7 @@ def public_rental_message_submit(token):
         VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s)''',
         (mid, req['id'], req.get('partner_email', ''), req.get('partner_contact', ''),
          f'Re: {req.get("title","")}', body.replace('\n', '<br>'), body))
+    execute(conn, 'UPDATE rental_requests SET awaiting_feedback=FALSE WHERE id=%s', (req['id'],))
     conn.commit()
     try:
         es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}

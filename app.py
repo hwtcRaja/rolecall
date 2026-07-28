@@ -1297,6 +1297,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_customer_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_group_id TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS welcome_email_sent_at TIMESTAMP""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS reported_under_18 TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS square_card_id TEXT""",
@@ -15826,7 +15827,15 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                             '<p style="color:#04342C"><strong>You\'re registered for:</strong><br>' + schedule_info + '</p></div>'
                         )
                     age = calc_age_from_dob(youth.get('dob') or reg.get('child_dob'))
-                    is_adult = age is not None and age >= 18
+                    if age is not None:
+                        is_adult = age >= 18
+                    else:
+                        # No real birthdate on file — fall back to what they told us on
+                        # the form (adult/open-age programs ask this directly). Only
+                        # trust an explicit "no" (18+); anything else (unanswered, or
+                        # genuinely under 18 with no dob somehow) defaults to the safer
+                        # "not confirmed adult" treatment.
+                        is_adult = reg.get('reported_under_18') == 'no'
                     passphrase_block = ''
                     if not is_adult:
                         passphrase_block = (
@@ -16406,6 +16415,17 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': 'Registrations are not currently open for this program'}), 400
 
+    # For "Adult / open age" programs, the form asks the registrant whether
+    # they're under 18 — if so, a real birthdate is required (used for
+    # age-appropriate wording elsewhere, e.g. the welcome email). If they're
+    # 18+, it's optional. Mirrors the same check on the registration form
+    # itself — this exists so it can't be skipped by calling the API directly.
+    if (p.get('registration_form_type') == 'adult'):
+        reported_under_18 = (d.get('reported_under_18') or '').strip()
+        if reported_under_18 == 'yes' and not (d.get('child_dob') or '').strip():
+            conn.close()
+            return jsonify({'error': 'Date of birth is required for participants under 18.'}), 400
+
     _not_yet, _opens_msg = _registration_not_yet_open(p)
     if _not_yet:
         conn.close()
@@ -16568,6 +16588,7 @@ def public_submit_registration(slug):
         'discount_amount': discount_amount,
         'sibling_discount_amount': sibling_discount_amount,
         'session_ids': _json2.dumps(session_ids),
+        'reported_under_18': (d.get('reported_under_18') or '').strip(),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
@@ -17096,6 +17117,7 @@ def public_register_production(slug):
         'discount_code': discount_code_used or None,
         'discount_amount': discount_amount,
         'sibling_discount_amount': sibling_discount_amount,
+        'reported_under_18': (d.get('reported_under_18') or '').strip(),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,

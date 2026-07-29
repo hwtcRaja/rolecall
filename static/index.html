@@ -775,7 +775,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
  <button onclick="switchHoursTab('events')" id="htab-events" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Event Hours</button>
  <button onclick="switchHoursTab('independent')" id="htab-independent" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Independent Time</button>
+ <button onclick="switchHoursTab('instructors')" id="htab-instructors" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">🎓 Instructor Hours</button>
  </div>
+ <div id="hours-normal-view">
  <div class="summary-bar" style="margin-bottom:16px">
  <div class="summary-item"><div class="s-value" id="h-total">0</div><div class="s-label">Total Hours</div></div>
  <div class="summary-item"><div class="s-value" id="h-events">0</div><div class="s-label">Entries</div></div>
@@ -788,6 +790,19 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  <div class="card" style="padding:0;overflow:hidden">
  <table><thead><tr><th>Volunteer</th><th>Event / Activity</th><th>Date</th><th>Hours</th><th>Role</th><th class="admin-only"></th></tr></thead><tbody id="hours-table-body"></tbody></table>
+ </div>
+ </div>
+ <div id="instructor-hours-view" style="display:none">
+ <div class="summary-bar" style="margin-bottom:16px">
+ <div class="summary-item"><div class="s-value" id="ih-total">0</div><div class="s-label">Total Paid Hours</div></div>
+ <div class="summary-item"><div class="s-value" id="ih-instructors">0</div><div class="s-label">Instructors</div></div>
+ <div class="summary-item"><div class="s-value" id="ih-programs">0</div><div class="s-label">Programs Taught</div></div>
+ </div>
+ <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+ <div class="search-input-wrap" style="flex:1;min-width:180px"><span></span><input type="text" id="ih-search" placeholder="Search instructor…" oninput="renderInstructorHours()"></div>
+ </div>
+ <div class="card" style="padding:0;overflow:hidden">
+ <table><thead><tr><th>Instructor</th><th>Paid Hours</th><th>Programs / Events</th><th>Last Logged</th><th></th></tr></thead><tbody id="instructor-hours-table-body"></tbody></table>
  </div>
  </div>
  <!-- RIGHT: quick-add -->
@@ -4010,7 +4025,7 @@ function navTo(page,el){
  })
  if(page==='dashboard') renderDashboard()
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
- if(page==='hours') renderHours()
+ if(page==='hours') switchHoursTab(_hoursTab)
  if(page==='hours-store') renderHoursStorePage()
  if(page==='waivers') renderWaivers()
  if(page==='email'){ renderEmailPage(); loadEmailLog() }
@@ -5177,11 +5192,61 @@ var _qtRecent = []
 
 function switchHoursTab(tab){
  _hoursTab = tab
- ;['events','independent'].forEach(function(t){
+ ;['events','independent','instructors'].forEach(function(t){
  var btn = document.getElementById('htab-'+t)
  if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
  })
+ var normalView = document.getElementById('hours-normal-view')
+ var instructorView = document.getElementById('instructor-hours-view')
+ if(tab==='instructors'){
+ if(normalView) normalView.style.display='none'
+ if(instructorView) instructorView.style.display=''
+ renderInstructorHours()
+ } else {
+ if(normalView) normalView.style.display=''
+ if(instructorView) instructorView.style.display='none'
  renderHours()
+ }
+}
+
+function renderInstructorHours(){
+ var search = (document.getElementById('ih-search')||{}).value?.toLowerCase() || ''
+ var paidHours = allHours.filter(function(h){ return h.pay_type==='paid_instruction' })
+ var byVol = {}
+ paidHours.forEach(function(h){
+ var vid = h.volunteer_id
+ if(!byVol[vid]) byVol[vid] = {volunteer_id:vid, name:h.volunteer_name||'—', total:0, events:{}, lastDate:''}
+ byVol[vid].total += parseFloat(h.hours)||0
+ byVol[vid].events[h.event||'—'] = true
+ if(!byVol[vid].lastDate || (h.date||'') > byVol[vid].lastDate) byVol[vid].lastDate = h.date||''
+ })
+ var rows = Object.values(byVol)
+ if(search) rows = rows.filter(function(r){ return r.name.toLowerCase().includes(search) })
+ rows.sort(function(a,b){ return b.total - a.total })
+
+ var totalHours = rows.reduce(function(s,r){ return s+r.total },0)
+ var allPrograms = new Set()
+ rows.forEach(function(r){ Object.keys(r.events).forEach(function(e){ allPrograms.add(e) }) })
+ document.getElementById('ih-total').textContent = totalHours.toFixed(1)
+ document.getElementById('ih-instructors').textContent = rows.length
+ document.getElementById('ih-programs').textContent = allPrograms.size
+
+ var tbody = document.getElementById('instructor-hours-table-body')
+ if(!rows.length){
+ tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🎓</div><p>No paid instruction hours logged yet</p></div></td></tr>'
+ return
+ }
+ tbody.innerHTML = rows.map(function(r){
+ var eventNames = Object.keys(r.events)
+ var eventCell = eventNames.length<=2 ? eventNames.join(', ') : eventNames.slice(0,2).join(', ')+' +'+(eventNames.length-2)+' more'
+ return '<tr>'
+ + '<td><div class="volunteer-name-cell">'+avatarHTML(r.name,24)+'<span onclick="openProfile(\''+r.volunteer_id+'\')" style="cursor:pointer;font-weight:500;font-size:13px">'+escHtml(r.name)+'</span></div></td>'
+ + '<td><span style="font-weight:700;color:#9a3412;font-size:14px">'+r.total.toFixed(2)+'h</span></td>'
+ + '<td style="font-size:12px;color:var(--text-muted)">'+escHtml(eventCell)+'</td>'
+ + '<td style="color:var(--text-muted);font-size:13px">'+formatDate(r.lastDate)+'</td>'
+ + '<td><button class="btn btn-secondary btn-sm" onclick="openProfile(\''+r.volunteer_id+'\')">View Profile</button></td>'
+ + '</tr>'
+ }).join('')
 }
 
 function setQuickType(type){

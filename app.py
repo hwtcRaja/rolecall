@@ -1369,6 +1369,13 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
+        # The real amount Square actually processed for this registration's order —
+        # captured from the payment.completed webhook. Revenue reporting should
+        # prefer this over recomputing price × participant_count, since the two
+        # can drift apart (promo codes, price changes after the fact, etc).
+        # NULL for registrations with no confirmed Square payment (free, comp,
+        # or pre-dating this column) — those fall back to the old estimate.
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS amount_paid_cents INTEGER""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''""",
@@ -10181,7 +10188,8 @@ def build_volunteer_monthly_report(year, month):
 
     # Total hours this month
     total = fetchone(conn, """
-        SELECT COALESCE(SUM(h.hours),0) as total, COUNT(DISTINCT h.volunteer_id) as vol_count
+        SELECT COALESCE(SUM(h.hours),0) as total,
+               COUNT(DISTINCT CASE WHEN COALESCE(h.pay_type,'volunteer')='volunteer' THEN h.volunteer_id END) as vol_count
         FROM hours h WHERE h.date LIKE %s""", (date_prefix+'%',))
 
     # Top volunteers by hours this month
@@ -10284,7 +10292,7 @@ def build_range_recap_report(start_date, end_date):
 
     totals = fetchone(conn, """
         SELECT COALESCE(SUM(h.hours),0) as total_hours,
-               COUNT(DISTINCT h.volunteer_id) as active_volunteers,
+               COUNT(DISTINCT CASE WHEN COALESCE(h.pay_type,'volunteer')='volunteer' THEN h.volunteer_id END) as active_volunteers,
                COUNT(*) as total_entries
         FROM hours h WHERE h.date >= %s AND h.date <= %s""", (start_date, end_date))
 
@@ -17045,6 +17053,13 @@ def square_webhook():
                 regs = fetchall(conn, 'SELECT * FROM program_registrations WHERE square_order_id=%s OR square_checkout_id=%s',
                     (order_id, order_id)) or []
                 reg = regs[0] if regs else None
+                if regs and amount_cents:
+                    # Stored on every sibling row sharing this order — revenue
+                    # queries dedupe by order_id at read time so it isn't
+                    # double-counted per sibling.
+                    execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
+                        (amount_cents, order_id, order_id))
+                    conn.commit()
                 if regs and any(r['status'] == 'pending_payment' for r in regs):
                     for r in regs:
                         if r['status'] == 'pending_payment':
@@ -22621,15 +22636,19 @@ def marquee_orders():
     cart_order_ids = set(o['square_order_id'] for o in (cart_orders or []) if o.get('square_order_id'))
     single_regs = fetchall(conn, '''SELECT pr.*,
         yp.name AS program_name,
-        COALESCE(yp.price,0) AS program_price,
-        (COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
-         - COALESCE(pr.discount_amount,0)
-         - COALESCE(pr.sibling_discount_amount,0)) AS amount_paid_cents
+        COALESCE(yp.price,0) AS program_price
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         WHERE pr.square_order_id IS NOT NULL
         AND pr.status != \'waitlisted\'
         ORDER BY pr.created_at DESC LIMIT 100''')
+    # Prefer the real Square-confirmed amount (already present via pr.*); only
+    # fall back to the price×count estimate for registrations that predate
+    # that column or never had a captured payment.
+    for r in (single_regs or []):
+        if r.get('amount_paid_cents') is None:
+            r['amount_paid_cents'] = ((r.get('program_price') or 0) * (r.get('participant_count') or 1)
+                - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
     # Filter out regs that belong to a cart order
     single_regs = [r for r in (single_regs or []) if r.get('square_order_id') not in cart_order_ids]
     conn.close()
@@ -22695,15 +22714,28 @@ def marquee_overview():
     # not additional revenue — counting both would double-count). Includes both
     # program registrations and production (e.g. Rising Stars) registrations,
     # since both live in the same program_registrations table.
-    total_revenue_row = fetchone(conn, '''SELECT COALESCE(SUM(
-        COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
-        - COALESCE(pr.discount_amount,0)
-        - COALESCE(pr.sibling_discount_amount,0)
-    ),0) AS total
-    FROM program_registrations pr
-    LEFT JOIN youth_programs yp ON yp.id=pr.program_id
-    LEFT JOIN productions prod ON prod.id=pr.production_id
-    WHERE pr.status=\'confirmed\' ''') or {}
+    # Prefers the real Square-confirmed amount (amount_paid_cents, captured from
+    # the payment.completed webhook) over recomputing price × participant_count —
+    # the two can drift apart (promo codes, price changes after the fact, etc).
+    # Falls back to the estimate only for registrations with no captured amount
+    # (free/comp registrations, or ones that predate this column). Deduped by
+    # order — sibling registrations sharing one Square order all carry the same
+    # full order amount, so counting each sibling separately would inflate the
+    # total; this only counts each unique order once.
+    total_revenue_row = fetchone(conn, '''WITH reg_revenue AS (
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+            COALESCE(pr.amount_paid_cents,
+                COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0)
+                - COALESCE(pr.sibling_discount_amount,0)
+            ) AS effective_amount
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN productions prod ON prod.id=pr.production_id
+        WHERE pr.status=\'confirmed\'
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    )
+    SELECT COALESCE(SUM(effective_amount),0) AS total FROM reg_revenue''') or {}
     total_revenue = int((total_revenue_row or {}).get('total', 0))
     # Donations this year
     import datetime as _dt
@@ -22753,45 +22785,67 @@ def marquee_overview():
     recent_donations = fetchall(conn, '''SELECT pd.name, pd.email, pd.amount_cents, pd.created_at
         FROM pending_donations pd WHERE pd.status='completed'
         ORDER BY pd.created_at DESC LIMIT 5''') or []
-    # Program breakdown with session stats
-    program_breakdown = fetchall(conn, '''SELECT
+    # Program breakdown with session stats. Revenue prefers the real Square-
+    # confirmed amount over price × participant_count (see the overview total
+    # above for why) — computed via a CTE that dedupes by order first, since
+    # sibling registrations sharing one order all carry that order's full
+    # amount and summing them directly would multiply it per sibling.
+    program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+            pr.id, pr.program_id, pr.status,
+            COALESCE(pr.amount_paid_cents,
+                COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            ) AS effective_amount
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id = pr.program_id
+        WHERE pr.status != \'cancelled\'
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    )
+    SELECT
         yp.id, yp.name, yp.price, yp.capacity, yp.registration_status,
         yp.sessions_enabled,
-        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
-        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
-        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count,
-        COALESCE(SUM(
-            COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
-            - COALESCE(pr.discount_amount,0)
-            - COALESCE(pr.sibling_discount_amount,0)
-        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
-        FROM youth_programs yp
-        LEFT JOIN program_registrations pr ON pr.program_id=yp.id AND pr.status != \'cancelled\'
-        WHERE yp.registration_status != \'draft\'
-        GROUP BY yp.id, yp.name, yp.price, yp.capacity, yp.registration_status, yp.sessions_enabled
-        ORDER BY confirmed_count DESC, yp.name''') or []
+        COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS revenue_cents
+    FROM youth_programs yp
+    LEFT JOIN program_registrations pr ON pr.program_id=yp.id AND pr.status != \'cancelled\'
+    WHERE yp.registration_status != \'draft\'
+    GROUP BY yp.id, yp.name, yp.price, yp.capacity, yp.registration_status, yp.sessions_enabled
+    ORDER BY confirmed_count DESC, yp.name''') or []
     for row in program_breakdown:
         row['type'] = 'program'
 
     # Rising Stars production breakdown — same shape as program_breakdown so the
     # dashboard can render both in one list. Only Rising Stars productions carry
     # paid registrations; regular mainstage productions use cast sign-up, not this.
-    production_breakdown = fetchall(conn, '''SELECT
+    production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+            pr.id, pr.production_id, pr.status,
+            COALESCE(pr.amount_paid_cents,
+                COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            ) AS effective_amount
+        FROM program_registrations pr
+        JOIN productions prod ON prod.id = pr.production_id
+        WHERE pr.status != \'cancelled\'
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    )
+    SELECT
         prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
         FALSE AS sessions_enabled,
-        COUNT(pr.id) FILTER (WHERE pr.status='confirmed') AS confirmed_count,
-        COUNT(pr.id) FILTER (WHERE pr.status='pending_payment') AS pending_count,
-        COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count,
-        COALESCE(SUM(
-            COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
-            - COALESCE(pr.discount_amount,0)
-            - COALESCE(pr.sibling_discount_amount,0)
-        ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
-        FROM productions prod
-        LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
-        WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
-        GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
-        ORDER BY confirmed_count DESC, prod.name''') or []
+        COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
+        COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS revenue_cents
+    FROM productions prod
+    LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
+    WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
+    GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
+    ORDER BY confirmed_count DESC, prod.name''') or []
     for row in production_breakdown:
         row['type'] = 'production'
 
@@ -22895,10 +22949,7 @@ def marquee_all_registrations():
     production_id = request.args.get('production_id')
     status = request.args.get('status')
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type,
-        (COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
-         - COALESCE(pr.discount_amount,0)
-         - COALESCE(pr.sibling_discount_amount,0)) AS amount_paid_cents
+        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         WHERE pr.program_id IS NOT NULL'''

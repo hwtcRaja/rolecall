@@ -6304,10 +6304,16 @@ def get_contractor_pay_cap(conn):
 def get_contractor_pay_status(conn, volunteer_id, exclude_program_id=None):
     """Pulls a linked BloomBooks contractor's actual year-to-date paid amount
     directly from bb_contractor_payments (BloomBooks shares this database),
-    plus the expected pay already committed to this same instructor across
-    other RoleCall programs — so assigning them to a *second* class shows
-    the real combined total, not just what BloomBooks has already paid out.
-    Returns None if this volunteer isn't linked to a BloomBooks contractor."""
+    plus the expected pay still outstanding on other RoleCall programs
+    assigned to this same instructor — so assigning them to a *second* class
+    shows the real combined total, not just what BloomBooks has already
+    paid out. 'Still outstanding' matters here: a program whose expected
+    pay has already been covered by a real BloomBooks payment (linked via
+    bb_contractor_payment_events, from the class picker on that payment)
+    is netted down by however much of it has actually been paid, so it
+    doesn't get counted twice — once as an actual payment and again as a
+    still-pending expectation. Returns None if this volunteer isn't linked
+    to a BloomBooks contractor."""
     vol = fetchone(conn, 'SELECT bb_contractor_id FROM volunteers WHERE id=%s', (volunteer_id,))
     if not vol or not vol.get('bb_contractor_id'):
         return None
@@ -6321,14 +6327,33 @@ def get_contractor_pay_status(conn, volunteer_id, exclude_program_id=None):
         AND payment_date >= %s AND payment_date <= %s''',
         (bb_id, f'{year}-01-01', f'{year}-12-31'))
     ytd_paid = float(ytd_row['t']) if ytd_row else 0.0
-    expected_query = '''SELECT COALESCE(SUM(instructor_expected_pay),0) as t FROM youth_programs
+
+    other_programs_query = '''SELECT id, instructor_expected_pay FROM youth_programs
         WHERE instructor_id=%s AND COALESCE(instructor_expected_pay,0) > 0'''
     params = [volunteer_id]
     if exclude_program_id:
-        expected_query += ' AND id != %s'
+        other_programs_query += ' AND id != %s'
         params.append(exclude_program_id)
-    expected_row = fetchone(conn, expected_query, tuple(params))
-    expected_pending = float(expected_row['t']) if expected_row else 0.0
+    other_programs = fetchall(conn, other_programs_query, tuple(params)) or []
+
+    expected_pending = 0.0
+    for prog in other_programs:
+        expected_pay = float(prog.get('instructor_expected_pay') or 0)
+        # How much of this specific program has already actually been paid,
+        # via any non-void payment linked (through the class picker) to one
+        # of its events. A payment might cover events from just this one
+        # program, so DISTINCT keeps a payment from being pulled in more
+        # than once if it happens to link multiple of this program's events.
+        paid_row = fetchone(conn, '''SELECT COALESCE(SUM(amt),0) as t FROM (
+                SELECT DISTINCT cp.id, cp.amount as amt
+                FROM bb_contractor_payment_events cpe
+                JOIN bb_contractor_payments cp ON cp.id = cpe.payment_id
+                JOIN events e ON e.id = cpe.rolecall_event_id
+                WHERE e.program_id = %s AND cp.status != 'void'
+            ) sub''', (prog['id'],))
+        already_paid_toward_program = float(paid_row['t']) if paid_row else 0.0
+        expected_pending += max(0.0, expected_pay - already_paid_toward_program)
+
     cap = get_contractor_pay_cap(conn)
     projected_total = ytd_paid + expected_pending
     return {

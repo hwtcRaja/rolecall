@@ -25866,6 +25866,12 @@ function renderMarqueeDashboardBody(el, data){
         + '<span style="font-size:14px;font-weight:800;color:'+(progRevenue>0?'#166534':'var(--text-muted)')+';background:'+(progRevenue>0?'#f0fdf4':'transparent')+';padding:'+(progRevenue>0?'2px 10px':'0')+';border-radius:20px">'+fmtMoney(progRevenue)+'</span>'
         + '</div>'
         + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
+        + ((p.step_up_revenue_cents>0 || p.estimate_revenue_cents>0) ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">'
+            + (p.square_revenue_cents>0 ? '🟢 '+fmtMoney(p.square_revenue_cents)+' via Square' : '')
+            + (p.step_up_revenue_cents>0 ? (p.square_revenue_cents>0?' · ':'')+'🔵 '+fmtMoney(p.step_up_revenue_cents)+' via Step Up' : '')
+            + (p.estimate_revenue_cents>0 ? (p.square_revenue_cents>0||p.step_up_revenue_cents>0?' · ':'')+'⚪ '+fmtMoney(p.estimate_revenue_cents)+' not yet confirmed' : '')
+            + ' <span title="Square\'s own item-level sales report won\'t include Step Up money \u2014 it has no catalog item or order attached, so compare their report to the Square figure here, not the full total.">ⓘ</span>'
+            + '</div>' : '')
         + '</div>'
         + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\'registrations\',\''+(p.type==='production'?'prod:':'prog:')+p.id+'\')" style="font-size:11px;white-space:nowrap;flex-shrink:0">View Regs</button>'
         + '<span style="color:var(--text-muted);font-size:14px;cursor:pointer" onclick="var d=this.closest(\'div[style*=border-bottom]\').querySelector(\'.prog-detail\');d.style.display=d.style.display===\'none\'?\'\':\'none\'">›</span>'

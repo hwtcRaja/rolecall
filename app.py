@@ -17248,6 +17248,13 @@ def charge_step_up_hold(hid):
         return jsonify({'error': f'Charge failed: {result}'}), 400
     execute(conn, '''UPDATE step_up_child_holds SET hold_status='charged',
         updated_at=NOW() WHERE id=%s''', (hid,))
+    # Step Up charges are direct card charges with no Square order attached,
+    # so the payment.completed webhook's order_id-based capture never sees
+    # them — set the real amount directly here instead, using the known
+    # 1:1 link from this hold to its registration.
+    if hold.get('registration_id'):
+        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s',
+            (amount, hold['registration_id']))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'payment_id': result})
@@ -22723,10 +22730,26 @@ def backfill_payment_amounts():
     amount_paid_cents existed. Pulls each order's real total directly from
     Square and stores it, so revenue reporting reflects what was actually
     charged instead of falling back to the price × spots estimate. Batched —
-    call it again if orders_remaining comes back > 0."""
+    call it again if orders_remaining comes back > 0.
+
+    Also backfills Step Up-paid registrations — those charges have no Square
+    order attached at all (a direct saved-card charge, not a checkout), so
+    they never went through the order-based capture above. No Square API
+    call needed for those: the amount is already known precisely from the
+    hold record itself."""
     err = require_permission('marquee')
     if err: return err
     conn = get_db()
+    step_up_count_row = fetchone(conn, '''SELECT COUNT(*) as c FROM program_registrations pr
+        JOIN step_up_child_holds h ON h.registration_id = pr.id
+        WHERE h.hold_status = 'charged' AND pr.status = 'confirmed' AND pr.amount_paid_cents IS NULL''')
+    step_up_updated = step_up_count_row['c'] if step_up_count_row else 0
+    execute(conn, '''UPDATE program_registrations pr SET amount_paid_cents = h.amount
+        FROM step_up_child_holds h
+        WHERE h.registration_id = pr.id AND h.hold_status = 'charged'
+        AND pr.status = 'confirmed' AND pr.amount_paid_cents IS NULL''')
+    conn.commit()
+
     orders = fetchall(conn, '''SELECT DISTINCT COALESCE(square_order_id, square_checkout_id) as oid
         FROM program_registrations
         WHERE status='confirmed' AND amount_paid_cents IS NULL
@@ -22752,7 +22775,8 @@ def backfill_payment_amounts():
         AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)''')
     orders_remaining = remaining_row['c'] if remaining_row else 0
     conn.close()
-    return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed, 'orders_remaining': orders_remaining})
+    return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed,
+        'orders_remaining': orders_remaining, 'step_up_updated': step_up_updated})
 
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():

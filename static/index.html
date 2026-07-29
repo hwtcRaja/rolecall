@@ -25737,6 +25737,19 @@ function setMqDashProgFilter(f){
   if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData)
 }
 
+async function toggleRegComped(rid, value){
+  var confirmMsg = value==='true' ? 'Mark this registration as comp\'d (complimentary)? It will show $0 for revenue.' : 'Remove comp\'d status from this registration?'
+  if(!confirm(confirmMsg)) return
+  var res = await api('/api/registrations/'+rid+'/set-comped','POST',{value: value==='true'})
+  if(res && res.ok){
+    toast(res.is_comped?'Marked as comp\'d':'Comp\'d status removed','success')
+    var el = document.getElementById('marquee-tab-dashboard')
+    if(el) renderMarqueeDashboard(el)
+  } else {
+    toast((res&&res.error)||'Could not update','error')
+  }
+}
+
 async function runMarqueeBackfill(){
   var resultEl = document.getElementById('marquee-backfill-result')
   if(resultEl) resultEl.textContent = 'Checking Square for historical payment amounts… this can take a moment.'
@@ -25787,7 +25800,8 @@ function renderMarqueeDashboardBody(el, data){
     ['', 'Pending Payment', rc.pending||0, '#fef3c7', '#92400e'],
     ['', 'Waitlisted', rc.waitlisted||0, '#ede9fe', '#6d28d9'],
     ['', 'Open in Catalog', data.open_products||0, '#e0f2fe', '#145466'],
-    ['', 'Total Revenue (All Time)', fmtMoney(data.cart_revenue||0), '#f0fdf4', '#166534'],
+    ['', 'Confirmed Revenue', fmtMoney(data.confirmed_revenue||0), '#f0fdf4', '#166534'],
+    ['', 'Expected Revenue', fmtMoney(data.expected_revenue||0), '#fffbeb', '#92400e'],
     ['', 'Donations (YTD)', '$'+(data.donations_ytd||0).toFixed(2), '#fefce8', '#92400e'],
   ]
   stats.forEach(function(s){
@@ -25798,6 +25812,7 @@ function renderMarqueeDashboardBody(el, data){
       + '</div>'
   })
   html += '</div>'
+  html += '<div style="font-size:11px;color:var(--text-hint);margin:-14px 0 20px">Confirmed = money actually in hand (excludes pending Step Up holds and comp\'d enrollments). Expected adds pending Step Up and waitlist on top \u2014 the optimistic number, not what\'s collected. <strong>Use Confirmed for BloomBooks.</strong></div>'
 
   // ── Quick actions ──
   html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
@@ -25842,10 +25857,12 @@ function renderMarqueeDashboardBody(el, data){
     programs.forEach(function(p){
       var fillPct = p.capacity ? Math.round((p.confirmed_count/p.capacity)*100) : null
       var progSessions = sessByProg[p.id] || []
-      var progRevenue = p.revenue_cents || 0
+      var progRevenue = p.confirmed_revenue_cents || 0
+      var progExpected = p.expected_revenue_cents || 0
       // For session programs, sum session revenue instead
       if(p.sessions_enabled && progSessions.length){
         progRevenue = progSessions.reduce(function(s,x){ return s+(x.revenue_cents||0) },0)
+        progExpected = progRevenue
       }
       var statusBg = p.registration_status==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
       var typeBadge = p.type==='production'
@@ -25859,17 +25876,20 @@ function renderMarqueeDashboardBody(el, data){
         + '<span style="font-size:13px;font-weight:700">'+escHtml(p.name||'')+'</span>'
         + typeBadge
         + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+statusBg+'">'+escHtml(p.registration_status||'')+'</span>'
+        + (p.comped_count>0 ? '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:#fce7f3;color:#9d174d">'+p.comped_count+' comp\'d</span>' : '')
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
         + '<span style="font-size:12px;color:var(--text-muted)"><strong>'+p.confirmed_count+'</strong> confirmed'+(p.waitlisted_count>0?' &middot; <strong>'+p.waitlisted_count+'</strong> waitlisted':'')+'</span>'
         + (p.capacity ? '<span style="font-size:12px;color:'+(fillPct>=90?'#d97706':'var(--text-muted)')+'">'+(fillPct>=90?'<strong>':'')+''+fillPct+'% full'+(fillPct>=90?'</strong>':'')+'</span>' : '')
-        + '<span style="font-size:14px;font-weight:800;color:'+(progRevenue>0?'#166534':'var(--text-muted)')+';background:'+(progRevenue>0?'#f0fdf4':'transparent')+';padding:'+(progRevenue>0?'2px 10px':'0')+';border-radius:20px">'+fmtMoney(progRevenue)+'</span>'
+        + '<span style="font-size:14px;font-weight:800;color:'+(progRevenue>0?'#166534':'var(--text-muted)')+';background:'+(progRevenue>0?'#f0fdf4':'transparent')+';padding:'+(progRevenue>0?'2px 10px':'0')+';border-radius:20px" title="Confirmed revenue">'+fmtMoney(progRevenue)+'</span>'
+        + (progExpected>progRevenue ? '<span style="font-size:11px;color:#92400e" title="Expected revenue, if pending Step Up charges and waitlist convert">→ '+fmtMoney(progExpected)+' expected</span>' : '')
         + '</div>'
         + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
-        + ((p.step_up_revenue_cents>0 || p.estimate_revenue_cents>0) ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">'
+        + ((p.step_up_revenue_cents>0 || p.estimate_revenue_cents>0 || p.step_up_pending_cents>0) ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">'
             + (p.square_revenue_cents>0 ? '🟢 '+fmtMoney(p.square_revenue_cents)+' via Square' : '')
             + (p.step_up_revenue_cents>0 ? (p.square_revenue_cents>0?' · ':'')+'🔵 '+fmtMoney(p.step_up_revenue_cents)+' via Step Up' : '')
             + (p.estimate_revenue_cents>0 ? (p.square_revenue_cents>0||p.step_up_revenue_cents>0?' · ':'')+'⚪ '+fmtMoney(p.estimate_revenue_cents)+' not yet confirmed' : '')
+            + (p.step_up_pending_cents>0 ? ' · 🟡 '+fmtMoney(p.step_up_pending_cents)+' pending Step Up (not counted yet)' : '')
             + ' <span title="Square\'s own item-level sales report won\'t include Step Up money \u2014 it has no catalog item or order attached, so compare their report to the Square figure here, not the full total.">ⓘ</span>'
             + '</div>' : '')
         + '</div>'
@@ -25923,8 +25943,8 @@ function renderMarqueeDashboardBody(el, data){
       } else {
         var flatRegs = regsByProgram[p.id] || []
         var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
-        var sourceDot = {square:'🟢', step_up:'🔵', estimate:'⚪'}
-        var sourceLabel = {square:'Confirmed via Square', step_up:'Confirmed via Step Up', estimate:'Not yet confirmed — showing the estimated price'}
+        var sourceDot = {square:'🟢', step_up:'🔵', step_up_pending:'🟡', estimate:'⚪', comped:'🎁'}
+        var sourceLabel = {square:'Confirmed via Square', step_up:'Confirmed via Step Up', step_up_pending:'Step Up hold — not yet charged', estimate:'Not yet confirmed — showing the estimated price', comped:'Comp\'d (complimentary)'}
         html += '<div style="padding:8px 20px 4px 36px;font-size:12px;color:var(--text-muted)">'
           + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
           + (p.capacity?' · '+Math.min(fillPct||0,100)+'% full':'')
@@ -25936,11 +25956,11 @@ function renderMarqueeDashboardBody(el, data){
               var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
               var amt = r.effective_amount_cents!=null ? '$'+(r.effective_amount_cents/100).toFixed(2) : '—'
               var dot = sourceDot[r.amount_source] || '⚪'
-              var title = (sourceLabel[r.amount_source]||'')+': '+amt
-              return '<span title="'+escHtml(title)+'" style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';cursor:default">'+dot+' '+escHtml(name)+'</span>'
+              var title = (sourceLabel[r.amount_source]||'')+': '+amt+' — click to '+(r.is_comped?'remove comp\'d status':'mark as comp\'d')
+              return '<span title="'+escHtml(title)+'" onclick="toggleRegComped(\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\')" style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';cursor:pointer">'+dot+' '+escHtml(name)+'</span>'
             }).join('')
           + '</div>'
-          + '<div style="padding:2px 20px 12px 36px;font-size:10.5px;color:var(--text-hint)">Hover a name for its amount and payment source. 🟢 Square · 🔵 Step Up · ⚪ not yet confirmed (still an estimate). Siblings paid on one order/hold show the same amount on each — don\'t add them together.</div>'
+          + '<div style="padding:2px 20px 12px 36px;font-size:10.5px;color:var(--text-hint)">Click a name to mark it comp\'d (or un-mark it). 🟢 Square · 🔵 Step Up (charged) · 🟡 Step Up (pending, not counted yet) · ⚪ not yet confirmed · 🎁 comp\'d. Siblings paid on one order/hold show the same amount on each — don\'t add them together.</div>'
         }
       }
       html += '</div></div>' // end session detail + program row

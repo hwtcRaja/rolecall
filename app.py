@@ -15500,6 +15500,25 @@ def square_get_invoice(invoice_id):
     return None
 
 
+def square_get_order_total_cents(order_id):
+    """Fetch an order's real total_money.amount directly from Square — used
+    to backfill amount_paid_cents on registrations that were confirmed
+    before that column existed (the payment.completed webhook only captures
+    it going forward; Square doesn't resend that event for old payments)."""
+    if not SQUARE_ACCESS_TOKEN or not order_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{order_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('order'):
+            total = data['order'].get('total_money', {}).get('amount')
+            return total if total is not None else None
+        app.logger.warning(f'Square get order failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.warning(f'Square get order exception: {e}')
+    return None
+
+
 def square_save_card(customer_id, source_id, cardholder_name=''):
     """Save a tokenized card on file for a customer WITHOUT charging it.
     source_id is the token produced client-side by Square's Web Payments SDK.
@@ -22697,6 +22716,43 @@ def marquee_single_order_detail(rid):
     return jsonify(reg)
 
 
+
+@app.route('/api/marquee/backfill-payment-amounts', methods=['POST'])
+def backfill_payment_amounts():
+    """One-time (or repeatable) catch-up for registrations confirmed before
+    amount_paid_cents existed. Pulls each order's real total directly from
+    Square and stores it, so revenue reporting reflects what was actually
+    charged instead of falling back to the price × spots estimate. Batched —
+    call it again if orders_remaining comes back > 0."""
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    orders = fetchall(conn, '''SELECT DISTINCT COALESCE(square_order_id, square_checkout_id) as oid
+        FROM program_registrations
+        WHERE status='confirmed' AND amount_paid_cents IS NULL
+        AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)
+        LIMIT 200''') or []
+    updated = 0
+    failed = 0
+    for row in orders:
+        oid = row.get('oid')
+        if not oid:
+            continue
+        total_cents = square_get_order_total_cents(oid)
+        if total_cents is not None:
+            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
+                (total_cents, oid, oid))
+            updated += 1
+        else:
+            failed += 1
+    conn.commit()
+    remaining_row = fetchone(conn, '''SELECT COUNT(DISTINCT COALESCE(square_order_id, square_checkout_id)) as c
+        FROM program_registrations
+        WHERE status='confirmed' AND amount_paid_cents IS NULL
+        AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)''')
+    orders_remaining = remaining_row['c'] if remaining_row else 0
+    conn.close()
+    return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed, 'orders_remaining': orders_remaining})
 
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():

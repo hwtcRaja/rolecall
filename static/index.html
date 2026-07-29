@@ -25747,6 +25747,7 @@ async function runMarqueeBackfill(){
     return
   }
   var msg = res.orders_updated+' order'+(res.orders_updated!==1?'s':'')+' updated with real Square amounts'
+  if(res.step_up_updated>0) msg += ', plus '+res.step_up_updated+' Step Up-paid registration'+(res.step_up_updated!==1?'s':'')
   if(res.orders_failed>0) msg += ', '+res.orders_failed+' could not be reached'
   if(res.orders_remaining>0) msg += '. '+res.orders_remaining+' more still to go — click the button again to keep going.'
   else msg += '. All caught up!'

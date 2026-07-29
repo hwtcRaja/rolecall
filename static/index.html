@@ -25917,18 +25917,24 @@ function renderMarqueeDashboardBody(el, data){
       } else {
         var flatRegs = regsByProgram[p.id] || []
         var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
+        var sourceDot = {square:'🟢', step_up:'🔵', estimate:'⚪'}
+        var sourceLabel = {square:'Confirmed via Square', step_up:'Confirmed via Step Up', estimate:'Not yet confirmed — showing the estimated price'}
         html += '<div style="padding:8px 20px 4px 36px;font-size:12px;color:var(--text-muted)">'
           + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
           + (p.capacity?' · '+Math.min(fillPct||0,100)+'% full':'')
           + '</div>'
         if(flatRegs.length){
-          html += '<div style="padding:4px 20px 12px 36px;display:flex;flex-wrap:wrap;gap:3px">'
+          html += '<div style="padding:4px 20px 4px 36px;display:flex;flex-wrap:wrap;gap:3px">'
           + flatRegs.map(function(r){
               var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
               var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
-              return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+'">'+escHtml(name)+'</span>'
+              var amt = r.effective_amount_cents!=null ? '$'+(r.effective_amount_cents/100).toFixed(2) : '—'
+              var dot = sourceDot[r.amount_source] || '⚪'
+              var title = (sourceLabel[r.amount_source]||'')+': '+amt
+              return '<span title="'+escHtml(title)+'" style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';cursor:default">'+dot+' '+escHtml(name)+'</span>'
             }).join('')
           + '</div>'
+          + '<div style="padding:2px 20px 12px 36px;font-size:10.5px;color:var(--text-hint)">Hover a name for its amount and payment source. 🟢 Square · 🔵 Step Up · ⚪ not yet confirmed (still an estimate). Siblings paid on one order/hold show the same amount on each — don\'t add them together.</div>'
         }
       }
       html += '</div></div>' // end session detail + program row

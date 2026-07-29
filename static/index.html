@@ -25874,11 +25874,6 @@ function renderMarqueeDashboardBody(el, data){
       var progSessions = sessByProg[p.id] || []
       var progRevenue = p.confirmed_revenue_cents || 0
       var progExpected = p.expected_revenue_cents || 0
-      // For session programs, sum session revenue instead
-      if(p.sessions_enabled && progSessions.length){
-        progRevenue = progSessions.reduce(function(s,x){ return s+(x.revenue_cents||0) },0)
-        progExpected = progRevenue
-      }
       var statusBg = p.registration_status==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
       var typeBadge = p.type==='production'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:#f5f3ff;color:#6d28d9">Rising Stars</span>'
@@ -25975,7 +25970,7 @@ function renderMarqueeDashboardBody(el, data){
               return '<span title="'+escHtml(title)+'" onclick="toggleRegComped(\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\')" style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';cursor:pointer">'+dot+' '+escHtml(name)+'</span>'
             }).join('')
           + '</div>'
-          + '<div style="padding:2px 20px 12px 36px;font-size:10.5px;color:var(--text-hint)">Click a name to mark it comp\'d (or un-mark it). 🟢 Square · 🔵 Step Up (charged) · 🟡 Step Up (pending, not counted yet) · ⚪ not yet confirmed · 🎁 comp\'d. Siblings paid on one order/hold show the same amount on each — don\'t add them together.</div>'
+          + ''
         }
       }
       html += '</div></div>' // end session detail + program row

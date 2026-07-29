@@ -20132,11 +20132,12 @@ async function loadProductionRegistrations(pid){
           var actions = '<button class="btn btn-secondary btn-sm prod-reg-edit-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Edit</button> '
           if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm prod-promote-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Promote</button> '
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm prod-resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button> '
+          if(r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm" onclick="toggleRegCompedInline(this,\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\',\''+pid+'\',\'production\')" style="padding:2px 8px;font-size:11px">'+(r.is_comped?'Un-comp':'Comp')+'</button> '
           actions += '<button class="btn btn-sm prod-del-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==="waitlisted"&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d">🎁 Comp\'d</span>':'')+(r.status==="waitlisted"&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -21038,6 +21039,19 @@ function switchProgramDetailTab(tab){
 //  REGISTRATION MANAGEMENT
 // ─────────────────────────────────────────────
 
+async function toggleRegCompedInline(btnEl, rid, value, contextId, contextType){
+  var confirmMsg = value==='true' ? 'Mark this registration as comp\'d (complimentary)? It will show $0 for revenue.' : 'Remove comp\'d status from this registration?'
+  if(!confirm(confirmMsg)) return
+  var res = await api('/api/registrations/'+rid+'/set-comped','POST',{value: value==='true'})
+  if(res && res.ok){
+    toast(res.is_comped?'Marked as comp\'d':'Comp\'d status removed','success')
+    if(contextType==='production') loadProductionRegistrations(contextId)
+    else loadProgramRegistrations(contextId)
+  } else {
+    toast((res&&res.error)||'Could not update','error')
+  }
+}
+
 async function loadProgramRegistrations(pid){
   const el = document.getElementById('prog-registrations-content')
   if(!el) return
@@ -21136,6 +21150,7 @@ async function loadProgramRegistrations(pid){
           if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm promote-btn" style="padding:2px 8px;font-size:11px" data-rid="'+r.id+'">Promote</button> '
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend Link</button> '
           if(r.balance_due>0 && r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm balance-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button> '
+          if(r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm" onclick="toggleRegCompedInline(this,\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\',\''+pid+'\',\'program\')" style="padding:2px 8px;font-size:11px">'+(r.is_comped?'Un-comp':'Comp')+'</button> '
           actions += '<button class="btn btn-sm delete-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
           if(r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm finalize-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px" title="Create participant profile if missing">Finalize</button>'
           var sibCount = 0
@@ -21159,7 +21174,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d">🎁 Comp\'d</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'

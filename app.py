@@ -22993,14 +22993,33 @@ def marquee_overview():
         flat_registrants = fetchall(conn, '''SELECT
             COALESCE(pr.program_id, pr.production_id) AS group_id,
             pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.status
+            pr.guardian_name, pr.status, pr.amount_paid_cents,
+            pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            COALESCE(yp.price, prod.price, 0) AS list_price,
+            (SELECT h.amount FROM step_up_child_holds h
+                WHERE h.registration_id = pr.id AND h.hold_status = 'charged' LIMIT 1) AS step_up_amount
             FROM program_registrations pr
+            LEFT JOIN youth_programs yp ON yp.id = pr.program_id
+            LEFT JOIN productions prod ON prod.id = pr.production_id
             WHERE pr.status != 'cancelled'
             AND (pr.session_ids IS NULL OR pr.session_ids = '[]')
             ORDER BY pr.child_last_name, pr.child_first_name''') or []
         for r in flat_registrants:
             pid2 = r.get('group_id')
             if pid2 not in regs_by_program: regs_by_program[pid2] = []
+            # Real Square amount, else a real Step Up amount, else the old
+            # estimate — and flag which one it is so the UI can show it
+            # plainly instead of implying every number is equally solid.
+            if r.get('amount_paid_cents') is not None:
+                r['effective_amount_cents'] = r['amount_paid_cents']
+                r['amount_source'] = 'square'
+            elif r.get('step_up_amount') is not None:
+                r['effective_amount_cents'] = r['step_up_amount']
+                r['amount_source'] = 'step_up'
+            else:
+                r['effective_amount_cents'] = ((r.get('list_price') or 0) * (r.get('participant_count') or 1)
+                    - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+                r['amount_source'] = 'estimate'
             regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')

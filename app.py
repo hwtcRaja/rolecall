@@ -23061,19 +23061,22 @@ def marquee_overview():
 
     program_breakdown = program_breakdown + production_breakdown
 
-    # Session breakdown for programs with sessions
+    # Session breakdown for programs with sessions. Headcount/capacity/fill
+    # per session still comes from the SQL join below (that part was never
+    # wrong — someone registered for 4 sessions genuinely shows up in all 4).
+    # Revenue is different: if a family paid one bundle price for multiple
+    # sessions, attributing that full price to *each* session they're in
+    # would badly over-count the program's real total (this was the actual
+    # bug — a $70 bundle covering 4 sessions was showing as $100 × 4 = $400).
+    # Fixed below by computing each registration's real confirmed amount
+    # once, then dividing it evenly across however many sessions it covers.
     try:
         session_breakdown = fetchall(conn, '''SELECT
             ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override, ps.start_date, ps.start_time, ps.end_time,
             yp.name AS program_name, yp.price AS program_price,
             COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
             COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
-            COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
-            COALESCE(SUM(
-                COALESCE(ps.price_override, yp.price, 0) * COALESCE(pr.participant_count, 1)
-                - COALESCE(pr.discount_amount, 0)
-                - COALESCE(pr.sibling_discount_amount, 0)
-            ) FILTER (WHERE pr.status=\'confirmed\'), 0) AS revenue_cents
+            COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count
             FROM program_sessions ps
             JOIN youth_programs yp ON yp.id=ps.program_id
             LEFT JOIN program_registrations pr ON pr.program_id=ps.program_id
@@ -23085,6 +23088,51 @@ def marquee_overview():
             GROUP BY ps.id, ps.program_id, ps.name, ps.capacity, ps.price_override,
                      ps.start_date, ps.start_time, ps.end_time, ps.sort_order, yp.name, yp.price
             ORDER BY ps.program_id, ps.sort_order, ps.start_date, ps.start_time''') or []
+        for s in session_breakdown:
+            s['revenue_cents'] = 0  # filled in below, per-registration, fairly divided
+
+        import json as _json_srb
+        try: conn.rollback()
+        except Exception: pass
+        session_rev_regs = fetchall(conn, '''SELECT pr.id, pr.session_ids, pr.square_order_id,
+            pr.amount_paid_cents, pr.is_comped, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            yp.price AS program_price, yp.bundle_price,
+            su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
+            FROM program_registrations pr
+            JOIN youth_programs yp ON yp.id = pr.program_id
+            LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
+            WHERE pr.status = \'confirmed\' AND pr.session_ids IS NOT NULL AND pr.session_ids != \'[]\' ''') or []
+        seen_orders = set()
+        session_rev_by_id = {}
+        for r in session_rev_regs:
+            try: sids = _json_srb.loads(r.get('session_ids') or '[]')
+            except Exception: sids = []
+            if not sids:
+                continue
+            order_key = r.get('square_order_id') or r['id']
+            if order_key in seen_orders:
+                continue  # sibling sharing this same order already counted
+            seen_orders.add(order_key)
+            if r.get('is_comped'):
+                amount = 0
+            elif r.get('step_up_hold_status') == 'charged':
+                amount = r.get('step_up_amount') or 0
+            elif r.get('step_up_hold_status') == 'pending':
+                amount = 0  # not money in hand yet — excluded here same as the program-level figure
+            elif r.get('amount_paid_cents') is not None:
+                amount = r['amount_paid_cents']
+            else:
+                # Estimate fallback: a bundle price if this registration spans
+                # multiple sessions and one's set, otherwise the plain per-
+                # session price.
+                base_price = r.get('bundle_price') if (len(sids) > 1 and r.get('bundle_price')) else r.get('program_price')
+                amount = ((base_price or 0) * (r.get('participant_count') or 1)
+                    - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+            per_session_share = amount / len(sids)
+            for sid in sids:
+                session_rev_by_id[sid] = session_rev_by_id.get(sid, 0) + per_session_share
+        for s in session_breakdown:
+            s['revenue_cents'] = int(round(session_rev_by_id.get(s['id'], 0)))
     except Exception as e:
         app.logger.warning(f'Session breakdown query failed: {e}')
         session_breakdown = []

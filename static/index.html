@@ -25737,6 +25737,29 @@ function setMqDashProgFilter(f){
   if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData)
 }
 
+async function runMarqueeBackfill(){
+  var resultEl = document.getElementById('marquee-backfill-result')
+  if(resultEl) resultEl.textContent = 'Checking Square for historical payment amounts… this can take a moment.'
+  var res = await api('/api/marquee/backfill-payment-amounts','POST')
+  if(!res || res.error){
+    resultEl = document.getElementById('marquee-backfill-result')
+    if(resultEl) resultEl.innerHTML = '<span style="color:var(--red)">'+((res&&res.error)||'Backfill failed')+'</span>'
+    return
+  }
+  var msg = res.orders_updated+' order'+(res.orders_updated!==1?'s':'')+' updated with real Square amounts'
+  if(res.orders_failed>0) msg += ', '+res.orders_failed+' could not be reached'
+  if(res.orders_remaining>0) msg += '. '+res.orders_remaining+' more still to go — click the button again to keep going.'
+  else msg += '. All caught up!'
+  toast('Backfill complete','success')
+  // Refresh the dashboard now that more real amounts are in — this rebuilds
+  // the whole panel (including the result element), so set the message
+  // afterward or it'd get wiped out by the re-render.
+  var el = document.getElementById('marquee-tab-dashboard')
+  if(el) await renderMarqueeDashboard(el)
+  resultEl = document.getElementById('marquee-backfill-result')
+  if(resultEl) resultEl.textContent = msg
+}
+
 async function renderMarqueeDashboard(el){
   var data = await api('/api/marquee/overview')
   _mqDashData = data
@@ -25776,12 +25799,14 @@ function renderMarqueeDashboardBody(el, data){
   html += '</div>'
 
   // ── Quick actions ──
-  html += '<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">'
+  html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=catalog]\').click()" style="font-size:13px">View Catalog</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=orders]\').click()" style="font-size:13px">View All Orders</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=registrations]\').click()" style="font-size:13px">View Registrations</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeBackfill()" style="font-size:13px">🔄 Backfill Historical Payment Amounts</button>'
     + '</div>'
+  html += '<div id="marquee-backfill-result" style="font-size:12px;color:var(--text-muted);margin-bottom:16px"></div>'
 
   // ── Program breakdown ──
   var allPrograms = data.program_breakdown || []

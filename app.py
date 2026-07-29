@@ -1376,6 +1376,11 @@ def init_db():
         # NULL for registrations with no confirmed Square payment (free, comp,
         # or pre-dating this column) — those fall back to the old estimate.
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS amount_paid_cents INTEGER""",
+        # A comp'd (complimentary/free) enrollment — still a real confirmed
+        # registration, just $0 by design rather than an unpaid gap. Kept as
+        # a flag rather than a separate status so it still shows up
+        # normally in rosters/counts, just tagged and excluded from revenue.
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_comped BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS participant_count INTEGER DEFAULT 1""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS siblings_json TEXT DEFAULT '[]'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''""",
@@ -22724,6 +22729,24 @@ def marquee_single_order_detail(rid):
 
 
 
+@app.route('/api/registrations/<rid>/set-comped', methods=['POST'])
+def set_registration_comped(rid):
+    """Mark (or unmark) a registration as complimentary — still counts
+    normally in rosters and headcounts, just $0 for revenue purposes and
+    shown with its own badge rather than looking like an unpaid gap."""
+    err = require_permission('marquee')
+    if err: return err
+    d = request.json or {}
+    value = bool(d.get('value'))
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT id FROM program_registrations WHERE id=%s', (rid,))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Registration not found'}), 404
+    execute(conn, 'UPDATE program_registrations SET is_comped=%s WHERE id=%s', (value, rid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'is_comped': value})
+
 @app.route('/api/marquee/backfill-payment-amounts', methods=['POST'])
 def backfill_payment_amounts():
     """One-time (or repeatable) catch-up for registrations confirmed before
@@ -22790,33 +22813,67 @@ def marquee_overview():
         COUNT(*) FILTER (WHERE status='waitlisted') AS waitlisted,
         COUNT(*) AS total
         FROM program_registrations WHERE status != 'cancelled' ''')
-    # Revenue: sum confirmed registrations only (cart orders are the payment mechanism,
-    # not additional revenue — counting both would double-count). Includes both
-    # program registrations and production (e.g. Rising Stars) registrations,
-    # since both live in the same program_registrations table.
-    # Prefers the real Square-confirmed amount (amount_paid_cents, captured from
-    # the payment.completed webhook) over recomputing price × participant_count —
-    # the two can drift apart (promo codes, price changes after the fact, etc).
-    # Falls back to the estimate only for registrations with no captured amount
-    # (free/comp registrations, or ones that predate this column). Deduped by
-    # order — sibling registrations sharing one Square order all carry the same
-    # full order amount, so counting each sibling separately would inflate the
-    # total; this only counts each unique order once.
-    total_revenue_row = fetchone(conn, '''WITH reg_revenue AS (
+    # Revenue: cart orders are the payment mechanism, not additional revenue —
+    # counting both would double-count. Includes both program registrations and
+    # production (e.g. Rising Stars) registrations, since both live in the same
+    # program_registrations table.
+    #
+    # Split into two figures, since they mean different things:
+    #  - confirmed_revenue: money we actually have. Prefers the real Square-
+    #    confirmed amount (amount_paid_cents) over recomputing price × count —
+    #    the two can drift apart (promo codes, price changes after the fact).
+    #    A Step Up hold only counts here once it's actually been charged
+    #    (hold_status='charged') — a pending hold is a promise, not money in
+    #    hand yet. Comp'd enrollments are $0 by design, not an unpaid gap.
+    #  - expected_revenue: confirmed_revenue plus what's still outstanding —
+    #    pending (uncharged) Step Up holds, and waitlisted registrations that
+    #    could still convert. This is the optimistic "if everything comes
+    #    through" number, not what's actually collected.
+    # Deduped by order for the Square side — sibling registrations sharing one
+    # order all carry that order's full amount, so counting each sibling
+    # separately would inflate the total.
+    revenue_row = fetchone(conn, '''WITH reg_revenue AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
-            COALESCE(pr.amount_paid_cents,
-                COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
-                - COALESCE(pr.discount_amount,0)
-                - COALESCE(pr.sibling_discount_amount,0)
-            ) AS effective_amount
+            pr.status,
+            CASE WHEN pr.is_comped THEN 0
+                WHEN su.hold_status = 'charged' THEN su.amount
+                WHEN su.hold_status = 'pending' THEN 0
+                ELSE COALESCE(pr.amount_paid_cents,
+                    COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+            END AS confirmed_amount,
+            CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount
         FROM program_registrations pr
         LEFT JOIN youth_programs yp ON yp.id=pr.program_id
         LEFT JOIN productions prod ON prod.id=pr.production_id
-        WHERE pr.status=\'confirmed\'
+        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
+        WHERE pr.status IN (\'confirmed\', \'waitlisted\')
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    ),
+    waitlist_estimate AS (
+        SELECT pr.id,
+            CASE WHEN pr.is_comped THEN 0 ELSE
+                COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            END AS amount
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN productions prod ON prod.id=pr.production_id
+        WHERE pr.status = \'waitlisted\'
     )
-    SELECT COALESCE(SUM(effective_amount),0) AS total FROM reg_revenue''') or {}
-    total_revenue = int((total_revenue_row or {}).get('total', 0))
+    SELECT
+        COALESCE(SUM(confirmed_amount) FILTER (WHERE status=\'confirmed\'), 0) AS confirmed_total,
+        COALESCE(SUM(pending_step_up_amount) FILTER (WHERE status=\'confirmed\'), 0) AS pending_step_up_total,
+        (SELECT COALESCE(SUM(amount), 0) FROM waitlist_estimate) AS waitlist_total
+    FROM reg_revenue''') or {}
+    confirmed_revenue = int((revenue_row or {}).get('confirmed_total', 0))
+    pending_step_up_total = int((revenue_row or {}).get('pending_step_up_total', 0))
+    waitlist_total = int((revenue_row or {}).get('waitlist_total', 0))
+    expected_revenue = confirmed_revenue + pending_step_up_total + waitlist_total
+    # total_revenue kept for anything still reading the old field name —
+    # it's the confirmed figure, which is what should be treated as
+    # authoritative (e.g. if this number is ever referenced in BloomBooks).
+    total_revenue = confirmed_revenue
     # Donations this year
     import datetime as _dt
     year = _dt.date.today().year
@@ -22865,35 +22922,43 @@ def marquee_overview():
     recent_donations = fetchall(conn, '''SELECT pd.name, pd.email, pd.amount_cents, pd.created_at
         FROM pending_donations pd WHERE pd.status='completed'
         ORDER BY pd.created_at DESC LIMIT 5''') or []
-    # Program breakdown with session stats. Revenue prefers the real Square-
-    # confirmed amount over price × participant_count (see the overview total
-    # above for why) — computed via a CTE that dedupes by order first, since
-    # sibling registrations sharing one order all carry that order's full
-    # amount and summing them directly would multiply it per sibling.
-    # Also splits revenue by source (Square / Step Up / still-estimated) —
-    # Step Up charges have no order or catalog item attached at all, so
-    # they're invisible to Square's own item-level sales reports. That split
-    # is what lets "Square revenue" here be checked directly against Square's
-    # own report for the linked item, without Step Up money in the way.
+    # Program breakdown with session stats. Splits revenue into confirmed
+    # (money we actually have) vs expected (confirmed + pending Step Up +
+    # waitlist) — see the overview total above for the full reasoning.
+    # Comp'd enrollments are $0 by design, not an unpaid gap, and a pending
+    # (uncharged) Step Up hold isn't money in hand yet even though the
+    # registration itself shows as confirmed.
     program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.program_id, pr.status,
-            CASE
-                WHEN su.amount IS NOT NULL THEN su.amount
-                WHEN pr.amount_paid_cents IS NOT NULL THEN pr.amount_paid_cents
-                ELSE COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
-                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
-            END AS effective_amount,
-            CASE
-                WHEN su.amount IS NOT NULL THEN 'step_up'
+            CASE WHEN pr.is_comped THEN 0
+                WHEN su.hold_status = 'charged' THEN su.amount
+                WHEN su.hold_status = 'pending' THEN 0
+                ELSE COALESCE(pr.amount_paid_cents,
+                    COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+            END AS confirmed_amount,
+            CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
+            CASE WHEN pr.is_comped THEN 'comped'
+                WHEN su.hold_status = 'charged' THEN 'step_up'
+                WHEN su.hold_status = 'pending' THEN 'step_up_pending'
                 WHEN pr.amount_paid_cents IS NOT NULL THEN 'square'
                 ELSE 'estimate'
             END AS amount_source
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id = pr.program_id
-        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id AND su.hold_status = \'charged\'
+        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    ),
+    waitlist_amt AS (
+        SELECT pr.id, pr.program_id,
+            CASE WHEN pr.is_comped THEN 0 ELSE
+                COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            END AS amount
+        FROM program_registrations pr JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.status = \'waitlisted\'
     )
     SELECT
         yp.id, yp.name, yp.price, yp.capacity, yp.registration_status,
@@ -22901,14 +22966,23 @@ def marquee_overview():
         COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+        COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\' AND pr.is_comped) AS comped_count,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS confirmed_revenue_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0)
+          + COALESCE((SELECT SUM(dr.pending_step_up_amount) FROM dedup_regs dr
+              WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0)
+          + COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.program_id=yp.id), 0) AS expected_revenue_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
             WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'square\'), 0) AS square_revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
             WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'step_up\'), 0) AS step_up_revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents
+        COALESCE((SELECT SUM(dr.pending_step_up_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS step_up_pending_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents,
+        COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.program_id=yp.id), 0) AS waitlist_revenue_cents
     FROM youth_programs yp
     LEFT JOIN program_registrations pr ON pr.program_id=yp.id AND pr.status != \'cancelled\'
     WHERE yp.registration_status != \'draft\'
@@ -22916,6 +22990,7 @@ def marquee_overview():
     ORDER BY confirmed_count DESC, yp.name''') or []
     for row in program_breakdown:
         row['type'] = 'program'
+        row['revenue_cents'] = row['confirmed_revenue_cents']  # kept for anything still reading the old field name
 
     # Rising Stars production breakdown — same shape as program_breakdown so the
     # dashboard can render both in one list. Only Rising Stars productions carry
@@ -22923,22 +22998,34 @@ def marquee_overview():
     production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.production_id, pr.status,
-            CASE
-                WHEN su.amount IS NOT NULL THEN su.amount
-                WHEN pr.amount_paid_cents IS NOT NULL THEN pr.amount_paid_cents
-                ELSE COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
-                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
-            END AS effective_amount,
-            CASE
-                WHEN su.amount IS NOT NULL THEN 'step_up'
+            CASE WHEN pr.is_comped THEN 0
+                WHEN su.hold_status = 'charged' THEN su.amount
+                WHEN su.hold_status = 'pending' THEN 0
+                ELSE COALESCE(pr.amount_paid_cents,
+                    COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+            END AS confirmed_amount,
+            CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
+            CASE WHEN pr.is_comped THEN 'comped'
+                WHEN su.hold_status = 'charged' THEN 'step_up'
+                WHEN su.hold_status = 'pending' THEN 'step_up_pending'
                 WHEN pr.amount_paid_cents IS NOT NULL THEN 'square'
                 ELSE 'estimate'
             END AS amount_source
         FROM program_registrations pr
         JOIN productions prod ON prod.id = pr.production_id
-        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id AND su.hold_status = \'charged\'
+        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
+    ),
+    waitlist_amt AS (
+        SELECT pr.id, pr.production_id,
+            CASE WHEN pr.is_comped THEN 0 ELSE
+                COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            END AS amount
+        FROM program_registrations pr JOIN productions prod ON prod.id=pr.production_id
+        WHERE pr.status = \'waitlisted\'
     )
     SELECT
         prod.id, prod.name, prod.price, prod.capacity, prod.registration_status,
@@ -22946,14 +23033,23 @@ def marquee_overview():
         COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\') AS confirmed_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+        COUNT(pr.id) FILTER (WHERE pr.status=\'confirmed\' AND pr.is_comped) AS comped_count,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS confirmed_revenue_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0)
+          + COALESCE((SELECT SUM(dr.pending_step_up_amount) FROM dedup_regs dr
+              WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0)
+          + COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.production_id=prod.id), 0) AS expected_revenue_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
             WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'square\'), 0) AS square_revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
             WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'step_up\'), 0) AS step_up_revenue_cents,
-        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents
+        COALESCE((SELECT SUM(dr.pending_step_up_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS step_up_pending_cents,
+        COALESCE((SELECT SUM(dr.confirmed_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents,
+        COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.production_id=prod.id), 0) AS waitlist_revenue_cents
     FROM productions prod
     LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
     WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
@@ -22961,6 +23057,7 @@ def marquee_overview():
     ORDER BY confirmed_count DESC, prod.name''') or []
     for row in production_breakdown:
         row['type'] = 'production'
+        row['revenue_cents'] = row['confirmed_revenue_cents']
 
     program_breakdown = program_breakdown + production_breakdown
 
@@ -23024,13 +23121,16 @@ def marquee_overview():
         try: conn.rollback()
         except Exception: pass
         flat_registrants = fetchall(conn, '''SELECT
+            pr.id,
             COALESCE(pr.program_id, pr.production_id) AS group_id,
             pr.child_first_name, pr.child_last_name,
-            pr.guardian_name, pr.status, pr.amount_paid_cents,
+            pr.guardian_name, pr.status, pr.amount_paid_cents, pr.is_comped,
             pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
             COALESCE(yp.price, prod.price, 0) AS list_price,
             (SELECT h.amount FROM step_up_child_holds h
-                WHERE h.registration_id = pr.id AND h.hold_status = 'charged' LIMIT 1) AS step_up_amount
+                WHERE h.registration_id = pr.id ORDER BY h.created_at DESC LIMIT 1) AS step_up_amount,
+            (SELECT h.hold_status FROM step_up_child_holds h
+                WHERE h.registration_id = pr.id ORDER BY h.created_at DESC LIMIT 1) AS step_up_hold_status
             FROM program_registrations pr
             LEFT JOIN youth_programs yp ON yp.id = pr.program_id
             LEFT JOIN productions prod ON prod.id = pr.production_id
@@ -23040,18 +23140,26 @@ def marquee_overview():
         for r in flat_registrants:
             pid2 = r.get('group_id')
             if pid2 not in regs_by_program: regs_by_program[pid2] = []
-            # Real Square amount, else a real Step Up amount, else the old
-            # estimate — and flag which one it is so the UI can show it
-            # plainly instead of implying every number is equally solid.
-            if r.get('amount_paid_cents') is not None:
+            estimate = ((r.get('list_price') or 0) * (r.get('participant_count') or 1)
+                - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+            # Comp'd takes priority over everything — it's $0 by design, not
+            # an unpaid gap. Then a charged Step Up hold, then a pending one
+            # (real amount, but not money we have yet), then a real Square
+            # payment, then finally the plain estimate as a last resort.
+            if r.get('is_comped'):
+                r['effective_amount_cents'] = 0
+                r['amount_source'] = 'comped'
+            elif r.get('step_up_hold_status') == 'charged':
+                r['effective_amount_cents'] = r.get('step_up_amount') or 0
+                r['amount_source'] = 'step_up'
+            elif r.get('step_up_hold_status') == 'pending':
+                r['effective_amount_cents'] = r.get('step_up_amount') or 0
+                r['amount_source'] = 'step_up_pending'
+            elif r.get('amount_paid_cents') is not None:
                 r['effective_amount_cents'] = r['amount_paid_cents']
                 r['amount_source'] = 'square'
-            elif r.get('step_up_amount') is not None:
-                r['effective_amount_cents'] = r['step_up_amount']
-                r['amount_source'] = 'step_up'
             else:
-                r['effective_amount_cents'] = ((r.get('list_price') or 0) * (r.get('participant_count') or 1)
-                    - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+                r['effective_amount_cents'] = estimate
                 r['amount_source'] = 'estimate'
             regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
@@ -23061,6 +23169,10 @@ def marquee_overview():
     return jsonify({
         'reg_counts': reg_counts,
         'cart_revenue': total_revenue,
+        'confirmed_revenue': confirmed_revenue,
+        'expected_revenue': expected_revenue,
+        'pending_step_up_revenue': pending_step_up_total,
+        'waitlist_revenue': waitlist_total,
         'donations_ytd': float((donations_ytd or {}).get('total', 0)),
         'open_products': int(open_programs) + int(open_productions),
         'recent_orders': cart_orders,

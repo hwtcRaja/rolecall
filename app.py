@@ -22870,15 +22870,28 @@ def marquee_overview():
     # above for why) — computed via a CTE that dedupes by order first, since
     # sibling registrations sharing one order all carry that order's full
     # amount and summing them directly would multiply it per sibling.
+    # Also splits revenue by source (Square / Step Up / still-estimated) —
+    # Step Up charges have no order or catalog item attached at all, so
+    # they're invisible to Square's own item-level sales reports. That split
+    # is what lets "Square revenue" here be checked directly against Square's
+    # own report for the linked item, without Step Up money in the way.
     program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.program_id, pr.status,
-            COALESCE(pr.amount_paid_cents,
-                COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
-                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
-            ) AS effective_amount
+            CASE
+                WHEN su.amount IS NOT NULL THEN su.amount
+                WHEN pr.amount_paid_cents IS NOT NULL THEN pr.amount_paid_cents
+                ELSE COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            END AS effective_amount,
+            CASE
+                WHEN su.amount IS NOT NULL THEN 'step_up'
+                WHEN pr.amount_paid_cents IS NOT NULL THEN 'square'
+                ELSE 'estimate'
+            END AS amount_source
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id = pr.program_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id AND su.hold_status = \'charged\'
         WHERE pr.status != \'cancelled\'
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     )
@@ -22889,7 +22902,13 @@ def marquee_overview():
         COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
         COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS revenue_cents
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\'), 0) AS revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'square\'), 0) AS square_revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'step_up\'), 0) AS step_up_revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.program_id=yp.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents
     FROM youth_programs yp
     LEFT JOIN program_registrations pr ON pr.program_id=yp.id AND pr.status != \'cancelled\'
     WHERE yp.registration_status != \'draft\'
@@ -22904,12 +22923,20 @@ def marquee_overview():
     production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.production_id, pr.status,
-            COALESCE(pr.amount_paid_cents,
-                COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
-                - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
-            ) AS effective_amount
+            CASE
+                WHEN su.amount IS NOT NULL THEN su.amount
+                WHEN pr.amount_paid_cents IS NOT NULL THEN pr.amount_paid_cents
+                ELSE COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0)
+            END AS effective_amount,
+            CASE
+                WHEN su.amount IS NOT NULL THEN 'step_up'
+                WHEN pr.amount_paid_cents IS NOT NULL THEN 'square'
+                ELSE 'estimate'
+            END AS amount_source
         FROM program_registrations pr
         JOIN productions prod ON prod.id = pr.production_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id AND su.hold_status = \'charged\'
         WHERE pr.status != \'cancelled\'
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     )
@@ -22920,7 +22947,13 @@ def marquee_overview():
         COUNT(pr.id) FILTER (WHERE pr.status=\'pending_payment\') AS pending_count,
         COUNT(pr.id) FILTER (WHERE pr.status=\'waitlisted\') AS waitlisted_count,
         COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
-            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS revenue_cents
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\'), 0) AS revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'square\'), 0) AS square_revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'step_up\'), 0) AS step_up_revenue_cents,
+        COALESCE((SELECT SUM(dr.effective_amount) FROM dedup_regs dr
+            WHERE dr.production_id=prod.id AND dr.status=\'confirmed\' AND dr.amount_source=\'estimate\'), 0) AS estimate_revenue_cents
     FROM productions prod
     LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
     WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'

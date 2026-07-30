@@ -1118,6 +1118,59 @@ def init_db():
             name TEXT NOT NULL,
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # show licensing requests
+        """CREATE TABLE IF NOT EXISTS licensing_requests (
+            id TEXT PRIMARY KEY,
+            ref_number TEXT UNIQUE NOT NULL,
+            production_id TEXT REFERENCES productions(id) ON DELETE SET NULL,
+            requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+            requester_name TEXT DEFAULT '',
+            requester_email TEXT DEFAULT '',
+            production_name TEXT NOT NULL,
+            production_type TEXT DEFAULT '',
+            production_type_other TEXT DEFAULT '',
+            licensor TEXT DEFAULT '',
+            licensor_other TEXT DEFAULT '',
+            production_start_date TEXT DEFAULT '',
+            production_end_date TEXT DEFAULT '',
+            venue_name TEXT DEFAULT '',
+            venue_address TEXT DEFAULT '',
+            venue_capacity INTEGER,
+            audience_capacity INTEGER,
+            performance_dates TEXT DEFAULT '[]',
+            number_of_shows INTEGER,
+            lowest_ticket_price_cents INTEGER,
+            highest_ticket_price_cents INTEGER,
+            average_ticket_price_cents INTEGER,
+            expected_performers INTEGER,
+            scripts_needed INTEGER,
+            additional_scripts TEXT DEFAULT '[]',
+            has_live_orchestra BOOLEAN DEFAULT FALSE,
+            needs_full_score BOOLEAN DEFAULT FALSE,
+            orchestra_size INTEGER,
+            orchestra_instruments TEXT DEFAULT '',
+            needs_rehearsal_tracks BOOLEAN DEFAULT FALSE,
+            needs_performance_tracks BOOLEAN DEFAULT FALSE,
+            ship_to_name TEXT DEFAULT '',
+            ship_to_address TEXT DEFAULT '',
+            ship_to_phone TEXT DEFAULT '',
+            materials_needed_by TEXT DEFAULT '',
+            addon_streaming_license BOOLEAN DEFAULT FALSE,
+            addon_video_recording_license BOOLEAN DEFAULT FALSE,
+            addon_marketing_package BOOLEAN DEFAULT FALSE,
+            addon_marketing_notes TEXT DEFAULT '',
+            addon_logo_choice TEXT DEFAULT '',
+            addon_youth_production BOOLEAN DEFAULT FALSE,
+            addon_choreography_guides BOOLEAN DEFAULT FALSE,
+            addon_directors_guide BOOLEAN DEFAULT FALSE,
+            addon_broadway_media_scenic BOOLEAN DEFAULT FALSE,
+            additional_requests TEXT DEFAULT '',
+            status TEXT DEFAULT 'new',
+            admin_notes TEXT DEFAULT '',
+            reviewed_by TEXT DEFAULT '',
+            reviewed_at TIMESTAMP,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -11947,6 +12000,27 @@ def get_notifications():
     except Exception as e:
         app.logger.warning(f'notifications profiles: {e}')
 
+    # Show licensing requests awaiting action
+    try:
+        lic_requests = fetchall(conn, '''
+            SELECT id, ref_number, production_name, licensor, requester_name, submitted_at
+            FROM licensing_requests
+            WHERE status = 'new'
+            ORDER BY submitted_at DESC NULLS LAST
+            LIMIT 50''')
+        for lr in lic_requests:
+            needs_action.append({
+                'id':    lr['id'],
+                'type':  'licensing_request',
+                'icon':  '📄',
+                'color': 'purple',
+                'title': f'Licensing request  -  {lr["production_name"] or "Untitled production"}',
+                'sub':   f'{lr.get("licensor") or "Licensor TBD"} · from {lr.get("requester_name") or "staff"} · Ref {lr["ref_number"]}',
+                'data':  lr,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications licensing_requests: {e}')
+
     # Recent approved hours (activity feed)
     try:
         recent = fetchall(conn, '''
@@ -16696,6 +16770,189 @@ def process_square_refund(rid):
         try: conn.rollback(); conn.close()
         except Exception: pass
         return jsonify({'error': str(e)}), 500
+
+# ─────────────────────────────────────────────
+#  SHOW LICENSING REQUESTS (internal)
+# ─────────────────────────────────────────────
+
+def _cents(v):
+    """Parse a dollars value (e.g. 12.5, '12.50') into integer cents, or None."""
+    if v in (None, ''):
+        return None
+    try:
+        return int(round(float(v) * 100))
+    except (TypeError, ValueError):
+        return None
+
+@app.route('/api/licensing-requests', methods=['GET'])
+def get_licensing_requests():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    status = request.args.get('status', '')
+    if status:
+        rows = fetchall(conn, 'SELECT * FROM licensing_requests WHERE status=%s ORDER BY submitted_at DESC', (status,)) or []
+    else:
+        rows = fetchall(conn, 'SELECT * FROM licensing_requests ORDER BY submitted_at DESC') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/licensing-requests/<lid>', methods=['GET'])
+def get_licensing_request(lid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    if not row: return jsonify({'error': 'Not found'}), 404
+    return jsonify(row)
+
+@app.route('/licensing-request')
+def licensing_request_page():
+    return send_from_directory('static', 'licensing-request.html')
+
+@app.route('/api/public/licensing-request', methods=['POST'])
+def submit_licensing_request():
+    """Standalone shareable form — anyone with the link can submit a show licensing request."""
+    d = request.json or {}
+    requester_name  = (d.get('requester_name') or '').strip()
+    requester_email = (d.get('requester_email') or '').strip().lower()
+    production_name = (d.get('production_name') or '').strip()
+    if not requester_name or not requester_email or not production_name:
+        return jsonify({'error': 'Name, email, and production name are required'}), 400
+    conn = get_db()
+    try:
+        import random, string
+        lid = str(uuid.uuid4())
+        ref_number = 'LIC-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+        # Link to a staff account if the submitter happens to be logged in / matches a user
+        matched_user = fetchone(conn, 'SELECT id FROM users WHERE LOWER(email)=%s', (requester_email,))
+        requested_by = matched_user['id'] if matched_user else session.get('user_id')
+
+        lowest_cents  = _cents(d.get('lowest_ticket_price'))
+        highest_cents = _cents(d.get('highest_ticket_price'))
+        if lowest_cents is not None and highest_cents is not None:
+            avg_cents = round((lowest_cents + highest_cents) / 2)
+        else:
+            avg_cents = lowest_cents or highest_cents
+
+        execute(conn, '''INSERT INTO licensing_requests
+            (id, ref_number, production_id, requested_by, requester_name, requester_email,
+             production_name, production_type, production_type_other, licensor, licensor_other,
+             production_start_date, production_end_date, venue_name, venue_address,
+             venue_capacity, audience_capacity, performance_dates, number_of_shows,
+             lowest_ticket_price_cents, highest_ticket_price_cents, average_ticket_price_cents,
+             expected_performers, scripts_needed, additional_scripts,
+             has_live_orchestra, needs_full_score, orchestra_size, orchestra_instruments,
+             needs_rehearsal_tracks, needs_performance_tracks,
+             ship_to_name, ship_to_address, ship_to_phone, materials_needed_by,
+             addon_streaming_license, addon_video_recording_license, addon_marketing_package,
+             addon_marketing_notes, addon_logo_choice, addon_youth_production,
+             addon_choreography_guides, addon_directors_guide, addon_broadway_media_scenic,
+             additional_requests)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (lid, ref_number, d.get('production_id') or None, requested_by,
+             requester_name, requester_email,
+             production_name, d.get('production_type', ''), d.get('production_type_other', ''),
+             d.get('licensor', ''), d.get('licensor_other', ''),
+             d.get('production_start_date', ''), d.get('production_end_date', ''),
+             d.get('venue_name', ''), d.get('venue_address', ''),
+             d.get('venue_capacity') or None, d.get('audience_capacity') or None,
+             json.dumps(d.get('performance_dates') or []), d.get('number_of_shows') or None,
+             lowest_cents, highest_cents, avg_cents,
+             d.get('expected_performers') or None, d.get('scripts_needed') or None,
+             json.dumps(d.get('additional_scripts') or []),
+             bool(d.get('has_live_orchestra')), bool(d.get('needs_full_score')),
+             d.get('orchestra_size') or None, d.get('orchestra_instruments', ''),
+             bool(d.get('needs_rehearsal_tracks')), bool(d.get('needs_performance_tracks')),
+             d.get('ship_to_name', ''), d.get('ship_to_address', ''), d.get('ship_to_phone', ''),
+             d.get('materials_needed_by', ''),
+             bool(d.get('addon_streaming_license')), bool(d.get('addon_video_recording_license')),
+             bool(d.get('addon_marketing_package')), d.get('addon_marketing_notes', ''),
+             d.get('addon_logo_choice', ''), bool(d.get('addon_youth_production')),
+             bool(d.get('addon_choreography_guides')), bool(d.get('addon_directors_guide')),
+             bool(d.get('addon_broadway_media_scenic')), d.get('additional_requests', '')))
+        conn.commit()
+
+        # Notify admins so someone can action it
+        try:
+            es = get_email_settings()
+            admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
+            notify_emails = list(set(admin_emails + ['info@hwtco.org']))
+            if notify_emails and es.get('resend_api_key'):
+                send_email(
+                    ','.join(notify_emails),
+                    f'New Show Licensing Request — {ref_number}',
+                    f'''<div style="font-family:sans-serif;padding:20px">
+                        <h3>New show licensing request received</h3>
+                        <p><b>Ref:</b> {ref_number}<br>
+                        <b>Production:</b> {production_name} ({d.get("production_type","")})<br>
+                        <b>Licensor:</b> {d.get("licensor","")}<br>
+                        <b>Requested by:</b> {requester_name} ({requester_email})<br>
+                        <b>Performance dates:</b> {d.get("production_start_date","")} – {d.get("production_end_date","")}<br>
+                        <b>Venue:</b> {d.get("venue_name","")}</p>
+                        <p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall</a></p>
+                      </div>''',
+                    source='licensing_request_admin')
+        except Exception as e:
+            app.logger.warning(f'Licensing request admin notification failed: {e}')
+
+        # Confirmation email to the submitter
+        try:
+            es = get_email_settings()
+            if es.get('resend_api_key'):
+                send_email(
+                    requester_email,
+                    f'Licensing Request Received — {ref_number}',
+                    f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                        <div style="background:#145466;padding:20px 24px">
+                          <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                        </div>
+                        <div style="padding:28px 24px">
+                          <h2 style="color:#111;margin-bottom:8px">Licensing Request Received</h2>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Thanks, {requester_name}. We've received your licensing request for <strong>{production_name}</strong>.</p>
+                          <div style="background:#f3f4f6;border-radius:10px;padding:16px;margin:20px 0">
+                            <div style="font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;margin-bottom:4px">Your Request Number</div>
+                            <div style="font-size:24px;font-weight:800;color:#145466;font-family:monospace">{ref_number}</div>
+                          </div>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Our team will review this and follow up with next steps.</p>
+                        </div>
+                      </div>''',
+                    source='licensing_request_confirmation')
+        except Exception as e:
+            app.logger.warning(f'Licensing request confirmation email failed: {e}')
+
+        conn.close()
+        return jsonify({'ok': True, 'id': lid, 'ref_number': ref_number})
+    except Exception as e:
+        app.logger.error(f'Licensing request error: {e}')
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/licensing-requests/<lid>', methods=['PUT'])
+def update_licensing_request(lid):
+    """Action a licensing request — used by whoever handles licensing (e.g. producer/admin)."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if not lr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    new_status = d.get('status', lr.get('status'))
+    admin_notes = d.get('admin_notes', lr.get('admin_notes', ''))
+    reviewer = d.get('reviewed_by') or session.get('user_name', '')
+
+    execute(conn, '''UPDATE licensing_requests SET status=%s, admin_notes=%s,
+        reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        (new_status, admin_notes, reviewer, lid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):

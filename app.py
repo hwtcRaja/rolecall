@@ -1130,6 +1130,7 @@ def init_db():
             production_name TEXT NOT NULL,
             production_type TEXT DEFAULT '',
             production_type_other TEXT DEFAULT '',
+            production_edition TEXT DEFAULT '',
             licensor TEXT DEFAULT '',
             licensor_other TEXT DEFAULT '',
             production_start_date TEXT DEFAULT '',
@@ -16855,9 +16856,18 @@ def submit_licensing_request():
             show_rehearsal_tracks = s.get('needs_rehearsal_tracks', None)
             show_rehearsal_tracks = bool(d.get('needs_rehearsal_tracks')) if show_rehearsal_tracks is None else bool(show_rehearsal_tracks)
 
+            show_streaming = s.get('addon_streaming_license', None)
+            show_streaming = bool(d.get('addon_streaming_license')) if show_streaming is None else bool(show_streaming)
+
+            show_video = s.get('addon_video_recording_license', None)
+            show_video = bool(d.get('addon_video_recording_license')) if show_video is None else bool(show_video)
+
+            show_marketing = s.get('addon_marketing_package', None)
+            show_marketing = bool(d.get('addon_marketing_package')) if show_marketing is None else bool(show_marketing)
+
             execute(conn, '''INSERT INTO licensing_requests
                 (id, ref_number, batch_id, production_id, requested_by, requester_name, requester_email,
-                 production_name, production_type, production_type_other, licensor, licensor_other,
+                 production_name, production_type, production_type_other, production_edition, licensor, licensor_other,
                  production_start_date, production_end_date, venue_name, venue_address,
                  venue_capacity, audience_capacity, performance_dates, number_of_shows,
                  lowest_ticket_price_cents, highest_ticket_price_cents, average_ticket_price_cents,
@@ -16869,10 +16879,11 @@ def submit_licensing_request():
                  addon_marketing_notes, addon_logo_choice, addon_youth_production,
                  addon_choreography_guides, addon_directors_guide, addon_broadway_media_scenic,
                  additional_requests)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (lid, ref_number, batch_id, s.get('production_id') or None, requested_by,
                  requester_name, requester_email,
                  (s.get('production_name') or '').strip(), s.get('production_type', ''), s.get('production_type_other', ''),
+                 s.get('production_edition', ''),
                  s.get('licensor', ''), s.get('licensor_other', ''),
                  s.get('production_start_date', ''), s.get('production_end_date', ''),
                  d.get('venue_name', ''), d.get('venue_address', ''),
@@ -16886,8 +16897,8 @@ def submit_licensing_request():
                  show_rehearsal_tracks, bool(d.get('needs_performance_tracks')),
                  d.get('ship_to_name', ''), d.get('ship_to_address', ''), d.get('ship_to_phone', ''),
                  d.get('materials_needed_by', ''),
-                 bool(d.get('addon_streaming_license')), bool(d.get('addon_video_recording_license')),
-                 bool(d.get('addon_marketing_package')), d.get('addon_marketing_notes', ''),
+                 show_streaming, show_video,
+                 show_marketing, d.get('addon_marketing_notes', ''),
                  d.get('addon_logo_choice', ''), False,
                  bool(d.get('addon_choreography_guides')), False,
                  bool(d.get('addon_broadway_media_scenic')), s.get('additional_requests', '')))

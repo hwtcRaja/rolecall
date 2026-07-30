@@ -52,7 +52,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid
 .check-block input[type=checkbox]{margin-top:2px;accent-color:var(--teal)}
 .check-block .cb-title{font-weight:600;font-size:13.5px;color:var(--gray-900)}
 .check-block .cb-sub{font-size:12px;color:var(--gray-600);margin-top:2px}
-.script-qty{width:64px;padding:6px 8px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;display:none;flex-shrink:0}
+.script-qty{width:44px;padding:6px 4px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;display:none;flex-shrink:0;text-align:center}
 .check-stack{display:flex;flex-direction:column;gap:8px}
 
 .other-input{margin-top:8px;display:none}
@@ -361,6 +361,18 @@ function newShowCardHTML(){
       <input type="text" class="other-input production-type-other" placeholder="Please specify">
     </div>
     <div class="field">
+      <label>Edition *</label>
+      <select class="production-edition-input" required>
+        <option value="">Select...</option>
+        <option value="Standard">Standard</option>
+        <option value="JR">JR</option>
+        <option value="Kids">Kids</option>
+        <option value="TYA">TYA</option>
+        <option value="One Act Edition">One Act Edition</option>
+        <option value="Concert Selections">Concert Selections</option>
+      </select>
+    </div>
+    <div class="field">
       <label>Licensor *</label>
       <div class="radio-row" data-radio-group="licensor_${uid}">
         <label class="pill"><input type="radio" name="licensor_${uid}" value="MTI" required> MTI</label>
@@ -415,6 +427,30 @@ function newShowCardHTML(){
           <label class="pill active"><input type="radio" name="rehearsal_override_${uid}" value="" checked> Use Default</label>
           <label class="pill"><input type="radio" name="rehearsal_override_${uid}" value="yes"> Yes, needed</label>
           <label class="pill"><input type="radio" name="rehearsal_override_${uid}" value="no"> Not needed</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Streaming License For This Show</label>
+        <div class="radio-row" data-radio-group="streaming_override_${uid}">
+          <label class="pill active"><input type="radio" name="streaming_override_${uid}" value="" checked> Use Default</label>
+          <label class="pill"><input type="radio" name="streaming_override_${uid}" value="yes"> Yes</label>
+          <label class="pill"><input type="radio" name="streaming_override_${uid}" value="no"> No</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Video Recording License For This Show</label>
+        <div class="radio-row" data-radio-group="video_override_${uid}">
+          <label class="pill active"><input type="radio" name="video_override_${uid}" value="" checked> Use Default</label>
+          <label class="pill"><input type="radio" name="video_override_${uid}" value="yes"> Yes</label>
+          <label class="pill"><input type="radio" name="video_override_${uid}" value="no"> No</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Marketing Package For This Show</label>
+        <div class="radio-row" data-radio-group="marketing_override_${uid}">
+          <label class="pill active"><input type="radio" name="marketing_override_${uid}" value="" checked> Use Default</label>
+          <label class="pill"><input type="radio" name="marketing_override_${uid}" value="yes"> Yes</label>
+          <label class="pill"><input type="radio" name="marketing_override_${uid}" value="no"> No</label>
         </div>
       </div>
     </div>
@@ -590,6 +626,7 @@ document.getElementById('lic-form').addEventListener('submit', async (e) => {
       production_name: nameInput.value,
       production_type: typeChecked ? typeChecked.value : '',
       production_type_other: card.querySelector('.production-type-other').value,
+      production_edition: card.querySelector('.production-edition-input').value,
       licensor: licensorChecked ? licensorChecked.value : '',
       licensor_other: card.querySelector('.licensor-other').value,
       performance_dates: perfDates,
@@ -606,6 +643,21 @@ document.getElementById('lic-form').addEventListener('submit', async (e) => {
     if (rehearsalVal === 'yes') showObj.needs_rehearsal_tracks = true;
     else if (rehearsalVal === 'no') showObj.needs_rehearsal_tracks = false;
     // else omitted entirely — backend falls back to the shared default
+
+    const streamingChecked = card.querySelector(`[data-radio-group="streaming_override_${uid}"] input:checked`);
+    const streamingVal = streamingChecked ? streamingChecked.value : '';
+    if (streamingVal === 'yes') showObj.addon_streaming_license = true;
+    else if (streamingVal === 'no') showObj.addon_streaming_license = false;
+
+    const videoChecked = card.querySelector(`[data-radio-group="video_override_${uid}"] input:checked`);
+    const videoVal = videoChecked ? videoChecked.value : '';
+    if (videoVal === 'yes') showObj.addon_video_recording_license = true;
+    else if (videoVal === 'no') showObj.addon_video_recording_license = false;
+
+    const marketingChecked = card.querySelector(`[data-radio-group="marketing_override_${uid}"] input:checked`);
+    const marketingVal = marketingChecked ? marketingChecked.value : '';
+    if (marketingVal === 'yes') showObj.addon_marketing_package = true;
+    else if (marketingVal === 'no') showObj.addon_marketing_package = false;
 
     shows.push(showObj);
   }

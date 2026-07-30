@@ -1772,7 +1772,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  </div>
  </div>
- </section>
    </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
@@ -10277,6 +10276,7 @@ function openLicensingDetail(id){
 
   const fields = [
     ['Type of Production', r.production_type==='Other' ? r.production_type_other : r.production_type],
+    ['Edition', r.production_edition],
     ['Licensor', r.licensor==='Other' ? r.licensor_other : r.licensor],
     ['Venue', r.venue_name],
     ['Venue Address', r.venue_address],

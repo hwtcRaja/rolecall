@@ -2232,32 +2232,26 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
-# Permission keys split out of a broader section after the fact (e.g. Waivers
-# used to ride on 'volunteers'). Until an admin explicitly sets the new key,
-# inherit the old one so nobody loses access the moment this deploys. Must stay
-# in sync with PERM_LEGACY_FALLBACK in index.html.
+# Mirrors PERM_LEGACY_FALLBACK in index.html - keep the two in sync.
 PERM_LEGACY_FALLBACK = {
     'waivers': 'volunteers',
     'carpools': 'youth',
     'notifications': 'settings',
-    'oncall': 'settings',
     'licensing': 'productions',
     'cast_signin': 'productions',
+    'show_contracts': 'productions',
+    'step_up_holds': 'rising_stars',
     'event_logs': 'reports',
     'email_templates': 'email',
     'donor_campaigns': 'donors',
     'donor_tiers': 'donors',
     'donor_templates': 'donors',
-    'hours_store': 'volunteers',
-    'responsibility_grid': 'board',
-    'ticketing': 'productions',
 }
 
 
 def resolve_perm_level(perms, section):
-    """A user's level for a section: their explicit setting if present, else the
-    legacy parent permission, else none. An explicit 'none' is respected - a
-    deliberate revoke is never undone by a fallback."""
+    """Explicit setting if present, else legacy parent, else none.
+    An explicit 'none' is respected - a deliberate revoke is never overridden."""
     level = perms.get(section)
     if level:
         return level
@@ -16823,7 +16817,7 @@ def _cents(v):
 
 @app.route('/api/licensing-requests', methods=['GET'])
 def get_licensing_requests():
-    err = require_auth()
+    err = require_permission('licensing', 'view')
     if err: return err
     conn = get_db()
     status = request.args.get('status', '')
@@ -16836,7 +16830,7 @@ def get_licensing_requests():
 
 @app.route('/api/licensing-requests/<lid>', methods=['GET'])
 def get_licensing_request(lid):
-    err = require_auth()
+    err = require_permission('licensing', 'view')
     if err: return err
     conn = get_db()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
@@ -17000,7 +16994,7 @@ def submit_licensing_request():
 @app.route('/api/licensing-requests/<lid>', methods=['PUT'])
 def update_licensing_request(lid):
     """Action a licensing request — used by whoever handles licensing (e.g. producer/admin)."""
-    err = require_auth()
+    err = require_permission('licensing')
     if err: return err
     d = request.json or {}
     conn = get_db()

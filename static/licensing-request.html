@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Show Licensing Request — Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#145466;--teal-dark:#0d3d4d;--teal-mid:#1b708d;--teal-light:#E8F4F8;
+  --gray-50:#F7F7F5;--gray-100:#EFEFEC;--gray-200:#D9D9D4;--gray-400:#9B9B94;--gray-600:#5F5E5A;--gray-800:#2C2C28;--gray-900:#1A1A17;
+  --amber-50:#FAEEDA;--amber-600:#854F0B;
+  --red-50:#FCEBEB;--red-200:#F09595;--red-600:#A32D2D;
+  --bg:#FAFAF8;--surface:#FFFFFF;
+  --border:rgba(0,0,0,0.10);--border-md:rgba(0,0,0,0.16);
+  --radius:10px;--radius-lg:16px;
+  --shadow-sm:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg:0 12px 32px rgba(0,0,0,0.12),0 4px 8px rgba(0,0,0,0.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--gray-900);font-size:14px;line-height:1.55;min-height:100vh;-webkit-font-smoothing:antialiased}
+.banner{background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 55%,var(--teal-mid) 100%);padding:36px 24px 44px;color:#fff;text-align:center}
+.banner-logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:18px}
+.banner-logo-icon{width:38px;height:38px;background:rgba(255,255,255,0.16);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px}
+.banner-logo-text{font-size:19px;font-weight:600;letter-spacing:-0.3px}
+.banner h1{font-size:26px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px}
+.banner p{font-size:14px;color:rgba(255,255,255,0.82);max-width:560px;margin:0 auto}
+
+.wrap{max-width:720px;margin:-24px auto 60px;padding:0 20px}
+.card{background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);border:1px solid var(--border);overflow:hidden}
+
+.section{padding:28px 32px;border-bottom:1px solid var(--border)}
+.section:last-of-type{border-bottom:none}
+.section-title{font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--teal);margin-bottom:4px}
+.section-sub{font-size:12.5px;color:var(--gray-600);margin-bottom:18px}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+label{display:block;font-size:12.5px;font-weight:600;color:var(--gray-800);margin-bottom:5px}
+.hint{font-size:11.5px;color:var(--gray-600);font-weight:400;margin-top:3px}
+input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{
+  width:100%;padding:9px 11px;border:1px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;background:var(--gray-50);color:var(--gray-900);transition:border-color .12s,background .12s;
+}
+textarea{resize:vertical;min-height:70px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid);background:#fff;box-shadow:0 0 0 3px rgba(27,112,141,0.12)}
+input[readonly]{background:var(--gray-100);color:var(--gray-600)}
+
+.radio-row,.check-row{display:flex;flex-wrap:wrap;gap:8px}
+.pill{border:1px solid var(--border-md);border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;background:var(--gray-50);user-select:none;transition:all .12s;display:flex;align-items:center;gap:6px}
+.pill input{margin:0;accent-color:var(--teal)}
+.pill.active{background:var(--teal-light);border-color:var(--teal-mid);color:var(--teal-dark);font-weight:600}
+
+.check-block{border:1px solid var(--border-md);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:var(--gray-50)}
+.check-block input{margin-top:2px;accent-color:var(--teal)}
+.check-block .cb-title{font-weight:600;font-size:13.5px;color:var(--gray-900)}
+.check-block .cb-sub{font-size:12px;color:var(--gray-600);margin-top:2px}
+.check-stack{display:flex;flex-direction:column;gap:8px}
+
+.other-input{margin-top:8px;display:none}
+.other-input.show{display:block}
+
+.date-list{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+.date-row{display:flex;gap:8px;align-items:center}
+.date-row input{flex:1}
+.icon-btn{border:1px solid var(--border-md);background:#fff;border-radius:8px;width:34px;height:34px;flex-shrink:0;cursor:pointer;font-size:15px;color:var(--gray-600);display:flex;align-items:center;justify-content:center}
+.icon-btn:hover{background:var(--gray-100)}
+.add-link{font-size:12.5px;font-weight:600;color:var(--teal-mid);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+
+.avg-box{background:var(--teal-light);border:1px solid var(--teal-mid);border-radius:var(--radius);padding:10px 14px;margin-top:10px;display:flex;justify-content:space-between;align-items:center}
+.avg-box .lbl{font-size:12px;color:var(--teal-dark);font-weight:600}
+.avg-box .val{font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:var(--teal-dark)}
+
+.conditional{margin-top:14px;padding:14px;background:var(--gray-50);border:1px solid var(--border);border-radius:var(--radius);display:none}
+.conditional.show{display:block}
+
+.note{background:var(--amber-50);border:1px solid rgba(133,79,11,0.25);border-radius:var(--radius);padding:12px 14px;font-size:12.5px;color:var(--amber-600);line-height:1.5;margin-top:8px}
+
+.footer-actions{padding:24px 32px 32px}
+.submit-btn{width:100%;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:background .12s}
+.submit-btn:hover{background:var(--teal-dark)}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.err-banner{background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200);padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px;display:none}
+.err-banner.show{display:block}
+
+.success-screen{display:none;text-align:center;padding:56px 32px}
+.success-screen.show{display:block}
+.success-icon{width:56px;height:56px;background:var(--teal-light);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;color:var(--teal-dark)}
+.check-mark{width:20px;height:11px;border-left:3px solid var(--teal-dark);border-bottom:3px solid var(--teal-dark);transform:rotate(-45deg) translate(1px,-2px)}
+.success-screen h2{font-size:20px;margin-bottom:8px}
+.success-screen p{color:var(--gray-600);font-size:13.5px;margin-bottom:18px}
+.ref-box{display:inline-block;background:var(--gray-50);border:1px solid var(--border-md);border-radius:var(--radius);padding:12px 22px;font-family:'DM Mono',monospace;font-size:20px;font-weight:600;color:var(--teal-dark);letter-spacing:0.5px}
+
+.form-body{display:block}
+.form-body.hide{display:none}
+
+@media (max-width:640px){
+  .grid,.grid3{grid-template-columns:1fr}
+  .section{padding:22px 20px}
+}
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <div class="banner-logo">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px">
+  </div>
+  <h1>Show Licensing Request</h1>
+  <p>Use this form to request a licensing contract for a production you are interested in HWTC producing. Requests are sent to the Resident Producer and President of HWTC. Contract requests are processed in the order they are received — estimated turnaround depends on the licensor and current request volume.</p>
+</div>
+
+<div class="wrap">
+  <div class="card">
+    <div id="form-body" class="form-body">
+      <form id="lic-form">
+
+        <div class="section">
+          <div class="section-title">Your Info</div>
+          <div class="section-sub">So we know who to follow up with.</div>
+          <div class="grid">
+            <div class="field">
+              <label>Your Name *</label>
+              <input type="text" name="requester_name" required>
+            </div>
+            <div class="field">
+              <label>Your Email *</label>
+              <input type="email" name="requester_email" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Production</div>
+          <div class="field">
+            <label>Production Name *</label>
+            <input type="text" name="production_name" required>
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label>Production Start Date *</label>
+              <input type="date" name="production_start_date" required>
+            </div>
+            <div class="field">
+              <label>Production End Date *</label>
+              <input type="date" name="production_end_date" required>
+            </div>
+          </div>
+          <div class="field">
+            <label>Type of Production *</label>
+            <div class="radio-row" data-radio-group="production_type">
+              <label class="pill"><input type="radio" name="production_type" value="MainStage" required> MainStage</label>
+              <label class="pill"><input type="radio" name="production_type" value="Rising Stars" required> Rising Stars</label>
+              <label class="pill"><input type="radio" name="production_type" value="Summer Camp" required> Summer Camp</label>
+              <label class="pill"><input type="radio" name="production_type" value="Teen Production" required> Teen Production</label>
+              <label class="pill"><input type="radio" name="production_type" value="Other" required> Other</label>
+            </div>
+            <input type="text" name="production_type_other" class="other-input" placeholder="Please specify">
+          </div>
+          <div class="field">
+            <label>Licensor *</label>
+            <div class="radio-row" data-radio-group="licensor">
+              <label class="pill"><input type="radio" name="licensor" value="MTI" required> MTI</label>
+              <label class="pill"><input type="radio" name="licensor" value="Concord" required> Concord</label>
+              <label class="pill"><input type="radio" name="licensor" value="TRW" required> TRW</label>
+              <label class="pill"><input type="radio" name="licensor" value="Other" required> Other</label>
+              <label class="pill"><input type="radio" name="licensor" value="I don't know" required> I don't know</label>
+            </div>
+            <input type="text" name="licensor_other" class="other-input" placeholder="Please specify">
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Venue</div>
+          <div class="field">
+            <label>Performance Venue Name *</label>
+            <input type="text" name="venue_name" required>
+          </div>
+          <div class="field">
+            <label>Performance Venue Address *</label>
+            <input type="text" name="venue_address" required>
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label>Venue Capacity *</label>
+              <input type="number" min="0" name="venue_capacity" placeholder="Total available seats" required>
+            </div>
+            <div class="field">
+              <label>Expected Audience Capacity *</label>
+              <input type="number" min="0" name="audience_capacity" placeholder="Seats you'd like sellable" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Shows &amp; Ticketing</div>
+          <div class="field">
+            <label>Number of Shows *</label>
+            <input type="number" min="0" name="number_of_shows" required>
+            <div class="note">Any performance with an audience beyond those directly involved must be licensed as a paid performance. "Previews" or invited friends-and-family dress rehearsals do not count as unlicensed exceptions.</div>
+          </div>
+          <div class="field">
+            <label>Performance Dates *</label>
+            <div class="date-list" id="perf-dates"></div>
+            <span class="add-link" id="add-date">+ Add a performance date</span>
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label>Lowest Ticket Price *</label>
+              <input type="number" min="0" step="0.01" name="lowest_ticket_price" id="low-price" placeholder="0.00" required>
+            </div>
+            <div class="field">
+              <label>Highest Ticket Price *</label>
+              <input type="number" min="0" step="0.01" name="highest_ticket_price" id="high-price" placeholder="0.00" required>
+            </div>
+          </div>
+          <div class="avg-box">
+            <span class="lbl">Average Ticket Price (auto-calculated)</span>
+            <span class="val" id="avg-price">—</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Cast &amp; Scripts</div>
+          <div class="grid">
+            <div class="field">
+              <label>Number of Performers Expected</label>
+              <input type="number" min="0" name="expected_performers">
+            </div>
+            <div class="field">
+              <label>Number of Scripts Needed</label>
+              <input type="number" min="0" name="scripts_needed">
+            </div>
+          </div>
+          <div class="field">
+            <label>Additional Scripts Needed</label>
+            <div class="check-row" id="additional-scripts-row">
+              <label class="pill"><input type="checkbox" value="Stage Manager script"> Stage Manager</label>
+              <label class="pill"><input type="checkbox" value="Director script"> Director</label>
+              <label class="pill"><input type="checkbox" value="Piano Vocal Score"> Piano Vocal Score</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Music</div>
+          <div class="field">
+            <label>Will this production have a live orchestra?</label>
+            <div class="radio-row" data-radio-group="has_live_orchestra">
+              <label class="pill"><input type="radio" name="has_live_orchestra" value="yes"> Yes</label>
+              <label class="pill"><input type="radio" name="has_live_orchestra" value="no"> No</label>
+            </div>
+          </div>
+          <div class="conditional" id="orchestra-yes">
+            <div class="field">
+              <label>Do you need the full score?</label>
+              <div class="radio-row" data-radio-group="needs_full_score">
+                <label class="pill"><input type="radio" name="needs_full_score" value="yes"> Yes</label>
+                <label class="pill"><input type="radio" name="needs_full_score" value="no"> No</label>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="field">
+                <label>How many musicians?</label>
+                <input type="number" min="0" name="orchestra_size">
+              </div>
+              <div class="field">
+                <label>Which instruments?</label>
+                <input type="text" name="orchestra_instruments" placeholder="e.g. piano, reeds, percussion">
+              </div>
+            </div>
+          </div>
+          <div class="conditional" id="orchestra-no">
+            <div class="check-stack">
+              <label class="check-block"><input type="checkbox" name="needs_rehearsal_tracks"><div><div class="cb-title">Rehearsal tracks</div></div></label>
+              <label class="check-block"><input type="checkbox" name="needs_performance_tracks"><div><div class="cb-title">Performance tracks</div></div></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Shipping</div>
+          <div class="section-sub">Where should licensed materials be shipped?</div>
+          <div class="field">
+            <label>Name *</label>
+            <input type="text" name="ship_to_name" required>
+          </div>
+          <div class="field">
+            <label>Address *</label>
+            <input type="text" name="ship_to_address" required>
+          </div>
+          <div class="field">
+            <label>Phone Number *</label>
+            <input type="tel" name="ship_to_phone" required>
+          </div>
+          <div class="field">
+            <label>Materials Needed By *</label>
+            <input type="date" name="materials_needed_by" required>
+            <div class="hint">When would you like to receive materials by?</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Potential Add-Ons</div>
+          <div class="section-sub">Fill out when applicable — availability depends on the contract.</div>
+          <div class="check-stack">
+            <label class="check-block"><input type="checkbox" name="addon_streaming_license"><div><div class="cb-title">Streaming License</div><div class="cb-sub">Includes live streaming — may be available</div></div></label>
+            <label class="check-block"><input type="checkbox" name="addon_video_recording_license"><div><div class="cb-title">Video Recording License</div><div class="cb-sub">Internal use only, may be available</div></div></label>
+            <label class="check-block"><input type="checkbox" name="addon_choreography_guides"><div><div class="cb-title">Choreography guides</div></div></label>
+            <label class="check-block"><input type="checkbox" name="addon_broadway_media_scenic"><div><div class="cb-title">Scenic projections from Broadway Media</div></div></label>
+            <label class="check-block" id="marketing-check"><input type="checkbox" name="addon_marketing_package"><div><div class="cb-title">Marketing package</div><div class="cb-sub">Depends on what's allowed in the contract</div></div></label>
+          </div>
+          <div class="conditional" id="marketing-conditional">
+            <div class="field">
+              <label>Marketing package notes</label>
+              <textarea name="addon_marketing_notes" placeholder="Any marketing package plans"></textarea>
+            </div>
+            <div class="field">
+              <label>If permitted, whose logo would you like to use?</label>
+              <select name="addon_logo_choice">
+                <option value="">Select...</option>
+                <option value="own">Our own logo</option>
+                <option value="licensed">The licensed show logo</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Additional Requests</div>
+          <div class="section-sub">Anything specific to this production. Example: for Grease, you must request specific song use.</div>
+          <div class="field">
+            <textarea name="additional_requests" rows="4"></textarea>
+          </div>
+        </div>
+
+        <div class="footer-actions">
+          <div class="err-banner" id="err-banner"></div>
+          <button type="submit" class="submit-btn" id="submit-btn">Submit Licensing Request</button>
+        </div>
+
+      </form>
+    </div>
+
+    <div class="success-screen" id="success-screen">
+      <div class="success-icon"><div class="check-mark"></div></div>
+      <h2>Request Received</h2>
+      <p>Thanks — our team will review this and follow up with next steps.</p>
+      <div class="ref-box" id="ref-number"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Pill/radio active-state styling
+document.querySelectorAll('[data-radio-group]').forEach(group => {
+  group.querySelectorAll('input[type=radio]').forEach(r => {
+    r.addEventListener('change', () => {
+      group.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+      r.closest('.pill').classList.add('active');
+      handleOtherFields(group);
+      handleOrchestra();
+    });
+  });
+});
+document.querySelectorAll('.check-row .pill, .check-stack .check-block').forEach(block => {
+  const input = block.querySelector('input');
+  input.addEventListener('change', () => block.classList.toggle('active', input.checked));
+});
+
+function handleOtherFields(group){
+  const name = group.getAttribute('data-radio-group');
+  const selected = group.querySelector('input:checked');
+  const otherInput = group.parentElement.querySelector('.other-input');
+  if (!otherInput) return;
+  const isOther = selected && (selected.value === 'Other');
+  otherInput.classList.toggle('show', isOther);
+}
+
+function handleOrchestra(){
+  const val = document.querySelector('input[name=has_live_orchestra]:checked');
+  document.getElementById('orchestra-yes').classList.toggle('show', val && val.value === 'yes');
+  document.getElementById('orchestra-no').classList.toggle('show', val && val.value === 'no');
+}
+
+document.getElementById('marketing-check').querySelector('input').addEventListener('change', e => {
+  document.getElementById('marketing-conditional').classList.toggle('show', e.target.checked);
+});
+
+// Ticket price auto-average
+function updateAvg(){
+  const low = parseFloat(document.getElementById('low-price').value);
+  const high = parseFloat(document.getElementById('high-price').value);
+  const avgEl = document.getElementById('avg-price');
+  if (!isNaN(low) && !isNaN(high)) {
+    avgEl.textContent = '$' + ((low + high) / 2).toFixed(2);
+  } else if (!isNaN(low)) {
+    avgEl.textContent = '$' + low.toFixed(2);
+  } else if (!isNaN(high)) {
+    avgEl.textContent = '$' + high.toFixed(2);
+  } else {
+    avgEl.textContent = '—';
+  }
+}
+document.getElementById('low-price').addEventListener('input', updateAvg);
+document.getElementById('high-price').addEventListener('input', updateAvg);
+
+// Performance dates — dynamic list
+const perfDatesWrap = document.getElementById('perf-dates');
+function addDateRow(){
+  const row = document.createElement('div');
+  row.className = 'date-row';
+  row.innerHTML = `<input type="date"><button type="button" class="icon-btn" title="Remove">×</button>`;
+  row.querySelector('.icon-btn').addEventListener('click', () => row.remove());
+  perfDatesWrap.appendChild(row);
+}
+document.getElementById('add-date').addEventListener('click', addDateRow);
+addDateRow();
+
+// Submit
+document.getElementById('lic-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errBanner = document.getElementById('err-banner');
+  errBanner.classList.remove('show');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  const form = e.target;
+  const data = {};
+  new FormData(form).forEach((v, k) => { data[k] = v; });
+
+  // Additional scripts checkboxes
+  data.additional_scripts = Array.from(document.querySelectorAll('#additional-scripts-row input:checked')).map(c => c.value);
+
+  // Performance dates
+  data.performance_dates = Array.from(perfDatesWrap.querySelectorAll('input[type=date]')).map(i => i.value).filter(Boolean);
+  if (data.performance_dates.length === 0) {
+    errBanner.textContent = 'Please add at least one performance date.';
+    errBanner.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Submit Licensing Request';
+    errBanner.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+
+  // Booleans that FormData won't include if unchecked
+  ['has_live_orchestra','needs_full_score'].forEach(name => {
+    const checked = document.querySelector(`input[name=${name}]:checked`);
+    data[name] = checked ? checked.value === 'yes' : undefined;
+  });
+  ['needs_rehearsal_tracks','needs_performance_tracks','addon_streaming_license',
+   'addon_video_recording_license','addon_marketing_package',
+   'addon_choreography_guides','addon_broadway_media_scenic'].forEach(name => {
+    const el = form.querySelector(`input[name=${name}]`);
+    data[name] = el ? el.checked : false;
+  });
+
+  try {
+    const resp = await fetch('/api/public/licensing-request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    if (!resp.ok || result.error) {
+      throw new Error(result.error || 'Something went wrong. Please try again.');
+    }
+    document.getElementById('form-body').classList.add('hide');
+    document.getElementById('success-screen').classList.add('show');
+    document.getElementById('ref-number').textContent = result.ref_number;
+  } catch (err) {
+    errBanner.textContent = err.message;
+    errBanner.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Submit Licensing Request';
+    errBanner.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+});
+</script>
+
+</body>
+</html>

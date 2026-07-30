@@ -53,9 +53,10 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 .pill.active{background:var(--teal-light);border-color:var(--teal-mid);color:var(--teal-dark);font-weight:600}
 
 .check-block{border:1px solid var(--border-md);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:var(--gray-50)}
-.check-block input{margin-top:2px;accent-color:var(--teal)}
+.check-block input[type=checkbox]{margin-top:2px;accent-color:var(--teal)}
 .check-block .cb-title{font-weight:600;font-size:13.5px;color:var(--gray-900)}
 .check-block .cb-sub{font-size:12px;color:var(--gray-600);margin-top:2px}
+.script-qty{width:64px;padding:6px 8px;border:1px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;display:none;flex-shrink:0}
 .check-stack{display:flex;flex-direction:column;gap:8px}
 
 .other-input{margin-top:8px;display:none}
@@ -105,7 +106,7 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
 <div class="banner">
   <div class="banner-logo">
-    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px">
+    <img src="/static/images/hwtc_logo_white.png" height="40" style="height:40px">
   </div>
   <h1>Show Licensing Request</h1>
   <p>Use this form to request a licensing contract for a production you are interested in HWTC producing. Requests are sent to the Resident Producer and President of HWTC. Contract requests are processed in the order they are received — estimated turnaround depends on the licensor and current request volume.</p>
@@ -235,10 +236,22 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
           </div>
           <div class="field">
             <label>Additional Scripts Needed</label>
-            <div class="check-row" id="additional-scripts-row">
-              <label class="pill"><input type="checkbox" value="Stage Manager script"> Stage Manager</label>
-              <label class="pill"><input type="checkbox" value="Director script"> Director</label>
-              <label class="pill"><input type="checkbox" value="Piano Vocal Score"> Piano Vocal Score</label>
+            <div class="check-stack" id="additional-scripts-row">
+              <label class="check-block script-block">
+                <input type="checkbox" class="script-cb" data-script="Stage Manager script" onchange="toggleScriptQty(this)">
+                <div style="flex:1"><div class="cb-title">Stage Manager</div></div>
+                <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
+              </label>
+              <label class="check-block script-block">
+                <input type="checkbox" class="script-cb" data-script="Director script" onchange="toggleScriptQty(this)">
+                <div style="flex:1"><div class="cb-title">Director</div></div>
+                <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
+              </label>
+              <label class="check-block script-block">
+                <input type="checkbox" class="script-cb" data-script="Piano Vocal Score" onchange="toggleScriptQty(this)">
+                <div style="flex:1"><div class="cb-title">Piano Vocal Score</div></div>
+                <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
+              </label>
             </div>
           </div>
         </div>
@@ -388,6 +401,12 @@ document.getElementById('marketing-check').querySelector('input').addEventListen
   document.getElementById('marketing-conditional').classList.toggle('show', e.target.checked);
 });
 
+function toggleScriptQty(cb){
+  const block = cb.closest('.script-block');
+  const qty = block.querySelector('.script-qty');
+  qty.style.display = cb.checked ? 'inline-block' : 'none';
+}
+
 // Ticket price auto-average
 function updateAvg(){
   const low = parseFloat(document.getElementById('low-price').value);
@@ -432,7 +451,10 @@ document.getElementById('lic-form').addEventListener('submit', async (e) => {
   new FormData(form).forEach((v, k) => { data[k] = v; });
 
   // Additional scripts checkboxes
-  data.additional_scripts = Array.from(document.querySelectorAll('#additional-scripts-row input:checked')).map(c => c.value);
+  data.additional_scripts = Array.from(document.querySelectorAll('.script-cb:checked')).map(cb => ({
+    name: cb.dataset.script,
+    quantity: parseInt(cb.closest('.script-block').querySelector('.script-qty').value) || 1
+  }));
 
   // Performance dates
   data.performance_dates = Array.from(perfDatesWrap.querySelectorAll('input[type=date]')).map(i => i.value).filter(Boolean);

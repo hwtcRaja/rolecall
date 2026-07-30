@@ -21,12 +21,10 @@
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--gray-900);font-size:14px;line-height:1.55;min-height:100vh;-webkit-font-smoothing:antialiased}
 .banner{background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 55%,var(--teal-mid) 100%);padding:36px 24px 44px;color:#fff;text-align:center}
 .banner-logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:18px}
-.banner-logo-icon{width:38px;height:38px;background:rgba(255,255,255,0.16);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px}
-.banner-logo-text{font-size:19px;font-weight:600;letter-spacing:-0.3px}
 .banner h1{font-size:26px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px}
 .banner p{font-size:14px;color:rgba(255,255,255,0.82);max-width:560px;margin:0 auto}
 
-.wrap{max-width:720px;margin:-24px auto 60px;padding:0 20px}
+.wrap{max-width:760px;margin:-24px auto 60px;padding:0 20px}
 .card{background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);border:1px solid var(--border);overflow:hidden}
 
 .section{padding:28px 32px;border-bottom:1px solid var(--border)}
@@ -35,7 +33,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--gray-900)
 .section-sub{font-size:12.5px;color:var(--gray-600);margin-bottom:18px}
 
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 .field{margin-bottom:14px}
 .field:last-child{margin-bottom:0}
 label{display:block;font-size:12.5px;font-weight:600;color:var(--gray-800);margin-bottom:5px}
@@ -45,7 +42,6 @@ input[type=text],input[type=email],input[type=tel],input[type=number],input[type
 }
 textarea{resize:vertical;min-height:70px}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid);background:#fff;box-shadow:0 0 0 3px rgba(27,112,141,0.12)}
-input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
 .radio-row,.check-row{display:flex;flex-wrap:wrap;gap:8px}
 .pill{border:1px solid var(--border-md);border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;background:var(--gray-50);user-select:none;transition:all .12s;display:flex;align-items:center;gap:6px}
@@ -91,13 +87,25 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 .check-mark{width:20px;height:11px;border-left:3px solid var(--teal-dark);border-bottom:3px solid var(--teal-dark);transform:rotate(-45deg) translate(1px,-2px)}
 .success-screen h2{font-size:20px;margin-bottom:8px}
 .success-screen p{color:var(--gray-600);font-size:13.5px;margin-bottom:18px}
-.ref-box{display:inline-block;background:var(--gray-50);border:1px solid var(--border-md);border-radius:var(--radius);padding:12px 22px;font-family:'DM Mono',monospace;font-size:20px;font-weight:600;color:var(--teal-dark);letter-spacing:0.5px}
+.ref-list{display:flex;flex-direction:column;gap:8px;max-width:420px;margin:0 auto}
+.ref-row{display:flex;justify-content:space-between;align-items:center;background:var(--gray-50);border:1px solid var(--border-md);border-radius:var(--radius);padding:10px 16px;text-align:left}
+.ref-row .rr-title{font-size:13px;font-weight:600;color:var(--gray-900)}
+.ref-row .rr-ref{font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--teal-dark)}
 
 .form-body{display:block}
 .form-body.hide{display:none}
 
+.show-card{border:1.5px solid var(--border-md);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;background:var(--gray-50)}
+.show-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.show-card-title{font-size:14px;font-weight:700;color:var(--teal-dark)}
+.remove-show-btn{background:none;border:none;color:var(--red-600);font-size:12.5px;font-weight:600;cursor:pointer;padding:4px 8px}
+.toggle-override-btn{background:none;border:1px dashed var(--border-md);border-radius:var(--radius);padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--teal-mid);cursor:pointer;font-family:inherit;width:100%;text-align:left;margin-top:6px}
+.show-overrides{display:none;margin-top:12px;padding:14px;background:#fff;border:1px solid var(--border);border-radius:var(--radius)}
+.show-overrides.show{display:block}
+.add-show-btn{width:100%;border:1.5px dashed var(--teal-mid);border-radius:var(--radius);padding:12px;background:var(--teal-light);color:var(--teal-dark);font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit}
+
 @media (max-width:640px){
-  .grid,.grid3{grid-template-columns:1fr}
+  .grid{grid-template-columns:1fr}
   .section{padding:22px 20px}
 }
 </style>
@@ -119,7 +127,7 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
         <div class="section">
           <div class="section-title">Your Info</div>
-          <div class="section-sub">So we know who to follow up with.</div>
+          <div class="section-sub">So we know who to follow up with. Requesting several shows at once? Fill this out once and add each production below.</div>
           <div class="grid">
             <div class="field">
               <label>Your Name *</label>
@@ -133,47 +141,8 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
         </div>
 
         <div class="section">
-          <div class="section-title">Production</div>
-          <div class="field">
-            <label>Production Name *</label>
-            <input type="text" name="production_name" required>
-          </div>
-          <div class="grid">
-            <div class="field">
-              <label>Production Start Date *</label>
-              <input type="date" name="production_start_date" required>
-            </div>
-            <div class="field">
-              <label>Production End Date *</label>
-              <input type="date" name="production_end_date" required>
-            </div>
-          </div>
-          <div class="field">
-            <label>Type of Production *</label>
-            <div class="radio-row" data-radio-group="production_type">
-              <label class="pill"><input type="radio" name="production_type" value="MainStage" required> MainStage</label>
-              <label class="pill"><input type="radio" name="production_type" value="Rising Stars" required> Rising Stars</label>
-              <label class="pill"><input type="radio" name="production_type" value="Summer Camp" required> Summer Camp</label>
-              <label class="pill"><input type="radio" name="production_type" value="Teen Production" required> Teen Production</label>
-              <label class="pill"><input type="radio" name="production_type" value="Other" required> Other</label>
-            </div>
-            <input type="text" name="production_type_other" class="other-input" placeholder="Please specify">
-          </div>
-          <div class="field">
-            <label>Licensor *</label>
-            <div class="radio-row" data-radio-group="licensor">
-              <label class="pill"><input type="radio" name="licensor" value="MTI" required> MTI</label>
-              <label class="pill"><input type="radio" name="licensor" value="Concord" required> Concord</label>
-              <label class="pill"><input type="radio" name="licensor" value="TRW" required> TRW</label>
-              <label class="pill"><input type="radio" name="licensor" value="Other" required> Other</label>
-              <label class="pill"><input type="radio" name="licensor" value="I don't know" required> I don't know</label>
-            </div>
-            <input type="text" name="licensor_other" class="other-input" placeholder="Please specify">
-          </div>
-        </div>
-
-        <div class="section">
           <div class="section-title">Venue</div>
+          <div class="section-sub">Applies to every production in this request.</div>
           <div class="field">
             <label>Performance Venue Name *</label>
             <input type="text" name="venue_name" required>
@@ -195,60 +164,52 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
         </div>
 
         <div class="section">
-          <div class="section-title">Shows &amp; Ticketing</div>
+          <div class="section-title">Show Defaults</div>
+          <div class="section-sub">These apply to every production below. You can override any of them for an individual show further down.</div>
           <div class="field">
             <label>Number of Shows *</label>
-            <input type="number" min="0" name="number_of_shows" required>
+            <input type="number" min="0" name="default_number_of_shows" id="default-number-of-shows" required>
             <div class="note">Any performance with an audience beyond those directly involved must be licensed as a paid performance. "Previews" or invited friends-and-family dress rehearsals do not count as unlicensed exceptions.</div>
-          </div>
-          <div class="field">
-            <label>Performance Dates *</label>
-            <div class="date-list" id="perf-dates"></div>
-            <span class="add-link" id="add-date">+ Add a performance date</span>
           </div>
           <div class="grid">
             <div class="field">
               <label>Lowest Ticket Price *</label>
-              <input type="number" min="0" step="0.01" name="lowest_ticket_price" id="low-price" placeholder="0.00" required>
+              <input type="number" min="0" step="0.01" name="default_lowest_ticket_price" id="low-price" placeholder="0.00" required>
             </div>
             <div class="field">
               <label>Highest Ticket Price *</label>
-              <input type="number" min="0" step="0.01" name="highest_ticket_price" id="high-price" placeholder="0.00" required>
+              <input type="number" min="0" step="0.01" name="default_highest_ticket_price" id="high-price" placeholder="0.00" required>
             </div>
           </div>
           <div class="avg-box">
             <span class="lbl">Average Ticket Price (auto-calculated)</span>
             <span class="val" id="avg-price">—</span>
           </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Cast &amp; Scripts</div>
-          <div class="grid">
+          <div class="grid" style="margin-top:14px">
             <div class="field">
-              <label>Number of Performers Expected</label>
-              <input type="number" min="0" name="expected_performers">
+              <label>Number of Performers Expected *</label>
+              <input type="number" min="0" name="default_expected_performers" id="default-performers" required>
             </div>
             <div class="field">
-              <label>Number of Scripts Needed</label>
-              <input type="number" min="0" name="scripts_needed">
+              <label>Number of Scripts Needed *</label>
+              <input type="number" min="0" name="default_scripts_needed" id="default-scripts-needed" required>
             </div>
           </div>
           <div class="field">
             <label>Additional Scripts Needed</label>
             <div class="check-stack" id="additional-scripts-row">
               <label class="check-block script-block">
-                <input type="checkbox" class="script-cb" data-script="Stage Manager script" onchange="toggleScriptQty(this)">
+                <input type="checkbox" class="script-cb" data-script="Stage Manager script">
                 <div style="flex:1"><div class="cb-title">Stage Manager</div></div>
                 <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
               </label>
               <label class="check-block script-block">
-                <input type="checkbox" class="script-cb" data-script="Director script" onchange="toggleScriptQty(this)">
+                <input type="checkbox" class="script-cb" data-script="Director script">
                 <div style="flex:1"><div class="cb-title">Director</div></div>
                 <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
               </label>
               <label class="check-block script-block">
-                <input type="checkbox" class="script-cb" data-script="Piano Vocal Score" onchange="toggleScriptQty(this)">
+                <input type="checkbox" class="script-cb" data-script="Piano Vocal Score">
                 <div style="flex:1"><div class="cb-title">Piano Vocal Score</div></div>
                 <input type="number" min="1" value="1" class="script-qty" placeholder="Qty">
               </label>
@@ -258,8 +219,9 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
         <div class="section">
           <div class="section-title">Music</div>
+          <div class="section-sub">Applies to every production in this request — overridable per show below.</div>
           <div class="field">
-            <label>Will this production have a live orchestra?</label>
+            <label>Will these productions have a live orchestra?</label>
             <div class="radio-row" data-radio-group="has_live_orchestra">
               <label class="pill"><input type="radio" name="has_live_orchestra" value="yes"> Yes</label>
               <label class="pill"><input type="radio" name="has_live_orchestra" value="no"> No</label>
@@ -284,9 +246,11 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
               </div>
             </div>
           </div>
+          <div class="field" style="margin-top:14px">
+            <label class="check-block"><input type="checkbox" name="needs_rehearsal_tracks"><div><div class="cb-title">Rehearsal tracks</div><div class="cb-sub">Useful even with a live orchestra, for cast rehearsal purposes</div></div></label>
+          </div>
           <div class="conditional" id="orchestra-no">
             <div class="check-stack">
-              <label class="check-block"><input type="checkbox" name="needs_rehearsal_tracks"><div><div class="cb-title">Rehearsal tracks</div></div></label>
               <label class="check-block"><input type="checkbox" name="needs_performance_tracks"><div><div class="cb-title">Performance tracks</div></div></label>
             </div>
           </div>
@@ -294,7 +258,7 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
         <div class="section">
           <div class="section-title">Shipping</div>
-          <div class="section-sub">Where should licensed materials be shipped?</div>
+          <div class="section-sub">Where should licensed materials be shipped? Applies to every production in this request.</div>
           <div class="field">
             <label>Name *</label>
             <input type="text" name="ship_to_name" required>
@@ -316,12 +280,10 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
         <div class="section">
           <div class="section-title">Potential Add-Ons</div>
-          <div class="section-sub">Fill out when applicable — availability depends on the contract.</div>
+          <div class="section-sub">Fill out when applicable — availability depends on the contract. Applies to every production in this request.</div>
           <div class="check-stack">
             <label class="check-block"><input type="checkbox" name="addon_streaming_license"><div><div class="cb-title">Streaming License</div><div class="cb-sub">Includes live streaming — may be available</div></div></label>
             <label class="check-block"><input type="checkbox" name="addon_video_recording_license"><div><div class="cb-title">Video Recording License</div><div class="cb-sub">Internal use only, may be available</div></div></label>
-            <label class="check-block"><input type="checkbox" name="addon_choreography_guides"><div><div class="cb-title">Choreography guides</div></div></label>
-            <label class="check-block"><input type="checkbox" name="addon_broadway_media_scenic"><div><div class="cb-title">Scenic projections from Broadway Media</div></div></label>
             <label class="check-block" id="marketing-check"><input type="checkbox" name="addon_marketing_package"><div><div class="cb-title">Marketing package</div><div class="cb-sub">Depends on what's allowed in the contract</div></div></label>
           </div>
           <div class="conditional" id="marketing-conditional">
@@ -341,16 +303,24 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
         </div>
 
         <div class="section">
-          <div class="section-title">Additional Requests</div>
-          <div class="section-sub">Anything specific to this production. Example: for Grease, you must request specific song use.</div>
-          <div class="field">
-            <textarea name="additional_requests" rows="4"></textarea>
+          <div class="section-title">Broadway Media Add-Ons</div>
+          <div class="section-sub">Applies to every production in this request. HWTC has an internal relationship with Broadway Media — Melissa Kratish is our point of contact and will work with you to determine the best options. If desired, these typically licensed add-ons don't need to be added to the contract itself.</div>
+          <div class="check-stack">
+            <label class="check-block"><input type="checkbox" name="addon_choreography_guides"><div><div class="cb-title">Choreography guides</div></div></label>
+            <label class="check-block"><input type="checkbox" name="addon_broadway_media_scenic"><div><div class="cb-title">Scenic projections</div></div></label>
           </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Productions</div>
+          <div class="section-sub">Add one entry per show you're requesting. Everything above is shared across all of them — use "Customize" on a card if one show needs different ticket prices, show count, performers, or scripts.</div>
+          <div id="shows-container"></div>
+          <button type="button" class="add-show-btn" id="add-show-btn">+ Add Another Production</button>
         </div>
 
         <div class="footer-actions">
           <div class="err-banner" id="err-banner"></div>
-          <button type="submit" class="submit-btn" id="submit-btn">Submit Licensing Request</button>
+          <button type="submit" class="submit-btn" id="submit-btn">Submit Licensing Request(s)</button>
         </div>
 
       </form>
@@ -358,56 +328,118 @@ input[readonly]{background:var(--gray-100);color:var(--gray-600)}
 
     <div class="success-screen" id="success-screen">
       <div class="success-icon"><div class="check-mark"></div></div>
-      <h2>Request Received</h2>
+      <h2 id="success-title">Request Received</h2>
       <p>Thanks — our team will review this and follow up with next steps.</p>
-      <div class="ref-box" id="ref-number"></div>
+      <div class="ref-list" id="ref-list"></div>
     </div>
   </div>
 </div>
 
 <script>
-// Pill/radio active-state styling
-document.querySelectorAll('[data-radio-group]').forEach(group => {
-  group.querySelectorAll('input[type=radio]').forEach(r => {
-    r.addEventListener('change', () => {
-      group.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
-      r.closest('.pill').classList.add('active');
-      handleOtherFields(group);
-      handleOrchestra();
-    });
+let showCardCounter = 0;
+
+function newShowCardHTML(){
+  const uid = showCardCounter++;
+  return `<div class="show-card" data-uid="${uid}">
+    <div class="show-card-header">
+      <div class="show-card-title show-card-label">Production ${uid+1}</div>
+      <button type="button" class="remove-show-btn">Remove</button>
+    </div>
+    <div class="field">
+      <label>Production Name *</label>
+      <input type="text" class="production-name-input" required>
+    </div>
+    <div class="field">
+      <label>Type of Production *</label>
+      <div class="radio-row" data-radio-group="production_type_${uid}">
+        <label class="pill"><input type="radio" name="production_type_${uid}" value="MainStage" required> MainStage</label>
+        <label class="pill"><input type="radio" name="production_type_${uid}" value="Rising Stars" required> Rising Stars</label>
+        <label class="pill"><input type="radio" name="production_type_${uid}" value="Summer Camp" required> Summer Camp</label>
+        <label class="pill"><input type="radio" name="production_type_${uid}" value="Teen Production" required> Teen Production</label>
+        <label class="pill"><input type="radio" name="production_type_${uid}" value="Other" required> Other</label>
+      </div>
+      <input type="text" class="other-input production-type-other" placeholder="Please specify">
+    </div>
+    <div class="field">
+      <label>Licensor *</label>
+      <div class="radio-row" data-radio-group="licensor_${uid}">
+        <label class="pill"><input type="radio" name="licensor_${uid}" value="MTI" required> MTI</label>
+        <label class="pill"><input type="radio" name="licensor_${uid}" value="Concord" required> Concord</label>
+        <label class="pill"><input type="radio" name="licensor_${uid}" value="TRW" required> TRW</label>
+        <label class="pill"><input type="radio" name="licensor_${uid}" value="Other" required> Other</label>
+        <label class="pill"><input type="radio" name="licensor_${uid}" value="I don't know" required> I don't know</label>
+      </div>
+      <input type="text" class="other-input licensor-other" placeholder="Please specify">
+    </div>
+    <div class="field">
+      <label>Performance Dates *</label>
+      <div class="date-field">
+        <div class="date-list"></div>
+        <span class="add-link add-date-btn">+ Add a performance date</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Additional Requests</label>
+      <textarea class="additional-requests-input" rows="3" placeholder="Anything specific to this production — e.g. for Grease, you must request specific song use."></textarea>
+    </div>
+    <button type="button" class="toggle-override-btn">+ Customize details for this show (ticket prices, show count, performers, scripts)</button>
+    <div class="show-overrides">
+      <div class="hint" style="margin-bottom:10px">Leave any field blank to use the show default from above.</div>
+      <div class="grid">
+        <div class="field">
+          <label>Number of Shows</label>
+          <input type="number" min="0" class="override-number-of-shows">
+        </div>
+        <div class="field">
+          <label>Number of Performers</label>
+          <input type="number" min="0" class="override-performers">
+        </div>
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label>Lowest Ticket Price</label>
+          <input type="number" min="0" step="0.01" class="override-low-price" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label>Highest Ticket Price</label>
+          <input type="number" min="0" step="0.01" class="override-high-price" placeholder="0.00">
+        </div>
+      </div>
+      <div class="field">
+        <label>Scripts Needed</label>
+        <input type="number" min="0" class="override-scripts-needed">
+      </div>
+      <div class="field">
+        <label>Rehearsal Tracks For This Show</label>
+        <div class="radio-row" data-radio-group="rehearsal_override_${uid}">
+          <label class="pill active"><input type="radio" name="rehearsal_override_${uid}" value="" checked> Use Default</label>
+          <label class="pill"><input type="radio" name="rehearsal_override_${uid}" value="yes"> Yes, needed</label>
+          <label class="pill"><input type="radio" name="rehearsal_override_${uid}" value="no"> Not needed</label>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renumberShowCards(){
+  document.querySelectorAll('.show-card').forEach((card, i) => {
+    card.querySelector('.show-card-label').textContent = 'Production ' + (i+1);
   });
-});
-document.querySelectorAll('.check-row .pill, .check-stack .check-block').forEach(block => {
-  const input = block.querySelector('input');
-  input.addEventListener('change', () => block.classList.toggle('active', input.checked));
-});
-
-function handleOtherFields(group){
-  const name = group.getAttribute('data-radio-group');
-  const selected = group.querySelector('input:checked');
-  const otherInput = group.parentElement.querySelector('.other-input');
-  if (!otherInput) return;
-  const isOther = selected && (selected.value === 'Other');
-  otherInput.classList.toggle('show', isOther);
 }
 
-function handleOrchestra(){
-  const val = document.querySelector('input[name=has_live_orchestra]:checked');
-  document.getElementById('orchestra-yes').classList.toggle('show', val && val.value === 'yes');
-  document.getElementById('orchestra-no').classList.toggle('show', val && val.value === 'no');
+function addShowCard(){
+  document.getElementById('shows-container').insertAdjacentHTML('beforeend', newShowCardHTML());
+  renumberShowCards();
 }
 
-document.getElementById('marketing-check').querySelector('input').addEventListener('change', e => {
-  document.getElementById('marketing-conditional').classList.toggle('show', e.target.checked);
-});
-
-function toggleScriptQty(cb){
-  const block = cb.closest('.script-block');
-  const qty = block.querySelector('.script-qty');
-  qty.style.display = cb.checked ? 'inline-block' : 'none';
+function addDateRowTo(listEl){
+  const row = document.createElement('div');
+  row.className = 'date-row';
+  row.innerHTML = `<input type="date"><button type="button" class="icon-btn" data-action="remove-date" title="Remove">×</button>`;
+  listEl.appendChild(row);
 }
 
-// Ticket price auto-average
+// Ticket price auto-average (shared defaults)
 function updateAvg(){
   const low = parseFloat(document.getElementById('low-price').value);
   const high = parseFloat(document.getElementById('high-price').value);
@@ -422,82 +454,187 @@ function updateAvg(){
     avgEl.textContent = '—';
   }
 }
-document.getElementById('low-price').addEventListener('input', updateAvg);
-document.getElementById('high-price').addEventListener('input', updateAvg);
 
-// Performance dates — dynamic list
-const perfDatesWrap = document.getElementById('perf-dates');
-function addDateRow(){
-  const row = document.createElement('div');
-  row.className = 'date-row';
-  row.innerHTML = `<input type="date"><button type="button" class="icon-btn" title="Remove">×</button>`;
-  row.querySelector('.icon-btn').addEventListener('click', () => row.remove());
-  perfDatesWrap.appendChild(row);
+function handleOrchestra(){
+  const val = document.querySelector('input[name=has_live_orchestra]:checked');
+  document.getElementById('orchestra-yes').classList.toggle('show', val && val.value === 'yes');
+  document.getElementById('orchestra-no').classList.toggle('show', val && val.value === 'no');
 }
-document.getElementById('add-date').addEventListener('click', addDateRow);
-addDateRow();
 
-// Submit
+// Event delegation — handles both static and dynamically-added elements
+document.addEventListener('change', (e) => {
+  const t = e.target;
+
+  if (t.matches('[data-radio-group] input[type=radio]')) {
+    const group = t.closest('[data-radio-group]');
+    group.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+    t.closest('.pill').classList.add('active');
+    const otherInput = group.parentElement.querySelector('.other-input');
+    if (otherInput) otherInput.classList.toggle('show', t.value === 'Other');
+    if (group.dataset.radioGroup === 'has_live_orchestra') handleOrchestra();
+  }
+
+  if (t.classList.contains('script-cb')) {
+    const block = t.closest('.script-block');
+    block.querySelector('.script-qty').style.display = t.checked ? 'inline-block' : 'none';
+  }
+
+  if (t.matches('.check-block input[type=checkbox]')) {
+    t.closest('.check-block').classList.toggle('active', t.checked);
+  }
+
+  if (t.closest('#marketing-check') && t.type === 'checkbox') {
+    document.getElementById('marketing-conditional').classList.toggle('show', t.checked);
+  }
+
+  if (t.id === 'low-price' || t.id === 'high-price') updateAvg();
+});
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.id === 'add-show-btn') { addShowCard(); return; }
+
+  if (t.classList.contains('add-date-btn')) {
+    const list = t.closest('.date-field').querySelector('.date-list');
+    addDateRowTo(list);
+    return;
+  }
+  if (t.dataset.action === 'remove-date') {
+    t.closest('.date-row').remove();
+    return;
+  }
+  if (t.classList.contains('remove-show-btn')) {
+    const container = document.getElementById('shows-container');
+    if (container.children.length <= 1) { toastLikeError('At least one production is required.'); return; }
+    t.closest('.show-card').remove();
+    renumberShowCards();
+    return;
+  }
+  if (t.classList.contains('toggle-override-btn')) {
+    const card = t.closest('.show-card');
+    const panel = card.querySelector('.show-overrides');
+    panel.classList.toggle('show');
+    t.textContent = panel.classList.contains('show')
+      ? '− Hide custom details for this show'
+      : '+ Customize details for this show (ticket prices, show count, performers, scripts)';
+    return;
+  }
+});
+
+function toastLikeError(msg){
+  const errBanner = document.getElementById('err-banner');
+  errBanner.textContent = msg;
+  errBanner.classList.add('show');
+  errBanner.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// Initialize with one show card and one performance date row in it
+addShowCard();
+addDateRowTo(document.querySelector('.show-card .date-list'));
+
 document.getElementById('lic-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const form = e.target;
   const btn = document.getElementById('submit-btn');
   const errBanner = document.getElementById('err-banner');
   errBanner.classList.remove('show');
-  btn.disabled = true;
-  btn.textContent = 'Submitting...';
 
-  const form = e.target;
-  const data = {};
-  new FormData(form).forEach((v, k) => { data[k] = v; });
+  if (!form.checkValidity()) { form.reportValidity(); return; }
 
-  // Additional scripts checkboxes
-  data.additional_scripts = Array.from(document.querySelectorAll('.script-cb:checked')).map(cb => ({
-    name: cb.dataset.script,
-    quantity: parseInt(cb.closest('.script-block').querySelector('.script-qty').value) || 1
-  }));
+  const cards = Array.from(document.querySelectorAll('.show-card'));
+  if (!cards.length) { toastLikeError('Add at least one production.'); return; }
 
-  // Performance dates
-  data.performance_dates = Array.from(perfDatesWrap.querySelectorAll('input[type=date]')).map(i => i.value).filter(Boolean);
-  if (data.performance_dates.length === 0) {
-    errBanner.textContent = 'Please add at least one performance date.';
-    errBanner.classList.add('show');
-    btn.disabled = false;
-    btn.textContent = 'Submit Licensing Request';
-    errBanner.scrollIntoView({behavior:'smooth', block:'center'});
-    return;
-  }
+  // Shared fields
+  const fd = new FormData(form);
+  const shared = {};
+  fd.forEach((v, k) => { shared[k] = v; });
 
-  // Booleans that FormData won't include if unchecked
   ['has_live_orchestra','needs_full_score'].forEach(name => {
     const checked = document.querySelector(`input[name=${name}]:checked`);
-    data[name] = checked ? checked.value === 'yes' : undefined;
+    shared[name] = checked ? checked.value === 'yes' : undefined;
   });
   ['needs_rehearsal_tracks','needs_performance_tracks','addon_streaming_license',
    'addon_video_recording_license','addon_marketing_package',
    'addon_choreography_guides','addon_broadway_media_scenic'].forEach(name => {
     const el = form.querySelector(`input[name=${name}]`);
-    data[name] = el ? el.checked : false;
+    shared[name] = el ? el.checked : false;
   });
+
+  shared.additional_scripts = Array.from(document.querySelectorAll('.script-cb:checked')).map(cb => ({
+    name: cb.dataset.script,
+    quantity: parseInt(cb.closest('.script-block').querySelector('.script-qty').value) || 1
+  }));
+
+  const defaultNumberOfShows = shared.default_number_of_shows;
+  const defaultLow = shared.default_lowest_ticket_price;
+  const defaultHigh = shared.default_highest_ticket_price;
+  const defaultPerformers = shared.default_expected_performers;
+  const defaultScripts = shared.default_scripts_needed;
+
+  const shows = [];
+  for (const card of cards) {
+    const nameInput = card.querySelector('.production-name-input');
+    const uid = card.dataset.uid;
+    const typeChecked = card.querySelector(`[data-radio-group="production_type_${uid}"] input:checked`);
+    const licensorChecked = card.querySelector(`[data-radio-group="licensor_${uid}"] input:checked`);
+    const perfDates = Array.from(card.querySelectorAll('.date-list input[type=date]')).map(i => i.value).filter(Boolean);
+
+    if (!perfDates.length) {
+      toastLikeError(`Add at least one performance date for "${nameInput.value || 'Production ' + (cards.indexOf(card)+1)}".`);
+      return;
+    }
+
+    const ov = sel => card.querySelector(sel).value;
+
+    const showObj = {
+      production_name: nameInput.value,
+      production_type: typeChecked ? typeChecked.value : '',
+      production_type_other: card.querySelector('.production-type-other').value,
+      licensor: licensorChecked ? licensorChecked.value : '',
+      licensor_other: card.querySelector('.licensor-other').value,
+      performance_dates: perfDates,
+      number_of_shows: ov('.override-number-of-shows') || defaultNumberOfShows,
+      lowest_ticket_price: ov('.override-low-price') || defaultLow,
+      highest_ticket_price: ov('.override-high-price') || defaultHigh,
+      expected_performers: ov('.override-performers') || defaultPerformers,
+      scripts_needed: ov('.override-scripts-needed') || defaultScripts,
+      additional_requests: card.querySelector('.additional-requests-input').value,
+    };
+
+    const rehearsalChecked = card.querySelector(`[data-radio-group="rehearsal_override_${uid}"] input:checked`);
+    const rehearsalVal = rehearsalChecked ? rehearsalChecked.value : '';
+    if (rehearsalVal === 'yes') showObj.needs_rehearsal_tracks = true;
+    else if (rehearsalVal === 'no') showObj.needs_rehearsal_tracks = false;
+    // else omitted entirely — backend falls back to the shared default
+
+    shows.push(showObj);
+  }
+
+  const payload = { ...shared, shows };
+
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
 
   try {
     const resp = await fetch('/api/public/licensing-request', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
     const result = await resp.json();
-    if (!resp.ok || result.error) {
-      throw new Error(result.error || 'Something went wrong. Please try again.');
-    }
+    if (!resp.ok || result.error) throw new Error(result.error || 'Something went wrong. Please try again.');
+
     document.getElementById('form-body').classList.add('hide');
     document.getElementById('success-screen').classList.add('show');
-    document.getElementById('ref-number').textContent = result.ref_number;
+    const title = document.getElementById('success-title');
+    const list = document.getElementById('ref-list');
+    const reqs = result.requests || [];
+    title.textContent = reqs.length > 1 ? `${reqs.length} Requests Received` : 'Request Received';
+    list.innerHTML = reqs.map(r => `<div class="ref-row"><span class="rr-title">${r.production_name}</span><span class="rr-ref">${r.ref_number}</span></div>`).join('');
   } catch (err) {
-    errBanner.textContent = err.message;
-    errBanner.classList.add('show');
+    toastLikeError(err.message);
     btn.disabled = false;
-    btn.textContent = 'Submit Licensing Request';
-    errBanner.scrollIntoView({behavior:'smooth', block:'center'});
+    btn.textContent = 'Submit Licensing Request(s)';
   }
 });
 </script>

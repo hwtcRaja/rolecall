@@ -10193,6 +10193,9 @@ function renderLicensingList(rows){
   const fmtMoney = c => c!=null ? '$'+(c/100).toFixed(2) : '—'
   el.innerHTML = rows.map(r=>{
     const [bg,col] = LIC_STATUS_COLORS[r.status]||LIC_STATUS_COLORS.new
+    let perfDatesForCard = []
+    try{ perfDatesForCard = JSON.parse(r.performance_dates||'[]').sort() }catch(e){}
+    const dateRange = perfDatesForCard.length ? (perfDatesForCard[0] + (perfDatesForCard.length>1 ? ' – '+perfDatesForCard[perfDatesForCard.length-1] : '')) : ''
     return `<div class="card" style="padding:18px 20px;margin-bottom:12px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
@@ -10201,7 +10204,7 @@ function renderLicensingList(rows){
           <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
             <span>${escHtml(r.licensor||'')||'Licensor TBD'}</span>
             <span>${escHtml(r.production_type||'')}</span>
-            <span>${r.production_start_date||''}${r.production_end_date?' – '+r.production_end_date:''}</span>
+            <span>${dateRange}</span>
             <span>${fmtMoney(r.average_ticket_price_cents)} avg ticket</span>
           </div>
           ${r.admin_notes?`<div style="margin-top:8px;font-size:12px;background:var(--bg);padding:8px 10px;border-radius:6px;color:var(--text-muted);font-style:italic">${escHtml(r.admin_notes)}</div>`:''}
@@ -10275,7 +10278,6 @@ function openLicensingDetail(id){
   const fields = [
     ['Type of Production', r.production_type==='Other' ? r.production_type_other : r.production_type],
     ['Licensor', r.licensor==='Other' ? r.licensor_other : r.licensor],
-    ['Production Dates', `${r.production_start_date||''}${r.production_end_date?' – '+r.production_end_date:''}`],
     ['Venue', r.venue_name],
     ['Venue Address', r.venue_address],
     ['Venue Capacity', r.venue_capacity],
@@ -10290,7 +10292,7 @@ function openLicensingDetail(id){
     ['Needs Full Score', r.has_live_orchestra ? (r.needs_full_score?'Yes':'No') : null],
     ['Orchestra Size', r.has_live_orchestra ? r.orchestra_size : null],
     ['Orchestra Instruments', r.has_live_orchestra ? r.orchestra_instruments : null],
-    ['Rehearsal Tracks', !r.has_live_orchestra ? (r.needs_rehearsal_tracks?'Yes':'No') : null],
+    ['Rehearsal Tracks', r.needs_rehearsal_tracks ? 'Yes' : 'No'],
     ['Performance Tracks', !r.has_live_orchestra ? (r.needs_performance_tracks?'Yes':'No') : null],
     ['Ship To', r.ship_to_name],
     ['Shipping Address', r.ship_to_address],
@@ -10300,8 +10302,8 @@ function openLicensingDetail(id){
     ['Video Recording License', r.addon_video_recording_license?'Requested':null],
     ['Marketing Package', r.addon_marketing_package?('Requested'+(r.addon_marketing_notes?' — '+r.addon_marketing_notes:'')):null],
     ['Logo Choice', r.addon_logo_choice==='own'?'Own logo':r.addon_logo_choice==='licensed'?'Licensed show logo':null],
-    ['Choreography Guides', r.addon_choreography_guides?'Requested':null],
-    ['Broadway Media Scenic Projections', r.addon_broadway_media_scenic?'Requested':null],
+    ['Choreography Guides (Broadway Media)', r.addon_choreography_guides?'Requested — coordinate with Melissa Kratish; likely does not need to be added to the licensing contract':null],
+    ['Scenic Projections (Broadway Media)', r.addon_broadway_media_scenic?'Requested — coordinate with Melissa Kratish; likely does not need to be added to the licensing contract':null],
     ['Additional Requests', r.additional_requests],
   ]
 

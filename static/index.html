@@ -3529,41 +3529,83 @@ async function handleLogout(){
  document.getElementById('login-password').value=''
 }
 
-// Map nav item text/id to permission section key
+// Map each left-nav item to its own permission key.
+// Every item in the sidebar has a matching row in Settings > Users & access,
+// so access can be granted or withheld per menu item rather than in bundles.
+// null = always visible (Dashboard and My Time are personal, not privileged).
 const NAV_PERM_MAP = {
  'dashboard': null,
  'my-time': null,
- 'rentals': 'rentals', // always visible
+ // RoleCall
  'volunteers': 'volunteers',
  'directors': 'directors',
- 'waivers': 'volunteers',
+ 'licensing': 'licensing',
+ 'waivers': 'waivers',
  'hours': 'hours',
  'email': 'email',
- 'email-templates-page': 'email',
  'events': 'events',
  'marquee': 'marquee',
+ // Mainstage
  'productions': 'productions',
- 'production-signin':'productions',
+ 'production-signin': 'cast_signin',
+ // Education & Programming
  'youth': 'youth',
  'youth-programs-page': 'programs',
- 'rising-stars-page':'rising_stars',
+ 'rising-stars-page': 'rising_stars',
  'portal-admin': 'portal_admin',
  'youth-signin': 'kiosk',
- 'carpools': 'youth',
- 'event-logs': 'reports',
- 'reports': 'reports',
- 'notifications': 'settings',
- 'settings': 'settings',
- 'board': 'board',
+ 'carpools': 'carpools',
+ // Venue & Partnerships
+ 'rentals': 'rentals',
+ // Donors & Sponsors
  'donors': 'donors',
  'donor-detail': 'donors',
- 'donor-campaigns': 'donors',
- 'donor-tiers': 'donors',
- 'donor-templates': 'donors',
+ 'donor-campaigns': 'donor_campaigns',
+ 'donor-tiers': 'donor_tiers',
+ 'donor-templates': 'donor_templates',
+ // Admin
+ 'email-templates-page': 'email_templates',
+ 'event-logs': 'event_logs',
+ 'reports': 'reports',
+ 'board': 'board',
+ 'notifications': 'notifications',
+ 'settings': 'settings',
+ 'oncall': 'oncall',
 }
 
-function canView(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
-function canEdit(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='edit' }
+// Several keys above are newly split out of a broader permission (e.g. Waivers
+// used to ride on 'volunteers'). Until an admin explicitly sets the new key,
+// fall back to the old one so nobody loses access the moment this deploys.
+// An explicit 'none' always wins - revoking is never overridden by a fallback.
+const PERM_LEGACY_FALLBACK = {
+ waivers: 'volunteers',
+ carpools: 'youth',
+ notifications: 'settings',
+ oncall: 'settings',
+ licensing: 'productions',
+ cast_signin: 'productions',
+ event_logs: 'reports',
+ email_templates: 'email',
+ donor_campaigns: 'donors',
+ donor_tiers: 'donors',
+ donor_templates: 'donors',
+ hours_store: 'volunteers',
+ responsibility_grid: 'board',
+ ticketing: 'productions',
+}
+
+// Resolve a user's level for a section: their explicit setting if present,
+// otherwise the legacy parent permission, otherwise no access.
+function permLevel(section){
+ if(!section) return 'edit'
+ const perms = currentUser?.permissions || {}
+ if(perms[section]) return perms[section]
+ const legacy = PERM_LEGACY_FALLBACK[section]
+ if(legacy && perms[legacy]) return perms[legacy]
+ return 'none'
+}
+function canView(section){ return!section || currentUser?.role==='admin' || ['view','edit'].includes(permLevel(section)) }
+function canEdit(section){ return!section || currentUser?.role==='admin' || permLevel(section)==='edit' }
 
 function applyPermissionUI(){
  const isAdmin = currentUser?.role==='admin'
@@ -13504,7 +13546,20 @@ function openUserEditModal(uid){
  const tbody = document.createElement('tbody')
  table.appendChild(tbody)
 
+ let lastGroup = null
  PERM_SECTIONS.forEach(s=>{
+ // Group header row, so this table visually mirrors the sidebar sections
+ if(s.group && s.group !== lastGroup){
+  lastGroup = s.group
+  const gtr = document.createElement('tr')
+  const gtd = document.createElement('td')
+  gtd.colSpan = 4
+  gtd.style.cssText = 'padding:15px 8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--teal-dark);background:var(--bg)'
+  gtd.textContent = s.group
+  gtr.appendChild(gtd)
+  tbody.appendChild(gtr)
+ }
+
  const curVal = perms[s.key] || 'none'
  const tr = document.createElement('tr')
  tr.style.borderBottom = '1px solid var(--border)'
@@ -13670,24 +13725,56 @@ async function resetUserPassword(uid, name){
  toast('Password reset for '+name)
 }
 
+// One row per left-nav menu item, grouped in the same order as the sidebar so
+// this table reads as a mirror of the nav. Dashboard and My Time & Attendance
+// are deliberately absent - they are personal pages every signed-in user gets.
+// The trailing "Other areas" group covers screens reached from within a page
+// rather than the sidebar, but which the server still gates.
 const PERM_SECTIONS = [
- {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
- {key:'directors', label:'Directors', desc:'Director interest & submissions'},
- {key:'events', label:'Events & Calendar', desc:'Create and manage events'},
- {key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
- {key:'email', label:'Email & Templates', desc:'Send emails & manage templates'},
- {key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
- {key:'rising_stars', label:'Rising Stars', desc:'RS productions and portal content'},
- {key:'youth', label:'Participants', desc:'Youth profiles & guardians'},
- {key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
- {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
- {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
- {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
- {key:'board', label:'Board', desc:'Board member management & meetings'},
- {key:'settings', label:'Settings', desc:'Users, system configuration'},
- {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
- {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
- {key:'rentals', label:'Venue Rentals', desc:'Create and manage rental requests & agreements'},
+ // ── RoleCall ──
+ {group:'RoleCall', key:'volunteers', label:'Volunteers', desc:'Volunteer profiles, notes & history'},
+ {group:'RoleCall', key:'directors', label:'Directors', desc:'Director interest & submissions'},
+ {group:'RoleCall', key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & status'},
+ {group:'RoleCall', key:'waivers', label:'Waivers', desc:'Waiver records & expiry tracking'},
+ {group:'RoleCall', key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
+ {group:'RoleCall', key:'email', label:'Email', desc:'Compose and send email, view send log'},
+ {group:'RoleCall', key:'events', label:'Events & Calendar', desc:'Create and manage events'},
+ {group:'RoleCall', key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
+
+ // ── Mainstage ──
+ {group:'Mainstage', key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
+ {group:'Mainstage', key:'cast_signin', label:'Cast Sign-In', desc:'Sign cast & crew in and out'},
+
+ // ── Education & Programming ──
+ {group:'Education & Programming', key:'youth', label:'Participants', desc:'Participant profiles & guardians'},
+ {group:'Education & Programming', key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
+ {group:'Education & Programming', key:'rising_stars', label:'Rising Stars', desc:'Rising Stars productions & registration'},
+ {group:'Education & Programming', key:'portal_admin', label:'Participant Portal', desc:'Announcements, files, team bios'},
+ {group:'Education & Programming', key:'kiosk', label:'Participant Sign-In', desc:'Sign participants in and out at the kiosk'},
+ {group:'Education & Programming', key:'carpools', label:'Carpools', desc:'Create and manage family carpools'},
+
+ // ── Venue & Partnerships ──
+ {group:'Venue & Partnerships', key:'rentals', label:'Venue Rentals', desc:'Rental requests, agreements & invoices'},
+
+ // ── Donors & Sponsors ──
+ {group:'Donors & Sponsors', key:'donors', label:'All Donors', desc:'Donor records & donation history'},
+ {group:'Donors & Sponsors', key:'donor_campaigns', label:'Campaigns', desc:'Fundraising campaigns & goals'},
+ {group:'Donors & Sponsors', key:'donor_tiers', label:'Tiers & Benefits', desc:'Donor tiers and benefit tracking'},
+ {group:'Donors & Sponsors', key:'donor_templates', label:'Email Templates (Donors)', desc:'Thank-you and donor email templates'},
+
+ // ── Admin ──
+ {group:'Admin', key:'email_templates', label:'Email Templates', desc:'System email templates'},
+ {group:'Admin', key:'event_logs', label:'Event Logs', desc:'Open/close logs & checklist responses'},
+ {group:'Admin', key:'reports', label:'Reports', desc:'Run and schedule reports'},
+ {group:'Admin', key:'board', label:'Board', desc:'Board members, meetings & attendance'},
+ {group:'Admin', key:'notifications', label:'Notifications', desc:'Pending approvals & action queue'},
+ {group:'Admin', key:'settings', label:'Settings', desc:'Users, permissions & system configuration'},
+ {group:'Admin', key:'oncall', label:'On-Call Schedule', desc:'On-call rota, call log & phone routing'},
+
+ // ── Other areas (not in the sidebar, but gated by the server) ──
+ {group:'Other areas', key:'hours_store', label:'Hours Store', desc:'Store items, redemptions & bonus credits'},
+ {group:'Other areas', key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows & org chart'},
+ {group:'Other areas', key:'ticketing', label:'Ticketing', desc:'Venues, seat maps, performances & ticket types'},
 ]
 
 

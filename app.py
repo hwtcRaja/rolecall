@@ -2232,6 +2232,41 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
+# Permission keys split out of a broader section after the fact (e.g. Waivers
+# used to ride on 'volunteers'). Until an admin explicitly sets the new key,
+# inherit the old one so nobody loses access the moment this deploys. Must stay
+# in sync with PERM_LEGACY_FALLBACK in index.html.
+PERM_LEGACY_FALLBACK = {
+    'waivers': 'volunteers',
+    'carpools': 'youth',
+    'notifications': 'settings',
+    'oncall': 'settings',
+    'licensing': 'productions',
+    'cast_signin': 'productions',
+    'event_logs': 'reports',
+    'email_templates': 'email',
+    'donor_campaigns': 'donors',
+    'donor_tiers': 'donors',
+    'donor_templates': 'donors',
+    'hours_store': 'volunteers',
+    'responsibility_grid': 'board',
+    'ticketing': 'productions',
+}
+
+
+def resolve_perm_level(perms, section):
+    """A user's level for a section: their explicit setting if present, else the
+    legacy parent permission, else none. An explicit 'none' is respected - a
+    deliberate revoke is never undone by a fallback."""
+    level = perms.get(section)
+    if level:
+        return level
+    legacy = PERM_LEGACY_FALLBACK.get(section)
+    if legacy and perms.get(legacy):
+        return perms[legacy]
+    return 'none'
+
+
 def require_permission(section, level='edit'):
     """Allow admin OR a user with edit/view permission for the given section."""
     if 'user_id' not in session:
@@ -2253,7 +2288,7 @@ def require_permission(section, level='edit'):
         session['permissions'] = u.get('role_permissions') or '{}'
     except Exception:
         perms = {}
-    user_level = perms.get(section, 'none')
+    user_level = resolve_perm_level(perms, section)
     if level == 'view' and user_level in ('view', 'edit'):
         return None
     if level == 'edit' and user_level == 'edit':

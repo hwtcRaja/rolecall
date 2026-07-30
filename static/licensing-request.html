@@ -21,6 +21,10 @@
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--gray-900);font-size:14px;line-height:1.55;min-height:100vh;-webkit-font-smoothing:antialiased}
 .banner{background:linear-gradient(135deg,var(--teal-dark) 0%,var(--teal) 55%,var(--teal-mid) 100%);padding:36px 24px 44px;color:#fff;text-align:center}
 .banner-logo{display:inline-flex;align-items:center;gap:10px;margin-bottom:18px}
+/* The logo PNG is white-on-black with no alpha channel. 'screen' blending makes
+   the black matte drop out against the dark banner gradient, matching the
+   refund page. Requires a DARK backdrop — on white it would disappear. */
+.banner-logo-img{height:40px;width:auto;display:block;mix-blend-mode:screen}
 .banner h1{font-size:26px;font-weight:700;letter-spacing:-0.4px;margin-bottom:8px}
 .banner p{font-size:14px;color:rgba(255,255,255,0.82);max-width:560px;margin:0 auto}
 
@@ -114,7 +118,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid
 
 <div class="banner">
   <div class="banner-logo">
-    <img src="/static/images/hwtc_logo_white.png" height="40" style="height:40px">
+    <img src="/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company" class="banner-logo-img" onerror="this.style.display='none'">
   </div>
   <h1>Show Licensing Request</h1>
   <p>Use this form to request a licensing contract for a production you are interested in HWTC producing. Requests are sent to the Resident Producer and President of HWTC. Contract requests are processed in the order they are received — estimated turnaround depends on the licensor and current request volume.</p>

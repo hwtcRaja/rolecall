@@ -1639,7 +1639,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-secondary" onclick="testEmail()">Send Test Email</button>
  </div>
  <div id="email-settings-status" style="font-size:13px;margin-top:10px"></div>
- </div></div>
+ </div>
    </div>
 
    <div id="settings-panel-users" class="settings-panel" style="display:none;">
@@ -1770,8 +1770,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 
- </div>
- </div>
    </div>
 
    <div id="settings-panel-elics" class="settings-panel" style="display:none;">
@@ -2038,28 +2036,24 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Lobby TV</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
     <div class="settings-section">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
- <div style="font-weight:600;font-size:15px"> System Users & Permissions</div>
+ <div style="font-weight:600;font-size:15px;margin-bottom:12px">Theme</div>
+ <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:12px"></div>
+ <div id="lobby-active-theme-status" style="font-size:12px;color:var(--text-muted);min-height:16px"></div>
  </div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click a user to expand their permission matrix. Admins have full access to everything. Changes take effect on next login.</div>
- <div id="users-management-list"></div>
- </div>
-
- <!-- Family / Portal Management -->
- <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Family Passphrases <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Participant Portal Access</span></div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Create family groups and link participants to them. Families log into the portal at <strong>/portal</strong> using their passphrase to see all enrolled children's programs.</div>
- <div id="families-list" style="margin-bottom:16px"></div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Family Name</div><input type="text" id="new-family-name" placeholder="e.g. The Smith Family" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Passphrase</div><input type="text" id="new-family-passphrase" placeholder="e.g. SunflowerDance2025" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
- <button class="btn btn-primary btn-sm" onclick="createFamily()">Create Family</button>
+ <div class="settings-section" style="margin-top:16px">
+ <div style="font-weight:600;font-size:15px;margin-bottom:12px">Default Theme (applied on load)</div>
+ <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+ <select id="lobby-theme-select" style="padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <option value="standard">Standard</option>
+ <option value="jungle">Jungle Book</option>
+ </select>
+ <button class="btn btn-primary btn-sm" onclick="saveLobbyTheme()">Save</button>
+ <span id="lobby-theme-status" style="font-size:12px;color:var(--text-muted)"></span>
  </div>
  </div>
-
+ <div class="note" style="background:var(--amber-50,#fef3c7);border:1px solid rgba(133,79,11,0.25);border-radius:var(--radius);padding:12px 14px;font-size:12.5px;color:var(--amber-600,#854F0B);margin-top:16px">
+ The lobby image manager and scheduled background controls that used to live here appear to have been lost in an earlier edit — the corresponding markup wasn't found anywhere in this file. Let me know if you have a backup zip with an older version of this page, or want me to help rebuild that section from scratch.
  </div>
- </div>
- </section
    </div>
 
    <div id="settings-panel-nav-icons" class="settings-panel" style="display:none;">

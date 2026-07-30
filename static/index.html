@@ -434,6 +434,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time"></span>My Time &amp; Attendance</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
+        <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests<span class="nav-badge" id="licensing-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
@@ -1166,6 +1167,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="psi-content">
  <div class="empty-state"><div class="empty-icon"></div><p>Select a production above</p></div>
  </div>
+ </div>
+ </section>
+
+ <!-- LICENSING REQUESTS -->
+ <section class="page" id="page-licensing">
+ <div class="page-header">
+ <div><div class="page-title">Licensing Requests</div><div class="page-subtitle">Show licensing requests submitted through the public request form</div></div>
+ <div class="page-actions">
+ <button class="btn btn-secondary" onclick="copyLicensingLink()">Copy Public Form Link</button>
+ <button class="btn btn-secondary" onclick="loadLicensingPage()">Refresh</button>
+ </div>
+ </div>
+ <div class="page-body">
+ <div id="lic-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px"></div>
+ <div id="lic-list"></div>
  </div>
  </section>
 
@@ -2688,6 +2704,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
 <!-- Volunteer Modal -->
 <!-- New/Edit Program Modal -->
+<div class="modal-overlay" id="modal-licensing">
+ <div class="modal" style="max-width:880px">
+ <div class="modal-header"><div class="modal-title" id="lic-modal-title">Licensing Request</div><button class="modal-close" onclick="closeModal('modal-licensing')">&times;</button></div>
+ <div class="modal-body" id="lic-modal-body"></div>
+ <div class="modal-footer">
+  <button class="btn btn-secondary" onclick="closeModal('modal-licensing')">Close</button>
+  <button class="btn btn-primary" id="lic-save-btn" onclick="saveLicensingRequest()">Save Changes</button>
+ </div>
+ </div>
+</div>
+
 <div class="modal-overlay" id="modal-program">
  <div class="modal">
  <div class="modal-header"><div class="modal-title" id="program-modal-title">New Program</div><button class="modal-close" onclick="closeModal('modal-program')">×</button></div>
@@ -3919,43 +3946,84 @@ async function handleLogout(){
 }
 
 // Map nav item text/id to permission section key
+// Every left-nav item maps to its own permission key, so access can be granted
+// or withheld per menu item rather than in bundles. null = always visible
+// (Dashboard and My Time are personal pages, not privileged areas).
 const NAV_PERM_MAP = {
  'dashboard': null,
  'my-time': null,
- 'rentals': 'rentals', // always visible
+ // RoleCall
  'volunteers': 'volunteers',
  'directors': 'directors',
- 'waivers': 'volunteers',
+ 'licensing': 'licensing',
+ 'waivers': 'waivers',
  'hours': 'hours',
  'email': 'email',
- 'email-templates-page': 'email',
  'events': 'events',
  'marquee': 'marquee',
+ // Mainstage
  'productions': 'productions',
- 'production-signin':'productions',
+ 'production-signin': 'cast_signin',
+ 'show-contracts': 'show_contracts',
+ // Education & Programming
  'youth': 'youth',
  'youth-programs-page': 'programs',
- 'rising-stars-page':'rising_stars',
+ 'rising-stars-page': 'rising_stars',
+ 'step-up-holds': 'step_up_holds',
  'portal-admin': 'portal_admin',
  'youth-signin': 'kiosk',
- 'carpools': 'youth',
- 'event-logs': 'reports',
- 'reports': 'reports',
- 'notifications': 'settings',
- 'settings': 'settings',
- 'board': 'board',
+ 'carpools': 'carpools',
+ // Venue & Partnerships
+ 'rentals': 'rentals',
+ // Donors & Sponsors
  'donors': 'donors',
  'donor-detail': 'donors',
- 'donor-campaigns': 'donors',
- 'donor-tiers': 'donors',
- 'donor-templates': 'donors',
+ 'donor-campaigns': 'donor_campaigns',
+ 'donor-tiers': 'donor_tiers',
+ 'donor-templates': 'donor_templates',
+ // Admin
+ 'email-templates-page': 'email_templates',
+ 'event-logs': 'event_logs',
+ 'reports': 'reports',
+ 'board': 'board',
+ 'responsibility': 'responsibility_grid',
+ 'notifications': 'notifications',
+ 'settings': 'settings',
  'oncall': 'oncall',
  'hours-store': 'hours_store',
- 'responsibility': 'responsibility_grid',
 }
 
-function canView(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
-function canEdit(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='edit' }
+// Keys newly split out of a broader permission (Waivers used to ride on
+// 'volunteers', Notifications required full 'settings', etc). Until an admin
+// explicitly sets the new key, inherit the old one so nobody loses access the
+// moment this deploys. An explicit 'none' always wins - a deliberate revoke is
+// never undone by a fallback. Mirrored in app.py.
+const PERM_LEGACY_FALLBACK = {
+ waivers: 'volunteers',
+ carpools: 'youth',
+ notifications: 'settings',
+ licensing: 'productions',
+ cast_signin: 'productions',
+ show_contracts: 'productions',
+ step_up_holds: 'rising_stars',
+ event_logs: 'reports',
+ email_templates: 'email',
+ donor_campaigns: 'donors',
+ donor_tiers: 'donors',
+ donor_templates: 'donors',
+}
+
+// Resolve a user's level: explicit setting, else legacy parent, else none.
+function permLevel(section){
+ if(!section) return 'edit'
+ const perms = currentUser?.permissions || {}
+ if(perms[section]) return perms[section]
+ const legacy = PERM_LEGACY_FALLBACK[section]
+ if(legacy && perms[legacy]) return perms[legacy]
+ return 'none'
+}
+function canView(section){ return!section || currentUser?.role==='admin' || ['view','edit'].includes(permLevel(section)) }
+function canEdit(section){ return!section || currentUser?.role==='admin' || permLevel(section)==='edit' }
 
 function applyPermissionUI(){
  const isAdmin = currentUser?.role==='admin'
@@ -4023,7 +4091,7 @@ function navTo(page,el){
  else document.querySelectorAll('.nav-item').forEach(n=>{
  if(n.textContent.trim().toLowerCase().replace(/\s+/g,'-').startsWith(page.replace('_','-'))) n.classList.add('active')
  })
- if(page==='dashboard') renderDashboard()
+ if(page==='dashboard'){ renderDashboard(); refreshLicensingBadge() }
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
  if(page==='hours') switchHoursTab(_hoursTab)
  if(page==='hours-store') renderHoursStorePage()
@@ -4058,6 +4126,7 @@ function navTo(page,el){
  if(page==='my-time') loadMyTimePage()
  if(page==='rentals') loadRentalsPage()
  if(page==='responsibility') loadResponsibilityPage()
+ if(page==='licensing') loadLicensingPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -8270,7 +8339,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
- board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
+ board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'', licensing:'',
  'step-up-holds':'',
  oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️'
 }
@@ -14395,7 +14464,18 @@ function openUserEditModal(uid){
  const tbody = document.createElement('tbody')
  table.appendChild(tbody)
 
+ let _permLastGroup = null
  PERM_SECTIONS.forEach(s=>{
+ if(s.group && s.group !== _permLastGroup){
+  _permLastGroup = s.group
+  const gtr = document.createElement('tr')
+  const gtd = document.createElement('td')
+  gtd.colSpan = 3
+  gtd.style.cssText = 'padding:16px 8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--teal-dark)'
+  gtd.textContent = s.group
+  gtr.appendChild(gtd)
+  tbody.appendChild(gtr)
+ }
  const curVal = perms[s.key] || 'none'
  const tr = document.createElement('tr')
  tr.style.borderBottom = '1px solid var(--border)'
@@ -14561,27 +14641,266 @@ async function resetUserPassword(uid, name){
  toast('Password reset for '+name)
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// LICENSING REQUESTS
+// ═══════════════════════════════════════════════════════════════
+let _licRequests = []
+let _licFilter = 'new'
+let _licCurrentId = null
+
+const LIC_STATUSES = [
+ {key:'new',       label:'New',       color:'#92400e', bg:'#fef3c7'},
+ {key:'in_review', label:'In Review', color:'#1e40af', bg:'#dbeafe'},
+ {key:'approved',  label:'Approved',  color:'#166534', bg:'#dcfce7'},
+ {key:'ordered',   label:'Ordered',   color:'#5b21b6', bg:'#ede9fe'},
+ {key:'received',  label:'Received',  color:'#0369a1', bg:'#e0f2fe'},
+ {key:'denied',    label:'Denied',    color:'#991b1b', bg:'#fee2e2'},
+]
+function licMeta(s){ return LIC_STATUSES.find(x=>x.key===s) || {key:s||'',label:s||'-',color:'var(--text-muted)',bg:'var(--bg)'} }
+function licJson(v){ try{ const x = typeof v==='string' ? JSON.parse(v||'[]') : (v||[]); return Array.isArray(x)?x:[] }catch(e){ return [] } }
+function licMoney(c){ return (c===null||c===undefined||c==='') ? '-' : '$'+(Number(c)/100).toFixed(2) }
+function licDate(d){ if(!d) return '-'; const t=new Date(d); return isNaN(t.getTime())?String(d):t.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }
+function licBool(b){ return b ? 'Yes' : 'No' }
+
+async function loadLicensingPage(){
+ const list = document.getElementById('lic-list')
+ if(!list) return
+ list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">Loading...</div>'
+ const rows = await api('/api/licensing-requests')
+ if(rows && rows.error){
+  list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:14px">'+escHtml(rows.error)+'</div>'
+  return
+ }
+ _licRequests = Array.isArray(rows) ? rows : []
+ licUpdateBadge()
+ licRenderTabs()
+ licRender()
+}
+
+function licUpdateBadge(){
+ const badge = document.getElementById('licensing-badge')
+ if(!badge) return
+ const n = _licRequests.filter(r=>(r.status||'new')==='new').length
+ if(n>0){ badge.style.display=''; badge.textContent=n } else { badge.style.display='none' }
+}
+
+async function refreshLicensingBadge(){
+ if(!canView('licensing')) return
+ const rows = await api('/api/licensing-requests?status=new')
+ const badge = document.getElementById('licensing-badge')
+ if(!badge || !Array.isArray(rows)) return
+ if(rows.length>0){ badge.style.display=''; badge.textContent=rows.length } else { badge.style.display='none' }
+}
+
+function licRenderTabs(){
+ const el = document.getElementById('lic-tabs')
+ if(!el) return
+ const counts = {}
+ _licRequests.forEach(r=>{ const s=r.status||'new'; counts[s]=(counts[s]||0)+1 })
+ const tabs = [{key:'all',label:'All',n:_licRequests.length}].concat(
+   LIC_STATUSES.map(s=>({key:s.key,label:s.label,n:counts[s.key]||0})))
+ el.innerHTML = tabs.map(t=>{
+  const on = _licFilter===t.key
+  return '<button class="btn '+(on?'btn-primary':'btn-secondary')+'" style="padding:6px 14px;font-size:13px" onclick="licSetFilter(\''+t.key+'\')">'
+   + escHtml(t.label)+' <span style="opacity:.65">('+t.n+')</span></button>'
+ }).join('')
+}
+
+function licSetFilter(k){ _licFilter=k; licRenderTabs(); licRender() }
+
+function licRender(){
+ const list = document.getElementById('lic-list')
+ if(!list) return
+ const rows = _licFilter==='all' ? _licRequests : _licRequests.filter(r=>(r.status||'new')===_licFilter)
+ if(!rows.length){
+  list.innerHTML = '<div class="empty-state"><p>No licensing requests'+(_licFilter==='all'?' yet.':' with this status.')+'</p></div>'
+  return
+ }
+ const th = 'text-align:left;padding:8px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)'
+ list.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px"><thead><tr>'
+  + '<th style="'+th+'">Ref</th><th style="'+th+'">Production</th><th style="'+th+'">Licensor</th>'
+  + '<th style="'+th+'">Requested By</th><th style="'+th+'">Shows</th><th style="'+th+'">Submitted</th>'
+  + '<th style="'+th+'">Status</th><th style="'+th+'"></th></tr></thead><tbody>'
+  + rows.map(r=>{
+     const m = licMeta(r.status||'new')
+     const td = 'padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:top'
+     return '<tr>'
+      + '<td style="'+td+';font-family:monospace;font-size:12px">'+escHtml(r.ref_number||'-')+'</td>'
+      + '<td style="'+td+'"><div style="font-weight:600">'+escHtml(r.production_name||'Untitled')+'</div>'
+        + (r.production_edition?'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(r.production_edition)+'</div>':'')+'</td>'
+      + '<td style="'+td+'">'+escHtml(r.licensor||r.licensor_other||'-')+'</td>'
+      + '<td style="'+td+'"><div>'+escHtml(r.requester_name||'-')+'</div>'
+        + (r.requester_email?'<div style="font-size:12px;color:var(--text-muted)">'+escHtml(r.requester_email)+'</div>':'')+'</td>'
+      + '<td style="'+td+'">'+(r.number_of_shows||licJson(r.performance_dates).length||'-')+'</td>'
+      + '<td style="'+td+'">'+licDate(r.submitted_at)+'</td>'
+      + '<td style="'+td+'"><span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;color:'+m.color+';background:'+m.bg+'">'+escHtml(m.label)+'</span></td>'
+      + '<td style="'+td+';text-align:right"><button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" onclick="openLicensingDetail(\''+r.id+'\')">View</button></td>'
+      + '</tr>'
+    }).join('')
+  + '</tbody></table></div>'
+}
+
+function licRow(label, val){
+ return '<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">'
+  + '<div style="min-width:190px;font-size:12px;color:var(--text-muted);font-weight:600">'+escHtml(label)+'</div>'
+  + '<div style="font-size:13px;flex:1">'+val+'</div></div>'
+}
+function licHead(t){
+ return '<div style="font-size:11px;font-weight:700;margin:22px 0 6px;color:var(--teal-dark);text-transform:uppercase;letter-spacing:.7px">'+escHtml(t)+'</div>'
+}
+
+async function openLicensingDetail(id){
+ let r = _licRequests.find(x=>x.id===id)
+ if(!r) r = await api('/api/licensing-requests/'+id)
+ if(!r || r.error){ toast('Could not load that request','error'); return }
+ _licCurrentId = id
+ document.getElementById('lic-modal-title').textContent = (r.production_name||'Licensing Request')+(r.ref_number?' - '+r.ref_number:'')
+
+ const dates = licJson(r.performance_dates)
+ const addl  = licJson(r.additional_scripts)
+ const addons = [
+  ['Streaming license', r.addon_streaming_license],
+  ['Video recording license', r.addon_video_recording_license],
+  ['Marketing package', r.addon_marketing_package],
+  ['Youth / Junior production', r.addon_youth_production],
+  ['Choreography guides', r.addon_choreography_guides],
+  ["Director's guide", r.addon_directors_guide],
+  ['Broadway Media scenic', r.addon_broadway_media_scenic],
+ ].filter(a=>a[1]).map(a=>a[0])
+
+ let h = ''
+ h += licHead('Production')
+ h += licRow('Show', escHtml(r.production_name||'-'))
+ h += licRow('Type', escHtml(r.production_type||r.production_type_other||'-'))
+ h += licRow('Edition / version', escHtml(r.production_edition||'-'))
+ h += licRow('Licensor', escHtml(r.licensor||r.licensor_other||'-'))
+ h += licRow('Run dates', licDate(r.production_start_date)+' to '+licDate(r.production_end_date))
+ h += licRow('Performance dates', dates.length?escHtml(dates.join(', ')):'-')
+ h += licRow('Number of shows', r.number_of_shows||'-')
+ h += licRow('Expected performers', r.expected_performers||'-')
+
+ h += licHead('Venue')
+ h += licRow('Venue', escHtml(r.venue_name||'-'))
+ h += licRow('Address', escHtml(r.venue_address||'-'))
+ h += licRow('Venue capacity', r.venue_capacity||'-')
+ h += licRow('Audience capacity', r.audience_capacity||'-')
+
+ h += licHead('Ticketing')
+ h += licRow('Lowest price', licMoney(r.lowest_ticket_price_cents))
+ h += licRow('Highest price', licMoney(r.highest_ticket_price_cents))
+ h += licRow('Average price', licMoney(r.average_ticket_price_cents))
+
+ h += licHead('Materials')
+ h += licRow('Scripts needed', r.scripts_needed||'-')
+ h += licRow('Additional scripts', addl.length?escHtml(addl.join(', ')):'-')
+ h += licRow('Live orchestra', licBool(r.has_live_orchestra))
+ h += licRow('Full score needed', licBool(r.needs_full_score))
+ h += licRow('Orchestra size', r.orchestra_size||'-')
+ h += licRow('Instruments', escHtml(r.orchestra_instruments||'-'))
+ h += licRow('Rehearsal tracks', licBool(r.needs_rehearsal_tracks))
+ h += licRow('Performance tracks', licBool(r.needs_performance_tracks))
+ h += licRow('Materials needed by', licDate(r.materials_needed_by))
+
+ h += licHead('Shipping')
+ h += licRow('Ship to', escHtml(r.ship_to_name||'-'))
+ h += licRow('Address', escHtml(r.ship_to_address||'-'))
+ h += licRow('Phone', escHtml(r.ship_to_phone||'-'))
+
+ h += licHead('Add-ons')
+ h += licRow('Requested', addons.length?escHtml(addons.join(', ')):'None')
+ if(r.addon_logo_choice) h += licRow('Logo choice', escHtml(r.addon_logo_choice))
+ if(r.addon_marketing_notes) h += licRow('Marketing notes', escHtml(r.addon_marketing_notes))
+
+ if(r.additional_requests){
+  h += licHead('Additional requests')
+  h += '<div style="font-size:13px;white-space:pre-wrap;padding:8px 0">'+escHtml(r.additional_requests)+'</div>'
+ }
+
+ h += licHead('Submission')
+ h += licRow('Requested by', escHtml(r.requester_name||'-'))
+ h += licRow('Email', escHtml(r.requester_email||'-'))
+ h += licRow('Submitted', licDate(r.submitted_at))
+ if(r.reviewed_by) h += licRow('Last reviewed by', escHtml(r.reviewed_by)+' on '+licDate(r.reviewed_at))
+
+ const editable = canEdit('licensing')
+ h += licHead('Action')
+ h += '<div class="form-group"><label>Status</label><select id="lic-status" class="filter-select" style="width:100%"'+(editable?'':' disabled')+'>'
+   + LIC_STATUSES.map(s=>'<option value="'+s.key+'"'+((r.status||'new')===s.key?' selected':'')+'>'+escHtml(s.label)+'</option>').join('')
+   + '</select></div>'
+ h += '<div class="form-group"><label>Internal notes</label><textarea id="lic-notes" rows="4" style="width:100%"'+(editable?'':' disabled')+'>'+escHtml(r.admin_notes||'')+'</textarea></div>'
+
+ document.getElementById('lic-modal-body').innerHTML = h
+ const btn = document.getElementById('lic-save-btn')
+ if(btn) btn.style.display = editable ? '' : 'none'
+ openModal('modal-licensing')
+}
+
+async function saveLicensingRequest(){
+ if(!_licCurrentId) return
+ const st = document.getElementById('lic-status')
+ const nt = document.getElementById('lic-notes')
+ if(!st || !nt) return
+ const res = await api('/api/licensing-requests/'+_licCurrentId,'PUT',{status:st.value, admin_notes:nt.value})
+ if(res && res.ok){
+  toast('Licensing request updated','success')
+  closeModal('modal-licensing')
+  loadLicensingPage()
+ } else {
+  toast((res && res.error) || 'Could not save changes','error')
+ }
+}
+
+function copyLicensingLink(){
+ const url = window.location.origin + '/licensing-request'
+ if(navigator.clipboard){
+  navigator.clipboard.writeText(url).then(function(){ toast('Public form link copied','success') })
+   .catch(function(){ toast(url,'') })
+ } else { toast(url,'') }
+}
+
+// One row per left-nav menu item, grouped in sidebar order so this table reads
+// as a mirror of the nav. Dashboard and My Time are intentionally absent -
+// they are personal pages every signed-in user gets.
 const PERM_SECTIONS = [
- {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
- {key:'directors', label:'Directors', desc:'Director interest & submissions'},
- {key:'events', label:'Events & Calendar', desc:'Create and manage events'},
- {key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
- {key:'email', label:'Email & Templates', desc:'Send emails & manage templates'},
- {key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
- {key:'rising_stars', label:'Rising Stars', desc:'RS productions and portal content'},
- {key:'youth', label:'Participants', desc:'Youth profiles & guardians'},
- {key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
- {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
- {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
- {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
- {key:'board', label:'Board', desc:'Board member management & meetings'},
- {key:'settings', label:'Settings', desc:'Users, system configuration'},
- {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
- {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
- {key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
- {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
- {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
- {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
+ // RoleCall
+ {group:'RoleCall', key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
+ {group:'RoleCall', key:'directors', label:'Directors', desc:'Director interest & submissions'},
+ {group:'RoleCall', key:'licensing', label:'Licensing Requests', desc:'Show licensing requests, status & internal notes'},
+ {group:'RoleCall', key:'waivers', label:'Waivers', desc:'Waiver records & expiry tracking'},
+ {group:'RoleCall', key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
+ {group:'RoleCall', key:'email', label:'Email', desc:'Compose and send email, view send log'},
+ {group:'RoleCall', key:'events', label:'Events & Calendar', desc:'Create and manage events'},
+ {group:'RoleCall', key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
+ // Mainstage
+ {group:'Mainstage', key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
+ {group:'Mainstage', key:'cast_signin', label:'Cast Sign-In', desc:'Sign cast & crew in and out'},
+ {group:'Mainstage', key:'show_contracts', label:'Show Contracts', desc:'Upload contracts & public Q&A'},
+ // Education & Programming
+ {group:'Education & Programming', key:'youth', label:'Participants', desc:'Participant profiles & guardians'},
+ {group:'Education & Programming', key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
+ {group:'Education & Programming', key:'rising_stars', label:'Rising Stars', desc:'RS productions and portal content'},
+ {group:'Education & Programming', key:'step_up_holds', label:'Step Up Holds', desc:'Charge or release Step Up card holds'},
+ {group:'Education & Programming', key:'portal_admin', label:'Participant Portal', desc:'Announcements, files, team'},
+ {group:'Education & Programming', key:'kiosk', label:'Participant Sign-In', desc:'Open and close events on kiosk'},
+ {group:'Education & Programming', key:'carpools', label:'Carpools', desc:'Create and manage family carpools'},
+ // Venue & Partnerships
+ {group:'Venue & Partnerships', key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
+ // Donors & Sponsors
+ {group:'Donors & Sponsors', key:'donors', label:'All Donors', desc:'Donor records & donation history'},
+ {group:'Donors & Sponsors', key:'donor_campaigns', label:'Campaigns', desc:'Fundraising campaigns & goals'},
+ {group:'Donors & Sponsors', key:'donor_tiers', label:'Tiers & Benefits', desc:'Donor tiers and benefit tracking'},
+ {group:'Donors & Sponsors', key:'donor_templates', label:'Email Templates (Donors)', desc:'Thank-you and donor email templates'},
+ // Admin
+ {group:'Admin', key:'email_templates', label:'Email Templates', desc:'System email templates'},
+ {group:'Admin', key:'event_logs', label:'Event Logs', desc:'Open/close logs & checklist responses'},
+ {group:'Admin', key:'reports', label:'Reports', desc:'Run and schedule reports'},
+ {group:'Admin', key:'board', label:'Board', desc:'Board member management & meetings'},
+ {group:'Admin', key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
+ {group:'Admin', key:'notifications', label:'Notifications', desc:'Pending approvals & action queue'},
+ {group:'Admin', key:'settings', label:'Settings', desc:'Users, system configuration'},
+ {group:'Admin', key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
+ {group:'Admin', key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
 ]
 
 

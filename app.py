@@ -6790,7 +6790,7 @@ def dashboard():
     if err: return err
     conn = get_db()
     total_vols  = fetchone(conn, 'SELECT COUNT(*) as c FROM volunteers')['c']
-    total_hours = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as s FROM hours')['s']
+    total_hours = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as s FROM hours WHERE COALESCE(pay_type,'volunteer')='volunteer'")['s']
     total_youth = fetchone(conn, "SELECT COUNT(*) as c FROM youth_participants WHERE status='active'")['c']
     today = date.today()
     all_waivers = fetchall(conn,
@@ -6817,11 +6817,13 @@ def dashboard():
         m = today.month - i; y = today.year + (m - 1) // 12; m = ((m - 1) % 12) + 1
         label = datetime(y, m, 1).strftime('%b')
         total = fetchone(conn,
-            "SELECT COALESCE(SUM(hours),0) as s FROM hours WHERE TO_CHAR(TO_DATE(date,'YYYY-MM-DD'),'YYYY-MM')=%s",
+            "SELECT COALESCE(SUM(hours),0) as s FROM hours WHERE TO_CHAR(TO_DATE(date,'YYYY-MM-DD'),'YYYY-MM')=%s AND COALESCE(pay_type,'volunteer')='volunteer'",
             (f'{y:04d}-{m:02d}',))['s']
         monthly.append({'label': label, 'total': float(total)})
     top = fetchall(conn, '''
-        SELECT v.id, v.name, COALESCE(SUM(h.hours),0) as total_hours, COUNT(DISTINCT h.event) as total_events
+        SELECT v.id, v.name,
+               COALESCE(SUM(CASE WHEN COALESCE(h.pay_type,'volunteer')='volunteer' THEN h.hours END),0) as total_hours,
+               COUNT(DISTINCT CASE WHEN COALESCE(h.pay_type,'volunteer')='volunteer' THEN h.event END) as total_events
         FROM volunteers v LEFT JOIN hours h ON v.id=h.volunteer_id
         GROUP BY v.id, v.name ORDER BY total_hours DESC LIMIT 5
     ''')

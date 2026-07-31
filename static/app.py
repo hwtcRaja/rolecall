@@ -1122,6 +1122,7 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS licensing_requests (
             id TEXT PRIMARY KEY,
             ref_number TEXT UNIQUE NOT NULL,
+            batch_id TEXT,
             production_id TEXT REFERENCES productions(id) ON DELETE SET NULL,
             requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
             requester_name TEXT DEFAULT '',
@@ -1129,6 +1130,7 @@ def init_db():
             production_name TEXT NOT NULL,
             production_type TEXT DEFAULT '',
             production_type_other TEXT DEFAULT '',
+            production_edition TEXT DEFAULT '',
             licensor TEXT DEFAULT '',
             licensor_other TEXT DEFAULT '',
             production_start_date TEXT DEFAULT '',
@@ -1171,6 +1173,14 @@ def init_db():
             reviewed_at TIMESTAMP,
             submitted_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        # licensing request contract tracking (has the licensor been asked, do we have the signed contract, when does it expire)
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_received BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_received_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_expires_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_name TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_original_name TEXT DEFAULT ''",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -1369,6 +1379,9 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_payments_agreement ON rental_payments(agreement_id)',
         'CREATE INDEX IF NOT EXISTS ix_rental_payments_invoice ON rental_payments(square_invoice_id)',
+
+        # ── Artistic Partnership: monthly installment payment plans ──
+        "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS installment_label TEXT DEFAULT ''",
 
         # ── Artistic Partnership: partner file attachments (insurance, W9, etc.) ──
         """CREATE TABLE IF NOT EXISTS rental_partner_files (
@@ -2081,6 +2094,13 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS specific_dates TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS portal_token TEXT UNIQUE",
 
+        # ── Artistic Partnership: classification per HWTC Partnership/Space Use Guidelines ──
+        # ticketed_enrollment (HWTC owns it) | open_partnership (co-sponsor credit) | closed_rental (acknowledgment only)
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS partnership_category TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS revenue_split_notes TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_months INTEGER",
+
         # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
             id TEXT PRIMARY KEY,
@@ -2230,6 +2250,35 @@ def require_admin():
         return jsonify({'error': 'Admin required'}), 403
     return None
 
+# Mirrors PERM_LEGACY_FALLBACK in index.html - keep the two in sync.
+PERM_LEGACY_FALLBACK = {
+    'waivers': 'volunteers',
+    'carpools': 'youth',
+    'notifications': 'settings',
+    'licensing': 'productions',
+    'cast_signin': 'productions',
+    'show_contracts': 'productions',
+    'step_up_holds': 'rising_stars',
+    'event_logs': 'reports',
+    'email_templates': 'email',
+    'donor_campaigns': 'donors',
+    'donor_tiers': 'donors',
+    'donor_templates': 'donors',
+}
+
+
+def resolve_perm_level(perms, section):
+    """Explicit setting if present, else legacy parent, else none.
+    An explicit 'none' is respected - a deliberate revoke is never overridden."""
+    level = perms.get(section)
+    if level:
+        return level
+    legacy = PERM_LEGACY_FALLBACK.get(section)
+    if legacy and perms.get(legacy):
+        return perms[legacy]
+    return 'none'
+
+
 def require_permission(section, level='edit'):
     """Allow admin OR a user with edit/view permission for the given section."""
     if 'user_id' not in session:
@@ -2251,7 +2300,7 @@ def require_permission(section, level='edit'):
         session['permissions'] = u.get('role_permissions') or '{}'
     except Exception:
         perms = {}
-    user_level = perms.get(section, 'none')
+    user_level = resolve_perm_level(perms, section)
     if level == 'view' and user_level in ('view', 'edit'):
         return None
     if level == 'edit' and user_level == 'edit':
@@ -2295,7 +2344,7 @@ def get_recipient_emails(settings=None):
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
     footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -12021,6 +12070,31 @@ def get_notifications():
     except Exception as e:
         app.logger.warning(f'notifications licensing_requests: {e}')
 
+    # Licensing contracts expiring soon or already expired — needs a re-request
+    try:
+        lic_contracts = fetchall(conn, '''
+            SELECT id, ref_number, production_name, licensor, contract_expires_date
+            FROM licensing_requests
+            WHERE contract_received = TRUE AND contract_expires_date IS NOT NULL
+              AND contract_expires_date <= (CURRENT_DATE + INTERVAL '60 days')
+            ORDER BY contract_expires_date ASC
+            LIMIT 50''')
+        for lr in lic_contracts:
+            exp = lr.get('contract_expires_date')
+            days_left = (exp - date.today()).days if exp else None
+            expired = days_left is not None and days_left < 0
+            needs_action.append({
+                'id':    lr['id'],
+                'type':  'licensing_contract_expiring',
+                'icon':  '⚠️' if expired else '📅',
+                'color': 'red' if expired else 'amber',
+                'title': f'Licensing contract {"expired" if expired else "expiring soon"}  -  {lr["production_name"] or "Untitled production"}',
+                'sub':   f'{lr.get("licensor") or "Licensor TBD"} · {"expired" if expired else "expires"} {exp.strftime("%b %d, %Y") if exp else ""} · Ref {lr["ref_number"]}',
+                'data':  lr,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications licensing_contracts: {e}')
+
     # Recent approved hours (activity feed)
     try:
         recent = fetchall(conn, '''
@@ -16784,9 +16858,36 @@ def _cents(v):
     except (TypeError, ValueError):
         return None
 
+def _licensing_contract_status(row):
+    """Derive a simple contract-tracking status for a licensing request:
+    not_requested -> requested -> contract_on_file -> expiring_soon -> expired"""
+    if row.get('contract_received'):
+        exp = row.get('contract_expires_date')
+        if exp:
+            try:
+                exp_date = exp if isinstance(exp, date) else datetime.strptime(str(exp), '%Y-%m-%d').date()
+                days_left = (exp_date - date.today()).days
+                if days_left < 0:
+                    return 'expired'
+                if days_left <= 60:
+                    return 'expiring_soon'
+            except Exception:
+                pass
+        return 'contract_on_file'
+    if row.get('licensor_requested'):
+        return 'requested'
+    return 'not_requested'
+
+def _attach_contract_status(rows):
+    single = not isinstance(rows, list)
+    items = [rows] if single else rows
+    for r in items:
+        r['contract_status'] = _licensing_contract_status(r)
+    return items[0] if single else items
+
 @app.route('/api/licensing-requests', methods=['GET'])
 def get_licensing_requests():
-    err = require_auth()
+    err = require_permission('licensing', 'view')
     if err: return err
     conn = get_db()
     status = request.args.get('status', '')
@@ -16795,16 +16896,18 @@ def get_licensing_requests():
     else:
         rows = fetchall(conn, 'SELECT * FROM licensing_requests ORDER BY submitted_at DESC') or []
     conn.close()
+    rows = _attach_contract_status(rows)
     return jsonify(rows)
 
 @app.route('/api/licensing-requests/<lid>', methods=['GET'])
 def get_licensing_request(lid):
-    err = require_auth()
+    err = require_permission('licensing', 'view')
     if err: return err
     conn = get_db()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()
     if not row: return jsonify({'error': 'Not found'}), 404
+    row = _attach_contract_status(row)
     return jsonify(row)
 
 @app.route('/licensing-request')
@@ -16813,67 +16916,101 @@ def licensing_request_page():
 
 @app.route('/api/public/licensing-request', methods=['POST'])
 def submit_licensing_request():
-    """Standalone shareable form — anyone with the link can submit a show licensing request."""
+    """Standalone shareable form — anyone with the link can submit one or more show
+    licensing requests at once. Shared fields (contact info, venue, orchestra,
+    shipping, and show defaults) apply to every show in the `shows` array unless
+    a show overrides a specific field itself."""
     d = request.json or {}
     requester_name  = (d.get('requester_name') or '').strip()
     requester_email = (d.get('requester_email') or '').strip().lower()
-    production_name = (d.get('production_name') or '').strip()
-    if not requester_name or not requester_email or not production_name:
-        return jsonify({'error': 'Name, email, and production name are required'}), 400
+    shows_in = d.get('shows') or []
+    if not requester_name or not requester_email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if not isinstance(shows_in, list) or not shows_in:
+        return jsonify({'error': 'At least one production is required'}), 400
+    for s in shows_in:
+        if not (s.get('production_name') or '').strip():
+            return jsonify({'error': 'Every production needs a name'}), 400
+
     conn = get_db()
     try:
         import random, string
-        lid = str(uuid.uuid4())
-        ref_number = 'LIC-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
         # Link to a staff account if the submitter happens to be logged in / matches a user
         matched_user = fetchone(conn, 'SELECT id FROM users WHERE LOWER(email)=%s', (requester_email,))
         requested_by = matched_user['id'] if matched_user else session.get('user_id')
 
-        lowest_cents  = _cents(d.get('lowest_ticket_price'))
-        highest_cents = _cents(d.get('highest_ticket_price'))
-        if lowest_cents is not None and highest_cents is not None:
-            avg_cents = round((lowest_cents + highest_cents) / 2)
-        else:
-            avg_cents = lowest_cents or highest_cents
+        batch_id = str(uuid.uuid4())
+        created = []  # [{id, ref_number, production_name}]
 
-        execute(conn, '''INSERT INTO licensing_requests
-            (id, ref_number, production_id, requested_by, requester_name, requester_email,
-             production_name, production_type, production_type_other, licensor, licensor_other,
-             production_start_date, production_end_date, venue_name, venue_address,
-             venue_capacity, audience_capacity, performance_dates, number_of_shows,
-             lowest_ticket_price_cents, highest_ticket_price_cents, average_ticket_price_cents,
-             expected_performers, scripts_needed, additional_scripts,
-             has_live_orchestra, needs_full_score, orchestra_size, orchestra_instruments,
-             needs_rehearsal_tracks, needs_performance_tracks,
-             ship_to_name, ship_to_address, ship_to_phone, materials_needed_by,
-             addon_streaming_license, addon_video_recording_license, addon_marketing_package,
-             addon_marketing_notes, addon_logo_choice, addon_youth_production,
-             addon_choreography_guides, addon_directors_guide, addon_broadway_media_scenic,
-             additional_requests)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (lid, ref_number, d.get('production_id') or None, requested_by,
-             requester_name, requester_email,
-             production_name, d.get('production_type', ''), d.get('production_type_other', ''),
-             d.get('licensor', ''), d.get('licensor_other', ''),
-             d.get('production_start_date', ''), d.get('production_end_date', ''),
-             d.get('venue_name', ''), d.get('venue_address', ''),
-             d.get('venue_capacity') or None, d.get('audience_capacity') or None,
-             json.dumps(d.get('performance_dates') or []), d.get('number_of_shows') or None,
-             lowest_cents, highest_cents, avg_cents,
-             d.get('expected_performers') or None, d.get('scripts_needed') or None,
-             json.dumps(d.get('additional_scripts') or []),
-             bool(d.get('has_live_orchestra')), bool(d.get('needs_full_score')),
-             d.get('orchestra_size') or None, d.get('orchestra_instruments', ''),
-             bool(d.get('needs_rehearsal_tracks')), bool(d.get('needs_performance_tracks')),
-             d.get('ship_to_name', ''), d.get('ship_to_address', ''), d.get('ship_to_phone', ''),
-             d.get('materials_needed_by', ''),
-             bool(d.get('addon_streaming_license')), bool(d.get('addon_video_recording_license')),
-             bool(d.get('addon_marketing_package')), d.get('addon_marketing_notes', ''),
-             d.get('addon_logo_choice', ''), bool(d.get('addon_youth_production')),
-             bool(d.get('addon_choreography_guides')), bool(d.get('addon_directors_guide')),
-             bool(d.get('addon_broadway_media_scenic')), d.get('additional_requests', '')))
+        for s in shows_in:
+            lid = str(uuid.uuid4())
+            ref_number = 'LIC-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+            lowest_cents  = _cents(s.get('lowest_ticket_price'))
+            highest_cents = _cents(s.get('highest_ticket_price'))
+            if lowest_cents is not None and highest_cents is not None:
+                avg_cents = round((lowest_cents + highest_cents) / 2)
+            else:
+                avg_cents = lowest_cents or highest_cents
+
+            show_rehearsal_tracks = s.get('needs_rehearsal_tracks', None)
+            show_rehearsal_tracks = bool(d.get('needs_rehearsal_tracks')) if show_rehearsal_tracks is None else bool(show_rehearsal_tracks)
+
+            show_streaming = s.get('addon_streaming_license', None)
+            show_streaming = bool(d.get('addon_streaming_license')) if show_streaming is None else bool(show_streaming)
+
+            show_video = s.get('addon_video_recording_license', None)
+            show_video = bool(d.get('addon_video_recording_license')) if show_video is None else bool(show_video)
+
+            show_marketing = s.get('addon_marketing_package', None)
+            show_marketing = bool(d.get('addon_marketing_package')) if show_marketing is None else bool(show_marketing)
+
+            execute(conn, '''INSERT INTO licensing_requests
+                (id, ref_number, batch_id, production_id, requested_by, requester_name, requester_email,
+                 production_name, production_type, production_type_other, production_edition, licensor, licensor_other,
+                 production_start_date, production_end_date, venue_name, venue_address,
+                 venue_capacity, audience_capacity, performance_dates, number_of_shows,
+                 lowest_ticket_price_cents, highest_ticket_price_cents, average_ticket_price_cents,
+                 expected_performers, scripts_needed, additional_scripts,
+                 has_live_orchestra, needs_full_score, orchestra_size, orchestra_instruments,
+                 needs_rehearsal_tracks, needs_performance_tracks,
+                 ship_to_name, ship_to_address, ship_to_phone, materials_needed_by,
+                 addon_streaming_license, addon_video_recording_license, addon_marketing_package,
+                 addon_marketing_notes, addon_logo_choice, addon_youth_production,
+                 addon_choreography_guides, addon_directors_guide, addon_broadway_media_scenic,
+                 additional_requests)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (lid, ref_number, batch_id, s.get('production_id') or None, requested_by,
+                 requester_name, requester_email,
+                 (s.get('production_name') or '').strip(), s.get('production_type', ''), s.get('production_type_other', ''),
+                 s.get('production_edition', ''),
+                 s.get('licensor', ''), s.get('licensor_other', ''),
+                 s.get('production_start_date', ''), s.get('production_end_date', ''),
+                 d.get('venue_name', ''), d.get('venue_address', ''),
+                 d.get('venue_capacity') or None, d.get('audience_capacity') or None,
+                 json.dumps(s.get('performance_dates') or []), s.get('number_of_shows') or None,
+                 lowest_cents, highest_cents, avg_cents,
+                 s.get('expected_performers') or None, s.get('scripts_needed') or None,
+                 json.dumps(d.get('additional_scripts') or []),
+                 bool(d.get('has_live_orchestra')), bool(d.get('needs_full_score')),
+                 d.get('orchestra_size') or None, d.get('orchestra_instruments', ''),
+                 show_rehearsal_tracks, bool(d.get('needs_performance_tracks')),
+                 d.get('ship_to_name', ''), d.get('ship_to_address', ''), d.get('ship_to_phone', ''),
+                 d.get('materials_needed_by', ''),
+                 show_streaming, show_video,
+                 show_marketing, d.get('addon_marketing_notes', ''),
+                 d.get('addon_logo_choice', ''), False,
+                 bool(d.get('addon_choreography_guides')), False,
+                 bool(d.get('addon_broadway_media_scenic')), s.get('additional_requests', '')))
+
+            created.append({'id': lid, 'ref_number': ref_number, 'production_name': (s.get('production_name') or '').strip()})
+
         conn.commit()
+
+        show_rows_html = ''.join(
+            f'<li><b>{c["production_name"]}</b> — Ref {c["ref_number"]}</li>' for c in created
+        )
 
         # Notify admins so someone can action it
         try:
@@ -16881,17 +17018,15 @@ def submit_licensing_request():
             admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
             notify_emails = list(set(admin_emails + ['info@hwtco.org']))
             if notify_emails and es.get('resend_api_key'):
+                subject = f'New Show Licensing Request{"s" if len(created) > 1 else ""} — {len(created)} production{"s" if len(created) > 1 else ""}'
                 send_email(
                     ','.join(notify_emails),
-                    f'New Show Licensing Request — {ref_number}',
+                    subject,
                     f'''<div style="font-family:sans-serif;padding:20px">
-                        <h3>New show licensing request received</h3>
-                        <p><b>Ref:</b> {ref_number}<br>
-                        <b>Production:</b> {production_name} ({d.get("production_type","")})<br>
-                        <b>Licensor:</b> {d.get("licensor","")}<br>
-                        <b>Requested by:</b> {requester_name} ({requester_email})<br>
-                        <b>Performance dates:</b> {d.get("production_start_date","")} – {d.get("production_end_date","")}<br>
+                        <h3>New show licensing request{"s" if len(created) > 1 else ""} received</h3>
+                        <p><b>Requested by:</b> {requester_name} ({requester_email})<br>
                         <b>Venue:</b> {d.get("venue_name","")}</p>
+                        <ul>{show_rows_html}</ul>
                         <p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall</a></p>
                       </div>''',
                     source='licensing_request_admin')
@@ -16904,19 +17039,16 @@ def submit_licensing_request():
             if es.get('resend_api_key'):
                 send_email(
                     requester_email,
-                    f'Licensing Request Received — {ref_number}',
+                    f'Licensing Request{"s" if len(created) > 1 else ""} Received',
                     f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
                         <div style="background:#145466;padding:20px 24px">
                           <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
                         </div>
                         <div style="padding:28px 24px">
-                          <h2 style="color:#111;margin-bottom:8px">Licensing Request Received</h2>
-                          <p style="color:#374151;font-size:15px;line-height:1.6">Thanks, {requester_name}. We've received your licensing request for <strong>{production_name}</strong>.</p>
-                          <div style="background:#f3f4f6;border-radius:10px;padding:16px;margin:20px 0">
-                            <div style="font-size:12px;color:#9ca3af;font-weight:700;text-transform:uppercase;margin-bottom:4px">Your Request Number</div>
-                            <div style="font-size:24px;font-weight:800;color:#145466;font-family:monospace">{ref_number}</div>
-                          </div>
-                          <p style="color:#374151;font-size:14px;line-height:1.6">Our team will review this and follow up with next steps.</p>
+                          <h2 style="color:#111;margin-bottom:8px">Licensing Request{"s" if len(created) > 1 else ""} Received</h2>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Thanks, {requester_name}. We've received the following licensing request{"s" if len(created) > 1 else ""}:</p>
+                          <ul style="color:#374151;font-size:14px;line-height:1.8">{show_rows_html}</ul>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Our team will review these and follow up with next steps.</p>
                         </div>
                       </div>''',
                     source='licensing_request_confirmation')
@@ -16924,7 +17056,7 @@ def submit_licensing_request():
             app.logger.warning(f'Licensing request confirmation email failed: {e}')
 
         conn.close()
-        return jsonify({'ok': True, 'id': lid, 'ref_number': ref_number})
+        return jsonify({'ok': True, 'batch_id': batch_id, 'requests': created})
     except Exception as e:
         app.logger.error(f'Licensing request error: {e}')
         try: conn.rollback(); conn.close()
@@ -16934,7 +17066,7 @@ def submit_licensing_request():
 @app.route('/api/licensing-requests/<lid>', methods=['PUT'])
 def update_licensing_request(lid):
     """Action a licensing request — used by whoever handles licensing (e.g. producer/admin)."""
-    err = require_auth()
+    err = require_permission('licensing')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -16947,9 +17079,96 @@ def update_licensing_request(lid):
     admin_notes = d.get('admin_notes', lr.get('admin_notes', ''))
     reviewer = d.get('reviewed_by') or session.get('user_name', '')
 
+    # Contract tracking fields — only touched when explicitly provided so partial
+    # updates (e.g. just toggling status) don't clobber existing tracking data.
+    licensor_requested = d.get('licensor_requested', lr.get('licensor_requested', False))
+    licensor_requested_date = d.get('licensor_requested_date', lr.get('licensor_requested_date'))
+    if d.get('licensor_requested') and not lr.get('licensor_requested') and not d.get('licensor_requested_date'):
+        licensor_requested_date = date.today().isoformat()
+    contract_received = d.get('contract_received', lr.get('contract_received', False))
+    contract_received_date = d.get('contract_received_date', lr.get('contract_received_date'))
+    if d.get('contract_received') and not lr.get('contract_received') and not d.get('contract_received_date'):
+        contract_received_date = date.today().isoformat()
+    contract_expires_date = d.get('contract_expires_date', lr.get('contract_expires_date'))
+
     execute(conn, '''UPDATE licensing_requests SET status=%s, admin_notes=%s,
-        reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW() WHERE id=%s''',
-        (new_status, admin_notes, reviewer, lid))
+        reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW(),
+        licensor_requested=%s, licensor_requested_date=%s,
+        contract_received=%s, contract_received_date=%s,
+        contract_expires_date=%s WHERE id=%s''',
+        (new_status, admin_notes, reviewer,
+         licensor_requested, licensor_requested_date or None,
+         contract_received, contract_received_date or None,
+         contract_expires_date or None, lid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    row = _attach_contract_status(row)
+    return jsonify(row)
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['POST'])
+def upload_licensing_contract_file(lid):
+    """Attach the signed/returned contract document to a licensing request."""
+    err = require_permission('licensing')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if not lr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if 'file' not in request.files:
+        conn.close()
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        conn.close()
+        return jsonify({'error': 'No file selected'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png']:
+        conn.close()
+        return jsonify({'error': 'Invalid file type — use PDF, Word, or an image'}), 400
+    filename = f'licensing-contract-{lid[:8]}-{str(uuid.uuid4())[:8]}{ext}'
+    f.save(os.path.join(UPLOAD_FOLDER, filename))
+    # Remove any previously-attached file for this request
+    old_filename = lr.get('contract_file_name')
+    if old_filename:
+        try: os.remove(os.path.join(UPLOAD_FOLDER, old_filename))
+        except Exception: pass
+    contract_received_date = lr.get('contract_received_date') or date.today().isoformat()
+    execute(conn, '''UPDATE licensing_requests SET contract_file_name=%s, contract_file_original_name=%s,
+        contract_received=TRUE, contract_received_date=%s, updated_at=NOW() WHERE id=%s''',
+        (filename, f.filename, contract_received_date, lid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    row = _attach_contract_status(row)
+    return jsonify(row)
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['GET'])
+def download_licensing_contract_file(lid):
+    err = require_permission('licensing', 'view')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    if not lr or not lr.get('contract_file_name'):
+        return jsonify({'error': 'No file attached'}), 404
+    filepath = os.path.join(UPLOAD_FOLDER, lr['contract_file_name'])
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found on disk'}), 404
+    return send_file(filepath, as_attachment=True, download_name=lr.get('contract_file_original_name') or lr['contract_file_name'])
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['DELETE'])
+def delete_licensing_contract_file(lid):
+    err = require_permission('licensing')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if lr and lr.get('contract_file_name'):
+        try: os.remove(os.path.join(UPLOAD_FOLDER, lr['contract_file_name']))
+        except Exception: pass
+    execute(conn, '''UPDATE licensing_requests SET contract_file_name='', contract_file_original_name='',
+        updated_at=NOW() WHERE id=%s''', (lid,))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -20974,7 +21193,12 @@ def get_rental_requests():
             (SELECT square_invoice_status FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_invoice_status,
             (SELECT paid_at FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_paid_at,
             (SELECT public_url FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_public_url,
-            (SELECT due_date FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_due_date
+            (SELECT due_date FROM rental_payments WHERE agreement_id=ra.id AND payment_type='final' ORDER BY created_at DESC LIMIT 1) AS final_due_date,
+            (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment') AS installment_count,
+            (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_count,
+            (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment') AS installment_total_cents,
+            (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_cents,
+            (SELECT MIN(due_date) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status!='PAID') AS installment_next_due_date
             FROM rental_requests rr
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
             LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
@@ -21003,8 +21227,9 @@ def create_rental_request():
         (id, partner_id, space_id, title, purpose, start_date, end_date,
          start_time, end_time, recurring, recurrence_pattern, recurrence_end_date,
          date_mode, specific_dates, portal_token,
-         estimated_attendance, rate_type, rate_amount, total_amount, status, notes)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+         estimated_attendance, rate_type, rate_amount, total_amount, status, notes,
+         partnership_category, revenue_split_notes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s)''',
         (rid, d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(),
          (d.get('purpose') or '').strip(),
@@ -21022,7 +21247,9 @@ def create_rental_request():
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
-         (d.get('notes') or '').strip()))
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip()))
     # Nothing is added to the calendar yet — occurrences are only generated
     # once this request is fully approved (see approve_rental_request).
     conn.commit()
@@ -21176,7 +21403,7 @@ def update_rental_request(rid):
         recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
         date_mode=%s, specific_dates=%s,
         estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
-        notes=%s, updated_at=NOW() WHERE id=%s''',
+        notes=%s, partnership_category=%s, revenue_split_notes=%s, updated_at=NOW() WHERE id=%s''',
         (d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
          (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
@@ -21187,7 +21414,9 @@ def update_rental_request(rid):
          d.get('estimated_attendance') or None,
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
-         (d.get('notes') or '').strip(), rid))
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip(), rid))
     # Only an already-approved request has anything on the calendar to keep
     # in sync — clear and regenerate its occurrences so an edited date/time
     # is reflected rather than the original. A still-pending request has no
@@ -21376,11 +21605,20 @@ def generate_rental_contract(rid):
     poc_email = (d.get('poc_email') or '').strip()
     poc_phone = (d.get('poc_phone') or '').strip()
     deposit = (d.get('deposit') or '').strip()
+    revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
+    billing_frequency = (d.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final').strip()
+    billing_months = d.get('billing_months') or req.get('billing_months') or None
+    # Persist whatever billing plan was disclosed in this contract onto the
+    # request itself, so the payment-plan step after signing can't drift
+    # from what the partner actually agreed to.
+    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s WHERE id=%s',
+        (billing_frequency, billing_months, rid))
     # If no custom terms provided, load default template from email_settings
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit)
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21392,8 +21630,82 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit=''):
+def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
+    """Returns the label + body text for clauses 2.1-2.4 (no wrapping <p><strong>
+    tags), which vary by partnership category and billing frequency. This is
+    the single source of truth used both to assemble the actual contract and
+    to preview the same text in the UI before it's generated."""
+    billing_frequency = billing_frequency or 'deposit_final'
+    total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
+    if category == 'ticketed_enrollment':
+        split_display = revenue_split_notes or 'to be agreed in writing prior to the first session'
+        c21 = ('2.1 Revenue &amp; Settlement', f'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.')
+        c22 = ('2.2 Cancellation', 'Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment.')
+        c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.')
+        c24 = ('2.4 Marketing &amp; Billing', f'HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.')
+    else:
+        use_label = 'this use' if category == 'closed_rental' else 'the collaboration'
+        event_label = 'the scheduled use' if category == 'closed_rental' else 'the scheduled event'
+        if billing_frequency == 'monthly':
+            c21 = ('2.1 Partnership Fee &amp; Payment Schedule', f'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date. Details of the installment schedule (number of payments and amounts) are set out in the Payment Plan issued alongside this Agreement.')
+            c22 = ('2.2 Cancellation', 'If Partner Organization cancels this Agreement, HWTC will stop issuing any further monthly installment invoices as of the cancellation date. Any installment already invoiced remains due and payable regardless of cancellation; amounts already paid are non-refundable except at HWTC&rsquo;s sole discretion.')
+        elif billing_frequency == 'full':
+            c21 = ('2.1 Partnership Fee', f'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.')
+            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
+        else:
+            c21 = ('2.1 Partnership Fee &amp; Deposit', f'Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of {event_label}, the deposit is forfeited in full.')
+            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
+        if category == 'closed_rental':
+            c23 = ('2.3 Nature of the Use', 'This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.')
+            c24 = ('2.4 Acknowledgment', 'Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.')
+        else:
+            c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.')
+            c24 = ('2.4 Billing &amp; Credit', 'All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.')
+    return {'c21': {'label': c21[0], 'body': c21[1]}, 'c22': {'label': c22[0], 'body': c22[1]},
+            'c23': {'label': c23[0], 'body': c23[1]}, 'c24': {'label': c24[0], 'body': c24[1]}}
+
+_RENTAL_REMAINING_CLAUSES = '''<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
+<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
+<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
+<p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
+<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
+<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
+<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+
+def _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
+    """Assembles the full '2. TERMS AND CONDITIONS' block from the
+    category/billing-aware clauses plus the fixed remaining clauses."""
+    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+    dynamic_html = '\n'.join(f'<p><strong>{c["label"]}.</strong> {c["body"]}</p>' for c in [clauses['c21'], clauses['c22'], clauses['c23'], clauses['c24']])
+    return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}\n{_RENTAL_REMAINING_CLAUSES}'
+
+@app.route('/api/rental/requests/<rid>/default-terms')
+def get_rental_default_terms(rid):
+    """Live preview of the default contract terms for a request, given the
+    current (or proposed) category/deposit/billing settings — lets the UI
+    show exactly what will be signed before the contract is generated.
+    Returns the structured 2.1-2.4 clauses (for slotting into the editable
+    fields) plus the fully assembled HTML (for reference)."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+    conn.close()
+    if not req:
+        return jsonify({'error': 'Request not found'}), 404
+    category = request.args.get('category') or req.get('partnership_category') or 'open_partnership'
+    deposit = request.args.get('deposit') or ''
+    revenue_split_notes = request.args.get('revenue_split_notes') or req.get('revenue_split_notes') or ''
+    billing_frequency = request.args.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final'
+    total_cents = int(req.get('total_amount') or 0)
+    partner_name = 'the Partner Organization'
+    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+    terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+    return jsonify({'terms_html': terms_html, 'clauses': clauses})
+
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None):
     import datetime as _dtc
+    import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
     rate_cents = int(req.get('rate_amount') or 0)
@@ -21402,28 +21714,98 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     total_str = f'${total_cents/100:.2f}' if total_cents else 'To be invoiced'
     start = req.get('start_date','')
     end = req.get('end_date','')
-    date_range = start + (' through ' + end if end and end != start else '')
+
+    def _format_date_human(date_str):
+        try:
+            return _dtc.date.fromisoformat(date_str).strftime('%B %d, %Y')
+        except Exception:
+            return date_str
+
+    # Prefer the actual generated occurrence list (authoritative once a
+    # request is approved, and correct for every scheduling mode — specific
+    # dates, recurring, or a simple range). Fall back to the raw
+    # specific_dates JSON if this contract is being generated pre-approval.
+    date_list_source = []
+    if occurrences:
+        date_list_source = [{'date': o.get('occurrence_date',''), 'start_time': o.get('start_time',''), 'end_time': o.get('end_time','')} for o in occurrences]
+    elif (req.get('date_mode') or '') == 'specific':
+        raw_dates = req.get('specific_dates') or '[]'
+        try:
+            parsed_dates = _dtj.loads(raw_dates) if isinstance(raw_dates, str) else (raw_dates or [])
+        except Exception:
+            parsed_dates = []
+        for item in parsed_dates:
+            if isinstance(item, dict):
+                date_list_source.append({'date': item.get('date',''), 'start_time': item.get('start_time') or req.get('start_time',''), 'end_time': item.get('end_time') or req.get('end_time','')})
+            else:
+                date_list_source.append({'date': item, 'start_time': req.get('start_time',''), 'end_time': req.get('end_time','')})
+
+    if len(date_list_source) > 1:
+        # Multiple dates — list every one. Only append a per-date time when
+        # it differs from the overall Time row, to avoid needless repetition.
+        base_time = (req.get('start_time',''), req.get('end_time',''))
+        date_items = []
+        for item in sorted(date_list_source, key=lambda x: x.get('date','')):
+            label = _format_date_human(item.get('date',''))
+            item_time = (item.get('start_time',''), item.get('end_time',''))
+            if item_time != base_time and (item.get('start_time') or item.get('end_time')):
+                t = item.get('start_time','') + (' – ' + item.get('end_time','') if item.get('end_time') else '')
+                label += f' ({t})'
+            date_items.append(label)
+        date_range = ', '.join(date_items)
+    elif len(date_list_source) == 1:
+        date_range = _format_date_human(date_list_source[0].get('date',''))
+    else:
+        date_range = start + (' through ' + end if end and end != start else '')
+
     time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
     partner_name = req.get('partner_name','Partner Organization')
     contact_name = req.get('contact_name','') or partner_name
-    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+    category = req.get('partnership_category') or 'open_partnership'
+
+    # Per the HWTC Partnership/Space Use Guidelines, there are three models —
+    # each carries its own document title, fee structure, credit requirement,
+    # and cancellation policy.
+    category_labels = {
+        'ticketed_enrollment': 'Ticketed / Enrollment-Based Event \u2014 HWTC Owns It',
+        'open_partnership': 'Open, Free-to-Attend Event \u2014 Partnership Model',
+        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Rental / Acknowledgment',
+    }
+    doc_titles = {
+        'ticketed_enrollment': 'HOSTED PROGRAM AGREEMENT',
+        'open_partnership': 'ARTISTIC PARTNERSHIP AGREEMENT',
+        'closed_rental': 'STUDIO USE AGREEMENT',
+    }
+    category_label = category_labels.get(category, category_labels['open_partnership'])
+    doc_title = doc_titles.get(category, doc_titles['open_partnership'])
+    category_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Category</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{category_label}</td></tr>'
+
+    # ── Fee / revenue rows for the details table ──
+    if category == 'ticketed_enrollment':
+        split_display = revenue_split_notes or 'To be agreed in writing prior to the first session'
+        fee_rows = f'''<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Revenue Split</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{split_display}</strong></td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Taught by {partner_name}, produced by Horizon West Theater Company</em></td></tr>'''
+    else:
+        deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+        if category == 'closed_rental':
+            credit_text = 'Acknowledgment only \u2014 not publicly promoted (e.g. &ldquo;with thanks to Horizon West Theater Company&rdquo;)'
+        else:
+            credit_text = f'Hosted in Partnership with Horizon West Theater Company \u2014 {partner_name}'
+        fee_rows = f'''<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+{deposit_row}
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>{credit_text}</em></td></tr>'''
+
     poc_block = ''
     if poc_name or poc_email or poc_phone:
         poc_block = f'''<h3 style="color:#0d3d4d;margin-top:20px">HWTC POINT OF CONTACT</h3>
 <p>For any questions or concerns before, during, or after the collaboration, please contact:</p>
 <p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
-    terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm the collaboration. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this partnership. Full payment of any remaining balance is due within 24 hours of the final event date. If Partner Organization cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>
-<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization. All activities taking place under this agreement &mdash; including but not limited to rehearsals, classes, workshops, meetings, and performances &mdash; are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. This collaboration falls within HWTC&rsquo;s operational use of its facility for general administrative, educational, rehearsal, and ancillary nonprofit activities.</p>
-<p><strong>2.4 Billing &amp; Credit.</strong> All public-facing materials, programs, advertising, and communications related to this collaboration must credit the production as: <em>&ldquo;Produced by {partner_name} in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct any activities at the HWTC facility independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.</p>
-<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
-<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
-<p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
-<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
-<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+
+    if custom_terms.strip():
+        terms_html = custom_terms
+    else:
+        terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
@@ -21435,28 +21817,26 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>
 </div>
-<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP AND STUDIO USE AGREEMENT</h2>
-<p>This Artistic Partnership and Studio Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">{doc_title}</h2>
+<p>This {doc_title.title()} (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
 <p><strong>Horizon West Theater Company</strong> (&ldquo;HWTC&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
 <p><strong>{partner_name}</strong> (&ldquo;Partner Organization&rdquo;), represented by <strong>{contact_name}</strong>.</p>
 <p>Together referred to as the &ldquo;Parties.&rdquo;</p>
 <h3 style="color:#0d3d4d;margin-top:20px">1. COLLABORATION DETAILS</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+{category_row}
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Project / Event</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("title","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("space_name","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Time</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{time_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose / Nature of Activities</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("purpose","")}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
-{deposit_row}
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Produced by {partner_name} in Partnership with Horizon West Theater Company</em></td></tr>
+{fee_rows}
 </table>
 {poc_block}
 {terms_html}
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
-<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Studio Use Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
+<p>By signing below, both parties agree to the terms and conditions of this {doc_title.title()}, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
@@ -21663,9 +22043,9 @@ def submit_rental_signature(token):
 # "check status" refresh) so the rental request shows Deposit Paid → Active,
 # and later a Final Payment Due flag once staff generate that invoice too.
 
-def _generate_rental_invoice(conn, agreement_id, payment_type, amount_cents, due_date, created_by):
-    """Shared logic for both deposit and final invoices: create a Square
-    order + invoice, publish it, and record a rental_payments row."""
+def _generate_rental_invoice(conn, agreement_id, payment_type, amount_cents, due_date, created_by, label=None):
+    """Shared logic for deposit, final, and monthly-installment invoices:
+    create a Square order + invoice, publish it, and record a rental_payments row."""
     agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (agreement_id,))
     if not agr:
         return None, 'Agreement not found'
@@ -21684,7 +22064,8 @@ def _generate_rental_invoice(conn, agreement_id, payment_type, amount_cents, due
     if not customer_id:
         return None, 'Could not create/find a Square customer for this partner'
 
-    label = 'Deposit' if payment_type == 'deposit' else 'Final Payment'
+    if not label:
+        label = 'Deposit' if payment_type == 'deposit' else 'Final Payment'
     item_name = f'{label} — {req.get("title","")}'
     order_id = square_create_order(item_name, amount_cents, reference_id=agreement_id)
     if not order_id:
@@ -21699,10 +22080,10 @@ def _generate_rental_invoice(conn, agreement_id, payment_type, amount_cents, due
     pid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO rental_payments
         (id, agreement_id, payment_type, amount_cents, due_date, square_order_id,
-         square_invoice_id, square_invoice_status, public_url, sent_at, created_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)''',
+         square_invoice_id, square_invoice_status, public_url, sent_at, created_by, installment_label)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s)''',
         (pid, agreement_id, payment_type, amount_cents, due_date, order_id,
-         invoice_id or '', status or 'DRAFT', public_url or '', created_by))
+         invoice_id or '', status or 'DRAFT', public_url or '', created_by, label))
     conn.commit()
     return pid, err  # err may be a non-fatal warning (e.g. publish failed) even though a row was created
 
@@ -21744,6 +22125,49 @@ def create_final_invoice(aid):
         return jsonify({'error': payment_err or 'Could not generate the final payment invoice'}), 400
     return jsonify({'ok': True, 'id': pid, 'warning': payment_err})
 
+@app.route('/api/rental/agreements/<aid>/payment-plan', methods=['POST'])
+def create_rental_payment_plan(aid):
+    """Generate a full monthly installment schedule upfront — one Square
+    invoice per installment, each with its own amount/due date/label.
+    Every installment is created immediately (not chained), so an unpaid
+    one can simply be voided in Square if the partnership ends early."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    installments = d.get('installments') or []
+    if not isinstance(installments, list) or not installments:
+        return jsonify({'error': 'Add at least one installment'}), 400
+    conn = get_db()
+    existing = fetchone(conn, "SELECT COUNT(*) AS c FROM rental_payments WHERE agreement_id=%s AND payment_type='installment'", (aid,))
+    if existing and existing.get('c'):
+        conn.close()
+        return jsonify({'error': 'A payment plan already exists for this agreement — view existing invoices instead of creating a new plan'}), 400
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    created_by = (user or {}).get('name', 'RoleCall')
+    created_ids, failures = [], []
+    total = len(installments)
+    for i, item in enumerate(installments):
+        try:
+            amount_cents = int(round(float(item.get('amount') or 0) * 100))
+        except (TypeError, ValueError):
+            amount_cents = 0
+        due_date = (item.get('due_date') or '').strip()
+        label = (item.get('label') or '').strip() or f'Payment {i+1} of {total}'
+        if amount_cents <= 0 or not due_date:
+            failures.append({'label': label, 'error': 'Missing amount or due date'})
+            continue
+        pid, payment_err = _generate_rental_invoice(conn, aid, 'installment', amount_cents, due_date, created_by, label=label)
+        if pid:
+            created_ids.append(pid)
+            if payment_err:
+                failures.append({'label': label, 'error': payment_err, 'created': True})
+        else:
+            failures.append({'label': label, 'error': payment_err or 'Could not create this invoice'})
+    conn.close()
+    if not created_ids:
+        return jsonify({'error': 'Could not create any installment invoices', 'failures': failures}), 400
+    return jsonify({'ok': True, 'created': created_ids, 'failures': failures})
+
 @app.route('/api/rental/agreements/<aid>/payments', methods=['GET'])
 def get_rental_payments(aid):
     err = require_permission('rentals', 'view')
@@ -21782,7 +22206,7 @@ def _apply_rental_invoice_update(conn, payment, invoice):
     """Shared by the webhook and the manual check-status route: given a
     rental_payments row and the current Square invoice object, update our
     stored status and, on first transition to paid, flip the rental request
-    to 'active' (deposit) and notify staff (either type)."""
+    to 'active' (first payment of any kind) and notify staff."""
     new_status = invoice.get('status', payment.get('square_invoice_status'))
     was_paid = bool(payment.get('paid_at'))
     is_paid_now = new_status == 'PAID'
@@ -21794,16 +22218,30 @@ def _apply_rental_invoice_update(conn, payment, invoice):
             req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_email AS partner_email
                 FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
                 WHERE rr.id=%s''', (agr['request_id'],))
-            label = 'Deposit' if payment['payment_type'] == 'deposit' else 'Final Payment'
-            if payment['payment_type'] == 'deposit' and req:
+            label = payment.get('installment_label') or ('Deposit' if payment['payment_type'] == 'deposit' else 'Final Payment')
+            if req and payment['payment_type'] in ('deposit', 'installment') and req.get('status') in ('pending', 'approved'):
                 execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (req['id'],))
+            # Figure out how much of this agreement is now paid off, across
+            # every invoice (deposit/final/installments) tied to it, so the
+            # notification can say "paid in full" only when it actually is.
+            all_payments = fetchall(conn, 'SELECT amount_cents, square_invoice_status FROM rental_payments WHERE agreement_id=%s', (payment['agreement_id'],)) or []
+            total_cents = sum(int(p.get('amount_cents') or 0) for p in all_payments)
+            paid_cents = sum(int(p.get('amount_cents') or 0) for p in all_payments if p.get('square_invoice_status') == 'PAID')
+            paid_count = sum(1 for p in all_payments if p.get('square_invoice_status') == 'PAID')
+            fully_paid = len(all_payments) > 0 and paid_count == len(all_payments)
+            if fully_paid:
+                progress_note = 'This agreement is now paid in full.'
+            elif payment['payment_type'] == 'installment':
+                progress_note = f'{paid_count} of {len(all_payments)} installments paid so far (${paid_cents/100:.2f} of ${total_cents/100:.2f}).'
+            elif payment['payment_type'] == 'deposit':
+                progress_note = 'The Artistic Partnership is now marked Active in RoleCall.'
+            else:
+                progress_note = ''
             try:
                 admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL") or []
                 for admin in admins:
                     send_email(admin['email'], f'{label} Paid: {(req or {}).get("title","")}',
-                        f'The {label.lower()} for <strong>{(req or {}).get("title","")}</strong> has been paid.<br><br>'
-                        + ('The Artistic Partnership is now marked Active in RoleCall.' if payment['payment_type']=='deposit'
-                           else 'This agreement is now paid in full.'))
+                        f'The payment &ldquo;{label}&rdquo; for <strong>{(req or {}).get("title","")}</strong> has been paid.<br><br>{progress_note}')
             except Exception as e:
                 app.logger.warning(f'Rental payment-paid notify error: {e}')
 
@@ -22493,7 +22931,7 @@ This is an internal reference tool, not legal advice. If a question touches on s
 
 @app.route('/api/productions/<pid>/contracts')
 def get_production_contracts(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
@@ -22503,7 +22941,7 @@ def get_production_contracts(pid):
 
 @app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
 def upload_production_contract(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     try:
         if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
@@ -22527,7 +22965,7 @@ def upload_production_contract(pid):
 
 @app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
 def delete_production_contract(cid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
@@ -22536,7 +22974,7 @@ def delete_production_contract(cid):
 
 @app.route('/api/productions/<pid>/contract-qa')
 def get_production_contract_qa(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
@@ -22546,7 +22984,7 @@ def get_production_contract_qa(pid):
 
 @app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
 def create_production_contract_qa(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     try:
         d = request.json or {}
@@ -22568,7 +23006,7 @@ def create_production_contract_qa(pid):
 
 @app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
 def delete_production_contract_qa(qid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))

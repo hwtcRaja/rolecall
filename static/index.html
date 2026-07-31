@@ -24957,10 +24957,19 @@ async function initContractEquipmentChecklist(rid){
   let stored = []
   try { stored = req.equipment_selections ? JSON.parse(req.equipment_selections) : [] } catch(e){ stored = [] }
   const storedMap = {}
-  stored.forEach(function(s){ storedMap[s.name] = s.allowed })
-  wrap.innerHTML = list.map(function(item){
-    const checked = storedMap.hasOwnProperty(item.name) ? storedMap[item.name] : !!item.default_allowed
-    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" class="gen-equipment-check" data-name="'+escHtml(item.name)+'" '+(checked?'checked':'')+' onchange="refreshRentalContractTerms(\''+rid+'\')"/> '+escHtml(item.name)+'</label>'
+  stored.forEach(function(s){ storedMap[s.name] = s })
+  wrap.innerHTML = '<div style="display:grid;grid-template-columns:auto 1.5fr 1fr 1.5fr;gap:8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:2px"><span></span><span>Item</span><span>Quantity</span><span>Notes</span></div>'
+    + list.map(function(item){
+    const s = storedMap[item.name]
+    const checked = s ? !!s.allowed : !!item.default_allowed
+    const qty = s ? (s.quantity||'') : (item.default_quantity||'')
+    const notes = s ? (s.notes||'') : (item.default_notes||'')
+    return '<div style="display:grid;grid-template-columns:auto 1.5fr 1fr 1.5fr;gap:8px;align-items:center;margin-bottom:4px">'
+      + '<input type="checkbox" class="gen-equipment-check" data-name="'+escHtml(item.name)+'" '+(checked?'checked':'')+'/>'
+      + '<span style="font-size:13px">'+escHtml(item.name)+'</span>'
+      + '<input type="text" class="gen-equipment-qty" value="'+escHtml(qty)+'" placeholder="Qty" style="padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px"/>'
+      + '<input type="text" class="gen-equipment-notes" value="'+escHtml(notes)+'" placeholder="Notes" style="padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px"/>'
+      + '</div>'
   }).join('')
 }
 
@@ -24976,10 +24985,7 @@ async function refreshRentalContractTerms(rid){
   const depositEl = document.getElementById('gen-deposit')
   if(depositEl) depositEl.disabled = billingFreq!=='deposit_final'
   const revenueSplit = (document.getElementById('gen-revenue-split')||{}).value||''
-  const equipmentSelections = Array.from(document.querySelectorAll('.gen-equipment-check')).map(function(el){
-    return {name: el.dataset.name, allowed: el.checked}
-  })
-  const params = new URLSearchParams({category, billing_frequency: billingFreq, deposit: deposit?('$'+parseFloat(deposit).toFixed(2)):'', revenue_split_notes: revenueSplit, equipment_selections: JSON.stringify(equipmentSelections)})
+  const params = new URLSearchParams({category, billing_frequency: billingFreq, deposit: deposit?('$'+parseFloat(deposit).toFixed(2)):'', revenue_split_notes: revenueSplit})
   const res = await api('/api/rental/requests/'+rid+'/default-terms?'+params.toString())
   const previewEl = document.getElementById('gen-terms-preview')
   if(!previewEl) return
@@ -25058,7 +25064,10 @@ async function generateContract(rid){
     if(badRow){ toast('Every payment in the schedule needs an amount greater than zero and a due date','error'); return }
   }
   const equipmentSelections = Array.from(document.querySelectorAll('.gen-equipment-check')).map(function(el){
-    return {name: el.dataset.name, allowed: el.checked}
+    const row = el.parentElement
+    const qtyEl = row ? row.querySelector('.gen-equipment-qty') : null
+    const notesEl = row ? row.querySelector('.gen-equipment-notes') : null
+    return {name: el.dataset.name, allowed: el.checked, quantity: qtyEl?qtyEl.value.trim():'', notes: notesEl?notesEl.value.trim():''}
   })
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
     custom_terms: customTerms, additional_terms: additionalTerms, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone,
@@ -25894,13 +25903,15 @@ async function openEquipmentLibraryModal(){
     <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Equipment List</div>
     <button onclick="document.getElementById('equipment-library-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
    </div>
-   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">This is the master list shown when generating a contract — staff check or uncheck each item per agreement. "Default" controls whether it starts checked (allowed) or unchecked.</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">This is the master list shown when generating a contract — staff check or uncheck each item, and can adjust quantity/notes, per agreement. "Default" values just pre-fill those fields.</div>
    <div id="equipment-library-list" style="margin-bottom:14px"></div>
-   <div style="display:flex;gap:8px;align-items:center">
-    <input type="text" id="new-equipment-name" placeholder="e.g. Fog Machine" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
-    <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" id="new-equipment-default" checked/> Default allowed</label>
+   <div style="display:grid;grid-template-columns:2fr 1fr 1.5fr auto;gap:8px;align-items:center">
+    <input type="text" id="new-equipment-name" placeholder="e.g. Fog Machine" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+    <input type="text" id="new-equipment-quantity" placeholder="Qty" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+    <input type="text" id="new-equipment-notes" placeholder="Notes" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
     <button class="btn btn-primary btn-sm" onclick="addEquipmentLibraryItem()">+ Add</button>
    </div>
+   <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin-top:8px;color:var(--text-muted)"><input type="checkbox" id="new-equipment-default" checked/> Default allowed (starts checked)</label>
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
@@ -25912,9 +25923,11 @@ function renderEquipmentLibraryList(){
   if(!wrap) return
   if(!_equipmentLibraryData.length){ wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px">No equipment items yet.</div>'; return }
   wrap.innerHTML = _equipmentLibraryData.map(function(item){
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
-     <input type="text" value="${escHtml(item.name)}" onchange="updateEquipmentLibraryItem('${item.id}',{name:this.value})" style="flex:1;padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
-     <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);white-space:nowrap"><input type="checkbox" ${item.default_allowed?'checked':''} onchange="updateEquipmentLibraryItem('${item.id}',{default_allowed:this.checked})"/> Default allowed</label>
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1.5fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+     <input type="text" value="${escHtml(item.name)}" onchange="updateEquipmentLibraryItem('${item.id}',{name:this.value})" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+     <input type="text" value="${escHtml(item.default_quantity||'')}" placeholder="Qty" onchange="updateEquipmentLibraryItem('${item.id}',{default_quantity:this.value})" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+     <input type="text" value="${escHtml(item.default_notes||'')}" placeholder="Notes" onchange="updateEquipmentLibraryItem('${item.id}',{default_notes:this.value})" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+     <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);white-space:nowrap"><input type="checkbox" ${item.default_allowed?'checked':''} onchange="updateEquipmentLibraryItem('${item.id}',{default_allowed:this.checked})"/> Default</label>
      <button class="btn btn-secondary btn-sm" onclick="deleteEquipmentLibraryItem('${item.id}')" style="padding:4px 8px">×</button>
     </div>`
   }).join('')
@@ -25924,9 +25937,13 @@ async function addEquipmentLibraryItem(){
   const name = (document.getElementById('new-equipment-name')||{}).value.trim()
   if(!name){ toast('Enter an equipment name','error'); return }
   const defaultAllowed = (document.getElementById('new-equipment-default')||{}).checked
-  const res = await api('/api/rental/equipment-items','POST',{name, default_allowed: defaultAllowed, sort_order: _equipmentLibraryData.length*10})
+  const defaultQuantity = (document.getElementById('new-equipment-quantity')||{}).value.trim()
+  const defaultNotes = (document.getElementById('new-equipment-notes')||{}).value.trim()
+  const res = await api('/api/rental/equipment-items','POST',{name, default_allowed: defaultAllowed, default_quantity: defaultQuantity, default_notes: defaultNotes, sort_order: _equipmentLibraryData.length*10})
   if(res && res.error){ toast(res.error,'error'); return }
   document.getElementById('new-equipment-name').value = ''
+  document.getElementById('new-equipment-quantity').value = ''
+  document.getElementById('new-equipment-notes').value = ''
   const rows = await api('/api/rental/equipment-items')
   _equipmentLibraryData = Array.isArray(rows) ? rows : []
   renderEquipmentLibraryList()

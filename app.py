@@ -1173,6 +1173,14 @@ def init_db():
             reviewed_at TIMESTAMP,
             submitted_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        # licensing request contract tracking (has the licensor been asked, do we have the signed contract, when does it expire)
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_received BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_received_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_expires_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_name TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_original_name TEXT DEFAULT ''",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -12052,6 +12060,31 @@ def get_notifications():
     except Exception as e:
         app.logger.warning(f'notifications licensing_requests: {e}')
 
+    # Licensing contracts expiring soon or already expired — needs a re-request
+    try:
+        lic_contracts = fetchall(conn, '''
+            SELECT id, ref_number, production_name, licensor, contract_expires_date
+            FROM licensing_requests
+            WHERE contract_received = TRUE AND contract_expires_date IS NOT NULL
+              AND contract_expires_date <= (CURRENT_DATE + INTERVAL '60 days')
+            ORDER BY contract_expires_date ASC
+            LIMIT 50''')
+        for lr in lic_contracts:
+            exp = lr.get('contract_expires_date')
+            days_left = (exp - date.today()).days if exp else None
+            expired = days_left is not None and days_left < 0
+            needs_action.append({
+                'id':    lr['id'],
+                'type':  'licensing_contract_expiring',
+                'icon':  '⚠️' if expired else '📅',
+                'color': 'red' if expired else 'amber',
+                'title': f'Licensing contract {"expired" if expired else "expiring soon"}  -  {lr["production_name"] or "Untitled production"}',
+                'sub':   f'{lr.get("licensor") or "Licensor TBD"} · {"expired" if expired else "expires"} {exp.strftime("%b %d, %Y") if exp else ""} · Ref {lr["ref_number"]}',
+                'data':  lr,
+            })
+    except Exception as e:
+        app.logger.warning(f'notifications licensing_contracts: {e}')
+
     # Recent approved hours (activity feed)
     try:
         recent = fetchall(conn, '''
@@ -16815,6 +16848,33 @@ def _cents(v):
     except (TypeError, ValueError):
         return None
 
+def _licensing_contract_status(row):
+    """Derive a simple contract-tracking status for a licensing request:
+    not_requested -> requested -> contract_on_file -> expiring_soon -> expired"""
+    if row.get('contract_received'):
+        exp = row.get('contract_expires_date')
+        if exp:
+            try:
+                exp_date = exp if isinstance(exp, date) else datetime.strptime(str(exp), '%Y-%m-%d').date()
+                days_left = (exp_date - date.today()).days
+                if days_left < 0:
+                    return 'expired'
+                if days_left <= 60:
+                    return 'expiring_soon'
+            except Exception:
+                pass
+        return 'contract_on_file'
+    if row.get('licensor_requested'):
+        return 'requested'
+    return 'not_requested'
+
+def _attach_contract_status(rows):
+    single = not isinstance(rows, list)
+    items = [rows] if single else rows
+    for r in items:
+        r['contract_status'] = _licensing_contract_status(r)
+    return items[0] if single else items
+
 @app.route('/api/licensing-requests', methods=['GET'])
 def get_licensing_requests():
     err = require_permission('licensing', 'view')
@@ -16826,6 +16886,7 @@ def get_licensing_requests():
     else:
         rows = fetchall(conn, 'SELECT * FROM licensing_requests ORDER BY submitted_at DESC') or []
     conn.close()
+    rows = _attach_contract_status(rows)
     return jsonify(rows)
 
 @app.route('/api/licensing-requests/<lid>', methods=['GET'])
@@ -16836,6 +16897,7 @@ def get_licensing_request(lid):
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()
     if not row: return jsonify({'error': 'Not found'}), 404
+    row = _attach_contract_status(row)
     return jsonify(row)
 
 @app.route('/licensing-request')
@@ -17007,9 +17069,96 @@ def update_licensing_request(lid):
     admin_notes = d.get('admin_notes', lr.get('admin_notes', ''))
     reviewer = d.get('reviewed_by') or session.get('user_name', '')
 
+    # Contract tracking fields — only touched when explicitly provided so partial
+    # updates (e.g. just toggling status) don't clobber existing tracking data.
+    licensor_requested = d.get('licensor_requested', lr.get('licensor_requested', False))
+    licensor_requested_date = d.get('licensor_requested_date', lr.get('licensor_requested_date'))
+    if d.get('licensor_requested') and not lr.get('licensor_requested') and not d.get('licensor_requested_date'):
+        licensor_requested_date = date.today().isoformat()
+    contract_received = d.get('contract_received', lr.get('contract_received', False))
+    contract_received_date = d.get('contract_received_date', lr.get('contract_received_date'))
+    if d.get('contract_received') and not lr.get('contract_received') and not d.get('contract_received_date'):
+        contract_received_date = date.today().isoformat()
+    contract_expires_date = d.get('contract_expires_date', lr.get('contract_expires_date'))
+
     execute(conn, '''UPDATE licensing_requests SET status=%s, admin_notes=%s,
-        reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW() WHERE id=%s''',
-        (new_status, admin_notes, reviewer, lid))
+        reviewed_by=%s, reviewed_at=NOW(), updated_at=NOW(),
+        licensor_requested=%s, licensor_requested_date=%s,
+        contract_received=%s, contract_received_date=%s,
+        contract_expires_date=%s WHERE id=%s''',
+        (new_status, admin_notes, reviewer,
+         licensor_requested, licensor_requested_date or None,
+         contract_received, contract_received_date or None,
+         contract_expires_date or None, lid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    row = _attach_contract_status(row)
+    return jsonify(row)
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['POST'])
+def upload_licensing_contract_file(lid):
+    """Attach the signed/returned contract document to a licensing request."""
+    err = require_permission('licensing')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if not lr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if 'file' not in request.files:
+        conn.close()
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        conn.close()
+        return jsonify({'error': 'No file selected'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png']:
+        conn.close()
+        return jsonify({'error': 'Invalid file type — use PDF, Word, or an image'}), 400
+    filename = f'licensing-contract-{lid[:8]}-{str(uuid.uuid4())[:8]}{ext}'
+    f.save(os.path.join(UPLOAD_FOLDER, filename))
+    # Remove any previously-attached file for this request
+    old_filename = lr.get('contract_file_name')
+    if old_filename:
+        try: os.remove(os.path.join(UPLOAD_FOLDER, old_filename))
+        except Exception: pass
+    contract_received_date = lr.get('contract_received_date') or date.today().isoformat()
+    execute(conn, '''UPDATE licensing_requests SET contract_file_name=%s, contract_file_original_name=%s,
+        contract_received=TRUE, contract_received_date=%s, updated_at=NOW() WHERE id=%s''',
+        (filename, f.filename, contract_received_date, lid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    row = _attach_contract_status(row)
+    return jsonify(row)
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['GET'])
+def download_licensing_contract_file(lid):
+    err = require_permission('licensing', 'view')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    if not lr or not lr.get('contract_file_name'):
+        return jsonify({'error': 'No file attached'}), 404
+    filepath = os.path.join(UPLOAD_FOLDER, lr['contract_file_name'])
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found on disk'}), 404
+    return send_file(filepath, as_attachment=True, download_name=lr.get('contract_file_original_name') or lr['contract_file_name'])
+
+@app.route('/api/licensing-requests/<lid>/contract-file', methods=['DELETE'])
+def delete_licensing_contract_file(lid):
+    err = require_permission('licensing')
+    if err: return err
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if lr and lr.get('contract_file_name'):
+        try: os.remove(os.path.join(UPLOAD_FOLDER, lr['contract_file_name']))
+        except Exception: pass
+    execute(conn, '''UPDATE licensing_requests SET contract_file_name='', contract_file_original_name='',
+        updated_at=NOW() WHERE id=%s''', (lid,))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

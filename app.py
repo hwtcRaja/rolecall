@@ -2102,6 +2102,21 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_months INTEGER",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_installments_plan TEXT DEFAULT ''",
 
+        # ── Artistic Partnership: contract clause library (editable legal text) ──
+        # category: '' = all categories, 'fee_based' = open_partnership + closed_rental,
+        #   or a specific category key. billing_frequency: '' = applies regardless.
+        # clause_number drives display (e.g. '2.1', '2.2.1'); sort_order drives ordering.
+        """CREATE TABLE IF NOT EXISTS rental_contract_clauses (
+            id TEXT PRIMARY KEY,
+            category TEXT DEFAULT '',
+            billing_frequency TEXT DEFAULT '',
+            clause_number TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body_template TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW())""",
+
         # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
             id TEXT PRIMARY KEY,
@@ -21629,8 +21644,9 @@ def generate_rental_contract(rid):
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
+    additional_terms = (d.get('additional_terms') or '').strip()
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan)
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21642,69 +21658,238 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
-    """Returns the label + body text for clauses 2.1-2.4 (no wrapping <p><strong>
-    tags), which vary by partnership category and billing frequency. This is
-    the single source of truth used both to assemble the actual contract and
-    to preview the same text in the UI before it's generated."""
-    billing_frequency = billing_frequency or 'deposit_final'
+def _render_clause_template(template, context):
+    """Simple, safe placeholder substitution — replaces known {tokens} only,
+    so stray braces in admin-edited text can't cause errors."""
+    out = template or ''
+    for key, val in context.items():
+        out = out.replace('{' + key + '}', str(val))
+    return out
+
+def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
+    """Computes the placeholder values ({total_str}, {deposit}, {event_label},
+    etc.) substituted into clause templates from the library — shared by the
+    live UI preview and the actual contract generator so they can never
+    diverge."""
     total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
-    if category == 'ticketed_enrollment':
-        split_display = revenue_split_notes or 'to be agreed in writing prior to the first session'
-        c21 = ('2.1 Revenue &amp; Settlement', f'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.')
-        c22 = ('2.2 Cancellation', 'Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment.')
-        c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.')
-        c24 = ('2.4 Marketing &amp; Billing', f'HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.')
-    else:
-        use_label = 'this use' if category == 'closed_rental' else 'the collaboration'
-        event_label = 'the scheduled use' if category == 'closed_rental' else 'the scheduled event'
-        if billing_frequency == 'monthly':
-            schedule_ref = 'as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'
-            c21 = ('2.1 Partnership Fee &amp; Payment Schedule', f'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.')
-            c22 = ('2.2 Cancellation', 'If Partner Organization cancels this Agreement, HWTC will stop issuing any further monthly installment invoices as of the cancellation date. Any installment already invoiced remains due and payable regardless of cancellation; amounts already paid are non-refundable except at HWTC&rsquo;s sole discretion.')
-        elif billing_frequency == 'full':
-            c21 = ('2.1 Partnership Fee', f'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.')
-            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
-        else:
-            c21 = ('2.1 Partnership Fee &amp; Deposit', f'Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of {event_label}, the deposit is forfeited in full.')
-            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
-        if category == 'closed_rental':
-            c23 = ('2.3 Nature of the Use', 'This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.')
-            c24 = ('2.4 Acknowledgment', 'Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.')
-        else:
-            c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.')
-            c24 = ('2.4 Billing &amp; Credit', 'All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.')
-    return {'c21': {'label': c21[0], 'body': c21[1]}, 'c22': {'label': c22[0], 'body': c22[1]},
-            'c23': {'label': c23[0], 'body': c23[1]}, 'c24': {'label': c24[0], 'body': c24[1]}}
+    return {
+        'total_str': total_str,
+        'deposit': deposit if deposit else 'as agreed',
+        'partner_name': partner_name,
+        'split_display': revenue_split_notes or 'to be agreed in writing prior to the first session',
+        'use_label': 'this use' if category == 'closed_rental' else 'the collaboration',
+        'event_label': 'the scheduled use' if category == 'closed_rental' else 'the scheduled event',
+        'schedule_ref': ('as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit
+                          else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'),
+    }
 
-_RENTAL_REMAINING_CLAUSES = '''<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
-<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
-<p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
-<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
-<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+# Seed data for the contract clause library — used only to populate the
+# rental_contract_clauses table the first time it's empty. From then on,
+# everything is edited via Settings > Contract Clauses, no deploy required.
+# category: '' = all categories, 'fee_based' = open_partnership + closed_rental.
+# billing_frequency: '' = applies regardless of billing plan.
+# A blank body_template marks a group heading (e.g. the "2.2" header above
+# its 2.2.x sub-clauses) rather than a numbered paragraph.
+_RENTAL_CLAUSE_SEED = [
+    # category, billing_frequency, clause_number, title, body_template, sort_order
+    ('ticketed_enrollment', '', '2.1', 'Revenue &amp; Settlement',
+     'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.', 10),
+    ('fee_based', 'monthly', '2.1', 'Partnership Fee &amp; Payment Schedule',
+     'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.', 10),
+    ('fee_based', 'full', '2.1', 'Partnership Fee',
+     'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.', 10),
+    ('fee_based', 'deposit_final', '2.1', 'Partnership Fee &amp; Deposit',
+     'Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit}</strong> to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of {event_label}, the deposit is forfeited in full.', 10),
 
-def _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
-    """Assembles the full '2. TERMS AND CONDITIONS' block from the
-    category/billing-aware clauses plus the fixed remaining clauses."""
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
-    dynamic_html = '\n'.join(f'<p><strong>{c["label"]}.</strong> {c["body"]}</p>' for c in [clauses['c21'], clauses['c22'], clauses['c23'], clauses['c24']])
-    return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}\n{_RENTAL_REMAINING_CLAUSES}'
+    ('', '', '2.2', 'Cancellation and Force Majeure', '', 20),
+
+    ('ticketed_enrollment', '', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement.', 21),
+    ('fee_based', 'monthly', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Upon cancellation, HWTC will cease issuing any future monthly installment invoices effective as of the cancellation date. However, any installment that has already been invoiced prior to the cancellation date shall remain due and payable in full, regardless of cancellation. All amounts previously paid are non-refundable except at HWTC&rsquo;s sole discretion.', 21),
+    ('fee_based', 'full', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.', 21),
+    ('fee_based', 'deposit_final', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.', 21),
+
+    ('', '', '2.2.2', 'Force Majeure',
+     'Neither Party shall be liable for any cancellation, delay, or failure to perform its obligations under this Agreement when such cancellation, delay, or failure results from circumstances beyond its reasonable control, including but not limited to severe weather, hurricanes, tornadoes, floods, fire, natural disasters, acts of God, governmental actions or orders, public emergencies, utility failures, labor disruptions, or other force majeure events. In the event of a force majeure occurrence, the affected collaboration date(s) may be rescheduled by mutual agreement of the Parties if reasonably feasible. Neither Party shall be entitled to damages, penalties, refunds, or other compensation solely as a result of a force majeure event.', 22),
+
+    ('ticketed_enrollment', '', '2.2.3', 'Cancellation by HWTC',
+     'If HWTC must cancel a scheduled session due to circumstances within its reasonable control, and such cancellation is not the result of a force majeure event, HWTC will make reasonable efforts to reschedule the affected session. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment, and will account for any costs already incurred when finalizing the revenue settlement.', 23),
+    ('fee_based', '', '2.2.3', 'Cancellation by HWTC',
+     'If HWTC must cancel {event_label} due to circumstances within its reasonable control, and such cancellation is not the result of a force majeure event, HWTC will make reasonable efforts to reschedule the affected date. If rescheduling is not reasonably possible, Partner Organization&rsquo;s payment obligation shall be reduced on a prorated basis, and if payment has already been received, HWTC shall issue an appropriate credit toward future services or provide a refund, at HWTC&rsquo;s discretion.', 23),
+
+    ('fee_based', 'monthly', '2.2.4', 'Nonpayment',
+     'If any installment payment remains unpaid for more than ten (10) calendar days following its due date, HWTC may suspend or cancel any remaining scheduled collaboration dates until the account is brought current. HWTC further reserves the right to terminate this Agreement for nonpayment. Any suspension or termination resulting from nonpayment shall not relieve Partner Organization of its obligation to pay any amounts that became due prior to the suspension or termination, including any previously invoiced installments.', 24),
+    ('fee_based', 'full', '2.2.4', 'Nonpayment',
+     'This Agreement is not effective until the Total Partnership Fee has been paid in full. If payment is not received within a reasonable time following signature, HWTC reserves the right to cancel this Agreement and release the reserved date(s).', 24),
+    ('fee_based', 'deposit_final', '2.2.4', 'Nonpayment',
+     'If the deposit or any remaining balance is not paid within ten (10) calendar days of its due date, HWTC may suspend or cancel this Agreement until the account is brought current. HWTC further reserves the right to terminate this Agreement for nonpayment. Any suspension or termination resulting from nonpayment shall not relieve Partner Organization of its obligation to pay any amounts already due.', 24),
+    # No 2.2.4 for ticketed_enrollment — HWTC pays Partner Organization a
+    # revenue share under that model, so there's no payment owed by Partner
+    # Organization to HWTC that could go unpaid.
+
+    ('ticketed_enrollment', '', '2.3', 'Nature of the Collaboration',
+     'This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.', 30),
+    ('open_partnership', '', '2.3', 'Nature of the Collaboration',
+     'This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.', 30),
+    ('closed_rental', '', '2.3', 'Nature of the Use',
+     'This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.', 30),
+
+    ('ticketed_enrollment', '', '2.4', 'Marketing &amp; Billing',
+     'HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.', 40),
+    ('open_partnership', '', '2.4', 'Billing &amp; Credit',
+     'All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.', 40),
+    ('closed_rental', '', '2.4', 'Acknowledgment',
+     'Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.', 40),
+
+    ('', '', '2.5', 'Care of Facility',
+     'Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.', 50),
+    ('', '', '2.6', 'Conduct',
+     'Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.', 60),
+    ('', '', '2.7', 'Equipment',
+     'Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.', 70),
+    ('', '', '2.8', 'Insurance',
+     'Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.', 80),
+    ('', '', '2.9', 'Indemnification',
+     'Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.', 90),
+    ('', '', '2.10', 'Compliance',
+     'Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.', 100),
+    ('', '', '2.11', 'Recording &amp; Photography',
+     'Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.', 110),
+]
+
+def _seed_rental_contract_clauses(conn):
+    """Populate rental_contract_clauses from the built-in defaults, but only
+    the first time (table empty) — never overwrites anything staff has since
+    edited via Settings > Contract Clauses."""
+    existing = fetchone(conn, 'SELECT COUNT(*) AS c FROM rental_contract_clauses')
+    if existing and existing.get('c'):
+        return
+    for category, billing_frequency, clause_number, title, body_template, sort_order in _RENTAL_CLAUSE_SEED:
+        execute(conn, '''INSERT INTO rental_contract_clauses
+            (id, category, billing_frequency, clause_number, title, body_template, sort_order, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (str(uuid.uuid4()), category, billing_frequency, clause_number, title, body_template, sort_order))
+    conn.commit()
+
+try:
+    _seed_bootstrap_conn = get_db()
+    _seed_rental_contract_clauses(_seed_bootstrap_conn)
+    _seed_bootstrap_conn.close()
+except Exception as e:
+    print(f'rental_contract_clauses seed error: {e}')
+
+@app.route('/api/rental/contract-clauses', methods=['GET'])
+def get_rental_contract_clauses():
+    """List every clause in the editable library — used by the Settings >
+    Contract Clauses admin page. Includes inactive rows (shown greyed out
+    there) so staff can re-enable something they'd turned off."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM rental_contract_clauses ORDER BY category, billing_frequency, sort_order, clause_number') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/rental/contract-clauses', methods=['POST'])
+def create_rental_contract_clause():
+    """Add a new clause to the library — e.g. a brand-new numbered section —
+    with no deploy required."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    clause_number = (d.get('clause_number') or '').strip()
+    title = (d.get('title') or '').strip()
+    if not clause_number or not title:
+        return jsonify({'error': 'Clause number and title are required'}), 400
+    conn = get_db()
+    cid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_contract_clauses
+        (id, category, billing_frequency, clause_number, title, body_template, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (cid, (d.get('category') or '').strip(), (d.get('billing_frequency') or '').strip(),
+         clause_number, title, d.get('body_template') or '', int(d.get('sort_order') or 0), bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/contract-clauses/<cid>', methods=['PUT'])
+def update_rental_contract_clause(cid):
+    """Edit a clause's category/billing scope, number, title, or body text —
+    this is how wording changes ship without a code deploy."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    category = d.get('category', existing.get('category', ''))
+    billing_frequency = d.get('billing_frequency', existing.get('billing_frequency', ''))
+    clause_number = d.get('clause_number', existing.get('clause_number', ''))
+    title = d.get('title', existing.get('title', ''))
+    body_template = d.get('body_template', existing.get('body_template', ''))
+    sort_order = d.get('sort_order', existing.get('sort_order', 0))
+    active = d.get('active', existing.get('active', True))
+    execute(conn, '''UPDATE rental_contract_clauses SET category=%s, billing_frequency=%s,
+        clause_number=%s, title=%s, body_template=%s, sort_order=%s, active=%s, updated_at=NOW()
+        WHERE id=%s''', (category, billing_frequency, clause_number, title, body_template, sort_order, active, cid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/contract-clauses/<cid>', methods=['DELETE'])
+def delete_rental_contract_clause(cid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+def _render_rental_contract_terms(conn, category, billing_frequency, context):
+    """Fetches every clause row matching this category/billing plan from the
+    editable library, substitutes placeholders, and assembles the '2. TERMS
+    AND CONDITIONS' block — including grouping 2.2.x sub-clauses under their
+    shared '2.2' heading. This is the single source of truth for contract
+    legal text, used both by contract generation and the live UI preview."""
+    billing_frequency = billing_frequency or 'deposit_final'
+    rows = fetchall(conn, '''SELECT * FROM rental_contract_clauses
+        WHERE active = TRUE
+          AND (category = '' OR category = %s OR (category = 'fee_based' AND %s != 'ticketed_enrollment'))
+          AND (billing_frequency = '' OR billing_frequency = %s)
+        ORDER BY sort_order, clause_number''', (category, category, billing_frequency)) or []
+    parts = []
+    for row in rows:
+        title = _render_clause_template(row.get('title') or '', context)
+        body = _render_clause_template(row.get('body_template') or '', context)
+        num = row.get('clause_number', '')
+        if not body.strip():
+            parts.append(f'<h4 style="color:#0d3d4d;margin:16px 0 8px;font-size:14px">{num} {title}</h4>')
+        else:
+            parts.append(f'<p><strong>{num} {title}.</strong> {body}</p>')
+    dynamic_html = '\n'.join(parts)
+    return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}'
 
 @app.route('/api/rental/requests/<rid>/default-terms')
 def get_rental_default_terms(rid):
     """Live preview of the default contract terms for a request, given the
     current (or proposed) category/deposit/billing settings — lets the UI
     show exactly what will be signed before the contract is generated.
-    Returns the structured 2.1-2.4 clauses (for slotting into the editable
-    fields) plus the fully assembled HTML (for reference)."""
+    Pulls from the editable clause library (Settings > Contract Clauses),
+    so wording changes there show up here immediately with no deploy."""
     err = require_permission('rentals', 'view')
     if err: return err
     conn = get_db()
     req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
-    conn.close()
     if not req:
+        conn.close()
         return jsonify({'error': 'Request not found'}), 404
     category = request.args.get('category') or req.get('partnership_category') or 'open_partnership'
     deposit = request.args.get('deposit') or ''
@@ -21716,9 +21901,10 @@ def get_rental_default_terms(rid):
     has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
-    terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
-    return jsonify({'terms_html': terms_html, 'clauses': clauses})
+    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
+    terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
+    conn.close()
+    return jsonify({'terms_html': terms_html})
 
 def _project_rental_dates(req, cap=104):
     """Computes the dates a request covers straight from its raw scheduling
@@ -21806,7 +21992,7 @@ def _project_rental_dates(req, cap=104):
         cur += _dtp.timedelta(days=1)
     return dates, False, ''
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None):
+def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms=''):
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
@@ -21904,7 +22090,11 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+        terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
+
+    if additional_terms.strip():
+        terms_html += f'<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3><p>{additional_terms.strip()}</p>'
 
     exhibit_html = ''
     if installments_plan:

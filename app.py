@@ -22185,7 +22185,7 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     category_labels = {
         'ticketed_enrollment': 'Ticketed / Enrollment-Based Event \u2014 HWTC Owns It',
         'open_partnership': 'Open, Free-to-Attend Event \u2014 Partnership Model',
-        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Rental / Acknowledgment',
+        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Partnership / Acknowledgment',
     }
     doc_titles = {
         'ticketed_enrollment': 'HOSTED PROGRAM AGREEMENT',

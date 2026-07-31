@@ -21617,7 +21617,8 @@ def generate_rental_contract(rid):
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency)
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21702,8 +21703,95 @@ def get_rental_default_terms(rid):
     terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
     return jsonify({'terms_html': terms_html, 'clauses': clauses})
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final'):
+def _project_rental_dates(req, cap=104):
+    """Computes the dates a request covers straight from its raw scheduling
+    fields (specific_dates / recurrence_pattern+recurrence_end_date / plain
+    range) — used when rental_occurrences hasn't been materialized yet
+    (contracts can be generated before a request is approved). Capped so an
+    unusually long recurrence can't produce an unbounded list. Returns
+    (dates, open_ended, pattern_description) — for a recurring booking with
+    no end date, dates is empty and pattern_description explains the ongoing
+    schedule in words instead of pretending there's just one occurrence."""
+    import datetime as _dtp
+    import json as _jtp
+    mode = (req.get('date_mode') or '').strip()
+    stime, etime = req.get('start_time', ''), req.get('end_time', '')
+
+    if mode == 'specific':
+        raw_dates = req.get('specific_dates') or '[]'
+        try:
+            parsed = _jtp.loads(raw_dates) if isinstance(raw_dates, str) else (raw_dates or [])
+        except Exception:
+            parsed = []
+        dates = []
+        for item in parsed:
+            if isinstance(item, dict):
+                dates.append({'date': item.get('date',''), 'start_time': item.get('start_time') or stime, 'end_time': item.get('end_time') or etime})
+            else:
+                dates.append({'date': item, 'start_time': stime, 'end_time': etime})
+        return dates[:cap], False, ''
+
+    start_raw = (req.get('start_date') or '').strip()
+    if not start_raw:
+        return [], False, ''
+    try:
+        start = _dtp.date.fromisoformat(start_raw)
+    except Exception:
+        return [], False, ''
+
+    is_recurring = (mode == 'recurring') or (not mode and req.get('recurring'))
+    if is_recurring:
+        pattern = req.get('recurrence_pattern') or 'weekly'
+        pattern_labels = {'weekly': 'weekly', 'biweekly': 'every two weeks', 'monthly': 'monthly', 'daily': 'daily'}
+        recur_end_raw = (req.get('recurrence_end_date') or '').strip()
+        if not recur_end_raw:
+            # Open-ended recurring booking — describe it rather than
+            # implying the obligation ends after some arbitrary preview list.
+            desc = f'Recurring {pattern_labels.get(pattern, pattern)}, beginning {start.strftime("%B %d, %Y")}, continuing on an ongoing basis unless earlier terminated per this Agreement'
+            return [], True, desc
+        try:
+            recur_end = _dtp.date.fromisoformat(recur_end_raw)
+        except Exception:
+            return [], False, ''
+        dates = []
+        cur = start
+        while cur <= recur_end and len(dates) < cap:
+            dates.append({'date': cur.isoformat(), 'start_time': stime, 'end_time': etime})
+            if pattern == 'weekly':
+                cur += _dtp.timedelta(days=7)
+            elif pattern == 'biweekly':
+                cur += _dtp.timedelta(days=14)
+            elif pattern == 'daily':
+                cur += _dtp.timedelta(days=1)
+            elif pattern == 'monthly':
+                month = cur.month + 1 if cur.month < 12 else 1
+                year = cur.year + (1 if cur.month == 12 else 0)
+                try:
+                    cur = cur.replace(year=year, month=month)
+                except Exception:
+                    break
+            else:
+                break
+        return dates, False, ''
+
+    # 'range' mode: a single date, or a contiguous multi-day span
+    end_raw = (req.get('end_date') or '').strip()
+    try:
+        end = _dtp.date.fromisoformat(end_raw) if end_raw else start
+    except Exception:
+        end = start
+    if end < start:
+        end = start
+    dates = []
+    cur = start
+    while cur <= end and len(dates) < cap:
+        dates.append({'date': cur.isoformat(), 'start_time': stime, 'end_time': etime})
+        cur += _dtp.timedelta(days=1)
+    return dates, False, ''
+
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None):
     import datetime as _dtc
+    import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
     rate_cents = int(req.get('rate_amount') or 0)
@@ -21712,7 +21800,46 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     total_str = f'${total_cents/100:.2f}' if total_cents else 'To be invoiced'
     start = req.get('start_date','')
     end = req.get('end_date','')
-    date_range = start + (' through ' + end if end and end != start else '')
+
+    def _format_date_human(date_str):
+        try:
+            return _dtc.date.fromisoformat(date_str).strftime('%B %d, %Y')
+        except Exception:
+            return date_str
+
+    # Prefer the actual generated occurrence list (authoritative once a
+    # request is approved). Otherwise project the dates straight from the
+    # request's raw scheduling fields — contracts are often generated before
+    # approval, so occurrences may not exist in the calendar yet.
+    date_list_source = []
+    open_ended_desc = ''
+    if occurrences:
+        date_list_source = [{'date': o.get('occurrence_date',''), 'start_time': o.get('start_time',''), 'end_time': o.get('end_time','')} for o in occurrences]
+    else:
+        date_list_source, is_open_ended, pattern_desc = _project_rental_dates(req)
+        if is_open_ended:
+            open_ended_desc = pattern_desc
+
+    if open_ended_desc:
+        date_range = open_ended_desc
+    elif len(date_list_source) > 1:
+        # Multiple dates — list every one. Only append a per-date time when
+        # it differs from the overall Time row, to avoid needless repetition.
+        base_time = (req.get('start_time',''), req.get('end_time',''))
+        date_items = []
+        for item in sorted(date_list_source, key=lambda x: x.get('date','')):
+            label = _format_date_human(item.get('date',''))
+            item_time = (item.get('start_time',''), item.get('end_time',''))
+            if item_time != base_time and (item.get('start_time') or item.get('end_time')):
+                t = item.get('start_time','') + (' – ' + item.get('end_time','') if item.get('end_time') else '')
+                label += f' ({t})'
+            date_items.append(label)
+        date_range = ', '.join(date_items)
+    elif len(date_list_source) == 1:
+        date_range = _format_date_human(date_list_source[0].get('date',''))
+    else:
+        date_range = start + (' through ' + end if end and end != start else '')
+
     time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
     partner_name = req.get('partner_name','Partner Organization')
     contact_name = req.get('contact_name','') or partner_name

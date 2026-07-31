@@ -21814,6 +21814,15 @@ def _seed_rental_contract_clauses(conn):
             VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
             (str(uuid.uuid4()), category, billing_frequency, clause_number, title, body_template, sort_order))
     conn.commit()
+    # One-time correction: the Equipment clause (2.7) may already exist from
+    # before {equipment_list} was added to its body — the loop above only
+    # inserts brand-new clauses, so an existing 2.7 row would otherwise keep
+    # its old text forever. Patch it in place if the placeholder is missing.
+    row_27 = fetchone(conn, "SELECT * FROM rental_contract_clauses WHERE category='' AND billing_frequency='' AND clause_number='2.7'")
+    if row_27 and '{equipment_list}' not in (row_27.get('body_template') or ''):
+        execute(conn, "UPDATE rental_contract_clauses SET body_template = body_template || %s WHERE id=%s",
+            ('{equipment_list}', row_27['id']))
+        conn.commit()
 
 # Starter equipment catalog — editable/deletable via the "Manage Equipment
 # List" UI. Seeded only once per item name (idempotent, like the clause

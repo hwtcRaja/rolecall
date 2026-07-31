@@ -1265,7 +1265,7 @@ def init_db():
             recurrence_pattern TEXT DEFAULT '',
             recurrence_end_date TEXT DEFAULT '',
             estimated_attendance INTEGER,
-            rate_type TEXT DEFAULT 'hourly',
+            rate_type TEXT DEFAULT 'Hour',
             rate_amount INTEGER DEFAULT 0,
             total_amount INTEGER DEFAULT 0,
             status TEXT DEFAULT 'pending',
@@ -21272,7 +21272,7 @@ def create_rental_request():
          _jcrr.dumps(specific_dates),
          portal_token,
          d.get('estimated_attendance') or None,
-         d.get('rate_type') or 'hourly',
+         d.get('rate_type') or 'Hour',
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip(),
@@ -21440,7 +21440,7 @@ def update_rental_request(rid):
          (d.get('recurrence_end_date') or '').strip(),
          (d.get('date_mode') or 'range').strip(), _jurr.dumps(specific_dates),
          d.get('estimated_attendance') or None,
-         d.get('rate_type') or 'hourly',
+         d.get('rate_type') or 'Hour',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip(),
          (d.get('partnership_category') or 'open_partnership').strip(),
@@ -22127,7 +22127,7 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
-    rate_type = req.get('rate_type','hourly')
+    rate_type = req.get('rate_type','Hour')
     rate_cents = int(req.get('rate_amount') or 0)
     rate_str = f'${rate_cents/100:.2f} per {rate_type.replace("_"," ")}'
     total_cents = int(req.get('total_amount') or 0)

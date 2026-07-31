@@ -24190,6 +24190,30 @@ const RENTAL_STATUS_LABELS = {
   denied:'Denied', sent_back:'Sent Back for Changes'
 }
 
+// Three partnership categories per HWTC Partnership/Space Use Guidelines —
+// drives the contract wording, fee structure, and cancellation policy.
+const RENTAL_CATEGORY_META = {
+  ticketed_enrollment: {
+    label: 'Ticketed / Enrollment — HWTC Owns It',
+    shortLabel: '🎟️ Ticketed/Enrollment',
+    badge: '#fce7f3;color:#9d174d',
+    desc: 'Attendees pay to be there (a class, workshop, ticketed event). HWTC is the official producer/host, handles all advertising and public listing, and collects all revenue — then HWTC and the partner agree on a revenue split afterward. The partner is acting as an instructor/contractor, not a renter.'
+  },
+  open_partnership: {
+    label: 'Open, Free-to-Attend — Partnership Model',
+    shortLabel: '🤝 Open Partnership',
+    badge: '#dbeafe;color:#1e40af',
+    desc: 'Free for attendees, but HWTC must be listed publicly as a sponsor, producer, or partner. The partner rents the space and runs the logistics — there is no enrollment revenue to split since nothing is charged.'
+  },
+  closed_rental: {
+    label: 'Closed, Free-to-Attend — Rental / Acknowledgment',
+    shortLabel: '🔒 Closed Rental',
+    badge: '#f3f4f6;color:#374151',
+    desc: 'Private use — rehearsal, practice, a class for the partner\'s own people, a taping, etc. Not a public event. The partner pays the rental fee and just needs to credit HWTC as a thank-you/acknowledgment somewhere in their promotion. Attendees cannot be charged for anything — if they are, this falls back into the Ticketed/Enrollment category.'
+  }
+}
+function rentalCategoryMeta(cat){ return RENTAL_CATEGORY_META[cat] || RENTAL_CATEGORY_META.open_partnership }
+
 async function loadRentalsPage(){
   const body = document.getElementById('rentals-body')
   if(!body) return
@@ -24344,6 +24368,7 @@ function renderRentalsPage(){
          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
           <div style="font-size:15px;font-weight:700">${escHtml(r.title||'')}</div>
           <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${stLabel}</span>
+          <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${rentalCategoryMeta(r.partnership_category).badge}" title="${escHtml(rentalCategoryMeta(r.partnership_category).desc)}">${rentalCategoryMeta(r.partnership_category).shortLabel}</span>
           ${r.awaiting_feedback?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af">⏳ Awaiting Feedback</span>':''}
           ${r.tour_scheduled_date?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ffedd5;color:#9a3412">🚶 Tour: '+r.tour_scheduled_date+(r.tour_scheduled_time?' '+r.tour_scheduled_time:'')+'</span>':''}
           ${r.source==='interest_form'?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9"> Interest Form</span>':''}
@@ -24946,9 +24971,25 @@ function openNewRentalModal(rid){
         : {date:item.date, start_time:item.start_time||'', end_time:item.end_time||''}
     })
   }catch(e){ _rmSpecificDates = [] }
+  const cat = (req||{}).partnership_category || 'open_partnership'
+  const categoryOptionsHtml = Object.entries(RENTAL_CATEGORY_META).map(([key,meta])=>
+   `<label style="display:flex;align-items:flex-start;gap:10px;border:1.5px solid ${cat===key?'var(--teal-mid)':'var(--border-md)'};background:${cat===key?'var(--teal-light,#eef7f8)':'transparent'};border-radius:var(--radius);padding:10px 12px;cursor:pointer">
+    <input type="radio" name="rm-category" value="${key}" ${cat===key?'checked':''} onchange="toggleRentalCategoryFields(this)" style="margin-top:3px"/>
+    <div><div style="font-weight:700;font-size:13px">${meta.label}</div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">${meta.desc}</div></div>
+   </label>`
+  ).join('')
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Partnership Request</div>
    ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
+   <div style="margin-bottom:16px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">Partnership Category</label>
+    <div style="display:flex;flex-direction:column;gap:8px">${categoryOptionsHtml}</div>
+    <div id="rm-revenue-split-wrap" style="display:${cat==='ticketed_enrollment'?'':'none'};margin-top:10px">
+     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Revenue Split Notes</label>
+     <textarea id="rm-revenue-split" rows="2" placeholder="e.g. 60% to partner / 40% to HWTC after advertising costs — finalize in writing before the first session" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).revenue_split_notes||'')}</textarea>
+    </div>
+   </div>
    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
     <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title / Event Name</label>
     <input id="rm-title" value="${escHtml((req||{}).title||'')}" placeholder="e.g. Saturday Dance Classes" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
@@ -25026,6 +25067,18 @@ function openNewRentalModal(rid){
 
 function openEditRentalModal(rid){ openNewRentalModal(rid) }
 
+function toggleRentalCategoryFields(radioEl){
+  const wrap = document.getElementById('rm-revenue-split-wrap')
+  if(wrap) wrap.style.display = (radioEl && radioEl.value==='ticketed_enrollment') ? '' : 'none'
+  // Re-highlight the selected option card
+  document.querySelectorAll('input[name="rm-category"]').forEach(function(input){
+    const card = input.closest('label')
+    if(!card) return
+    card.style.borderColor = input.checked ? 'var(--teal-mid)' : 'var(--border-md)'
+    card.style.background = input.checked ? 'var(--teal-light,#eef7f8)' : 'transparent'
+  })
+}
+
 async function saveRentalRequest(rid){
   const rateVal = parseFloat((document.getElementById('rm-rate')||{}).value||0)
   const totalVal = parseFloat((document.getElementById('rm-total')||{}).value||0)
@@ -25047,6 +25100,8 @@ async function saveRentalRequest(rid){
     rate_amount:Math.round(rateVal*100),
     total_amount:Math.round(totalVal*100),
     purpose:(document.getElementById('rm-purpose')||{}).value||'',
+    partnership_category:(document.querySelector('input[name="rm-category"]:checked')||{}).value||'open_partnership',
+    revenue_split_notes:(document.getElementById('rm-revenue-split')||{}).value||'',
   }
   if(!payload.title){ toast('Title is required','error'); return }
   if(dateMode==='specific' && !payload.specific_dates.length){ toast('Add at least one date','error'); return }

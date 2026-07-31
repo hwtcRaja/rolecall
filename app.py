@@ -22702,7 +22702,7 @@ This is an internal reference tool, not legal advice. If a question touches on s
 
 @app.route('/api/productions/<pid>/contracts')
 def get_production_contracts(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
@@ -22712,7 +22712,7 @@ def get_production_contracts(pid):
 
 @app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
 def upload_production_contract(pid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     try:
         if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
@@ -22736,7 +22736,7 @@ def upload_production_contract(pid):
 
 @app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
 def delete_production_contract(cid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
@@ -22745,7 +22745,7 @@ def delete_production_contract(cid):
 
 @app.route('/api/productions/<pid>/contract-qa')
 def get_production_contract_qa(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
@@ -22755,7 +22755,7 @@ def get_production_contract_qa(pid):
 
 @app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
 def create_production_contract_qa(pid):
-    err = require_auth()
+    err = require_permission('productions', 'view')
     if err: return err
     try:
         d = request.json or {}
@@ -22777,7 +22777,7 @@ def create_production_contract_qa(pid):
 
 @app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
 def delete_production_contract_qa(qid):
-    err = require_admin()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))

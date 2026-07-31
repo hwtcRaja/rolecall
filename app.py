@@ -2101,6 +2101,16 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_months INTEGER",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_installments_plan TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS equipment_selections TEXT DEFAULT ''",
+
+        # ── Artistic Partnership: equipment catalog (checked/unchecked per contract) ──
+        """CREATE TABLE IF NOT EXISTS rental_equipment_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            default_allowed BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW())""",
 
         # ── Artistic Partnership: contract clause library (editable legal text) ──
         # category: '' = all categories, 'fee_based' = open_partnership + closed_rental,
@@ -21638,15 +21648,26 @@ def generate_rental_contract(rid):
     # Persist whatever billing plan was disclosed in this contract onto the
     # request itself, so the payment-plan step after signing can't drift
     # from what the partner actually agreed to.
-    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s, billing_installments_plan=%s WHERE id=%s',
-        (billing_frequency, billing_months, installments_plan_json, rid))
+    equipment_selections_raw = d.get('equipment_selections')
+    if equipment_selections_raw is not None:
+        equipment_selections_json = json.dumps(equipment_selections_raw)
+    else:
+        equipment_selections_json = req.get('equipment_selections') or ''
+    equipment_selections = []
+    if equipment_selections_json:
+        try:
+            equipment_selections = json.loads(equipment_selections_json)
+        except Exception:
+            equipment_selections = []
+    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s, billing_installments_plan=%s, equipment_selections=%s WHERE id=%s',
+        (billing_frequency, billing_months, installments_plan_json, equipment_selections_json, rid))
     # If no custom terms provided, load default template from email_settings
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
     additional_terms = (d.get('additional_terms') or '').strip()
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
-    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms)
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21666,12 +21687,24 @@ def _render_clause_template(template, context):
         out = out.replace('{' + key + '}', str(val))
     return out
 
-def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
+def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False, equipment_selections=None):
     """Computes the placeholder values ({total_str}, {deposit}, {event_label},
     etc.) substituted into clause templates from the library — shared by the
     live UI preview and the actual contract generator so they can never
     diverge."""
     total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
+    equipment_list_html = ''
+    if equipment_selections:
+        allowed = [e.get('name', '') for e in equipment_selections if e.get('allowed')]
+        not_allowed = [e.get('name', '') for e in equipment_selections if not e.get('allowed')]
+        parts = []
+        if allowed:
+            parts.append('<br/><strong>Equipment included for this collaboration:</strong> ' + ', '.join(allowed) + '.')
+        if not_allowed:
+            parts.append('<br/><strong>Equipment NOT included or permitted for this use:</strong> ' + ', '.join(not_allowed) + '.')
+        if parts:
+            parts.append('<br/>Questions about equipment should be directed to the HWTC point of contact above.')
+            equipment_list_html = ''.join(parts)
     return {
         'total_str': total_str,
         'deposit': deposit if deposit else 'as agreed',
@@ -21681,6 +21714,7 @@ def _build_rental_clause_context(category, deposit, revenue_split_notes, billing
         'event_label': 'the scheduled use' if category == 'closed_rental' else 'the scheduled event',
         'schedule_ref': ('as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit
                           else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'),
+        'equipment_list': equipment_list_html,
     }
 
 # Seed data for the contract clause library — used only to populate the
@@ -21749,7 +21783,9 @@ _RENTAL_CLAUSE_SEED = [
     ('', '', '2.6', 'Conduct',
      'Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.', 60),
     ('', '', '2.7', 'Equipment',
-     'Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.', 70),
+     'Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.{equipment_list}', 70),
+    ('', '', '2.7.1', 'On-Site Representative',
+     'An HWTC representative will be present on-site for the duration of this collaboration, unless otherwise agreed upon in writing for a long-term or recurring use where HWTC is comfortable with Partner Organization operating unsupervised.', 75),
     ('', '', '2.8', 'Insurance',
      'Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.', 80),
     ('', '', '2.9', 'Indemnification',
@@ -21761,22 +21797,51 @@ _RENTAL_CLAUSE_SEED = [
 ]
 
 def _seed_rental_contract_clauses(conn):
-    """Populate rental_contract_clauses from the built-in defaults, but only
-    the first time (table empty) — never overwrites anything staff has since
-    edited via Settings > Contract Clauses."""
-    existing = fetchone(conn, 'SELECT COUNT(*) AS c FROM rental_contract_clauses')
-    if existing and existing.get('c'):
-        return
+    """Populate rental_contract_clauses from the built-in defaults — but only
+    clauses that don't already exist (matched by category+billing_frequency+
+    clause_number). This means adding a brand-new clause to the seed list
+    later will still get inserted into an already-seeded database on the
+    next restart, while anything staff has since edited via Settings >
+    Contract Clauses is left untouched."""
     for category, billing_frequency, clause_number, title, body_template, sort_order in _RENTAL_CLAUSE_SEED:
+        existing = fetchone(conn, '''SELECT id FROM rental_contract_clauses
+            WHERE category=%s AND billing_frequency=%s AND clause_number=%s''',
+            (category, billing_frequency, clause_number))
+        if existing:
+            continue
         execute(conn, '''INSERT INTO rental_contract_clauses
             (id, category, billing_frequency, clause_number, title, body_template, sort_order, active)
             VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
             (str(uuid.uuid4()), category, billing_frequency, clause_number, title, body_template, sort_order))
     conn.commit()
 
+# Starter equipment catalog — editable/deletable via the "Manage Equipment
+# List" UI. Seeded only once per item name (idempotent, like the clause
+# library), so staff edits are never overwritten by a later deploy.
+_RENTAL_EQUIPMENT_SEED = [
+    ('Stage Lighting', True, 10),
+    ('Sound System / Mixer', True, 20),
+    ('Wireless Microphones', True, 30),
+    ('Projector & Screen', True, 40),
+    ('Piano', True, 50),
+    ('Fog / Haze Machine', False, 60),
+]
+
+def _seed_rental_equipment_items(conn):
+    for name, default_allowed, sort_order in _RENTAL_EQUIPMENT_SEED:
+        existing = fetchone(conn, 'SELECT id FROM rental_equipment_items WHERE name=%s', (name,))
+        if existing:
+            continue
+        execute(conn, '''INSERT INTO rental_equipment_items
+            (id, name, default_allowed, sort_order, active)
+            VALUES (%s,%s,%s,%s,TRUE)''',
+            (str(uuid.uuid4()), name, default_allowed, sort_order))
+    conn.commit()
+
 try:
     _seed_bootstrap_conn = get_db()
     _seed_rental_contract_clauses(_seed_bootstrap_conn)
+    _seed_rental_equipment_items(_seed_bootstrap_conn)
     _seed_bootstrap_conn.close()
 except Exception as e:
     print(f'rental_contract_clauses seed error: {e}')
@@ -21853,6 +21918,67 @@ def delete_rental_contract_clause(cid):
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/rental/equipment-items', methods=['GET'])
+def get_rental_equipment_items():
+    """The master equipment catalog — checked/unchecked per contract when
+    generating an agreement, then itemized in the Equipment clause."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM rental_equipment_items ORDER BY sort_order, name') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/rental/equipment-items', methods=['POST'])
+def create_rental_equipment_item():
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    iid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_equipment_items (id, name, default_allowed, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (iid, name, bool(d.get('default_allowed', True)), int(d.get('sort_order') or 0), bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/equipment-items/<iid>', methods=['PUT'])
+def update_rental_equipment_item(iid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    name = d.get('name', existing.get('name', ''))
+    default_allowed = d.get('default_allowed', existing.get('default_allowed', True))
+    sort_order = d.get('sort_order', existing.get('sort_order', 0))
+    active = d.get('active', existing.get('active', True))
+    execute(conn, '''UPDATE rental_equipment_items SET name=%s, default_allowed=%s,
+        sort_order=%s, active=%s, updated_at=NOW() WHERE id=%s''',
+        (name, default_allowed, sort_order, active, iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/equipment-items/<iid>', methods=['DELETE'])
+def delete_rental_equipment_item(iid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
 def _render_rental_contract_terms(conn, category, billing_frequency, context):
     """Fetches every clause row matching this category/billing plan from the
     editable library, substitutes placeholders, and assembles the '2. TERMS
@@ -21901,7 +22027,14 @@ def get_rental_default_terms(rid):
     has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
+    equipment_selections = []
+    equipment_raw = request.args.get('equipment_selections') or req.get('equipment_selections') or ''
+    if equipment_raw:
+        try:
+            equipment_selections = json.loads(equipment_raw)
+        except Exception:
+            equipment_selections = []
+    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit, equipment_selections)
     terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
     conn.close()
     return jsonify({'terms_html': terms_html})
@@ -21992,7 +22125,7 @@ def _project_rental_dates(req, cap=104):
         cur += _dtp.timedelta(days=1)
     return dates, False, ''
 
-def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms=''):
+def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms='', equipment_selections=None):
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
@@ -22090,7 +22223,7 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan), equipment_selections)
         terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
 
     if additional_terms.strip():
@@ -22172,13 +22305,13 @@ def get_rental_agreement(aid):
 
 @app.route('/rent/preview/<aid>')
 def rental_contract_internal_preview(aid):
-    """Read-only, staff-only view of a drafted/sent contract — for sharing
-    a link internally (e.g. in Slack) before it goes out to the partner.
-    Deliberately a different URL than /rent/sign/<token>: no sign button,
-    no signing endpoint behind it, and it requires a RoleCall login, so it
-    can't be mistaken for — or misused as — the partner's signing link."""
-    err = require_auth()
-    if err: return err
+    """Read-only view of a drafted/sent contract — for sharing a link with
+    the team (or anyone, e.g. a board member without a RoleCall login)
+    before it goes out to the partner. Deliberately a different URL than
+    /rent/sign/<token>: no sign button, and no signing endpoint behind it,
+    so it can't be mistaken for — or misused as — the partner's signing
+    link. Protected only by the agreement id being an unguessable UUID,
+    same as the signing link itself."""
     conn = get_db()
     agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
         FROM rental_agreements ra

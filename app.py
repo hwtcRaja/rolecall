@@ -22249,12 +22249,16 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     if equipment_selections:
         allowed_items = [e for e in equipment_selections if e.get('allowed')]
         if allowed_items:
-            eq_rows = ''.join(
-                f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("name","")}</td>'
-                f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("quantity","") or "\u2014"}</td>'
-                f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("notes","") or "\u2014"}</td></tr>'
-                for item in allowed_items
-            )
+            eq_row_parts = []
+            for item in allowed_items:
+                eq_name = item.get('name', '')
+                eq_qty = item.get('quantity', '') or '\u2014'
+                eq_notes = item.get('notes', '') or '\u2014'
+                eq_row_parts.append(
+                    f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_name}</td>'
+                    f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_qty}</td>'
+                    f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_notes}</td></tr>')
+            eq_rows = ''.join(eq_row_parts)
             exhibit_b_html = f'''<div style="page-break-before:always"></div>
 <h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT B: EQUIPMENT LIST</h2>
 <p>The following equipment is included for this collaboration.</p>

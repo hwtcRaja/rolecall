@@ -2111,6 +2111,8 @@ def init_db():
             sort_order INTEGER DEFAULT 0,
             active BOOLEAN DEFAULT TRUE,
             updated_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE rental_equipment_items ADD COLUMN IF NOT EXISTS default_quantity TEXT DEFAULT ''",
+        "ALTER TABLE rental_equipment_items ADD COLUMN IF NOT EXISTS default_notes TEXT DEFAULT ''",
 
         # ── Artistic Partnership: contract clause library (editable legal text) ──
         # category: '' = all categories, 'fee_based' = open_partnership + closed_rental,
@@ -21687,24 +21689,12 @@ def _render_clause_template(template, context):
         out = out.replace('{' + key + '}', str(val))
     return out
 
-def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False, equipment_selections=None):
+def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
     """Computes the placeholder values ({total_str}, {deposit}, {event_label},
     etc.) substituted into clause templates from the library — shared by the
     live UI preview and the actual contract generator so they can never
     diverge."""
     total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
-    equipment_list_html = ''
-    if equipment_selections:
-        allowed = [e.get('name', '') for e in equipment_selections if e.get('allowed')]
-        not_allowed = [e.get('name', '') for e in equipment_selections if not e.get('allowed')]
-        parts = []
-        if allowed:
-            parts.append('<br/><strong>Equipment included for this collaboration:</strong> ' + ', '.join(allowed) + '.')
-        if not_allowed:
-            parts.append('<br/><strong>Equipment NOT included or permitted for this use:</strong> ' + ', '.join(not_allowed) + '.')
-        if parts:
-            parts.append('<br/>Questions about equipment should be directed to the HWTC point of contact above.')
-            equipment_list_html = ''.join(parts)
     return {
         'total_str': total_str,
         'deposit': deposit if deposit else 'as agreed',
@@ -21714,7 +21704,6 @@ def _build_rental_clause_context(category, deposit, revenue_split_notes, billing
         'event_label': 'the scheduled use' if category == 'closed_rental' else 'the scheduled event',
         'schedule_ref': ('as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit
                           else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'),
-        'equipment_list': equipment_list_html,
     }
 
 # Seed data for the contract clause library — used only to populate the
@@ -21783,7 +21772,7 @@ _RENTAL_CLAUSE_SEED = [
     ('', '', '2.6', 'Conduct',
      'Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.', 60),
     ('', '', '2.7', 'Equipment',
-     'Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.{equipment_list}', 70),
+     'Use of HWTC equipment is included as part of this agreement, as itemized in <strong>Exhibit B</strong>. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event. Questions about equipment should be directed to the HWTC point of contact for this agreement.', 70),
     ('', '', '2.7.1', 'On-Site Representative',
      'An HWTC representative will be present on-site for the duration of this collaboration, unless otherwise agreed upon in writing for a long-term or recurring use where HWTC is comfortable with Partner Organization operating unsupervised.', 75),
     ('', '', '2.8', 'Insurance',
@@ -21815,14 +21804,18 @@ def _seed_rental_contract_clauses(conn):
             (str(uuid.uuid4()), category, billing_frequency, clause_number, title, body_template, sort_order))
     conn.commit()
     # One-time correction: the Equipment clause (2.7) may already exist from
-    # before {equipment_list} was added to its body — the loop above only
+    # before it referenced Exhibit B (either the original text, or the
+    # short-lived {equipment_list}-suffixed version) — the loop above only
     # inserts brand-new clauses, so an existing 2.7 row would otherwise keep
-    # its old text forever. Patch it in place if the placeholder is missing.
+    # stale text forever. Force it to the current canonical wording if it
+    # doesn't look like that wording yet.
     row_27 = fetchone(conn, "SELECT * FROM rental_contract_clauses WHERE category='' AND billing_frequency='' AND clause_number='2.7'")
-    if row_27 and '{equipment_list}' not in (row_27.get('body_template') or ''):
-        execute(conn, "UPDATE rental_contract_clauses SET body_template = body_template || %s WHERE id=%s",
-            ('{equipment_list}', row_27['id']))
-        conn.commit()
+    if row_27:
+        body = row_27.get('body_template') or ''
+        if '{equipment_list}' in body or 'Exhibit B' not in body:
+            canonical_27 = next(b for (c, bf, cn, t, b, so) in _RENTAL_CLAUSE_SEED if cn == '2.7')
+            execute(conn, 'UPDATE rental_contract_clauses SET body_template=%s WHERE id=%s', (canonical_27, row_27['id']))
+            conn.commit()
 
 # Starter equipment catalog — editable/deletable via the "Manage Equipment
 # List" UI. Seeded only once per item name (idempotent, like the clause
@@ -21948,9 +21941,10 @@ def create_rental_equipment_item():
         return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
     iid = str(uuid.uuid4())
-    execute(conn, '''INSERT INTO rental_equipment_items (id, name, default_allowed, sort_order, active)
-        VALUES (%s,%s,%s,%s,%s)''',
-        (iid, name, bool(d.get('default_allowed', True)), int(d.get('sort_order') or 0), bool(d.get('active', True))))
+    execute(conn, '''INSERT INTO rental_equipment_items (id, name, default_allowed, default_quantity, default_notes, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (iid, name, bool(d.get('default_allowed', True)), (d.get('default_quantity') or '').strip(),
+         (d.get('default_notes') or '').strip(), int(d.get('sort_order') or 0), bool(d.get('active', True))))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
     conn.close()
@@ -21968,11 +21962,13 @@ def update_rental_equipment_item(iid):
         return jsonify({'error': 'Not found'}), 404
     name = d.get('name', existing.get('name', ''))
     default_allowed = d.get('default_allowed', existing.get('default_allowed', True))
+    default_quantity = d.get('default_quantity', existing.get('default_quantity', ''))
+    default_notes = d.get('default_notes', existing.get('default_notes', ''))
     sort_order = d.get('sort_order', existing.get('sort_order', 0))
     active = d.get('active', existing.get('active', True))
     execute(conn, '''UPDATE rental_equipment_items SET name=%s, default_allowed=%s,
-        sort_order=%s, active=%s, updated_at=NOW() WHERE id=%s''',
-        (name, default_allowed, sort_order, active, iid))
+        default_quantity=%s, default_notes=%s, sort_order=%s, active=%s, updated_at=NOW() WHERE id=%s''',
+        (name, default_allowed, default_quantity, default_notes, sort_order, active, iid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
     conn.close()
@@ -22036,14 +22032,7 @@ def get_rental_default_terms(rid):
     has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    equipment_selections = []
-    equipment_raw = request.args.get('equipment_selections') or req.get('equipment_selections') or ''
-    if equipment_raw:
-        try:
-            equipment_selections = json.loads(equipment_raw)
-        except Exception:
-            equipment_selections = []
-    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit, equipment_selections)
+    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
     terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
     conn.close()
     return jsonify({'terms_html': terms_html})
@@ -22232,7 +22221,7 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan), equipment_selections)
+        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
         terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
 
     if additional_terms.strip():
@@ -22255,6 +22244,24 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
 <tbody>{rows}</tbody>
 </table>
 <p><strong>Total: ${plan_total_cents/100:.2f}</strong></p>'''
+
+    exhibit_b_html = ''
+    if equipment_selections:
+        allowed_items = [e for e in equipment_selections if e.get('allowed')]
+        if allowed_items:
+            eq_rows = ''.join(
+                f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("name","")}</td>'
+                f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("quantity","") or "\u2014"}</td>'
+                f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("notes","") or "\u2014"}</td></tr>'
+                for item in allowed_items
+            )
+            exhibit_b_html = f'''<div style="page-break-before:always"></div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT B: EQUIPMENT LIST</h2>
+<p>The following equipment is included for this collaboration.</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px">
+<thead><tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Equipment</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Quantity</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Notes</th></tr></thead>
+<tbody>{eq_rows}</tbody>
+</table>'''
 
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
@@ -22302,6 +22309,7 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 </div>
 </div>
 {exhibit_html}
+{exhibit_b_html}
 </body></html>'''
 @app.route('/api/rental/agreements/<aid>', methods=['GET'])
 def get_rental_agreement(aid):

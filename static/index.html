@@ -445,6 +445,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin"></span>Cast Sign-In</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
+        <div class="nav-item" onclick="navTo('licensing',this)" style="padding-left:28px"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
 
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
@@ -1189,7 +1190,38 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
- <!-- YOUTH PROGRAMS PAGE -->
+ <!-- LICENSING REQUESTS PAGE -->
+ <section class="page" id="page-licensing">
+ <div class="page-header">
+ <div><div class="page-title">Licensing Requests</div><div class="page-subtitle">Track show licensing requests, whether the licensor has been contacted, and contract status</div></div>
+ <div class="page-actions">
+ <a href="/licensing-request" target="_blank" class="btn btn-secondary">View Public Form</a>
+ </div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+ <div class="search-input-wrap" style="flex:1;min-width:200px"><span></span><input type="text" id="lic-search" placeholder="Search by production, licensor, or requester…" oninput="renderLicensingList()"/></div>
+ <select class="filter-select" id="lic-filter-contract" onchange="renderLicensingList()">
+ <option value="">All Contract Statuses</option>
+ <option value="not_requested">Not Yet Requested</option>
+ <option value="requested">Requested — Awaiting Contract</option>
+ <option value="contract_on_file">Contract on File</option>
+ <option value="expiring_soon">Expiring Soon</option>
+ <option value="expired">Expired — Needs Renewal</option>
+ </select>
+ <select class="filter-select" id="lic-filter-status" onchange="renderLicensingList()">
+ <option value="">All Review Statuses</option>
+ <option value="new">New</option>
+ <option value="in_review">In Review</option>
+ <option value="approved">Approved</option>
+ <option value="denied">Denied</option>
+ </select>
+ </div>
+ <div id="lic-summary-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px"></div>
+ <div id="lic-list"><div class="empty-state"><div class="empty-icon"></div><p>Loading licensing requests…</p></div></div>
+ </div>
+ </section>
+
  <section class="page" id="page-youth-programs-page">
  <div class="page-header">
  <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
@@ -3933,6 +3965,7 @@ const NAV_PERM_MAP = {
  'marquee': 'marquee',
  'productions': 'productions',
  'production-signin':'productions',
+ 'licensing': 'productions',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
@@ -4045,6 +4078,7 @@ function navTo(page,el){
  if(page==='carpools') loadCarpoolsPage()
  if(page==='production-signin') initProdSignIn()
  if(page==='show-contracts') loadShowContractsPage()
+ if(page==='licensing') loadLicensingPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -25633,6 +25667,203 @@ function copyShowQuestionsLink(){
  } else {
   prompt('Copy this link:', url)
  }
+}
+
+// ── Licensing Requests ──
+let licensingData = []
+const LIC_CONTRACT_BADGES = {
+ not_requested:   {label:'Not Yet Requested',        bg:'var(--bg)',        col:'var(--text-muted)'},
+ requested:       {label:'Requested — Awaiting Contract', bg:'#EFF6FF',    col:'#1D4ED8'},
+ contract_on_file:{label:'Contract on File',         bg:'var(--green-light)', col:'var(--green)'},
+ expiring_soon:   {label:'Expiring Soon',            bg:'var(--amber-light)', col:'var(--amber-600)'},
+ expired:         {label:'Expired — Needs Renewal',  bg:'var(--red-light)',  col:'var(--red-600)'},
+}
+const LIC_STATUS_LABELS = {new:'New', in_review:'In Review', approved:'Approved', denied:'Denied'}
+
+async function loadLicensingPage(){
+ const el = document.getElementById('lic-list')
+ if(el) el.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>Loading licensing requests…</p></div>'
+ const res = await api('/api/licensing-requests')
+ licensingData = Array.isArray(res) ? res : []
+ renderLicensingSummaryCards()
+ renderLicensingList()
+}
+
+function renderLicensingSummaryCards(){
+ const el = document.getElementById('lic-summary-cards')
+ if(!el) return
+ const counts = {not_requested:0, requested:0, contract_on_file:0, expiring_soon:0, expired:0}
+ licensingData.forEach(lr=>{ if(counts[lr.contract_status]!==undefined) counts[lr.contract_status]++ })
+ el.innerHTML = Object.entries(counts).map(([key,count])=>{
+  const b = LIC_CONTRACT_BADGES[key]
+  return `<div class="card" style="padding:14px 16px;border-left:3px solid ${b.col}">
+   <div style="font-size:22px;font-weight:800;color:${b.col}">${count}</div>
+   <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${b.label}</div>
+  </div>`
+ }).join('')
+}
+
+function renderLicensingList(){
+ const el = document.getElementById('lic-list')
+ if(!el) return
+ const search = (document.getElementById('lic-search')?.value||'').toLowerCase().trim()
+ const contractFilter = document.getElementById('lic-filter-contract')?.value||''
+ const statusFilter = document.getElementById('lic-filter-status')?.value||''
+ let items = licensingData.slice()
+ if(contractFilter) items = items.filter(lr=>lr.contract_status===contractFilter)
+ if(statusFilter) items = items.filter(lr=>lr.status===statusFilter)
+ if(search) items = items.filter(lr=>
+  (lr.production_name||'').toLowerCase().includes(search) ||
+  (lr.licensor||'').toLowerCase().includes(search) ||
+  (lr.requester_name||'').toLowerCase().includes(search))
+ if(!items.length){
+  el.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>No licensing requests match your filters.</p></div>'
+  return
+ }
+ el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+ + '<thead><tr style="background:var(--bg)"><th style="text-align:left;padding:10px 14px">Production</th><th style="text-align:left;padding:10px 14px">Licensor</th><th style="text-align:left;padding:10px 14px">Requester</th><th style="text-align:left;padding:10px 14px">Submitted</th><th style="text-align:left;padding:10px 14px">Review Status</th><th style="text-align:left;padding:10px 14px">Contract Status</th><th style="text-align:left;padding:10px 14px">Expires</th></tr></thead><tbody>'
+ + items.map(lr=>{
+  const b = LIC_CONTRACT_BADGES[lr.contract_status] || LIC_CONTRACT_BADGES.not_requested
+  return `<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="openLicensingDetail('${lr.id}')">
+   <td style="padding:10px 14px;font-weight:600">${escHtml(lr.production_name||'Untitled')}</td>
+   <td style="padding:10px 14px">${escHtml(lr.licensor||lr.licensor_other||'—')}</td>
+   <td style="padding:10px 14px">${escHtml(lr.requester_name||'—')}</td>
+   <td style="padding:10px 14px;color:var(--text-muted)">${(lr.submitted_at||'').slice(0,10)}</td>
+   <td style="padding:10px 14px">${LIC_STATUS_LABELS[lr.status]||lr.status||'—'}</td>
+   <td style="padding:10px 14px"><span style="background:${b.bg};color:${b.col};font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap">${b.label}</span></td>
+   <td style="padding:10px 14px;color:var(--text-muted)">${lr.contract_expires_date||'—'}</td>
+  </tr>`
+ }).join('')
+ + '</tbody></table></div></div>'
+}
+
+function openLicensingDetail(id){
+ const lr = licensingData.find(x=>x.id===id)
+ if(!lr) return
+ const existing = document.getElementById('licensing-detail-modal')
+ if(existing) existing.remove()
+ const overlay = document.createElement('div')
+ overlay.id = 'licensing-detail-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ const fmtMoney = c => c==null ? '—' : '$'+(c/100).toFixed(2)
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:640px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
+   <div>
+    <div style="font-size:19px;font-weight:800">${escHtml(lr.production_name||'Untitled')}</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Ref ${escHtml(lr.ref_number||'')} · Submitted ${(lr.submitted_at||'').slice(0,10)}</div>
+   </div>
+   <button onclick="document.getElementById('licensing-detail-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted);line-height:1;padding:0">×</button>
+  </div>
+
+  <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
+   <div><span style="color:var(--text-muted)">Licensor:</span> ${escHtml(lr.licensor||lr.licensor_other||'—')}</div>
+   <div><span style="color:var(--text-muted)">Requester:</span> ${escHtml(lr.requester_name||'—')} ${lr.requester_email?'('+escHtml(lr.requester_email)+')':''}</div>
+   <div><span style="color:var(--text-muted)">Production dates:</span> ${escHtml(lr.production_start_date||'—')} – ${escHtml(lr.production_end_date||'—')}</div>
+   <div><span style="color:var(--text-muted)">Venue:</span> ${escHtml(lr.venue_name||'—')}</div>
+   <div><span style="color:var(--text-muted)">Performances:</span> ${lr.number_of_shows||'—'}</div>
+   <div><span style="color:var(--text-muted)">Expected performers:</span> ${lr.expected_performers||'—'}</div>
+   <div><span style="color:var(--text-muted)">Scripts needed:</span> ${lr.scripts_needed||'—'}</div>
+   <div><span style="color:var(--text-muted)">Ticket price range:</span> ${fmtMoney(lr.lowest_ticket_price_cents)} – ${fmtMoney(lr.highest_ticket_price_cents)}</div>
+  </div>
+  ${lr.additional_requests?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px"><strong>Additional requests:</strong> ${escHtml(lr.additional_requests)}</div>`:''}
+
+  <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:14px">
+   <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:10px">Review Status</div>
+   <select id="lic-d-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px">
+    ${Object.entries(LIC_STATUS_LABELS).map(([k,v])=>`<option value="${k}" ${lr.status===k?'selected':''}>${v}</option>`).join('')}
+   </select>
+   <textarea id="lic-d-notes" placeholder="Admin notes…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;min-height:60px;resize:vertical">${escHtml(lr.admin_notes||'')}</textarea>
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:14px">
+   <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:10px">Licensor &amp; Contract Tracking</div>
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px;cursor:pointer">
+    <input type="checkbox" id="lic-d-requested" ${lr.licensor_requested?'checked':''}/> Rights have been requested from the licensor
+   </label>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Date requested</label>
+     <input type="date" id="lic-d-requested-date" value="${lr.licensor_requested_date||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+    <div></div>
+   </div>
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px;cursor:pointer">
+    <input type="checkbox" id="lic-d-received" ${lr.contract_received?'checked':''}/> Signed contract received back
+   </label>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Date received</label>
+     <input type="date" id="lic-d-received-date" value="${lr.contract_received_date||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Contract expires</label>
+     <input type="date" id="lic-d-expires-date" value="${lr.contract_expires_date||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+   </div>
+   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <label for="lic-d-file" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">📎 ${lr.contract_file_name?'Replace Contract File':'Attach Contract File'}</label>
+    <input type="file" id="lic-d-file" accept=".pdf,.doc,.docx,image/*" style="display:none"/>
+    <span id="lic-d-file-status" style="font-size:12px;color:var(--text-muted)">${lr.contract_file_name?escHtml(lr.contract_file_original_name||'Contract on file'):''}</span>
+    ${lr.contract_file_name?`<button class="btn btn-secondary btn-sm" onclick="window.open('/api/licensing-requests/${lr.id}/contract-file','_blank')">Download</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteLicensingContractFile('${lr.id}')">Remove</button>`:''}
+   </div>
+  </div>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:16px">
+   <button class="btn btn-secondary btn-sm" onclick="document.getElementById('licensing-detail-modal').remove()">Cancel</button>
+   <button class="btn btn-primary btn-sm" onclick="saveLicensingDetail('${lr.id}')">Save</button>
+  </div>
+ </div>`
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+ const fileInput = document.getElementById('lic-d-file')
+ if(fileInput) fileInput.onchange = function(){ uploadLicensingContractFile(id, this.files[0]) }
+}
+
+async function saveLicensingDetail(id){
+ const status = document.getElementById('lic-d-status')?.value
+ const admin_notes = document.getElementById('lic-d-notes')?.value||''
+ const licensor_requested = document.getElementById('lic-d-requested')?.checked||false
+ const licensor_requested_date = document.getElementById('lic-d-requested-date')?.value||null
+ const contract_received = document.getElementById('lic-d-received')?.checked||false
+ const contract_received_date = document.getElementById('lic-d-received-date')?.value||null
+ const contract_expires_date = document.getElementById('lic-d-expires-date')?.value||null
+ const res = await api('/api/licensing-requests/'+id, 'PUT', {
+  status, admin_notes, licensor_requested, licensor_requested_date,
+  contract_received, contract_received_date, contract_expires_date
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ const idx = licensingData.findIndex(x=>x.id===id)
+ if(idx>-1) licensingData[idx] = res
+ document.getElementById('licensing-detail-modal')?.remove()
+ renderLicensingSummaryCards()
+ renderLicensingList()
+ toast('Licensing request updated!')
+}
+
+async function uploadLicensingContractFile(id, file){
+ if(!file) return
+ const statusEl = document.getElementById('lic-d-file-status')
+ if(statusEl) statusEl.textContent = 'Uploading...'
+ const formData = new FormData()
+ formData.append('file', file)
+ try{
+  const res = await fetch('/api/licensing-requests/'+id+'/contract-file', {method:'POST', body:formData})
+  const data = await res.json()
+  if(data.error){ if(statusEl) statusEl.textContent = data.error; toast(data.error,'error'); return }
+  const idx = licensingData.findIndex(x=>x.id===id)
+  if(idx>-1) licensingData[idx] = data
+  renderLicensingSummaryCards()
+  renderLicensingList()
+  openLicensingDetail(id)
+  toast('Contract file attached!')
+ } catch(e){
+  if(statusEl) statusEl.textContent = 'Upload error'
+  toast('Upload error','error')
+ }
+}
+
+async function deleteLicensingContractFile(id){
+ if(!confirm('Remove the attached contract file?')) return
+ const res = await api('/api/licensing-requests/'+id+'/contract-file', 'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ await loadLicensingPage()
+ openLicensingDetail(id)
+ toast('Contract file removed')
 }
 
 function loadShowContractsPage(){

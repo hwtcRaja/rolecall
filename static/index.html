@@ -504,6 +504,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
       <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
       <button class="btn btn-secondary" onclick="openContractClauseLibraryModal()">📋 Manage Contract Clauses</button>
+      <button class="btn btn-secondary" onclick="openEquipmentLibraryModal()">🎛️ Manage Equipment List</button>
       <button class="btn btn-secondary" onclick="openRentalSpacesModal()">Manage Spaces</button>
       <button class="btn btn-secondary" onclick="openComplianceCheckModal()">Compliance Check</button>
       <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
@@ -24830,7 +24831,7 @@ function viewRentalContract(aid){
 function copyRentalPreviewLink(aid){
   const url = window.location.origin + '/rent/preview/' + aid
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(url).then(function(){ toast('Team review link copied — requires a RoleCall login to view','success') }).catch(function(){ prompt('Copy this link:', url) })
+    navigator.clipboard.writeText(url).then(function(){ toast('Team review link copied — viewable by anyone with the link, no login needed','success') }).catch(function(){ prompt('Copy this link:', url) })
   } else {
     prompt('Copy this link:', url)
   }
@@ -24847,7 +24848,7 @@ function copyRentalPaymentPlanLink(agreementId){
   }
 }
 
-function openGenerateContractModal(rid){
+async function openGenerateContractModal(rid){
   const req = _rentalData.requests.find(r=>r.id===rid)
   if(!req) return
   const category = req.partnership_category || 'open_partnership'
@@ -24908,6 +24909,11 @@ function openGenerateContractModal(rid){
    </div>
    ` : ''}
 
+   <div style="margin-bottom:20px">
+    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">Equipment <span style="font-weight:400;text-transform:none;color:var(--text-hint)">— check what's included for this agreement</span></div>
+    <div id="gen-equipment-list" style="display:flex;flex-direction:column;gap:6px">Loading…</div>
+   </div>
+
    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark)">Terms &amp; Conditions</div>
     <span style="font-size:11px;color:var(--text-muted)">Pulled live from Settings &gt; Contract Clauses</span>
@@ -24936,7 +24942,26 @@ function openGenerateContractModal(rid){
   </div>`
   overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+  await initContractEquipmentChecklist(rid)
   refreshRentalContractTerms(rid)
+}
+
+async function initContractEquipmentChecklist(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid)
+  if(!req) return
+  const items = await api('/api/rental/equipment-items')
+  const list = Array.isArray(items) ? items.filter(i=>i.active!==false) : []
+  const wrap = document.getElementById('gen-equipment-list')
+  if(!wrap) return
+  if(!list.length){ wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No equipment items set up yet — use "Manage Equipment List" on the Artistic Partnership page.</div>'; return }
+  let stored = []
+  try { stored = req.equipment_selections ? JSON.parse(req.equipment_selections) : [] } catch(e){ stored = [] }
+  const storedMap = {}
+  stored.forEach(function(s){ storedMap[s.name] = s.allowed })
+  wrap.innerHTML = list.map(function(item){
+    const checked = storedMap.hasOwnProperty(item.name) ? storedMap[item.name] : !!item.default_allowed
+    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" class="gen-equipment-check" data-name="'+escHtml(item.name)+'" '+(checked?'checked':'')+' onchange="refreshRentalContractTerms(\''+rid+'\')"/> '+escHtml(item.name)+'</label>'
+  }).join('')
 }
 
 async function refreshRentalContractTerms(rid){
@@ -24951,7 +24976,10 @@ async function refreshRentalContractTerms(rid){
   const depositEl = document.getElementById('gen-deposit')
   if(depositEl) depositEl.disabled = billingFreq!=='deposit_final'
   const revenueSplit = (document.getElementById('gen-revenue-split')||{}).value||''
-  const params = new URLSearchParams({category, billing_frequency: billingFreq, deposit: deposit?('$'+parseFloat(deposit).toFixed(2)):'', revenue_split_notes: revenueSplit})
+  const equipmentSelections = Array.from(document.querySelectorAll('.gen-equipment-check')).map(function(el){
+    return {name: el.dataset.name, allowed: el.checked}
+  })
+  const params = new URLSearchParams({category, billing_frequency: billingFreq, deposit: deposit?('$'+parseFloat(deposit).toFixed(2)):'', revenue_split_notes: revenueSplit, equipment_selections: JSON.stringify(equipmentSelections)})
   const res = await api('/api/rental/requests/'+rid+'/default-terms?'+params.toString())
   const previewEl = document.getElementById('gen-terms-preview')
   if(!previewEl) return
@@ -25029,10 +25057,13 @@ async function generateContract(rid){
     const badRow = installmentsPlan.find(function(x){ return !(x.amount>0) || !x.due_date })
     if(badRow){ toast('Every payment in the schedule needs an amount greater than zero and a due date','error'); return }
   }
+  const equipmentSelections = Array.from(document.querySelectorAll('.gen-equipment-check')).map(function(el){
+    return {name: el.dataset.name, allowed: el.checked}
+  })
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
     custom_terms: customTerms, additional_terms: additionalTerms, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone,
     deposit: depositStr, billing_frequency: billingFrequency, billing_months: billingMonths,
-    revenue_split_notes: revenueSplitNotes, installments_plan: installmentsPlan
+    revenue_split_notes: revenueSplitNotes, installments_plan: installmentsPlan, equipment_selections: equipmentSelections
   })
   if(res&&res.ok){
     toast('Agreement generated!','success')
@@ -25229,7 +25260,7 @@ function openNewRentalModal(rid){
   const partners = _rentalData.partners
   const spaces = _rentalData.spaces.filter(s=>s.active)
   const recurrencePatterns = [{v:'weekly',l:'Weekly'},{v:'biweekly',l:'Every 2 Weeks'},{v:'monthly',l:'Monthly'},{v:'daily',l:'Daily'}]
-  const rateTypes = [{v:'hourly',l:'Hourly'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
+  const rateTypes = [{v:'hourly',l:'Hourly'},{v:'partial_day',l:'Partial Day'},{v:'half_day',l:'Half Day'},{v:'full_day',l:'Full Day'},{v:'flat',l:'Flat Fee'}]
   const initialMode = (req||{}).date_mode || ((req||{}).recurring ? 'recurring' : 'range')
   try{
     const parsedSpecific = JSON.parse((req||{}).specific_dates||'[]') || []
@@ -25847,6 +25878,74 @@ async function deleteClauseLibraryRow(id){
   const rows = await api('/api/rental/contract-clauses')
   _clauseLibraryData = Array.isArray(rows) ? rows : []
   renderClauseLibraryList()
+}
+
+// ── Equipment Catalog (checked/unchecked per contract) ──
+let _equipmentLibraryData = []
+
+async function openEquipmentLibraryModal(){
+  const rows = await api('/api/rental/equipment-items')
+  _equipmentLibraryData = Array.isArray(rows) ? rows : []
+  const overlay = document.createElement('div')
+  overlay.id = 'equipment-library-modal'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = `<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:90vh;overflow-y:auto">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Equipment List</div>
+    <button onclick="document.getElementById('equipment-library-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
+   </div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">This is the master list shown when generating a contract — staff check or uncheck each item per agreement. "Default" controls whether it starts checked (allowed) or unchecked.</div>
+   <div id="equipment-library-list" style="margin-bottom:14px"></div>
+   <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="new-equipment-name" placeholder="e.g. Fog Machine" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" id="new-equipment-default" checked/> Default allowed</label>
+    <button class="btn btn-primary btn-sm" onclick="addEquipmentLibraryItem()">+ Add</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  renderEquipmentLibraryList()
+}
+
+function renderEquipmentLibraryList(){
+  const wrap = document.getElementById('equipment-library-list')
+  if(!wrap) return
+  if(!_equipmentLibraryData.length){ wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px">No equipment items yet.</div>'; return }
+  wrap.innerHTML = _equipmentLibraryData.map(function(item){
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+     <input type="text" value="${escHtml(item.name)}" onchange="updateEquipmentLibraryItem('${item.id}',{name:this.value})" style="flex:1;padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+     <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);white-space:nowrap"><input type="checkbox" ${item.default_allowed?'checked':''} onchange="updateEquipmentLibraryItem('${item.id}',{default_allowed:this.checked})"/> Default allowed</label>
+     <button class="btn btn-secondary btn-sm" onclick="deleteEquipmentLibraryItem('${item.id}')" style="padding:4px 8px">×</button>
+    </div>`
+  }).join('')
+}
+
+async function addEquipmentLibraryItem(){
+  const name = (document.getElementById('new-equipment-name')||{}).value.trim()
+  if(!name){ toast('Enter an equipment name','error'); return }
+  const defaultAllowed = (document.getElementById('new-equipment-default')||{}).checked
+  const res = await api('/api/rental/equipment-items','POST',{name, default_allowed: defaultAllowed, sort_order: _equipmentLibraryData.length*10})
+  if(res && res.error){ toast(res.error,'error'); return }
+  document.getElementById('new-equipment-name').value = ''
+  const rows = await api('/api/rental/equipment-items')
+  _equipmentLibraryData = Array.isArray(rows) ? rows : []
+  renderEquipmentLibraryList()
+  toast('Equipment item added!','success')
+}
+
+async function updateEquipmentLibraryItem(id, patch){
+  const res = await api('/api/rental/equipment-items/'+id,'PUT',patch)
+  if(res && res.error){ toast(res.error,'error'); return }
+  const idx = _equipmentLibraryData.findIndex(x=>x.id===id)
+  if(idx>-1) _equipmentLibraryData[idx] = res
+}
+
+async function deleteEquipmentLibraryItem(id){
+  if(!confirm('Remove this equipment item from the list?')) return
+  const res = await api('/api/rental/equipment-items/'+id,'DELETE')
+  if(res && res.error){ toast(res.error,'error'); return }
+  _equipmentLibraryData = _equipmentLibraryData.filter(x=>x.id!==id)
+  renderEquipmentLibraryList()
 }
 
 async function openPartnershipPolicyModal(){

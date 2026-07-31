@@ -2326,7 +2326,7 @@ def get_recipient_emails(settings=None):
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
     footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>

@@ -24404,6 +24404,7 @@ function renderRentalsPage(){
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
+         ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Copy Team Review Link</button>`:''}
          ${renderRentalPaymentButtons(r)}
          <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
           💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
@@ -24677,19 +24678,22 @@ function _rpAddMonths(dateStr, n){
   return d.toISOString().slice(0,10)
 }
 
-function openPaymentPlanModal(agreementId, totalCents){
+function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
   totalCents = parseInt(totalCents)||0
+  const req = (_rentalData.requests||[]).find(r=>r.agreement_id===agreementId)
+  let storedPlan = []
+  try { storedPlan = req && req.billing_installments_plan ? JSON.parse(req.billing_installments_plan) : [] } catch(e){ storedPlan = [] }
   const overlay = document.createElement('div')
   overlay.id = 'payment-plan-modal'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Set Up Monthly Payment Plan</div>
-   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">All installment invoices are created and sent right away, each with its own due date. Square will email each one and host its own payment page.</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">${storedPlan.length ? 'Pre-filled from the schedule embedded in the signed contract (Exhibit A). All installment invoices are created and sent right away — Square will email each one and host its own payment page.' : 'All installment invoices are created and sent right away, each with its own due date. Square will email each one and host its own payment page.'}</div>
    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:6px">
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Total ($)</label>
     <input type="number" id="pp-total" step="0.01" min="0" value="${(totalCents/100).toFixed(2)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
-    <input type="number" id="pp-months" min="2" max="24" value="6" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <input type="number" id="pp-months" min="2" max="24" value="${defaultMonths||6}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
     <input type="date" id="pp-start-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
@@ -24703,7 +24707,8 @@ function openPaymentPlanModal(agreementId, totalCents){
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
-  regeneratePaymentPlanRows()
+  if(storedPlan.length) renderPaymentPlanRows(storedPlan)
+  else regeneratePaymentPlanRows()
 }
 
 function regeneratePaymentPlanRows(){
@@ -24717,9 +24722,13 @@ function regeneratePaymentPlanRows(){
     const amt = base + (i===months-1 ? remainder : 0) // last month absorbs any rounding remainder
     rows.push({ amount: (amt/100).toFixed(2), due_date: _rpAddMonths(startDate, i), label: 'Payment '+(i+1)+' of '+months })
   }
+  renderPaymentPlanRows(rows)
+}
+
+function renderPaymentPlanRows(rows){
   const wrap = document.getElementById('pp-rows')
   if(!wrap) return
-  wrap.innerHTML = rows.map(function(row, i){
+  wrap.innerHTML = rows.map(function(row){
     return '<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;align-items:center">'
       + '<input type="text" class="pp-row-label" value="'+escHtml(row.label)+'" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px"/>'
       + '<input type="number" class="pp-row-amount" step="0.01" min="0" value="'+row.amount+'" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px"/>'
@@ -24739,7 +24748,8 @@ async function saveRentalPaymentPlan(agreementId){
   const res = await api('/api/rental/agreements/'+agreementId+'/payment-plan','POST',{installments:installments})
   if(res && res.ok){
     const failCount = (res.failures||[]).length
-    toast(failCount ? (res.created.length+' invoice(s) sent, '+failCount+' failed — check the payment list') : 'Payment plan sent — '+res.created.length+' invoices created','success')
+    const linkNote = res.payment_plan_url ? ' The partner was emailed a Payment Plan link.' : ''
+    toast(failCount ? (res.created.length+' invoice(s) sent, '+failCount+' failed — check the payment list') : 'Payment plan sent — '+res.created.length+' invoices created.'+linkNote,'success')
     document.getElementById('payment-plan-modal')?.remove()
     loadRentalsPage()
   } else {
@@ -24753,10 +24763,11 @@ async function openRentalPaymentsListModal(agreementId){
   overlay.id = 'rental-payments-list-modal'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML = `<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:85vh;overflow-y:auto">
-   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Invoices</div>
     <button onclick="document.getElementById('rental-payments-list-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
    </div>
+   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')">🔗 Copy Payment Plan link (for the partner)</span></div>
    <div id="rp-list-body" style="font-size:13px;color:var(--text-muted)">Loading…</div>
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
@@ -24813,6 +24824,26 @@ function viewRentalContract(aid){
   api('/api/rental/agreements/'+aid).then(function(agr){
     if(agr&&agr.contract_html) w.document.write(agr.contract_html)
   })
+}
+
+function copyRentalPreviewLink(aid){
+  const url = window.location.origin + '/rent/preview/' + aid
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){ toast('Team review link copied — requires a RoleCall login to view','success') }).catch(function(){ prompt('Copy this link:', url) })
+  } else {
+    prompt('Copy this link:', url)
+  }
+}
+
+function copyRentalPaymentPlanLink(agreementId){
+  const req = (_rentalData.requests||[]).find(r=>r.agreement_id===agreementId)
+  if(!req || !req.signing_token){ toast('No signing token found for this agreement yet','error'); return }
+  const url = window.location.origin + '/rent/payment-plan/' + req.signing_token
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){ toast('Payment Plan link copied','success') }).catch(function(){ prompt('Copy this link:', url) })
+  } else {
+    prompt('Copy this link:', url)
+  }
 }
 
 function openGenerateContractModal(rid){
@@ -24889,9 +24920,16 @@ function openGenerateContractModal(rid){
      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="full" ${billingFreq==='full'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Full amount collected upon signing</label>
      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="monthly" ${billingFreq==='monthly'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Monthly installments</label>
     </div>
-    <div id="gen-billing-months-wrap" style="margin-top:8px;display:${billingFreq==='monthly'?'':'none'}">
-     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months (used later to pre-fill the payment plan)</label>
-     <input type="number" id="gen-billing-months" min="2" max="24" value="${req.billing_months||6}" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+    <div id="gen-billing-months-wrap" style="margin-top:12px;display:${billingFreq==='monthly'?'':'none'}">
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
+      <input type="number" id="gcpp-months" min="2" max="24" value="${req.billing_months||6}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
+      <input type="date" id="gcpp-start-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+     </div>
+     <button type="button" class="btn btn-secondary btn-sm" onclick="regenerateContractPaymentPlanRows('${rid}')">↻ Rebuild Even Schedule</button>
+     <div style="font-size:11px;color:var(--text-muted);margin:8px 0 6px">This schedule is embedded in the contract as Exhibit A and reused exactly when invoices are sent later — editable below.</div>
+     <div id="gcpp-rows" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
    </div>
    ` : ''}
@@ -24926,6 +24964,7 @@ async function refreshRentalContractTerms(rid){
   const billingFreq = category==='ticketed_enrollment' ? '' : ((document.querySelector('input[name="gen-billing-freq"]:checked')||{}).value || 'deposit_final')
   const monthsWrap = document.getElementById('gen-billing-months-wrap')
   if(monthsWrap) monthsWrap.style.display = billingFreq==='monthly' ? '' : 'none'
+  if(billingFreq==='monthly' && !document.getElementById('gcpp-rows')?.children.length) initContractPaymentPlanRows(rid)
   const deposit = (document.getElementById('gen-deposit')||{}).value||''
   const depositEl = document.getElementById('gen-deposit')
   if(depositEl) depositEl.disabled = billingFreq!=='deposit_final'
@@ -24942,6 +24981,47 @@ async function refreshRentalContractTerms(rid){
     if(labelEl) labelEl.textContent = c.label.replace(/&amp;/g,'&')
     if(textEl && !textEl.dataset.userEdited) textEl.value = c.body.replace(/&rsquo;/g,'’').replace(/&ldquo;/g,'“').replace(/&rdquo;/g,'”').replace(/&mdash;/g,'—').replace(/&amp;/g,'&')
   })
+}
+
+// ── Schedule builder embedded in the Generate Contract modal ──
+// Mirrors the post-signing payment-plan builder, but the resulting rows get
+// serialized into the contract itself (Exhibit A) rather than immediately
+// creating Square invoices — invoices get created later from this same data.
+function initContractPaymentPlanRows(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid)
+  if(!req) return
+  let stored = []
+  try { stored = req.billing_installments_plan ? JSON.parse(req.billing_installments_plan) : [] } catch(e){ stored = [] }
+  if(Array.isArray(stored) && stored.length) renderContractPaymentPlanRows(stored)
+  else regenerateContractPaymentPlanRows(rid)
+}
+
+function regenerateContractPaymentPlanRows(rid){
+  const req = _rentalData.requests.find(r=>r.id===rid)
+  if(!req) return
+  const total = req.total_amount||0
+  const months = Math.max(2, parseInt((document.getElementById('gcpp-months')||{}).value)||6)
+  const startDate = (document.getElementById('gcpp-start-date')||{}).value || new Date().toISOString().slice(0,10)
+  const base = Math.floor(total/months)
+  const remainder = total - (base*months)
+  const rows = []
+  for(let i=0;i<months;i++){
+    const amt = base + (i===months-1 ? remainder : 0)
+    rows.push({ amount: (amt/100).toFixed(2), due_date: _rpAddMonths(startDate, i), label: 'Payment '+(i+1)+' of '+months })
+  }
+  renderContractPaymentPlanRows(rows)
+}
+
+function renderContractPaymentPlanRows(rows){
+  const wrap = document.getElementById('gcpp-rows')
+  if(!wrap) return
+  wrap.innerHTML = rows.map(function(row){
+    return '<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;align-items:center">'
+      + '<input type="text" class="gcpp-row-label" value="'+escHtml(row.label)+'" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px"/>'
+      + '<input type="number" class="gcpp-row-amount" step="0.01" min="0" value="'+row.amount+'" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px"/>'
+      + '<input type="date" class="gcpp-row-date" value="'+row.due_date+'" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px"/>'
+      + '</div>'
+  }).join('')
 }
 
 async function generateContract(rid){
@@ -24974,12 +25054,22 @@ async function generateContract(rid){
   const pocEmail = (document.getElementById('gen-poc-email')||{}).value||''
   const pocPhone = (document.getElementById('gen-poc-phone')||{}).value||''
   const billingFrequency = isTicketed ? '' : ((document.querySelector('input[name="gen-billing-freq"]:checked')||{}).value || 'deposit_final')
-  const billingMonths = billingFrequency==='monthly' ? (parseInt((document.getElementById('gen-billing-months')||{}).value)||6) : null
+  const billingMonths = billingFrequency==='monthly' ? (parseInt((document.getElementById('gcpp-months')||{}).value)||6) : null
   const revenueSplitNotes = (document.getElementById('gen-revenue-split')||{}).value||''
+  let installmentsPlan = null
+  if(billingFrequency === 'monthly'){
+    const labels = Array.from(document.querySelectorAll('.gcpp-row-label')).map(el=>el.value.trim())
+    const amounts = Array.from(document.querySelectorAll('.gcpp-row-amount')).map(el=>parseFloat(el.value)||0)
+    const dates = Array.from(document.querySelectorAll('.gcpp-row-date')).map(el=>el.value)
+    if(!amounts.length){ toast('Build the payment schedule before generating the contract','error'); return }
+    installmentsPlan = amounts.map(function(amount,i){ return {amount:amount, due_date:dates[i], label:labels[i]} })
+    const badRow = installmentsPlan.find(function(x){ return !(x.amount>0) || !x.due_date })
+    if(badRow){ toast('Every payment in the schedule needs an amount greater than zero and a due date','error'); return }
+  }
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
     custom_terms: termsHtml, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone,
     deposit: depositStr, billing_frequency: billingFrequency, billing_months: billingMonths,
-    revenue_split_notes: revenueSplitNotes
+    revenue_split_notes: revenueSplitNotes, installments_plan: installmentsPlan
   })
   if(res&&res.ok){
     toast('Agreement generated!','success')

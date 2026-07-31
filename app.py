@@ -2100,6 +2100,7 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS revenue_split_notes TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_months INTEGER",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_installments_plan TEXT DEFAULT ''",
 
         # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
@@ -21608,17 +21609,28 @@ def generate_rental_contract(rid):
     revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
     billing_frequency = (d.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final').strip()
     billing_months = d.get('billing_months') or req.get('billing_months') or None
+    installments_plan_raw = d.get('installments_plan')
+    if installments_plan_raw is not None:
+        installments_plan_json = json.dumps(installments_plan_raw)
+    else:
+        installments_plan_json = req.get('billing_installments_plan') or ''
+    installments_plan = []
+    if installments_plan_json:
+        try:
+            installments_plan = json.loads(installments_plan_json)
+        except Exception:
+            installments_plan = []
     # Persist whatever billing plan was disclosed in this contract onto the
     # request itself, so the payment-plan step after signing can't drift
     # from what the partner actually agreed to.
-    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s WHERE id=%s',
-        (billing_frequency, billing_months, rid))
+    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s, billing_installments_plan=%s WHERE id=%s',
+        (billing_frequency, billing_months, installments_plan_json, rid))
     # If no custom terms provided, load default template from email_settings
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences)
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21630,7 +21642,7 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
+def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
     """Returns the label + body text for clauses 2.1-2.4 (no wrapping <p><strong>
     tags), which vary by partnership category and billing frequency. This is
     the single source of truth used both to assemble the actual contract and
@@ -21647,7 +21659,8 @@ def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billin
         use_label = 'this use' if category == 'closed_rental' else 'the collaboration'
         event_label = 'the scheduled use' if category == 'closed_rental' else 'the scheduled event'
         if billing_frequency == 'monthly':
-            c21 = ('2.1 Partnership Fee &amp; Payment Schedule', f'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date. Details of the installment schedule (number of payments and amounts) are set out in the Payment Plan issued alongside this Agreement.')
+            schedule_ref = 'as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'
+            c21 = ('2.1 Partnership Fee &amp; Payment Schedule', f'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.')
             c22 = ('2.2 Cancellation', 'If Partner Organization cancels this Agreement, HWTC will stop issuing any further monthly installment invoices as of the cancellation date. Any installment already invoiced remains due and payable regardless of cancellation; amounts already paid are non-refundable except at HWTC&rsquo;s sole discretion.')
         elif billing_frequency == 'full':
             c21 = ('2.1 Partnership Fee', f'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.')
@@ -21672,10 +21685,10 @@ _RENTAL_REMAINING_CLAUSES = '''<p><strong>2.5 Care of Facility.</strong> Partner
 <p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
 <p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
 
-def _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
+def _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
     """Assembles the full '2. TERMS AND CONDITIONS' block from the
     category/billing-aware clauses plus the fixed remaining clauses."""
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
     dynamic_html = '\n'.join(f'<p><strong>{c["label"]}.</strong> {c["body"]}</p>' for c in [clauses['c21'], clauses['c22'], clauses['c23'], clauses['c24']])
     return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}\n{_RENTAL_REMAINING_CLAUSES}'
 
@@ -21697,10 +21710,14 @@ def get_rental_default_terms(rid):
     deposit = request.args.get('deposit') or ''
     revenue_split_notes = request.args.get('revenue_split_notes') or req.get('revenue_split_notes') or ''
     billing_frequency = request.args.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final'
+    # In the new flow a monthly plan's schedule is always built and attached
+    # as Exhibit A before the contract is generated, so the preview assumes
+    # that too — matches what the finished document will actually say.
+    has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
-    terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
+    terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
     return jsonify({'terms_html': terms_html, 'clauses': clauses})
 
 def _project_rental_dates(req, cap=104):
@@ -21789,7 +21806,7 @@ def _project_rental_dates(req, cap=104):
         cur += _dtp.timedelta(days=1)
     return dates, False, ''
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None):
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None):
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
@@ -21887,7 +21904,26 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+        terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+
+    exhibit_html = ''
+    if installments_plan:
+        plan_total_cents = sum(int(round(float(item.get('amount') or 0) * 100)) for item in installments_plan)
+        rows = ''.join(
+            f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("label","")}</td>'
+            f'<td style="padding:6px 10px;border:1px solid #e5e7eb">${float(item.get("amount") or 0):.2f}</td>'
+            f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("due_date","")}</td></tr>'
+            for item in installments_plan
+        )
+        exhibit_html = f'''<div style="page-break-before:always"></div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT A: PAYMENT PLAN</h2>
+<p>The following installment schedule applies to the Total Partnership Fee under this Agreement. Each installment will be invoiced separately by HWTC via Square, due on its stated date.</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px">
+<thead><tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Payment</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Amount</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Due Date</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+<p><strong>Total: ${plan_total_cents/100:.2f}</strong></p>'''
+
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
@@ -21933,6 +21969,7 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
 </div>
 </div>
+{exhibit_html}
 </body></html>'''
 @app.route('/api/rental/agreements/<aid>', methods=['GET'])
 def get_rental_agreement(aid):
@@ -21942,6 +21979,40 @@ def get_rental_agreement(aid):
     agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
     conn.close()
     return jsonify(agr or {})
+
+@app.route('/rent/preview/<aid>')
+def rental_contract_internal_preview(aid):
+    """Read-only, staff-only view of a drafted/sent contract — for sharing
+    a link internally (e.g. in Slack) before it goes out to the partner.
+    Deliberately a different URL than /rent/sign/<token>: no sign button,
+    no signing endpoint behind it, and it requires a RoleCall login, so it
+    can't be mistaken for — or misused as — the partner's signing link."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return 'Agreement not found.', 404
+    contract = agr.get('contract_html','')
+    signed_note = f'<div style="background:#dcfce7;color:#166534;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700">✓ Signed by {agr.get("partner_signed_name","")} on {str(agr.get("partner_signed_at") or "")[:10]}</div>' if agr.get('partner_signed_at') else ''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Internal Preview – {agr.get("title","")}</title>
+<style>body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
+.contract-wrap{{max-width:860px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
+.banner{{background:#fef3c7;color:#92400e;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700;text-align:center}}</style></head>
+<body>
+<div class="contract-wrap">
+<div class="banner">🔒 Internal Preview Only — not the signing link, and not sent to the partner</div>
+{signed_note}
+{contract}
+</div>
+</body></html>'''
 
 
 @app.route('/api/rental/agreements/<aid>/send', methods=['POST'])
@@ -22245,10 +22316,85 @@ def create_rental_payment_plan(aid):
                 failures.append({'label': label, 'error': payment_err, 'created': True})
         else:
             failures.append({'label': label, 'error': payment_err or 'Could not create this invoice'})
+    payment_plan_url = None
+    if created_ids:
+        # Email the partner a link to the full schedule — this is what the
+        # contract's monthly-billing clause promises: a concrete Payment
+        # Plan summary they can reference, sent once installments exist.
+        agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+        req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_email AS partner_email, rp.contact_name AS partner_contact
+            FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            WHERE rr.id=%s''', (agr['request_id'],)) if agr else None
+        if agr and agr.get('signing_token'):
+            payment_plan_url = f'https://rolecall.hwtco.org/rent/payment-plan/{agr["signing_token"]}'
+            if req and req.get('partner_email'):
+                try:
+                    send_email(req['partner_email'], f'Payment Plan — {req.get("title","")}',
+                        f'Hi {req.get("partner_contact") or req.get("partner_name") or ""},<br><br>'
+                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s), '
+                        f'each invoiced separately by Square with its own due date.<br><br>'
+                        f'<a href="{payment_plan_url}">View the full Payment Plan</a><br><br>'
+                        f'Horizon West Theater Company')
+                except Exception as e:
+                    app.logger.warning(f'Payment plan email to partner failed: {e}')
     conn.close()
     if not created_ids:
         return jsonify({'error': 'Could not create any installment invoices', 'failures': failures}), 400
-    return jsonify({'ok': True, 'created': created_ids, 'failures': failures})
+    return jsonify({'ok': True, 'created': created_ids, 'failures': failures, 'payment_plan_url': payment_plan_url})
+
+@app.route('/rent/payment-plan/<token>')
+def rental_payment_plan_page(token):
+    """Public, partner-facing summary of every payment on an agreement —
+    the concrete document referenced by the contract's monthly-billing
+    clause. Reuses the agreement's signing_token rather than a new one,
+    since it's meant for the same audience (the partner) and there's no
+    action to take here (no sign button — just a read-only schedule)."""
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.signing_token=%s''', (token,))
+    if not agr:
+        conn.close()
+        return 'Payment plan not found.', 404
+    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY created_at', (agr['id'],)) or []
+    conn.close()
+    if not payments:
+        rows_html = '<p style="color:#6b7280">No invoices have been issued yet — check back after your first payment is due.</p>'
+    else:
+        total_cents = sum(int(p.get('amount_cents') or 0) for p in payments)
+        paid_cents = sum(int(p.get('amount_cents') or 0) for p in payments if p.get('square_invoice_status') == 'PAID')
+        rows = []
+        for p in payments:
+            paid = p.get('square_invoice_status') == 'PAID'
+            label = p.get('installment_label') or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else p.get('payment_type'))
+            status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>' if paid else '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
+            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice ↗</a>' if p.get('public_url') and not paid else ''
+            rows.append(f'''<tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{label}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${(p.get("amount_cents") or 0)/100:.2f}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{p.get("due_date","")}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{status_html}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{link_html}</td>
+            </tr>''')
+        rows_html = f'''<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:16px">
+<thead><tr style="background:#f8fafc"><th style="padding:8px 12px;text-align:left">Payment</th><th style="padding:8px 12px;text-align:left">Amount</th><th style="padding:8px 12px;text-align:left">Due Date</th><th style="padding:8px 12px;text-align:left">Status</th><th style="padding:8px 12px;text-align:left"></th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table>
+<div style="margin-top:16px;font-size:14px"><strong>Total:</strong> ${total_cents/100:.2f} &nbsp;&middot;&nbsp; <strong>Paid so far:</strong> ${paid_cents/100:.2f}</div>'''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment Plan – {agr.get("title","")}</title>
+<style>body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
+.wrap{{max-width:760px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
+h2{{color:#0d3d4d}}</style></head>
+<body><div class="wrap">
+<h2>Payment Plan</h2>
+<p><strong>{agr.get("title","")}</strong> — {agr.get("partner_name","")}</p>
+{rows_html}
+</div></body></html>'''
+
+
 
 @app.route('/api/rental/agreements/<aid>/payments', methods=['GET'])
 def get_rental_payments(aid):

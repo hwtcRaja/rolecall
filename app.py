@@ -2091,6 +2091,11 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS specific_dates TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS portal_token TEXT UNIQUE",
 
+        # ── Artistic Partnership: classification per HWTC Partnership/Space Use Guidelines ──
+        # ticketed_enrollment (HWTC owns it) | open_partnership (co-sponsor credit) | closed_rental (acknowledgment only)
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS partnership_category TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS revenue_split_notes TEXT DEFAULT ''",
+
         # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
             id TEXT PRIMARY KEY,
@@ -21212,8 +21217,9 @@ def create_rental_request():
         (id, partner_id, space_id, title, purpose, start_date, end_date,
          start_time, end_time, recurring, recurrence_pattern, recurrence_end_date,
          date_mode, specific_dates, portal_token,
-         estimated_attendance, rate_type, rate_amount, total_amount, status, notes)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+         estimated_attendance, rate_type, rate_amount, total_amount, status, notes,
+         partnership_category, revenue_split_notes)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s)''',
         (rid, d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(),
          (d.get('purpose') or '').strip(),
@@ -21231,7 +21237,9 @@ def create_rental_request():
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
-         (d.get('notes') or '').strip()))
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip()))
     # Nothing is added to the calendar yet — occurrences are only generated
     # once this request is fully approved (see approve_rental_request).
     conn.commit()
@@ -21385,7 +21393,7 @@ def update_rental_request(rid):
         recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
         date_mode=%s, specific_dates=%s,
         estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
-        notes=%s, updated_at=NOW() WHERE id=%s''',
+        notes=%s, partnership_category=%s, revenue_split_notes=%s, updated_at=NOW() WHERE id=%s''',
         (d.get('partner_id') or None, d.get('space_id') or None,
          (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
          (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
@@ -21396,7 +21404,9 @@ def update_rental_request(rid):
          d.get('estimated_attendance') or None,
          d.get('rate_type') or 'hourly',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
-         (d.get('notes') or '').strip(), rid))
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip(), rid))
     # Only an already-approved request has anything on the calendar to keep
     # in sync — clear and regenerate its occurrences so an edited date/time
     # is reflected rather than the original. A still-pending request has no
@@ -21585,11 +21595,12 @@ def generate_rental_contract(rid):
     poc_email = (d.get('poc_email') or '').strip()
     poc_phone = (d.get('poc_phone') or '').strip()
     deposit = (d.get('deposit') or '').strip()
+    revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
     # If no custom terms provided, load default template from email_settings
     if not custom_terms:
         es = get_email_settings()
         custom_terms = (es.get('rental_agreement_template') or '').strip()
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit)
+    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
@@ -21601,7 +21612,7 @@ def generate_rental_contract(rid):
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit=''):
+def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes=''):
     import datetime as _dtc
     today = _dtc.date.today().strftime('%B %d, %Y')
     rate_type = req.get('rate_type','hourly')
@@ -21615,24 +21626,76 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     time_range = (req.get('start_time','') + (' – ' + req.get('end_time','') if req.get('end_time') else '')) if req.get('start_time') else 'As scheduled'
     partner_name = req.get('partner_name','Partner Organization')
     contact_name = req.get('contact_name','') or partner_name
-    deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+    category = req.get('partnership_category') or 'open_partnership'
+
+    # Per the HWTC Partnership/Space Use Guidelines, there are three models —
+    # each carries its own document title, fee structure, credit requirement,
+    # and cancellation policy.
+    category_labels = {
+        'ticketed_enrollment': 'Ticketed / Enrollment-Based Event \u2014 HWTC Owns It',
+        'open_partnership': 'Open, Free-to-Attend Event \u2014 Partnership Model',
+        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Rental / Acknowledgment',
+    }
+    doc_titles = {
+        'ticketed_enrollment': 'HOSTED PROGRAM AGREEMENT',
+        'open_partnership': 'ARTISTIC PARTNERSHIP AGREEMENT',
+        'closed_rental': 'STUDIO USE AGREEMENT',
+    }
+    category_label = category_labels.get(category, category_labels['open_partnership'])
+    doc_title = doc_titles.get(category, doc_titles['open_partnership'])
+    category_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Category</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{category_label}</td></tr>'
+
+    # ── Fee / revenue rows for the details table ──
+    if category == 'ticketed_enrollment':
+        split_display = revenue_split_notes or 'To be agreed in writing prior to the first session'
+        fee_rows = f'''<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Revenue Split</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{split_display}</strong></td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Taught by {partner_name}, produced by Horizon West Theater Company</em></td></tr>'''
+    else:
+        deposit_row = f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee Deposit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{deposit}</strong> &mdash; due upon signing</td></tr>' if deposit else ''
+        if category == 'closed_rental':
+            credit_text = 'Acknowledgment only \u2014 not publicly promoted (e.g. &ldquo;with thanks to Horizon West Theater Company&rdquo;)'
+        else:
+            credit_text = f'Hosted in Partnership with Horizon West Theater Company \u2014 {partner_name}'
+        fee_rows = f'''<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
+{deposit_row}
+<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>{credit_text}</em></td></tr>'''
+
     poc_block = ''
     if poc_name or poc_email or poc_phone:
         poc_block = f'''<h3 style="color:#0d3d4d;margin-top:20px">HWTC POINT OF CONTACT</h3>
 <p>For any questions or concerns before, during, or after the collaboration, please contact:</p>
 <p><strong>{poc_name}</strong>{(' &bull; ' + poc_email) if poc_email else ''}{(' &bull; ' + poc_phone) if poc_phone else ''}</p>'''
-    terms_html = custom_terms if custom_terms.strip() else f'''<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>
-<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm the collaboration. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this partnership. Full payment of any remaining balance is due within 24 hours of the final event date. If Partner Organization cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>
-<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>
-<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization. All activities taking place under this agreement &mdash; including but not limited to rehearsals, classes, workshops, meetings, and performances &mdash; are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. This collaboration falls within HWTC&rsquo;s operational use of its facility for general administrative, educational, rehearsal, and ancillary nonprofit activities.</p>
-<p><strong>2.4 Billing &amp; Credit.</strong> All public-facing materials, programs, advertising, and communications related to this collaboration must credit the production as: <em>&ldquo;Produced by {partner_name} in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct any activities at the HWTC facility independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.</p>
-<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
+
+    if custom_terms.strip():
+        terms_html = custom_terms
+    else:
+        if category == 'ticketed_enrollment':
+            split_display2 = revenue_split_notes or 'to be agreed in writing prior to the first session'
+            clause_21 = f'<p><strong>2.1 Revenue &amp; Settlement.</strong> HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display2}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.</p>'
+            clause_22 = '<p><strong>2.2 Cancellation.</strong> Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment.</p>'
+            clause_23 = '<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.</p>'
+            clause_24 = f'<p><strong>2.4 Marketing &amp; Billing.</strong> HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.</p>'
+        elif category == 'closed_rental':
+            clause_21 = f'<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm this use. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this use. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of the scheduled use, the deposit is forfeited in full.</p>'
+            clause_22 = '<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled use will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>'
+            clause_23 = '<p><strong>2.3 Nature of the Use.</strong> This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.</p>'
+            clause_24 = '<p><strong>2.4 Acknowledgment.</strong> Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.</p>'
+        else:
+            clause_21 = f'<p><strong>2.1 Partnership Fee &amp; Deposit.</strong> Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm the collaboration. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating this partnership. Full payment of any remaining balance is due within 24 hours of the final event date. If Partner Organization cancels within 24 hours of the scheduled event, the deposit is forfeited in full.</p>'
+            clause_22 = '<p><strong>2.2 Cancellation.</strong> Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of the scheduled event will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.</p>'
+            clause_23 = '<p><strong>2.3 Nature of the Collaboration.</strong> This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.</p>'
+            clause_24 = '<p><strong>2.4 Billing &amp; Credit.</strong> All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.</p>'
+
+        remaining_clauses = '''<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
 <p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
 <p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
 <p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
 <p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
 <p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
 <p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+
+        terms_html = f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{clause_21}\n{clause_22}\n{clause_23}\n{clause_24}\n{remaining_clauses}'
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
@@ -21644,28 +21707,26 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>
 </div>
-<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">ARTISTIC PARTNERSHIP AND STUDIO USE AGREEMENT</h2>
-<p>This Artistic Partnership and Studio Use Agreement (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">{doc_title}</h2>
+<p>This {doc_title.title()} (&ldquo;Agreement&rdquo;) is entered into as of <strong>{today}</strong> by and between:</p>
 <p><strong>Horizon West Theater Company</strong> (&ldquo;HWTC&rdquo;), a nonprofit performing arts organization located at 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</p>
 <p>and</p>
 <p><strong>{partner_name}</strong> (&ldquo;Partner Organization&rdquo;), represented by <strong>{contact_name}</strong>.</p>
 <p>Together referred to as the &ldquo;Parties.&rdquo;</p>
 <h3 style="color:#0d3d4d;margin-top:20px">1. COLLABORATION DETAILS</h3>
 <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">
+{category_row}
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc;width:35%">Project / Event</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("title","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Space</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("space_name","")}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Date(s)</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{date_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Time</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{time_range}</td></tr>
 <tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Purpose / Nature of Activities</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{req.get("purpose","")}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb">{rate_str}</td></tr>
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Total Partnership Fee</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><strong>{total_str}</strong></td></tr>
-{deposit_row}
-<tr><td style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700;background:#f8fafc">Billing Credit</td><td style="padding:6px 10px;border:1px solid #e5e7eb"><em>Produced by {partner_name} in Partnership with Horizon West Theater Company</em></td></tr>
+{fee_rows}
 </table>
 {poc_block}
 {terms_html}
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
-<p>By signing below, both parties agree to the terms and conditions of this Artistic Partnership and Studio Use Agreement, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
+<p>By signing below, both parties agree to the terms and conditions of this {doc_title.title()}, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
 <div style="border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
